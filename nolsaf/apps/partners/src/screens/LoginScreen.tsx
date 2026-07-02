@@ -7,10 +7,11 @@ import {
   colors,
   formatPasskeyError,
   getErrorMessage,
+  nativePasskeysSupported,
   spacing
 } from "@nolsaf/native-ui";
 import { Fingerprint } from "lucide-react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
@@ -25,6 +26,9 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
+  // Hidden entirely when the build/platform cannot do passkeys, so nobody
+  // ever sees a button that cannot work (web, Expo Go, old builds).
+  const passkeyAvailable = useMemo(() => nativePasskeysSupported(), []);
 
   const onSubmit = async () => {
     if (!email.trim() || !password) {
@@ -80,6 +84,27 @@ export function LoginScreen() {
         </AppText>
 
         <View style={styles.form}>
+          {passkeyAvailable ? (
+            <View style={styles.passkeyBlock}>
+              <AppButton
+                title="Continue with passkey"
+                loading={passkeySubmitting}
+                disabled={submitting}
+                onPress={onPasskeySubmit}
+                icon={<Fingerprint color={colors.white} size={18} />}
+              />
+              <AppText variant="caption" tone="muted" style={styles.passkeyHint}>
+                Face ID or fingerprint, no password needed
+              </AppText>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <AppText variant="caption" tone="muted">
+                  or
+                </AppText>
+                <View style={styles.dividerLine} />
+              </View>
+            </View>
+          ) : null}
           <AppInput
             label="Email"
             autoCapitalize="none"
@@ -101,14 +126,12 @@ export function LoginScreen() {
             onChangeText={setPassword}
             error={error ?? undefined}
           />
-          <AppButton title="Sign in" loading={submitting} onPress={onSubmit} />
           <AppButton
-            title="Sign in with passkey"
-            variant="secondary"
-            loading={passkeySubmitting}
-            disabled={submitting}
-            onPress={onPasskeySubmit}
-            icon={<Fingerprint color={colors.primary} size={16} />}
+            title="Sign in"
+            loading={submitting}
+            disabled={passkeySubmitting}
+            onPress={onSubmit}
+            style={passkeyAvailable ? styles.submitNeutral : undefined}
           />
         </View>
       </View>
@@ -156,5 +179,28 @@ const styles = StyleSheet.create({
   form: {
     marginTop: spacing[4],
     gap: spacing[4]
+  },
+  passkeyBlock: {
+    gap: spacing[2]
+  },
+  passkeyHint: {
+    textAlign: "center"
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    marginTop: spacing[2]
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border
+  },
+  // When the passkey button holds the brand color, the form submit steps back
+  // to neutral ink so the screen keeps a single accent action.
+  submitNeutral: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   }
 });
