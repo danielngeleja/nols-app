@@ -1,4 +1,5 @@
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { signInWithNativePasskey } from "@nolsaf/native-ui";
 
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
 import { getCurrentAccount, loginWithPassword, logoutSession, registerCustomer, updateAccountProfile } from "./authApi";
@@ -6,6 +7,7 @@ import { AuthState, AuthUser, RegisterCustomerInput, UpdateProfileInput } from "
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithPasskey: () => Promise<void>;
   signUpCustomer: (input: RegisterCustomerInput) => Promise<void>;
   /** Adopts a session token obtained from a successful OTP verification. */
   completeOtpSignIn: (token: string, fallbackUser?: AuthUser) => Promise<void>;
@@ -113,6 +115,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [applyAuthenticatedState]
   );
 
+  const signInWithPasskey = useCallback(async () => {
+    setState((current) => ({ ...current, error: null }));
+    const response = await signInWithNativePasskey<AuthUser>();
+    const token = response.token;
+    const loginUser = response.user;
+
+    if (!response.ok || !token || !loginUser) {
+      throw new Error(response.message || response.error || "Passkey sign-in failed.");
+    }
+
+    await storeToken(token);
+    try {
+      const profile = await getCurrentAccount(token);
+      applyAuthenticatedState(token, profile);
+    } catch {
+      applyAuthenticatedState(token, loginUser);
+    }
+  }, [applyAuthenticatedState]);
+
   const signOut = useCallback(async () => {
     const token = state.token;
     try {
@@ -146,13 +167,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       ...state,
       signIn,
+      signInWithPasskey,
       signUpCustomer,
       completeOtpSignIn,
       signOut,
       refreshProfile,
       updateProfile
     }),
-    [completeOtpSignIn, refreshProfile, signIn, signOut, signUpCustomer, state, updateProfile]
+    [completeOtpSignIn, refreshProfile, signIn, signInWithPasskey, signOut, signUpCustomer, state, updateProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

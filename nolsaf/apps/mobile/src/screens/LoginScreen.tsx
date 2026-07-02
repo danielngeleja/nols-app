@@ -1,5 +1,6 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { KeyRound, Mail, Phone, ShieldCheck } from "lucide-react-native";
+import { formatPasskeyError } from "@nolsaf/native-ui";
+import { Fingerprint, KeyRound, Mail, Phone, ShieldCheck } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
@@ -18,7 +19,7 @@ type IconType = typeof Mail;
 const RESEND_COOLDOWN_SEC = 60;
 
 export function LoginScreen({ navigation }: Props) {
-  const { signIn, completeOtpSignIn } = useAuth();
+  const { signIn, signInWithPasskey, completeOtpSignIn } = useAuth();
   const [method, setMethod] = useState<Method>("password");
 
   // Password login state
@@ -37,6 +38,7 @@ export function LoginScreen({ navigation }: Props) {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -111,6 +113,19 @@ export function LoginScreen({ navigation }: Props) {
     }
   }
 
+  async function submitPasskey() {
+    if (passkeyLoading || loading) return;
+    setPasskeyLoading(true);
+    setError(null);
+    try {
+      await signInWithPasskey();
+    } catch (e) {
+      setError(formatPasskeyError(e, "Passkey sign-in failed. Use password or OTP, then add a passkey from Security."));
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
+
   function switchMethod(next: Method) {
     if (next === method) return;
     setMethod(next);
@@ -148,6 +163,14 @@ export function LoginScreen({ navigation }: Props) {
                 <MethodPill Icon={KeyRound} label="Password" active={method === "password"} onPress={() => switchMethod("password")} />
                 <MethodPill Icon={ShieldCheck} label="One-time code" active={method === "otp"} onPress={() => switchMethod("otp")} />
               </View>
+              <AppButton
+                title="Sign in with passkey"
+                variant="secondary"
+                loading={passkeyLoading}
+                disabled={loading}
+                onPress={submitPasskey}
+                icon={<Fingerprint color={colors.primary} size={16} />}
+              />
 
               {method === "password" ? (
                 <>

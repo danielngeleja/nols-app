@@ -1,5 +1,6 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { AppButton, AppCard, AppInput, AppStack, AppText, colors, NolsafLogoMark, SafeScreen } from "@nolsaf/native-ui";
+import { AppButton, AppCard, AppInput, AppStack, AppText, colors, formatPasskeyError, NolsafLogoMark, SafeScreen } from "@nolsaf/native-ui";
+import { Fingerprint } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 
@@ -25,11 +26,12 @@ function getLockoutSeconds(message: string | null | undefined) {
 }
 
 export function LoginScreen({ navigation }: Props) {
-  const { signIn, error: authError } = useAuth();
+  const { signIn, signInWithPasskey, error: authError } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const baseLockoutMessage = useRef<string | null>(null);
 
@@ -73,6 +75,19 @@ export function LoginScreen({ navigation }: Props) {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function submitPasskey() {
+    if (passkeyLoading || loading) return;
+    setPasskeyLoading(true);
+    setError(null);
+    try {
+      await signInWithPasskey();
+    } catch (e) {
+      setError(formatPasskeyError(e, "Passkey sign-in failed. Use your password, then add a passkey from Security."));
+    } finally {
+      setPasskeyLoading(false);
     }
   }
 
@@ -129,6 +144,14 @@ export function LoginScreen({ navigation }: Props) {
             </AppText>
           ) : null}
           <AppButton title={isLockedOut ? `Try again in ${countdown}` : "Log in"} loading={loading} disabled={!canSubmit} onPress={submit} />
+          <AppButton
+            title="Sign in with passkey"
+            variant="secondary"
+            loading={passkeyLoading}
+            disabled={loading || isLockedOut}
+            onPress={submitPasskey}
+            icon={<Fingerprint color={colors.primary} size={16} />}
+          />
         </AppStack>
       </AppCard>
 

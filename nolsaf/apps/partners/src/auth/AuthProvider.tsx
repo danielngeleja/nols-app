@@ -1,4 +1,5 @@
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { signInWithNativePasskey } from "@nolsaf/native-ui";
 
 import { getCurrentAccount, loginWithPassword, logoutSession } from "./authApi";
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
@@ -6,6 +7,7 @@ import { AuthState, AuthUser } from "./types";
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithPasskey: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -73,6 +75,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [applyAuthenticated]
   );
 
+  const signInWithPasskey = useCallback(async () => {
+    setState((current) => ({ ...current, error: null }));
+    const response = await signInWithNativePasskey<AuthUser>();
+    const token = response.token;
+    const loginUser = response.user;
+
+    if (!response.ok || !token || !loginUser) {
+      throw new Error(response.message || response.error || "Passkey sign-in failed.");
+    }
+
+    await storeToken(token);
+    try {
+      const profile = await getCurrentAccount(token);
+      applyAuthenticated(token, profile);
+    } catch {
+      applyAuthenticated(token, loginUser);
+    }
+  }, [applyAuthenticated]);
+
   const signOut = useCallback(async () => {
     const token = state.token;
     try {
@@ -91,8 +112,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [applyAuthenticated, state.token]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, signIn, signOut, refreshProfile }),
-    [refreshProfile, signIn, signOut, state]
+    () => ({ ...state, signIn, signInWithPasskey, signOut, refreshProfile }),
+    [refreshProfile, signIn, signInWithPasskey, signOut, state]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

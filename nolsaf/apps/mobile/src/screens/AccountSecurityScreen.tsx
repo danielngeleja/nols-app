@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  ExternalLink,
   Fingerprint,
   KeyRound,
   LockKeyhole,
@@ -13,8 +12,9 @@ import {
   Smartphone,
   Trash2
 } from "lucide-react-native";
+import { formatPasskeyError, registerNativePasskey } from "@nolsaf/native-ui";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { useAuth } from "../auth";
 import {
@@ -29,7 +29,6 @@ import {
 } from "../auth/authApi";
 import { AppButton, AppCard, AppInput, AppStack, AppText, SafeScreen, ScreenHeader } from "../components";
 import { getErrorMessage } from "../lib/apiClient";
-import { env } from "../lib/env";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
@@ -40,25 +39,6 @@ function titleForMode(mode: Mode) {
   if (mode === "password") return "Password";
   if (mode === "passkeys") return "Passkeys";
   return "2FA / MFA";
-}
-
-function webOrigin() {
-  const raw = env.apiUrl.trim().replace(/\/+$/, "");
-  if (!raw) return "http://localhost:3000";
-  try {
-    const url = new URL(raw);
-    if (/^(localhost|127\.0\.0\.1|10\.0\.2\.2)$/i.test(url.hostname) && url.port === "4000") url.port = "3000";
-    url.pathname = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return raw.replace(/\/api.*$/i, "");
-  }
-}
-
-function openWeb(path: string) {
-  Linking.openURL(`${webOrigin()}${path}`).catch(() => Alert.alert("NoLSAF web", "Could not open this security page right now."));
 }
 
 function fmtDate(value?: string | null) {
@@ -217,6 +197,7 @@ function PasskeysPanel() {
   const { token } = useAuth();
   const [items, setItems] = useState<AccountPasskey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [registering, setRegistering] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -247,9 +228,25 @@ function PasskeysPanel() {
     }
   }
 
+  async function addPasskey() {
+    if (!token || registering) return;
+    setRegistering(true);
+    setMessage(null);
+    try {
+      const res = await registerNativePasskey("/api/account/security/passkeys", token);
+      if (res.item) setItems((current) => [res.item!, ...current.filter((item) => item.id !== res.item!.id)]);
+      setMessage("Passkey added.");
+      await load();
+    } catch (err) {
+      Alert.alert("Passkeys", formatPasskeyError(err, "Could not add a passkey. Use password or OTP and try again."));
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   return (
     <>
-      <SecurityHero Icon={Fingerprint} title="Passkeys and biometrics" text="Saved passkeys appear here. Adding a new passkey uses NoLSAF secure WebAuthn registration until the native passkey bridge is added to this app build." />
+      <SecurityHero Icon={Fingerprint} title="Passkeys and biometrics" text="Use your device passkey to sign in without typing a password." />
       <AppCard>
         <AppStack gap={3}>
           <View style={styles.sectionHead}>
@@ -260,7 +257,7 @@ function PasskeysPanel() {
             <View style={styles.emptyBox}>
               <Fingerprint color={colors.primary} size={22} />
               <AppText variant="bodySmall" weight="extraBold">No passkey registered</AppText>
-              <AppText variant="caption" tone="muted">Add one from the secure web flow, then return here to see it listed.</AppText>
+              <AppText variant="caption" tone="muted">Add one on this device to enable faster sign-in.</AppText>
             </View>
           ) : null}
           {items.map((item) => (
@@ -276,7 +273,7 @@ function PasskeysPanel() {
             </View>
           ))}
           {message ? <AppText variant="bodySmall" tone="muted">{message}</AppText> : null}
-          <AppButton title="Add or manage passkeys" onPress={() => openWeb("/account/security/passkeys")} icon={<ExternalLink color={colors.white} size={16} />} />
+          <AppButton title="Add passkey" loading={registering} onPress={addPasskey} icon={<Fingerprint color={colors.white} size={16} />} />
         </AppStack>
       </AppCard>
     </>

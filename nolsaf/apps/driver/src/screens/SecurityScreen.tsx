@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppCard, AppText, colors, radius, spacing } from "@nolsaf/native-ui";
-import { ArrowLeft, ChevronRight, Clock, Lock, ShieldAlert, ShieldCheck } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, Clock, Fingerprint, Lock, ShieldAlert, ShieldCheck } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { RootStackParamList } from "../navigation/types";
@@ -8,12 +8,13 @@ import { RootStackParamList } from "../navigation/types";
 type Props = NativeStackScreenProps<RootStackParamList, "Security">;
 
 const LINKS: Array<{
-  key: "ChangePassword" | "TwoFactor" | "LoginHistory" | "Safety";
+  key: "ChangePassword" | "Passkeys" | "TwoFactor" | "LoginHistory" | "Safety";
   label: string;
   description: string;
   icon: (color: string) => JSX.Element;
 }> = [
   { key: "ChangePassword", label: "Password", description: "Change your account password", icon: (c) => <Lock color={c} size={20} /> },
+  { key: "Passkeys", label: "Passkeys", description: "Use fingerprint, Face ID, or device lock", icon: (c) => <Fingerprint color={c} size={20} /> },
   { key: "TwoFactor", label: "Two factor authentication", description: "Add an extra layer of security", icon: (c) => <ShieldCheck color={c} size={20} /> },
   { key: "LoginHistory", label: "Login history", description: "Review recent sign ins", icon: (c) => <Clock color={c} size={20} /> },
   { key: "Safety", label: "Safety", description: "Hard braking, speeding, and other flags", icon: (c) => <ShieldAlert color={c} size={20} /> }

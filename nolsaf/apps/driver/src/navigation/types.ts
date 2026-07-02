@@ -26,6 +26,7 @@ export type RootStackParamList = {
   Contract: undefined;
   Security: undefined;
   ChangePassword: undefined;
+  Passkeys: undefined;
   TwoFactor: undefined;
   LoginHistory: undefined;
   Policies: undefined;

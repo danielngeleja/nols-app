@@ -19,6 +19,9 @@
       "supportsTablet": true,
       "buildNumber": "1",
       "bundleIdentifier": "com.nolsaf.driver",
+      "associatedDomains": [
+        "webcredentials:nolsaf.com"
+      ],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "NoLSAF Driver uses your location while a trip is active so the passenger and dispatch can see your progress.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "NoLSAF Driver shares your location during an active trip, even in the background, so the passenger and dispatch can keep seeing your progress.",

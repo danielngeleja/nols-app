@@ -93,13 +93,12 @@ Add to the app config (`app.json` / `app.config.ts`) of each app:
     "ios": {
       "associatedDomains": ["webcredentials:nolsaf.com"]
     },
-    "plugins": ["react-native-passkeys"]
   }
 }
 ```
 
-- Library: `react-native-passkeys` (config-plugin based; wraps
-  AuthenticationServices on iOS and Credential Manager on Android).
+- Library: `react-native-passkeys` (Expo module autolinked by native builds;
+  wraps AuthenticationServices on iOS and Credential Manager on Android).
 - Requires an EAS/dev-client build. Passkeys do NOT work in Expo Go.
 - Minimum OS: iOS 15+ (16+ recommended), Android 9+ with Google Play services.
 

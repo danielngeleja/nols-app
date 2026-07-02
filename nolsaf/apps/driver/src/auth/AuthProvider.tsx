@@ -1,4 +1,5 @@
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { signInWithNativePasskey } from "@nolsaf/native-ui";
 
 import { getCurrentAccount, loginWithPassword, logoutSession } from "./authApi";
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
@@ -8,6 +9,7 @@ const WRONG_APP_MESSAGE = "This app is for NoLSAF drivers. Use the NoLSAF custom
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithPasskey: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -90,6 +92,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [applyAuthenticatedState, becomeGuest]
   );
 
+  const signInWithPasskey = useCallback(async () => {
+    setState((current) => ({ ...current, error: null }));
+    const response = await signInWithNativePasskey<AuthUser>();
+    const token = response.token;
+    const loginUser = response.user;
+
+    if (!response.ok || !token || !loginUser) {
+      throw new Error(response.message || response.error || "Passkey sign-in failed.");
+    }
+
+    const profile = await getCurrentAccount(token).catch(() => loginUser);
+    if (String(profile.role).toUpperCase() !== "DRIVER") {
+      becomeGuest(WRONG_APP_MESSAGE);
+      return;
+    }
+
+    await storeToken(token);
+    applyAuthenticatedState(token, profile);
+  }, [applyAuthenticatedState, becomeGuest]);
+
   const signOut = useCallback(async () => {
     const token = state.token;
     try {
@@ -111,10 +133,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       ...state,
       signIn,
+      signInWithPasskey,
       signOut,
       refreshProfile
     }),
-    [refreshProfile, signIn, signOut, state]
+    [refreshProfile, signIn, signInWithPasskey, signOut, state]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

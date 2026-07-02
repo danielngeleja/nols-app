@@ -5,9 +5,11 @@ import {
   NolsafLogoMark,
   SafeScreen,
   colors,
+  formatPasskeyError,
   getErrorMessage,
   spacing
 } from "@nolsaf/native-ui";
+import { Fingerprint } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -17,11 +19,12 @@ import { useAuth } from "../auth";
 // the account decides which dashboard renders (see RoleGateScreen). No
 // registration here, partners already hold accounts.
 export function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithPasskey } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
 
   const onSubmit = async () => {
     if (!email.trim() || !password) {
@@ -36,6 +39,19 @@ export function LoginScreen() {
       setError(getErrorMessage(err, "We could not sign you in. Check your details and try again."));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const onPasskeySubmit = async () => {
+    if (submitting || passkeySubmitting) return;
+    setPasskeySubmitting(true);
+    setError(null);
+    try {
+      await signInWithPasskey();
+    } catch (err) {
+      setError(formatPasskeyError(err, "Passkey sign-in failed. Use password, then add a passkey from Security."));
+    } finally {
+      setPasskeySubmitting(false);
     }
   };
 
@@ -86,6 +102,14 @@ export function LoginScreen() {
             error={error ?? undefined}
           />
           <AppButton title="Sign in" loading={submitting} onPress={onSubmit} />
+          <AppButton
+            title="Sign in with passkey"
+            variant="secondary"
+            loading={passkeySubmitting}
+            disabled={submitting}
+            onPress={onPasskeySubmit}
+            icon={<Fingerprint color={colors.primary} size={16} />}
+          />
         </View>
       </View>
     </SafeScreen>

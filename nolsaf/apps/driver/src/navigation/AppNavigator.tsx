@@ -29,6 +29,7 @@ import { LoginHistoryScreen } from "../screens/LoginHistoryScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 import { ManagementScreen } from "../screens/ManagementScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
+import { PasskeysScreen } from "../screens/PasskeysScreen";
 import { PayoutsScreen } from "../screens/PayoutsScreen";
 import { PoliciesScreen } from "../screens/PoliciesScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
@@ -101,6 +102,7 @@ export function AppNavigator() {
             <Stack.Screen name="Contract" component={ContractScreen} />
             <Stack.Screen name="Security" component={SecurityScreen} />
             <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+            <Stack.Screen name="Passkeys" component={PasskeysScreen} />
             <Stack.Screen name="TwoFactor" component={TwoFactorScreen} />
             <Stack.Screen name="LoginHistory" component={LoginHistoryScreen} />
             <Stack.Screen name="Policies" component={PoliciesScreen} />

@@ -13,6 +13,9 @@
     "ios": {
       "bundleIdentifier": "com.nolsaf.partners",
       "supportsTablet": true,
+      "associatedDomains": [
+        "webcredentials:nolsaf.com"
+      ],
       "infoPlist": {
         "NSCameraUsageDescription": "NoLSAF Partners uses the camera to scan guest booking QR codes for check in validation."
       }

@@ -19,6 +19,9 @@
       "supportsTablet": true,
       "buildNumber": "1",
       "bundleIdentifier": "com.nolsaf.app",
+      "associatedDomains": [
+        "webcredentials:nolsaf.com"
+      ],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "NoLSAF uses your location to set your pickup point so a driver can collect you and bring you to your booked stay."
       }

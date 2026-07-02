@@ -4,8 +4,13 @@ import {
   AppText,
   apiRequest,
   colors,
+  deleteNativePasskey,
+  formatPasskeyError,
   getErrorMessage,
+  listNativePasskeys,
+  NativePasskeyItem,
   radius,
+  registerNativePasskey,
   spacing
 } from "@nolsaf/native-ui";
 import {
@@ -16,6 +21,7 @@ import {
   CalendarX,
   CheckCircle,
   CircleDollarSign,
+  Fingerprint,
   KeyRound,
   MonitorSmartphone,
   ShieldCheck,
@@ -24,8 +30,9 @@ import {
   Users,
   X
 } from "lucide-react-native";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -43,6 +50,8 @@ type Props = {
   visible: boolean;
   onClose: () => void;
 };
+
+const PASSKEYS_API_BASE = "/api/account/security/passkeys";
 
 // What gets wiped — shown in the Step 2 warning
 const DELETION_CONSEQUENCES = [
@@ -69,6 +78,12 @@ export function OwnerSecuritySheet({ visible, onClose }: Props) {
   // Sessions
   const [sessionLoading, setSessionLoading] = useState(false);
 
+  // Passkeys
+  const [passkeys, setPasskeys] = useState<NativePasskeyItem[]>([]);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+  const [passkeyMessage, setPasskeyMessage] = useState<string | null>(null);
+
   // Delete flow: 0 = idle, 1 = warning, 2 = name confirmation
   const [deleteStep, setDeleteStep] = useState<0 | 1 | 2>(0);
   const [nameInput, setNameInput] = useState("");
@@ -82,6 +97,7 @@ export function OwnerSecuritySheet({ visible, onClose }: Props) {
     setCurrent(""); setNext(""); setConfirm("");
     setPwError(null); setPwSuccess(false);
     setDeleteStep(0); setNameInput(""); setDeleteError(null);
+    setPasskeyMessage(null);
   };
 
   const handleClose = () => { resetAll(); onClose(); };
@@ -135,6 +151,50 @@ export function OwnerSecuritySheet({ visible, onClose }: Props) {
         }
       ]
     );
+  };
+
+  const loadPasskeys = useCallback(async () => {
+    if (!token) return;
+    setPasskeyLoading(true);
+    try {
+      const res = await listNativePasskeys(PASSKEYS_API_BASE, token);
+      setPasskeys(res.items || []);
+    } catch {
+      setPasskeyMessage("Could not load passkeys right now.");
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (visible) void loadPasskeys();
+  }, [loadPasskeys, visible]);
+
+  const onAddPasskey = async () => {
+    if (!token || passkeyRegistering) return;
+    setPasskeyRegistering(true);
+    setPasskeyMessage(null);
+    try {
+      const res = await registerNativePasskey(PASSKEYS_API_BASE, token);
+      if (res.item) setPasskeys((current) => [res.item!, ...current.filter((item) => item.id !== res.item!.id)]);
+      setPasskeyMessage("Passkey added.");
+      await loadPasskeys();
+    } catch (err) {
+      Alert.alert("Passkeys", formatPasskeyError(err, "Could not add a passkey. Use password and try again."));
+    } finally {
+      setPasskeyRegistering(false);
+    }
+  };
+
+  const onRemovePasskey = async (id: string) => {
+    if (!token) return;
+    try {
+      await deleteNativePasskey(PASSKEYS_API_BASE, token, id);
+      setPasskeys((current) => current.filter((item) => item.id !== id));
+      setPasskeyMessage("Passkey removed.");
+    } catch (err) {
+      Alert.alert("Passkeys", err instanceof Error ? err.message : "Could not remove this passkey.");
+    }
   };
 
   // ── Delete account (step 3) ───────────────────────────────────────────────
@@ -271,6 +331,47 @@ export function OwnerSecuritySheet({ visible, onClose }: Props) {
                 title={sessionLoading ? "Signing out…" : "Sign out all other devices"}
                 variant="secondary"
                 onPress={onSignOutAllDevices}
+              />
+            </View>
+
+            {/* Passkeys */}
+            <View style={styles.sectionLabel}>
+              <Fingerprint size={13} color={colors.softText} />
+              <AppText variant="caption" style={styles.sectionLabelText}>PASSKEYS</AppText>
+            </View>
+            <View style={styles.card}>
+              <View style={styles.passkeyHeader}>
+                <View style={styles.sessionInfo}>
+                  <AppText variant="bodySmall" weight="medium" numberOfLines={1}>Passwordless sign-in</AppText>
+                  <AppText variant="caption" tone="muted">Use fingerprint, Face ID, screen lock, or a security key.</AppText>
+                </View>
+                {passkeyLoading ? <ActivityIndicator color={colors.primary} /> : null}
+              </View>
+              {passkeys.length ? (
+                <View style={styles.passkeyList}>
+                  {passkeys.map((item) => (
+                    <View key={item.id} style={styles.passkeyRow}>
+                      <View style={styles.passkeyIcon}>
+                        <Fingerprint size={15} color={colors.primary} />
+                      </View>
+                      <View style={styles.sessionInfo}>
+                        <AppText variant="caption" weight="semiBold" numberOfLines={1}>{item.name || "Passkey"}</AppText>
+                        <AppText variant="caption" tone="muted" numberOfLines={1}>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "Date not recorded"}</AppText>
+                      </View>
+                      <Pressable accessibilityRole="button" onPress={() => onRemovePasskey(item.id)} style={styles.passkeyRemoveBtn}>
+                        <Trash2 size={15} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <AppText variant="caption" tone="muted">No passkey has been added yet.</AppText>
+              )}
+              {passkeyMessage ? <AppText variant="caption" tone="muted">{passkeyMessage}</AppText> : null}
+              <AppButton
+                title={passkeyRegistering ? "Adding passkey..." : "Add passkey"}
+                loading={passkeyRegistering}
+                onPress={onAddPasskey}
               />
             </View>
 
@@ -484,6 +585,38 @@ const styles = StyleSheet.create({
   sessionRow: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
   sessionDot: { width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.success },
   sessionInfo: { flex: 1, minWidth: 0 },
+  passkeyHeader: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
+  passkeyList: { gap: spacing[2] },
+  passkeyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing[2]
+  },
+  passkeyIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand[50],
+    borderWidth: 1,
+    borderColor: colors.brand[100]
+  },
+  passkeyRemoveBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca"
+  },
   activePill: {
     paddingHorizontal: spacing[2], paddingVertical: 3,
     borderRadius: radius.full,
