@@ -47,6 +47,15 @@ function loadBridge(): PasskeyBridge {
   throw new Error("This app build does not include passkey support yet. Update the app, then try again.");
 }
 
+export function nativePasskeysSupported(): boolean {
+  try {
+    loadBridge();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function formatPasskeyError(error: unknown, fallback = "Passkey failed. Use password or OTP and try again later.") {
   const err = error as { name?: string; message?: string } | null | undefined;
   if (err?.name === "NotAllowedError") return "Passkey was cancelled or not approved on this device.";
