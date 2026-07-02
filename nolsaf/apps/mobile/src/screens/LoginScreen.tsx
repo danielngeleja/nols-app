@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { formatPasskeyError } from "@nolsaf/native-ui";
+import { formatPasskeyError, nativePasskeysSupported } from "@nolsaf/native-ui";
 import { Fingerprint, KeyRound, Mail, Phone, ShieldCheck } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
@@ -39,6 +39,9 @@ export function LoginScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  // Hidden entirely when the build/platform cannot do passkeys, so nobody
+  // ever sees a button that cannot work (web, Expo Go, old builds).
+  const passkeyAvailable = useMemo(() => nativePasskeysSupported(), []);
 
   useEffect(() => {
     return () => {
@@ -66,7 +69,11 @@ export function LoginScreen({ navigation }: Props) {
     channel === "PHONE" ? isPhoneLengthValid(otpPhone, otpCountryCode) : /^\S+@\S+\.\S{2,}$/.test(otpEmail.trim());
 
   async function submitPassword() {
-    if (!canSubmitPassword || loading) return;
+    if (loading) return;
+    if (!canSubmitPassword) {
+      setError("Enter your email and password.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -151,26 +158,31 @@ export function LoginScreen({ navigation }: Props) {
       <AppStack gap={5}>
           <AppCard style={styles.authCard}>
             <AppStack gap={4}>
-              <View style={styles.cardIntro}>
-                <AppText variant="titleSm" weight="extraBold">
-                  Sign in securely
-                </AppText>
-                <AppText variant="caption" tone="muted">
-                  Choose the method that works best for you.
-                </AppText>
-              </View>
+              {passkeyAvailable ? (
+                <View style={styles.passkeyBlock}>
+                  <AppButton
+                    title="Continue with passkey"
+                    loading={passkeyLoading}
+                    disabled={loading}
+                    onPress={submitPasskey}
+                    icon={<Fingerprint color={colors.white} size={18} />}
+                  />
+                  <AppText variant="caption" tone="muted" style={styles.passkeyHint}>
+                    Face ID or fingerprint, no password needed
+                  </AppText>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <AppText variant="caption" tone="muted">
+                      or
+                    </AppText>
+                    <View style={styles.dividerLine} />
+                  </View>
+                </View>
+              ) : null}
               <View style={styles.methodRow}>
                 <MethodPill Icon={KeyRound} label="Password" active={method === "password"} onPress={() => switchMethod("password")} />
                 <MethodPill Icon={ShieldCheck} label="One-time code" active={method === "otp"} onPress={() => switchMethod("otp")} />
               </View>
-              <AppButton
-                title="Sign in with passkey"
-                variant="secondary"
-                loading={passkeyLoading}
-                disabled={loading}
-                onPress={submitPasskey}
-                icon={<Fingerprint color={colors.primary} size={16} />}
-              />
 
               {method === "password" ? (
                 <>
@@ -201,7 +213,13 @@ export function LoginScreen({ navigation }: Props) {
                       Forgot password?
                     </AppText>
                   </Pressable>
-                  <AppButton title="Login securely" loading={loading} disabled={!canSubmitPassword} onPress={submitPassword} />
+                  <AppButton
+                    title="Sign in"
+                    loading={loading}
+                    disabled={passkeyLoading}
+                    onPress={submitPassword}
+                    style={passkeyAvailable ? styles.submitNeutral : undefined}
+                  />
                 </>
               ) : (
                 <>
@@ -279,8 +297,8 @@ export function LoginScreen({ navigation }: Props) {
 function MethodPill({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && styles.pressed]}>
-      <Icon color={active ? colors.white : colors.primary} size={16} />
-      <AppText variant="caption" weight="extraBold" tone={active ? "inverse" : "primary"} numberOfLines={1}>
+      <Icon color={active ? colors.primary : colors.mutedText} size={15} />
+      <AppText variant="caption" weight="semiBold" tone={active ? "default" : "muted"} numberOfLines={1}>
         {label}
       </AppText>
     </Pressable>
@@ -292,28 +310,53 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     padding: spacing[5]
   },
-  cardIntro: {
-    gap: spacing[1]
+  passkeyBlock: {
+    gap: spacing[2]
   },
+  passkeyHint: {
+    textAlign: "center"
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    marginTop: spacing[2]
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border
+  },
+  // Segmented control: a quiet tinted track with a white active pill, so the
+  // method switch reads as a control instead of competing with the buttons.
   methodRow: {
     flexDirection: "row",
-    gap: spacing[2]
+    gap: spacing[1],
+    padding: spacing[1],
+    borderRadius: radius.lg,
+    backgroundColor: colors.brand[50]
   },
   methodPill: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing[2],
-    borderRadius: radius.full,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white
+    borderColor: "transparent",
+    backgroundColor: "transparent"
   },
   methodPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
+    backgroundColor: colors.white,
+    borderColor: colors.border
+  },
+  // When the passkey button holds the brand color, the form submit steps back
+  // to neutral ink so the screen keeps a single accent action.
+  submitNeutral: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   },
   note: {
     textAlign: "center",
