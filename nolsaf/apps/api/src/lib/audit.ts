@@ -3,7 +3,10 @@ import { Request } from "express";
 
 export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any) {
   const actorId = (req as any).user?.id as number | undefined;
-  const actorRole = (req as any).user?.role as string | undefined;
+  let actorRole = (req as any).user?.role as string | undefined;
+  // Actions taken through an admin impersonation token are attributed to the
+  // impersonated user id, so tag the role to keep them distinguishable.
+  if (actorRole && (req as any).user?.imp) actorRole = `${actorRole}:IMP`;
   const ip = req.headers["x-forwarded-for"]?.toString()?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
   const ua = req.headers["user-agent"] || "";
   try {

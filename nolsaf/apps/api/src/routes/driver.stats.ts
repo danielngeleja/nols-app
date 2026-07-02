@@ -9,11 +9,13 @@ import argon2 from 'argon2';
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { validatePasswordStrength, isPasswordReused, addPasswordToHistory } from '../lib/security.js';
 import { validatePasswordWithSettings } from '../lib/securitySettings.js';
-import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { requireAuth, blockImpersonated, AuthedRequest } from "../middleware/auth.js";
 import { z } from "zod";
 import { limitDriverLocationUpdate, limitDriverAvailabilityToggle } from "../middleware/rateLimit.js";
 import { isTrustedUserDocumentUrl } from "../lib/userDocumentSecurity.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { getWebAuthnRp } from "../lib/webauthnRp.js";
+import { getRedis } from "../lib/redis.js";
 
 // local no-op audit helper to satisfy references to `audit`
 // If the application provides an audit function via req.app.get('audit'), delegate to it.
@@ -32,9 +34,69 @@ async function audit(req: AuthedRequest, action: string, target: string, before?
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
 
-// In-memory demo stores for passkey challenges and credentials when DB model is not available
-const passkeyChallenges = new Map<string, string>(); // userId -> challenge (base64url)
+// In-memory demo store for passkey credentials when DB model is not available
 const passkeyStore = new Map<string, Array<any>>(); // userId -> [{ id, name, createdAt }]
+
+// Passkey challenges live in Redis so options + verify can hit different
+// instances; the Map is a single-instance dev fallback (same pattern as account.ts).
+const passkeyChallenges = new Map<string, { challenge: string; expiresAt: number }>();
+const DRIVER_PASSKEY_CHALLENGE_TTL_SEC = 5 * 60;
+const DRIVER_PASSKEY_CHALLENGE_PREFIX = "driver:passkey:challenge:";
+
+async function setDriverPasskeyChallenge(userId: number | string, challenge: string): Promise<void> {
+  const key = String(userId);
+  const expiresAt = Date.now() + DRIVER_PASSKEY_CHALLENGE_TTL_SEC * 1000;
+  try {
+    const redis = getRedis();
+    if (redis) {
+      await redis.set(
+        `${DRIVER_PASSKEY_CHALLENGE_PREFIX}${key}`,
+        JSON.stringify({ challenge, expiresAt }),
+        "EX",
+        DRIVER_PASSKEY_CHALLENGE_TTL_SEC
+      );
+      return;
+    }
+  } catch {
+    // Redis is preferred for multi-instance correctness; memory keeps single-instance dev working.
+  }
+  passkeyChallenges.set(key, { challenge, expiresAt });
+}
+
+async function getDriverPasskeyChallenge(userId: number | string): Promise<string | null> {
+  const key = String(userId);
+  try {
+    const redis = getRedis();
+    if (redis) {
+      const raw = await redis.get(`${DRIVER_PASSKEY_CHALLENGE_PREFIX}${key}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { challenge?: string; expiresAt?: number };
+      if (!parsed.challenge || typeof parsed.expiresAt !== "number" || parsed.expiresAt <= Date.now()) return null;
+      return parsed.challenge;
+    }
+  } catch {
+    // fall back below
+  }
+
+  const stored = passkeyChallenges.get(key);
+  if (!stored) return null;
+  if (stored.expiresAt <= Date.now()) {
+    passkeyChallenges.delete(key);
+    return null;
+  }
+  return stored.challenge;
+}
+
+async function deleteDriverPasskeyChallenge(userId: number | string): Promise<void> {
+  const key = String(userId);
+  try {
+    const redis = getRedis();
+    if (redis) await redis.del(`${DRIVER_PASSKEY_CHALLENGE_PREFIX}${key}`);
+  } catch {
+    // best effort
+  }
+  passkeyChallenges.delete(key);
+}
 
 function toBase64Url(buf: Buffer | Uint8Array) {
   return Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -1259,7 +1321,7 @@ const postChangePassword: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: 'failed' });
   }
 };
-router.post('/security/password', postChangePassword as unknown as RequestHandler);
+router.post('/security/password', blockImpersonated as unknown as RequestHandler, postChangePassword as unknown as RequestHandler);
 
 /**
  * GET /driver/security/2fa
@@ -1395,7 +1457,7 @@ const postToggle2fa: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: 'failed', details });
   }
 };
-router.post('/security/2fa', postToggle2fa as unknown as RequestHandler);
+router.post('/security/2fa', blockImpersonated as unknown as RequestHandler, postToggle2fa as unknown as RequestHandler);
 
 
 /**
@@ -1550,8 +1612,7 @@ router.get('/security/passkeys', getPasskeys as unknown as RequestHandler);
 const postPasskeysCreate: RequestHandler = async (req, res) => {
   const user = (req as AuthedRequest).user!;
   try {
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID } = getWebAuthnRp();
 
     // load existing credentials to exclude
     let excludeCredentials: Array<any> = [];
@@ -1572,12 +1633,14 @@ const postPasskeysCreate: RequestHandler = async (req, res) => {
       userName: (user as any).email || `user-${user.id}`,
       timeout: 60000,
       attestationType: 'direct',
-      authenticatorSelection: { userVerification: 'preferred' },
+      // residentKey makes the credential discoverable so it can be used for
+      // username-less login (/api/auth/passkeys/options with no allowCredentials).
+      authenticatorSelection: { userVerification: 'preferred', residentKey: 'preferred' },
       excludeCredentials,
     });
 
     // store challenge for verification (base64url)
-    passkeyChallenges.set(String(user.id), options.challenge as string);
+    await setDriverPasskeyChallenge(user.id, options.challenge as string);
 
     return res.json({ publicKey: options });
   } catch (err) {
@@ -1585,7 +1648,7 @@ const postPasskeysCreate: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: 'failed' });
   }
 };
-router.post('/security/passkeys', postPasskeysCreate as unknown as RequestHandler);
+router.post('/security/passkeys', blockImpersonated as unknown as RequestHandler, postPasskeysCreate as unknown as RequestHandler);
 
 const postPasskeysVerify: RequestHandler = async (req, res) => {
   const user = (req as AuthedRequest).user!;
@@ -1620,11 +1683,10 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
       });
     }
 
-    const storedChallenge = passkeyChallenges.get(String(user.id));
+    const storedChallenge = await getDriverPasskeyChallenge(user.id);
     if (!storedChallenge) { res.status(400).json({ error: 'no challenge found' }); return; }
 
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID, expectedOrigins } = getWebAuthnRp();
 
     let verification: any = null;
     try {
@@ -1632,7 +1694,7 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
       verification = await (verifyRegistrationResponse as any)({
         response: credential,
         expectedChallenge: storedChallenge,
-        expectedOrigin: origin,
+        expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
         // Our registration options use `userVerification: 'preferred'`.
         // Don't hard-fail registration if a platform/roaming authenticator doesn't assert UV.
@@ -1649,7 +1711,7 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
     }
 
     // One-time challenge: clear after successful verification to prevent replay.
-    try { passkeyChallenges.delete(String(user.id)); } catch { /* ignore */ }
+    try { await deleteDriverPasskeyChallenge(user.id); } catch { /* ignore */ }
 
     const regInfo = verification.registrationInfo;
     if (!regInfo || !regInfo.credentialID || !regInfo.credentialPublicKey) {
@@ -1678,7 +1740,7 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: 'failed' });
   }
 };
-router.post('/security/passkeys/verify', postPasskeysVerify as unknown as RequestHandler);
+router.post('/security/passkeys/verify', blockImpersonated as unknown as RequestHandler, postPasskeysVerify as unknown as RequestHandler);
 
 /**
  * POST /driver/security/passkeys/authenticate
@@ -1688,8 +1750,7 @@ router.post('/security/passkeys/verify', postPasskeysVerify as unknown as Reques
 const postPasskeysAuthenticate: RequestHandler = async (req, res) => {
   const user = (req as AuthedRequest).user!;
   try {
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID } = getWebAuthnRp();
 
     // load existing credentials to allow
     let allowCredentials: Array<any> = [];
@@ -1709,7 +1770,7 @@ const postPasskeysAuthenticate: RequestHandler = async (req, res) => {
       userVerification: 'preferred',
       allowCredentials,
     });
-    passkeyChallenges.set(String(user.id), (options as any).challenge as string);
+    await setDriverPasskeyChallenge(user.id, (options as any).challenge as string);
     return res.json({ publicKey: options });
   } catch (err) {
     console.warn('driver.security.passkeys.authenticate failed', err);
@@ -1730,7 +1791,7 @@ const postPasskeysAuthenticateVerify: RequestHandler = async (req, res) => {
     const { response } = body as any;
     if (!response) { res.status(400).json({ error: 'invalid payload' }); return; }
 
-    const storedChallenge = passkeyChallenges.get(String(user.id));
+    const storedChallenge = await getDriverPasskeyChallenge(user.id);
     if (!storedChallenge) { res.status(400).json({ error: 'no challenge found' }); return; }
 
     // find credential
@@ -1752,15 +1813,14 @@ const postPasskeysAuthenticateVerify: RequestHandler = async (req, res) => {
     const publicKey = stored.publicKey;
     const signCount = typeof stored.signCount === 'number' ? stored.signCount : (stored.sign_count ?? 0);
 
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID, expectedOrigins } = getWebAuthnRp();
 
     let verification: any = null;
     try {
       verification = await (verifyAuthenticationResponse as any)({
-        credential: response,
+        response,
         expectedChallenge: storedChallenge,
-        expectedOrigin: origin,
+        expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
         authenticator: {
           credentialPublicKey: fromBase64Url(publicKey),
@@ -1774,6 +1834,9 @@ const postPasskeysAuthenticateVerify: RequestHandler = async (req, res) => {
     }
 
     if (!verification || !verification.verified) return res.status(400).json({ error: 'verification failed' });
+
+    // one challenge per assertion; matches the account.ts flow
+    await deleteDriverPasskeyChallenge(user.id);
 
     const newCounter = (verification.authenticationInfo && (verification.authenticationInfo.newCounter ?? verification.authenticationInfo.counter)) ?? null;
     if (typeof newCounter === 'number') {
@@ -1816,6 +1879,6 @@ const deletePasskey: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: 'failed' });
   }
 };
-router.delete('/security/passkeys/:id', deletePasskey as unknown as RequestHandler);
+router.delete('/security/passkeys/:id', blockImpersonated as unknown as RequestHandler, deletePasskey as unknown as RequestHandler);
 
 export default router;
