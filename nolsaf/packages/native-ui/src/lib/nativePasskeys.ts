@@ -28,12 +28,21 @@ export type NativePasskeyRegistrationResponse = {
   error?: string;
 };
 
+function hasPasskeyNativeModule(): boolean {
+  // Expo registers every installed native module on globalThis.expo.modules.
+  // Reading it is a plain property lookup, so unlike requiring the package
+  // (whose import-time requireNativeModule throws fatally in Expo Go), this
+  // can never crash a build that lacks the module.
+  const expoGlobal = (globalThis as { expo?: { modules?: Record<string, unknown> } }).expo;
+  return expoGlobal?.modules?.ReactNativePasskeys != null;
+}
+
 function loadBridge(): PasskeyBridge {
   if (Platform.OS === "web") {
     throw new Error("Passkeys are available in the installed iOS or Android app. Use password or OTP on web.");
   }
 
-  try {
+  if (hasPasskeyNativeModule()) {
     // Metro only registers dependencies from a plain literal require() call,
     // so this must not use optional chaining or a variable module name.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -41,8 +50,6 @@ function loadBridge(): PasskeyBridge {
     if (typeof mod?.create === "function" && typeof mod?.get === "function") {
       return { create: mod.create, get: mod.get };
     }
-  } catch {
-    // In Expo Go the native module is absent; the friendly message below covers it.
   }
 
   throw new Error("This app build does not include passkey support yet. Update the app, then try again.");
