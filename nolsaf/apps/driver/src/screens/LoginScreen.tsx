@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { AppButton, AppCard, AppInput, AppStack, AppText, colors, formatPasskeyError, NolsafLogoMark, SafeScreen } from "@nolsaf/native-ui";
+import { AppButton, AppCard, AppInput, AppStack, AppText, colors, formatPasskeyError, nativePasskeysSupported, NolsafLogoMark, SafeScreen } from "@nolsaf/native-ui";
 import { Fingerprint } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
@@ -32,6 +32,9 @@ export function LoginScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  // Hidden entirely when the build/platform cannot do passkeys, so nobody
+  // ever sees a button that cannot work (web, Expo Go, old builds).
+  const passkeyAvailable = useMemo(() => nativePasskeysSupported(), []);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const baseLockoutMessage = useRef<string | null>(null);
 
@@ -118,6 +121,27 @@ export function LoginScreen({ navigation }: Props) {
 
       <AppCard style={styles.card}>
         <AppStack gap={5}>
+          {passkeyAvailable ? (
+            <View style={styles.passkeyBlock}>
+              <AppButton
+                title="Continue with passkey"
+                loading={passkeyLoading}
+                disabled={loading || isLockedOut}
+                onPress={submitPasskey}
+                icon={<Fingerprint color={colors.white} size={18} />}
+              />
+              <AppText variant="caption" tone="muted" style={styles.passkeyHint}>
+                Face ID or fingerprint, no password needed
+              </AppText>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <AppText variant="caption" tone="muted">
+                  or
+                </AppText>
+                <View style={styles.dividerLine} />
+              </View>
+            </View>
+          ) : null}
           <AppInput
             label="Email"
             placeholder="you@example.com"
@@ -143,14 +167,12 @@ export function LoginScreen({ navigation }: Props) {
               {displayError}
             </AppText>
           ) : null}
-          <AppButton title={isLockedOut ? `Try again in ${countdown}` : "Log in"} loading={loading} disabled={!canSubmit} onPress={submit} />
           <AppButton
-            title="Sign in with passkey"
-            variant="secondary"
-            loading={passkeyLoading}
-            disabled={loading || isLockedOut}
-            onPress={submitPasskey}
-            icon={<Fingerprint color={colors.primary} size={16} />}
+            title={isLockedOut ? `Try again in ${countdown}` : "Log in"}
+            loading={loading}
+            disabled={!canSubmit || passkeyLoading}
+            onPress={submit}
+            style={passkeyAvailable ? styles.submitNeutral : undefined}
           />
         </AppStack>
       </AppCard>
@@ -219,6 +241,29 @@ const styles = StyleSheet.create({
     padding: 24,
     borderRadius: 24,
     borderColor: "#dbe6ec"
+  },
+  passkeyBlock: {
+    gap: 8
+  },
+  passkeyHint: {
+    textAlign: "center"
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 8
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border
+  },
+  // When the passkey button holds the brand color, the form submit steps back
+  // to neutral ink so the screen keeps a single accent action.
+  submitNeutral: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   },
   forgotLink: {
     alignSelf: "flex-end",
