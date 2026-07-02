@@ -15,6 +15,8 @@ interface JwtTokenPayload {
   iat?: number;
   exp?: number;
   role?: string;
+  /** Set on short-lived admin support tokens issued by the impersonate endpoints. */
+  imp?: boolean;
 }
 
 function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED", message: string) {
@@ -28,6 +30,8 @@ export interface AuthedUser {
   role: Role;
   email?: string;
   name?: string;
+  /** True when this session comes from an admin impersonation token. */
+  imp?: boolean;
 }
 
 export interface AuthedRequest extends Request {
@@ -159,10 +163,11 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       }
     }
     
-    const authedUser = {
+    const authedUser: AuthedUser = {
       id: user.id,
       role,
       email: user.email || undefined,
+      ...(decoded.imp === true ? { imp: true } : {}),
     };
     await cacheAuthSession(token, authedUser, decoded.exp);
     return authedUser;
@@ -274,5 +279,19 @@ export function requireRole(required?: Role) {
 
   return handler;
 }
+
+// Deny the request when the session comes from an admin impersonation token
+// (the `imp` claim signed by the /impersonate endpoints). Use on endpoints
+// that change credentials, contact info, payout details, or sessions so a
+// support session can never take over or lock out the real account.
+export const blockImpersonated: RequestHandler = (req, res, next) => {
+  if ((req as AuthedRequest).user?.imp) {
+    return res.status(403).json({
+      error: "This action is not available during an admin support session",
+      code: "IMPERSONATION_FORBIDDEN",
+    });
+  }
+  return next();
+};
 
 export default requireRole;

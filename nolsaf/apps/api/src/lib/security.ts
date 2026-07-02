@@ -14,6 +14,7 @@ import {
 } from "@simplewebauthn/server";
 import { prisma } from "@nolsaf/prisma";
 import * as passkeysDb from "./passkeysDb";
+import { getWebAuthnRp } from "./webauthnRp.js";
 
 // In-memory fallbacks so this module works even when Prisma models are not
 // present (useful for demo/dev environments). Prefer DB-backed storage if
@@ -83,9 +84,8 @@ export async function makeTOTPQRCode(secret: string, label: string, issuer = "no
 // ----- WebAuthn / Passkeys helpers -----
 function getWebAuthnConfig() {
   const rpName = process.env.WEB_AUTHN_RP_NAME || "nolsaf";
-  const rpID = process.env.WEB_AUTHN_RP_ID || (process.env.APP_DOMAIN || "localhost");
-  const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
-  return { rpName, rpID, origin };
+  const { rpID, expectedOrigins } = getWebAuthnRp();
+  return { rpName, rpID, expectedOrigins };
 }
 
 export function generatePasskeyRegistrationOptions(user: { id: string | number; name?: string; displayName?: string }, existingCreds: Array<any> = []) {
@@ -103,6 +103,8 @@ export function generatePasskeyRegistrationOptions(user: { id: string | number; 
     attestationType: "none",
     authenticatorSelection: {
       userVerification: "preferred",
+      // discoverable credential so username-less passkey login works
+      residentKey: "preferred",
     },
     excludeCredentials,
     // keep a short timeout for UX
@@ -113,11 +115,11 @@ export function generatePasskeyRegistrationOptions(user: { id: string | number; 
 }
 
 export async function verifyPasskeyRegistration(response: any, expectedChallenge: string) {
-  const { rpID, origin } = getWebAuthnConfig();
+  const { rpID, expectedOrigins } = getWebAuthnConfig();
   const verification = await verifyRegistrationResponse({
     response,
     expectedChallenge,
-    expectedOrigin: origin,
+    expectedOrigin: expectedOrigins,
     expectedRPID: rpID,
   } as any).catch((e) => ({ verified: false, error: (e as Error).message }));
 
@@ -137,12 +139,12 @@ export function generatePasskeyAuthenticationOptions(allowCredentials: Array<any
 }
 
 export async function verifyPasskeyAuthentication(response: any, expectedChallenge: string, credential: any) {
-  const { rpID, origin } = getWebAuthnConfig();
+  const { rpID, expectedOrigins } = getWebAuthnConfig();
   // credential should include publicKey and previous signCount
   const verification = await verifyAuthenticationResponse({
     response,
     expectedChallenge,
-    expectedOrigin: origin,
+    expectedOrigin: expectedOrigins,
     expectedRPID: rpID,
     authenticator: {
       credentialID: credential?.credentialId,

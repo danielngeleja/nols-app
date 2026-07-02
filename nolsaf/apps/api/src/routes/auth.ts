@@ -12,6 +12,7 @@ import { addPasswordToHistory, getPasswordChangeCooldownRemaining, isPasswordReu
 import { validatePasswordWithSettings } from '../lib/securitySettings.js';
 import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
 import { signUserJwt, setAuthCookie, clearAuthCookie } from '../lib/sessionManager.js';
+import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
@@ -1871,8 +1872,7 @@ function normalizeBase64Url(input: unknown): string {
 /** POST /api/auth/passkeys/options — returns WebAuthn authentication options (discoverable) */
 router.post('/passkeys/options', async (req, res) => {
   try {
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID } = getWebAuthnRp();
 
     const options = await generateAuthenticationOptions({
       timeout: 60000,
@@ -1935,15 +1935,14 @@ router.post('/passkeys/verify', async (req, res) => {
       });
     }
 
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const rpID = new URL(origin).hostname;
+    const { rpID, expectedOrigins } = getWebAuthnRp();
 
     let verification: any = null;
     try {
       verification = await (verifyAuthenticationResponse as any)({
         response, // the full assertion object
         expectedChallenge: entry.challenge,
-        expectedOrigin: origin,
+        expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
         authenticator: {
           credentialID: stored.credentialId,
@@ -1985,7 +1984,9 @@ router.post('/passkeys/verify', async (req, res) => {
     const token = await signUserJwt({ id: (user as any).id, role: (user as any).role, email: (user as any).email });
     await setAuthCookie(res, token, (user as any).role);
 
-    return res.json({ ok: true, user: { id: (user as any).id, role: (user as any).role } });
+    // Native apps cannot read the httpOnly cookie; they consume the token from
+    // the body (same contract as the OTP login response).
+    return res.json({ ok: true, token, user: { id: (user as any).id, role: (user as any).role } });
   } catch {
     return res.status(500).json({ error: 'failed' });
   }
