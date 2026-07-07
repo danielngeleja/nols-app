@@ -11,11 +11,19 @@ export type ApiError = Error & {
   payload?: unknown;
 };
 
+type UnauthorizedHandler = (error: ApiError) => void | Promise<void>;
+
 let configuredApiUrl = "";
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+let unauthorizedNotificationInFlight = false;
 
 /** Configures the API base URL used by apiRequest/apiUploadFile. Call once per app at startup. */
 export function configureApiClient(config: { apiUrl: string }) {
   configuredApiUrl = config.apiUrl;
+}
+
+export function configureUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
 }
 
 /**
@@ -24,7 +32,7 @@ export function configureApiClient(config: { apiUrl: string }) {
  * machine-readable code (e.g. "password_reused", "weak_password"), in which case the
  * provided fallback is used instead.
  */
-export function getErrorMessage(error: unknown, fallback: string): string {
+export function getErrorMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {
   const payload = (error as ApiError | undefined)?.payload as { reasons?: unknown } | undefined;
   if (Array.isArray(payload?.reasons) && payload!.reasons.length) {
     return payload!.reasons.map(String).join(" ");
@@ -88,10 +96,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
           ? String((payload as { error?: unknown }).error)
           : `Request failed with status ${response.status}`;
 
-    throw Object.assign(new Error(message), {
+    const apiError = Object.assign(new Error(message), {
       status: response.status,
       payload
     }) as ApiError;
+    notifyUnauthorized(apiError);
+    throw apiError;
   }
 
   return payload as T;
@@ -146,7 +156,9 @@ export async function apiUploadFile<T>(
         : typeof payload === "object" && payload && "error" in payload
           ? String((payload as { error?: unknown }).error)
           : `Upload failed with status ${response.status}`;
-    throw Object.assign(new Error(message), { status: response.status, payload }) as ApiError;
+    const apiError = Object.assign(new Error(message), { status: response.status, payload }) as ApiError;
+    notifyUnauthorized(apiError);
+    throw apiError;
   }
 
   return payload as T;
@@ -158,4 +170,15 @@ function safeJson(text: string) {
   } catch {
     return text;
   }
+}
+
+function notifyUnauthorized(error: ApiError) {
+  if (error.status !== 401 || !unauthorizedHandler) return;
+  // Any authenticated 401 means the stored session cannot continue. Clear it
+  // centrally so screens do not sit in local retry loops with a dead token.
+  if (unauthorizedNotificationInFlight) return;
+  unauthorizedNotificationInFlight = true;
+  void Promise.resolve(unauthorizedHandler(error)).finally(() => {
+    unauthorizedNotificationInFlight = false;
+  });
 }
