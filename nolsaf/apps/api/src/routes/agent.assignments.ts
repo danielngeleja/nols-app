@@ -7,7 +7,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { audit } from "../lib/audit.js";
-import { notifyAdmins } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../lib/notifications.js";
 import {
   limitAgentNotifyAdmin,
   limitAgentPortalRead,
@@ -1686,8 +1686,10 @@ router.get(
     const totalTripsTour = tourDerived.length;
     const completedTripsTour = tourDerived.filter((t) => t.isCompleted).length;
     const paidRevenueTour = tourDerived.filter((t) => t.paid).reduce((s, t) => s + t.operatorPayout, 0);
+    // Disbursement Policy 1.1: paid bookings are claimable before the tour
+    // runs, so pending revenue covers every paid booking not yet disbursed.
     const pendingPayoutTour = tourDerived
-      .filter((t) => t.isCompleted && !t.payoutSettled)
+      .filter((t) => t.paid && !t.payoutSettled)
       .reduce((s, t) => s + t.operatorPayout, 0);
     const totalCommissionTour = tourDerived.filter((t) => t.paid).reduce((s, t) => s + t.commissionAmount, 0);
 
@@ -1861,24 +1863,10 @@ router.post(
       return res.status(404).json({ ok: false, error: "tour_code_not_found", message: "Tour code was not found for your account" });
     }
 
-    const statusUpper = String(booking.status || "").toUpperCase();
-    const metadata = booking.metadata && typeof booking.metadata === "object" && !Array.isArray(booking.metadata)
-      ? (booking.metadata as Record<string, any>)
-      : ({} as Record<string, any>);
-    const lockedAt = metadata?.activityProgress?.lockedAt;
-    const completed = Boolean(
-      booking.completedAt ||
-      lockedAt ||
-      statusUpper.includes("COMPLETE") ||
-      statusUpper.includes("DONE") ||
-      statusUpper.includes("FINISHED") ||
-      statusUpper.includes("CHECKED_OUT")
-    );
-
-    if (!completed) {
-      return res.status(400).json({ ok: false, error: "invalid_status", message: "Only completed trips can be claimed" });
-    }
-
+    // Disbursement Policy 1.1: eligibility arises upon customer payment
+    // confirmation and does not require completion of the tour. The findMany
+    // above is already restricted to paid bookings (paidTourBookingWhere), so
+    // any booking found here is eligible unless it was already claimed.
     const payoutStatusUpper = String(booking.payoutStatus || "").toUpperCase();
     const alreadyClaimed = Boolean(
       booking.payoutRequestedAt ||
@@ -2562,6 +2550,240 @@ router.post(
     });
 
     return res.json({ ok: true, completionRating });
+  })
+);
+
+// ============================================================
+// GET /api/agent/tour-bookings/:id/travellers
+// Returns the traveller roster and their documents for a booking.
+// ============================================================
+router.get(
+  "/tour-bookings/:id/travellers",
+  requireRole("AGENT") as RequestHandler,
+  limitAgentPortalRead as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+    const agent = gate.agent;
+
+    const paramsParsed = idParamsSchema.safeParse(req.params || {});
+    if (!paramsParsed.success) return res.status(400).json({ error: "Invalid id" });
+
+    const idNum = Number(paramsParsed.data.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid id" });
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: idNum, operatorAgentId: agent.id, ...paidTourBookingWhere() },
+      select: {
+        id: true,
+        bookingCode: true,
+        title: true,
+        destination: true,
+        travelerCount: true,
+        guestName: true,
+        guestEmail: true,
+        guestPhone: true,
+        nationality: true,
+        startDate: true,
+        status: true,
+        metadata: true,
+      },
+    });
+    if (!booking) return res.status(404).json({ error: "Not found" });
+
+    const md = booking.metadata && typeof booking.metadata === "object" && !Array.isArray(booking.metadata)
+      ? (booking.metadata as Record<string, any>)
+      : ({} as Record<string, any>);
+    const members = Array.isArray(md.groupMembers) ? md.groupMembers : [];
+
+    return res.json({
+      ok: true,
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      title: booking.title,
+      destination: booking.destination || null,
+      startDate: booking.startDate ? booking.startDate.toISOString() : null,
+      status: booking.status,
+      travelerCount: booking.travelerCount,
+      leadGuest: {
+        fullName: booking.guestName || null,
+        email: booking.guestEmail || null,
+        phone: booking.guestPhone || null,
+        nationality: booking.nationality || null,
+      },
+      members: members.map((m: any) => {
+        let docs: Array<Record<string, unknown>> = [];
+        if (Array.isArray(m.documents) && m.documents.length > 0) {
+          docs = m.documents.map((d: any) => ({
+            id: d.id || null,
+            type: d.type || null,
+            label: d.label || null,
+            number: d.number || null,
+            url: d.url || null,
+            fileName: d.fileName || null,
+            uploadedAt: d.uploadedAt || null,
+          }));
+        } else if (m.documentUrl) {
+          docs = [{
+            id: "legacy-doc",
+            type: m.documentType || null,
+            label: null,
+            number: m.documentNumber || null,
+            url: m.documentUrl,
+            fileName: m.documentFileName || null,
+            uploadedAt: m.createdAt || null,
+          }];
+        }
+        return {
+          id: m.id || null,
+          fullName: m.fullName || null,
+          nationality: m.nationality || null,
+          phone: m.phone || null,
+          relation: m.relation || null,
+          photoUrl: m.photoUrl || null,
+          documents: docs,
+          permitStatus: m.permitStatus || "NOT_STARTED",
+          permitNote: m.permitNote || null,
+          permitUpdatedAt: m.permitUpdatedAt || null,
+          createdAt: m.createdAt || null,
+        };
+      }),
+    });
+  })
+);
+
+const permitStatusSchema = z.object({
+  permitStatus: z.enum(["NOT_STARTED", "PROCESSING", "APPROVED", "REJECTED"]),
+  permitNote: z.string().max(500).optional().default(""),
+});
+
+// ============================================================
+// PATCH /api/agent/tour-bookings/:id/travellers/:memberId/permit-status
+// Operator updates the permit processing status for a traveller.
+// ============================================================
+router.patch(
+  "/tour-bookings/:id/travellers/:memberId/permit-status",
+  requireRole("AGENT") as RequestHandler,
+  limitAgentProfileWrite as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+    const agent = gate.agent;
+
+    const paramsParsed = idParamsSchema.safeParse(req.params || {});
+    if (!paramsParsed.success) return res.status(400).json({ error: "Invalid id" });
+
+    const idNum = Number(paramsParsed.data.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid id" });
+
+    const memberId = String(req.params?.memberId || "").trim();
+    if (!memberId) return res.status(400).json({ error: "Missing member id" });
+
+    const bodyParsed = permitStatusSchema.safeParse(req.body || {});
+    if (!bodyParsed.success) {
+      return res.status(400).json({ error: "Invalid payload", details: bodyParsed.error.flatten() });
+    }
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: idNum, operatorAgentId: agent.id, ...paidTourBookingWhere() },
+      select: { id: true, metadata: true },
+    });
+    if (!booking) return res.status(404).json({ error: "Not found" });
+
+    const md = booking.metadata && typeof booking.metadata === "object" && !Array.isArray(booking.metadata)
+      ? ({ ...(booking.metadata as any) } as Record<string, any>)
+      : ({} as Record<string, any>);
+    const members = Array.isArray(md.groupMembers) ? [...md.groupMembers] : [];
+
+    const memberIndex = members.findIndex((m: any) => String(m.id) === memberId);
+    if (memberIndex < 0) return res.status(404).json({ error: "Traveller not found" });
+
+    const nowIso = new Date().toISOString();
+    members[memberIndex] = {
+      ...members[memberIndex],
+      permitStatus: bodyParsed.data.permitStatus,
+      permitNote: bodyParsed.data.permitNote?.trim() || null,
+      permitUpdatedAt: nowIso,
+      permitUpdatedByAgentId: agent.id,
+    };
+    md.groupMembers = members;
+
+    await prisma.tourBooking.update({
+      where: { id: booking.id },
+      data: { metadata: md as any },
+      select: { id: true },
+    });
+
+    return res.json({
+      ok: true,
+      member: {
+        id: members[memberIndex].id,
+        fullName: members[memberIndex].fullName || null,
+        permitStatus: members[memberIndex].permitStatus,
+        permitNote: members[memberIndex].permitNote,
+        permitUpdatedAt: nowIso,
+      },
+    });
+  })
+);
+
+// ============================================================
+// POST /api/agent/tour-bookings/:id/travellers/:memberId/document-concern
+// Operator raises a document concern and notifies the customer.
+// ============================================================
+const documentConcernSchema = z.object({
+  message: z.string().min(5).max(500),
+  concernType: z.enum(["MISSING_DOCUMENT", "MISMATCH", "EXPIRED", "UNREADABLE", "OTHER"]).default("OTHER"),
+});
+
+router.post(
+  "/tour-bookings/:id/travellers/:memberId/document-concern",
+  requireRole("AGENT") as RequestHandler,
+  limitAgentProfileWrite as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+    const agent = gate.agent;
+
+    const paramsParsed = idParamsSchema.safeParse(req.params || {});
+    if (!paramsParsed.success) return res.status(400).json({ error: "Invalid id" });
+
+    const idNum = Number(paramsParsed.data.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid id" });
+
+    const memberId = String(req.params?.memberId || "").trim();
+    if (!memberId) return res.status(400).json({ error: "Missing member id" });
+
+    const bodyParsed = documentConcernSchema.safeParse(req.body || {});
+    if (!bodyParsed.success) {
+      return res.status(400).json({ error: "Invalid payload", details: bodyParsed.error.flatten() });
+    }
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: idNum, operatorAgentId: agent.id, ...paidTourBookingWhere() },
+      select: { id: true, bookingCode: true, customerId: true, metadata: true },
+    });
+    if (!booking) return res.status(404).json({ error: "Not found" });
+    if (!booking.customerId) return res.status(400).json({ error: "No customer linked to this booking" });
+
+    const md = booking.metadata && typeof booking.metadata === "object" && !Array.isArray(booking.metadata)
+      ? (booking.metadata as Record<string, any>)
+      : ({} as Record<string, any>);
+    const members = Array.isArray(md.groupMembers) ? md.groupMembers : [];
+    const member = members.find((m: any) => String(m.id) === memberId);
+    if (!member) return res.status(404).json({ error: "Traveller not found" });
+
+    await notifyUser(booking.customerId, "document_concern", {
+      bookingCode: booking.bookingCode || "",
+      bookingId: booking.id,
+      memberName: member.fullName || "a traveller",
+      memberId,
+      concernType: bodyParsed.data.concernType,
+      message: bodyParsed.data.message.trim(),
+      operatorAgentId: agent.id,
+    });
+
+    return res.json({ ok: true, sent: true });
   })
 );
 

@@ -1679,6 +1679,7 @@ model SystemSetting {
   sessionMaxMinutesOwner Int?
   sessionMaxMinutesDriver Int?
   sessionMaxMinutesCustomer Int?
+  sessionMaxMinutesAgent Int?
 
   /// Maximum session duration in hours
   maxSessionDurationHours Int? @default(24)

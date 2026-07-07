@@ -255,6 +255,14 @@ export default function RegisterPage() {
     return v;
   };
 
+  const loginAppForRoleParam = (): 'CUSTOMER' | 'DRIVER' | 'PARTNERS' | 'ADMIN' | undefined => {
+    if (roleParam === 'driver') return 'DRIVER';
+    if (roleParam === 'owner' || roleParam === 'partner' || roleParam === 'partners' || roleParam === 'agent') return 'PARTNERS';
+    if (roleParam === 'admin') return 'ADMIN';
+    if (roleParam === 'traveller' || roleParam === 'customer' || roleParam === 'user') return 'CUSTOMER';
+    return undefined;
+  };
+
   // Register state
   const [role, setRole] = useState<'traveller' | 'driver' | 'owner'>('traveller');
   const [countryCode, setCountryCode] = useState<string>('+255');
@@ -357,7 +365,7 @@ export default function RegisterPage() {
       const verifyRes = await fetch('/api/auth/passkeys/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, response: assertion }),
+        body: JSON.stringify({ sessionId, response: assertion, ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}) }),
         credentials: 'include',
       });
       if (!verifyRes.ok) {
@@ -1165,7 +1173,11 @@ export default function RegisterPage() {
                             method: 'POST',
                             credentials: 'include',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email, password: loginPassword }),
+                            body: JSON.stringify({
+                              email,
+                              password: loginPassword,
+                              ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}),
+                            }),
                           });
                           const data = await r.json().catch(() => ({}));
                           if (!r.ok) {
@@ -1304,6 +1316,7 @@ export default function RegisterPage() {
                           const response = await api.post('/api/auth/verify-otp', {
                             phone: normalizeLoginPhone(loginPhone, loginCountryCode),
                             otp: loginOtp.trim(),
+                            ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}),
                           });
                           
                           if (response.status === 200) {
@@ -1398,7 +1411,7 @@ export default function RegisterPage() {
       const resp = await fetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: `${forgotCountryCode}${forgotPhone}` }),
+        body: JSON.stringify({ phone: `${forgotCountryCode}${forgotPhone}`, role: 'RESET' }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -1577,7 +1590,7 @@ export default function RegisterPage() {
                 <Mail className="w-8 h-8 text-emerald-600 mx-auto mb-2" />
                 <h3 className="text-sm font-semibold text-emerald-800 mb-1">Check your email</h3>
                 <p className="text-xs text-emerald-700 break-words">
-                  If an account with <span className="font-semibold">{forgotEmail}</span> exists, a reset link has been sent.
+                  A reset link has been sent to <span className="font-semibold">{forgotEmail}</span>.
                 </p>
               </div>
               <button

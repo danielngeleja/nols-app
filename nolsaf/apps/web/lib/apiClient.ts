@@ -36,6 +36,7 @@ function writeCsrfToken(token: string): void {
 const MUTATION_METHODS = new Set(["post", "put", "patch", "delete"]);
 
 const apiClient = axios.create({ baseURL: "", withCredentials: true });
+let authRedirectInFlight = false;
 
 apiClient.interceptors.request.use((config) => {
   config.headers = config.headers ?? {};
@@ -50,13 +51,22 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-apiClient.interceptors.response.use((response) => {
-  const csrfHeader = response.headers["x-csrf-token"];
-  if (csrfHeader) {
-    writeCsrfToken(csrfHeader);
+apiClient.interceptors.response.use(
+  (response) => {
+    const csrfHeader = response.headers["x-csrf-token"];
+    if (csrfHeader) {
+      writeCsrfToken(csrfHeader);
+    }
+    return response;
+  },
+  async (error) => {
+    const status = error?.response?.status;
+    if (status === 401 && shouldForceBrowserLogout(error)) {
+      await forceBrowserLogout();
+    }
+    return Promise.reject(error);
   }
-  return response;
-});
+);
 
 export function saveAuthToken(token: string | null | undefined): void {
   void token;
@@ -69,6 +79,50 @@ export function clearAuthToken(): void {
   } catch {
     // ignore
   }
+}
+
+function shouldForceBrowserLogout(error: any): boolean {
+  const code = error?.response?.data?.code;
+  if (code === "SESSION_EXPIRED" || code === "SESSION_REVOKED") return true;
+
+  const url = String(error?.config?.url || "");
+  if (isAuthEntryPath(url)) return false;
+  return true;
+}
+
+function isAuthEntryPath(url: string): boolean {
+  return (
+    url.includes("/api/auth/login") ||
+    url.includes("/api/auth/login-password") ||
+    url.includes("/api/auth/register") ||
+    url.includes("/api/auth/send-otp") ||
+    url.includes("/api/auth/verify-otp") ||
+    url.includes("/api/auth/forgot-password") ||
+    url.includes("/api/auth/reset-password") ||
+    url.includes("/api/auth/passkeys")
+  );
+}
+
+async function forceBrowserLogout(): Promise<void> {
+  if (authRedirectInFlight || typeof window === "undefined") return;
+  authRedirectInFlight = true;
+  clearAuthToken();
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch {
+    // Redirect even if clearing the server cookie fails; the current token is dead.
+  }
+  window.location.replace(getLoginPathForCurrentRoute());
+}
+
+function getLoginPathForCurrentRoute(): string {
+  if (typeof window === "undefined") return "/account/login";
+  const path = window.location.pathname;
+  if (path.startsWith("/admin")) return "/admin/login";
+  if (path.startsWith("/owner")) return "/owner/login";
+  if (path.startsWith("/driver")) return "/driver/login";
+  if (path.startsWith("/account/agent")) return "/account/login";
+  return "/account/login";
 }
 
 export default apiClient;

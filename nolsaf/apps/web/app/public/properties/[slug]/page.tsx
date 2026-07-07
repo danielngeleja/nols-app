@@ -4025,7 +4025,7 @@ export default function PublicPropertyDetailPage() {
           >
             {/* Sticky top bar (always visible) */}
             <div className="sticky top-0 z-10 border-b border-slate-200 bg-white">
-              <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 pr-5 sm:px-6 sm:py-4 lg:px-8">
+              <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
                 <div className="min-w-0 leading-tight">
                   <div className="truncate text-base font-bold text-slate-950 sm:text-lg">All photos</div>
                   <div className="mt-1 text-xs text-slate-500 sm:text-sm">{lightboxImages.length.toLocaleString()} photos</div>
@@ -4042,15 +4042,16 @@ export default function PublicPropertyDetailPage() {
             </div>
             {/* Content */}
             <div className="flex-1 overflow-y-auto bg-white">
-              <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+              <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6">
                 <div
                   className={[
-                    "grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4",
+                    "grid grid-cols-2 gap-2 sm:gap-3",
                     "transition-transform duration-200 ease-out motion-reduce:transition-none",
                     allPhotosShown ? "translate-y-0" : "translate-y-1",
                   ].join(" ")}
                 >
                   {lightboxImages.map((src, i) => {
+                    const isFeature = i % 3 === 0;
                     return (
                       <button
                         key={`${src}-${i}`}
@@ -4058,17 +4059,25 @@ export default function PublicPropertyDetailPage() {
                         onClick={() => openFromGrid(i)}
                         className={[
                           "group relative w-full",
-                          "overflow-hidden rounded-lg bg-slate-100",
-                          "ring-1 ring-slate-200/80 hover:ring-slate-300",
+                          isFeature ? "col-span-2" : "",
+                          "overflow-hidden rounded-xl bg-slate-100",
                           "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
                           "motion-safe:active:scale-[0.99]",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
                         ].join(" ")}
                         aria-label={`Open photo ${i + 1}`}
                       >
-                        <div className="relative w-full aspect-[4/3] bg-slate-100">
-                          <PropertyGalleryImage src={src} alt={`${property.title} photo ${i + 1}`} sizes="(min-width: 1024px) 260px, 50vw" className="object-cover" />
+                        <div className={["relative w-full bg-slate-100", isFeature ? "aspect-[16/10]" : "aspect-[4/3]"].join(" ")}>
+                          <PropertyGalleryImage
+                            src={src}
+                            alt={`${property.title} photo ${i + 1}`}
+                            sizes={isFeature ? "(min-width: 1024px) 896px, 100vw" : "(min-width: 1024px) 440px, 50vw"}
+                            className="object-cover"
+                          />
                           <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/10" />
+                          <div className="absolute bottom-2 right-2 rounded-full bg-black/45 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                            {i + 1} / {lightboxImages.length}
+                          </div>
                         </div>
                       </button>
                     );

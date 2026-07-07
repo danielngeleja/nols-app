@@ -17,7 +17,7 @@ import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
 import { maybeAuth, requireAuth } from '../middleware/auth.js';
-import { limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
+import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
@@ -306,6 +306,130 @@ function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RES
   return null;
 }
 
+type ResetAppContext = 'DRIVER' | 'PARTNERS' | 'CUSTOMER' | null;
+type LoginAppContext = 'DRIVER' | 'PARTNERS' | 'CUSTOMER' | 'ADMIN' | null;
+
+function normalizeAccountRole(input: any): string {
+  const v = String(input ?? '').trim().toUpperCase();
+  if (v === 'TRAVELLER' || v === 'TRAVELER' || v === 'USER') return 'CUSTOMER';
+  return v;
+}
+
+function normalizeResetAppContext(input: any): ResetAppContext {
+  const v = String(input ?? '').trim().toUpperCase();
+  if (v === 'DRIVER' || v === 'DRIVER_APP') return 'DRIVER';
+  if (v === 'PARTNER' || v === 'PARTNERS' || v === 'PARTNERS_APP' || v === 'OWNER' || v === 'AGENT') return 'PARTNERS';
+  if (v === 'CUSTOMER' || v === 'CUSTOMER_APP' || v === 'WEB') return 'CUSTOMER';
+  return null;
+}
+
+function normalizeLoginAppContext(input: any): LoginAppContext {
+  const v = String(input ?? '').trim().toUpperCase();
+  if (v === 'ADMIN' || v === 'ADMIN_APP') return 'ADMIN';
+  return normalizeResetAppContext(input);
+}
+
+function getResetAppRoleError(accountRoleInput: any, resetAppInput: any): { error: string; message: string; action: string } | null {
+  const resetApp = normalizeResetAppContext(resetAppInput);
+  if (!resetApp) return null;
+
+  const accountRole = normalizeAccountRole(accountRoleInput);
+  const allowed =
+    resetApp === 'DRIVER' ? accountRole === 'DRIVER' :
+    resetApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' :
+    accountRole === 'CUSTOMER';
+
+  if (allowed) return null;
+
+  if (accountRole === 'ADMIN') {
+    return {
+      error: 'admin_reset_restricted',
+      message: 'Admin password resets require NoLSAF security approval. Please contact another active admin or NoLSAF security support.',
+      action: 'contact_security',
+    };
+  }
+
+  if (accountRole === 'DRIVER') {
+    return {
+      error: 'wrong_reset_app',
+      message: 'This account is registered as a driver. Please reset your password in the NoLSAF Driver app.',
+      action: 'use_driver_app',
+    };
+  }
+
+  if (accountRole === 'OWNER' || accountRole === 'AGENT') {
+    return {
+      error: 'wrong_reset_app',
+      message: 'This account is registered for NoLSAF Partners. Please reset your password in the NoLSAF Partners app.',
+      action: 'use_partners_app',
+    };
+  }
+
+  return {
+    error: 'wrong_reset_app',
+    message: 'This account is registered as a traveller. Please reset your password from the main NoLSAF account sign-in.',
+    action: 'use_customer_account',
+  };
+}
+
+function getResetRolePolicyError(accountRoleInput: any): { error: string; message: string; action: string } | null {
+  const accountRole = normalizeAccountRole(accountRoleInput);
+  if (accountRole !== 'ADMIN') return null;
+  return {
+    error: 'admin_reset_restricted',
+    message: 'Admin password resets require NoLSAF security approval. Please contact another active admin or NoLSAF security support.',
+    action: 'contact_security',
+  };
+}
+
+function getLoginAppRoleError(accountRoleInput: any, loginAppInput: any): { error: string; code: string; message: string; action: string } | null {
+  const loginApp = normalizeLoginAppContext(loginAppInput);
+  if (!loginApp) return null;
+
+  const accountRole = normalizeAccountRole(accountRoleInput);
+  const allowed =
+    loginApp === 'DRIVER' ? accountRole === 'DRIVER' :
+    loginApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' :
+    loginApp === 'ADMIN' ? accountRole === 'ADMIN' :
+    accountRole === 'CUSTOMER';
+
+  if (allowed) return null;
+
+  if (accountRole === 'ADMIN') {
+    return {
+      error: 'wrong_login_app',
+      code: 'WRONG_LOGIN_APP',
+      message: 'This account is registered as an admin. Please sign in with the NoLSAF Admin portal.',
+      action: 'use_admin_portal',
+    };
+  }
+
+  if (accountRole === 'DRIVER') {
+    return {
+      error: 'wrong_login_app',
+      code: 'WRONG_LOGIN_APP',
+      message: 'This account is registered as a driver. Please sign in with the NoLSAF Driver app.',
+      action: 'use_driver_app',
+    };
+  }
+
+  if (accountRole === 'OWNER' || accountRole === 'AGENT') {
+    return {
+      error: 'wrong_login_app',
+      code: 'WRONG_LOGIN_APP',
+      message: 'This account is registered for NoLSAF Partners. Please sign in with the NoLSAF Partners app.',
+      action: 'use_partners_app',
+    };
+  }
+
+  return {
+    error: 'wrong_login_app',
+    code: 'WRONG_LOGIN_APP',
+    message: 'This account is registered as a traveller. Please sign in from the main NoLSAF account app or website.',
+    action: 'use_customer_account',
+  };
+}
+
 function getJwtSecret(): string {
   return (
     process.env.JWT_SECRET ||
@@ -390,11 +514,33 @@ function resolveOtpDestination(body: any):
   return { error: 'phone or email required' };
 }
 
+// POST /api/auth/reset-account-check
+// Pre-flight for the forgot-password flow: reports whether the phone or email
+// holds an account, so clients never show a "code sent" screen for a
+// destination that can never receive one. Existence is already disclosed by
+// the signup 409 path, so this adds no new exposure; the per-IP rate limit
+// keeps bulk enumeration slow.
+router.post('/reset-account-check', limitAccountCheck, async (req, res) => {
+  const resolved = resolveOtpDestination(req.body);
+  if ('error' in resolved) return res.status(400).json({ message: resolved.error });
+  const { channel, destination } = resolved;
+  const destinationWhere = channel === 'PHONE' ? { phone: destination } : { email: destination };
+  try {
+    const existing = await prisma.user.findFirst({ where: destinationWhere, select: { id: true } });
+    return res.json({ ok: true, exists: Boolean(existing) });
+  } catch {
+    return res.status(503).json({
+      error: 'database_unavailable',
+      message: 'Unable to check this account right now. Please try again.',
+    });
+  }
+});
+
 // POST /api/auth/send-otp
 // Accepts { phone } OR { email } as the OTP destination, plus optional { role }.
 // Rate limited: 3 requests per destination per 15 minutes
 router.post('/send-otp', limitOtpSend, async (req, res) => {
-  const { role } = req.body || {};
+  const { role, resetApp } = req.body || {};
   const resolved = resolveOtpDestination(req.body);
   if ('error' in resolved) return res.status(400).json({ message: resolved.error });
   const { channel, destination } = resolved;
@@ -450,13 +596,28 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
     try {
       const existing = await prisma.user.findFirst({
         where: destinationWhere,
-        select: { id: true },
+        select: { id: true, role: true },
       });
       if (!existing) {
-        return res.json(genericOtpResponse);
+        return res.status(404).json({
+          error: 'account_not_found',
+          message: `No account found for this ${destinationLabel}. Please check the details or register first.`,
+          action: 'register',
+        });
+      }
+      const rolePolicyError = getResetRolePolicyError(existing.role);
+      if (rolePolicyError) {
+        return res.status(403).json(rolePolicyError);
+      }
+      const appRoleError = getResetAppRoleError(existing.role, resetApp);
+      if (appRoleError) {
+        return res.status(409).json(appRoleError);
       }
     } catch {
-      // If the DB is temporarily unavailable, fall through and attempt the send.
+      return res.status(503).json({
+        error: 'database_unavailable',
+        message: 'Unable to check this account right now. Please try again.',
+      });
     }
   }
 
@@ -565,7 +726,7 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
 // Accepts { phone } OR { email } as the OTP destination, plus { otp } and optional { role }.
 // Rate limited: 10 verification attempts per destination per 15 minutes
 router.post('/verify-otp', limitOtpVerify, async (req, res) => {
-  const { otp, role } = req.body || {};
+  const { otp, role, loginApp } = req.body || {};
   if (!otp) return res.status(400).json({ message: 'otp required' });
 
   const resolved = resolveOtpDestination(req.body);
@@ -647,6 +808,11 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
         });
       }
 
+      const loginAppRoleError = getLoginAppRoleError(existing.role, loginApp);
+      if (loginAppRoleError) {
+        return res.status(403).json(loginAppRoleError);
+      }
+
       // Mark the destination as verified on successful login OTP.
       try {
         await prisma.user.update({
@@ -692,6 +858,10 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
       const user = await prisma.user.findFirst({ where: destinationWhere });
       if (!user) {
         return res.status(400).json({ message: 'Unable to reset password with this verification code.' });
+      }
+      const rolePolicyError = getResetRolePolicyError((user as any).role);
+      if (rolePolicyError) {
+        return res.status(403).json(rolePolicyError);
       }
       const raw = crypto.randomBytes(24).toString('hex');
       const hashed = crypto.createHash('sha256').update(raw).digest('hex');
@@ -791,7 +961,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     res.setHeader('Content-Type', 'application/json');
   
   try {
-    const { email, password } = req.body || {};
+    const { email, password, loginApp } = req.body || {};
     if (typeof email !== "string" || typeof password !== "string") {
       return res.status(400).json({
         error: "invalid_login_input",
@@ -978,6 +1148,11 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
         message: 'This account cannot access NoLSAF at the moment.',
         blockedAccount: buildBlockedAccountPayload(user),
       });
+    }
+
+    const loginAppRoleError = getLoginAppRoleError(user.role, loginApp);
+    if (loginAppRoleError) {
+      return res.status(403).json(loginAppRoleError);
     }
 
     // Successful login - clear failed attempts
@@ -1893,7 +2068,7 @@ router.post('/passkeys/options', async (req, res) => {
 /** POST /api/auth/passkeys/verify — verifies assertion and issues session cookie */
 router.post('/passkeys/verify', async (req, res) => {
   try {
-    const { sessionId, response } = (req.body ?? {}) as any;
+    const { sessionId, response, loginApp } = (req.body ?? {}) as any;
     if (!sessionId || !response) return res.status(400).json({ error: 'invalid payload' });
 
     const entry = await getPasskeyLoginChallenge(String(sessionId));
@@ -1981,6 +2156,11 @@ router.post('/passkeys/verify', async (req, res) => {
       });
     }
 
+    const loginAppRoleError = getLoginAppRoleError((user as any).role, loginApp);
+    if (loginAppRoleError) {
+      return res.status(403).json(loginAppRoleError);
+    }
+
     const token = await signUserJwt({ id: (user as any).id, role: (user as any).role, email: (user as any).email });
     await setAuthCookie(res, token, (user as any).role);
 
@@ -1996,7 +2176,7 @@ export default router;
 
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
-  const { email, phone } = req.body || {};
+  const { email, phone, resetApp } = req.body || {};
   if (!email && !phone) return res.status(400).json({ message: 'email or phone required' });
 
   const normalizedPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
@@ -2008,7 +2188,20 @@ router.post('/forgot-password', async (req, res) => {
     });
     
     if (!user) {
-      return res.json({ ok: true, message: 'If an account exists, an email/SMS has been sent.' });
+      return res.status(404).json({
+        error: 'account_not_found',
+        message: `No account found for this ${email ? 'email address' : 'phone number'}. Please check the details or register first.`,
+        action: 'register',
+      });
+    }
+
+    const rolePolicyError = getResetRolePolicyError((user as any).role);
+    if (rolePolicyError) {
+      return res.status(403).json(rolePolicyError);
+    }
+    const appRoleError = getResetAppRoleError((user as any).role, resetApp);
+    if (appRoleError) {
+      return res.status(409).json(appRoleError);
     }
 
     // generate raw token and a hashed token for storage
@@ -2044,7 +2237,7 @@ router.post('/forgot-password', async (req, res) => {
       }
     }
 
-    return res.json({ ok: true, message: 'If an account exists, an email/SMS has been sent.' });
+    return res.json({ ok: true, message: 'Password reset instructions sent. Please check your email or phone.' });
   } catch (err) {
     console.error('forgot-password error', err);
     return res.status(500).json({ message: 'failed' });
@@ -2094,6 +2287,11 @@ router.post('/reset-password', async (req, res) => {
     if (!user) {
       // no user found, still return generic
       return res.status(400).json({ message: 'invalid token or user' });
+    }
+
+    const rolePolicyError = getResetRolePolicyError(user.role);
+    if (rolePolicyError) {
+      return res.status(403).json(rolePolicyError);
     }
 
     // DoS protection: shared with /account/password/change so the cooldown can't be
