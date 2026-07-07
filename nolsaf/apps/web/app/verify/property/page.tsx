@@ -118,7 +118,7 @@ function ValidView({ certificate }: { certificate: Certificate }) {
   const { property, verification } = certificate;
   const certId = `NLS-P-${property.id}`;
   return (
-    <div className="px-6 py-8 text-center sm:px-8 sm:py-10">
+    <div className="px-5 py-8 text-center sm:px-8 sm:py-10">
       <div
         className="mx-auto grid h-[76px] w-[76px] place-items-center rounded-full text-white shadow-[0_20px_44px_-22px_rgba(2,102,94,0.95)]"
         style={{ background: `linear-gradient(155deg, #0b7568, ${BRAND} 55%, #023f39)` }}
@@ -134,7 +134,7 @@ function ValidView({ certificate }: { certificate: Certificate }) {
         <span>{property.location || "Location not listed"}</span>
       </div>
 
-      <dl className="mx-auto mt-7 max-w-md rounded-3xl bg-white px-6 shadow-[0_26px_60px_-40px_rgba(15,23,42,0.45)]">
+      <dl className="mx-auto mt-7 max-w-md rounded-3xl bg-white px-5 shadow-[0_26px_60px_-40px_rgba(15,23,42,0.45)] sm:px-6">
         <Row label="Status" value="Verified" accent />
         <Row label="Checked on" value={formatDate(verification.verifiedAt)} />
         <Row label="Checked by" value={verification.verifiedBy || "NoLSAF Admin"} last />
@@ -163,9 +163,9 @@ function ValidView({ certificate }: { certificate: Certificate }) {
 
 function Row({ label, value, accent, last }: { label: string; value: string; accent?: boolean; last?: boolean }) {
   return (
-    <div className={`flex items-center justify-between gap-4 py-4 text-left ${last ? "" : "border-b border-slate-100"}`}>
-      <dt className="text-[12px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</dt>
-      <dd className={`text-lg font-black ${accent ? "text-[#02665e]" : "text-slate-900"}`}>{value || "Not available"}</dd>
+    <div className={`flex items-center justify-between gap-3 py-3.5 text-left sm:py-4 ${last ? "" : "border-b border-slate-100"}`}>
+      <dt className="whitespace-nowrap text-[11px] font-black uppercase tracking-[0.12em] text-slate-400 sm:text-[12px] sm:tracking-[0.16em]">{label}</dt>
+      <dd className={`min-w-0 break-words text-right text-base font-black sm:text-lg ${accent ? "text-[#02665e]" : "text-slate-900"}`}>{value || "Not available"}</dd>
     </div>
   );
 }
