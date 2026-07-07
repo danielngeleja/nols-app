@@ -67,7 +67,7 @@ const TransportPreferenceSchema = z.preprocess((value) => {
   return normalized;
 }, z.enum([
   'flight', 'bus', 'private-car', 'ferry', 'shared-taxi', 'any'
-], { errorMap: () => ({ message: 'Invalid transport preference' }) }));
+], { message: 'Invalid transport preference' }));
 
 const EstimateRequestSchema = z.object({
   nationality: z.string()
@@ -123,7 +123,7 @@ const EstimateRequestSchema = z.object({
   .default([]),
   
   tier: z.enum(['budget', 'standard', 'luxury'], {
-    errorMap: () => ({ message: 'Tier must be: budget, standard, or luxury' })
+    message: 'Tier must be: budget, standard, or luxury'
   })
     .optional()
     .default('standard')

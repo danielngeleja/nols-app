@@ -600,7 +600,7 @@ export default function OwnerPropertyLayoutPage() {
                   {floor.rooms.length} rooms
                 </span>
               </div>
-              <p className="mt-3 text-xs text-white/50">Click a room to view bookings and manage external blocks.</p>
+              <p className="mt-3 text-xs text-white/50">Click a room to view bookings and open the full external booking form.</p>
 
               <div
                 ref={planWrapElRef}
@@ -1105,7 +1105,7 @@ export default function OwnerPropertyLayoutPage() {
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-4">
                   <ShieldBan className="w-5 h-5 text-emerald-600" />
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 uppercase tracking-wider">External Block</h3>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 uppercase tracking-wider">External Booking</h3>
                 </div>
                 <div className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-white p-5 sm:p-6 shadow-sm">
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
@@ -1113,11 +1113,11 @@ export default function OwnerPropertyLayoutPage() {
                   <div className="pointer-events-none absolute -left-24 -bottom-24 h-56 w-56 rounded-full bg-gradient-to-br from-slate-100/70 to-emerald-100/40 blur-2xl" />
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="text-base font-extrabold text-slate-900 tracking-tight">Reserve this room for an outside booking</p>
+                      <p className="text-base font-extrabold text-slate-900 tracking-tight">Use the full external booking form</p>
                       <p className="mt-1 text-xs sm:text-sm text-slate-600">
-                        Use this for Airbnb / Booking.com / walk-ins. It will mark the room unavailable on NoLSAF.
+                        This keeps guest details, nationality, payment, paid via, date validation, and room availability checks in one clean flow.
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="hidden">
                         <button
                           type="button"
                           onClick={() => setBlockRangePickerOpen(true)}
@@ -1133,7 +1133,17 @@ export default function OwnerPropertyLayoutPage() {
                       </div>
                     </div>
 
-                    <div className="w-full sm:w-72">
+                    <Link
+                      href={`/owner/properties/${propertyId}/availability?externalBlock=1${selectedRoom.room.code ? `&roomCode=${encodeURIComponent(selectedRoom.room.code)}` : ""}`}
+                      className="no-underline inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-extrabold text-white shadow-[0_14px_38px_-24px_rgba(2,102,94,0.75)] ring-1 ring-inset ring-white/20 hover:to-cyan-600 active:scale-[0.99] transition sm:w-auto"
+                    >
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/12 ring-1 ring-inset ring-white/20">
+                        <ExternalLink className="h-4 w-4" />
+                      </span>
+                      <span className="whitespace-nowrap tracking-tight">Add External Booking</span>
+                    </Link>
+
+                    <div className="hidden">
                       <div className="rounded-2xl border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm">
                         <label className="block text-xs font-semibold text-slate-700">Source</label>
                         <select

@@ -285,6 +285,10 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: data.title || "Group Stay Update",
         body: data.body || data.message || "You have an update on your group stay booking."
       },
+      document_concern: {
+        title: "Document concern on your booking",
+        body: `Your tour operator raised a concern about traveller documents for booking ${data.bookingCode || ""}${data.memberName ? ` (traveller: ${data.memberName})` : ""}: ${data.message || "Please review your uploaded documents."}`
+      },
     };
 
     const templateData = notificationTemplates[template] || {
@@ -304,7 +308,9 @@ export async function notifyUser(userId: number, template: string, data: any) {
           ? "agent"
           : template.startsWith("cancellation")
             ? "cancellation"
-            : "system"
+            : template === "document_concern"
+              ? "booking"
+              : "system"
       }
     });
 

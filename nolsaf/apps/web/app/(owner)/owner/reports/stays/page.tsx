@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import ReportsFilter, { ReportsFilters } from "@/components/ReportsFilter";
 import { Download, Printer, ShieldCheck, AlertTriangle } from "lucide-react";
@@ -76,6 +77,12 @@ type StaysReport = {
     endDate: string;
     roomCode: string | null;
     source: string | null;
+    guestName?: string | null;
+    guestPhone?: string | null;
+    nationality?: string | null;
+    amountPaid?: string | number | null;
+    calculatedAmount?: string | number | null;
+    currency?: string | null;
     bedsBlocked: number | null;
     createdAt: string;
     property: PropertyHeader;
@@ -180,10 +187,17 @@ function downloadCsv(filename: string, rows: unknown[][]) {
 }
 
 export default function StaysReportPage() {
+  const searchParams = useSearchParams();
   const [filters, setFilters] = useState<ReportsFilters | null>(null);
   const [data, setData] = useState<StaysReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  const autoPrintDoneRef = useRef(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!filters) return;
@@ -224,6 +238,8 @@ export default function StaysReportPage() {
   }, [data]);
 
   const canExport = !!data && !loading;
+  const canUseReportActions = isMounted && canExport;
+  const shouldAutoPrint = searchParams.get("print") === "1";
 
   // Auction participation: surface the discounted stay total and how much the
   // owner will actually collect at check-in from ACCEPTED offers. The claim's
@@ -236,6 +252,16 @@ export default function StaysReportPage() {
     const currency = claims[0]?.currency || "TZS";
     return { acceptedCount: accepted.length, acceptedTotal, currency };
   }, [data]);
+
+  useEffect(() => {
+    if (!shouldAutoPrint || !canUseReportActions || autoPrintDoneRef.current) return;
+    autoPrintDoneRef.current = true;
+    const timer = window.setTimeout(() => {
+      void printReport();
+    }, 450);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoPrint, canUseReportActions, data?.generatedAt]);
 
   function exportCsv() {
     if (!data) return;
@@ -327,12 +353,12 @@ export default function StaysReportPage() {
         fmtDate(x.startDate),
         fmtDate(x.endDate),
         x.roomCode ?? "",
-        "BLOCKED",
+        "EXTERNAL",
+        x.guestName ?? "",
+        x.guestPhone ?? "",
+        x.nationality ?? "",
         "",
-        "",
-        "",
-        "",
-        "",
+        x.amountPaid ?? x.calculatedAmount ?? "",
         x.source ?? "",
         x.bedsBlocked ?? "",
         fmtDateTime(x.createdAt),
@@ -506,9 +532,12 @@ export default function StaysReportPage() {
         return `
 <tr>
   <td>${escapeHtml(x.source || "External")}</td>
+  <td>${escapeHtml(x.guestName || "Guest")}</td>
+  <td>${escapeHtml(x.nationality || "—")}</td>
   <td>${escapeHtml(fmtDate(x.startDate))}</td>
   <td>${escapeHtml(fmtDate(x.endDate))}</td>
   <td>${escapeHtml(x.roomCode || "—")}</td>
+  <td style="text-align:right;">${escapeHtml(x.amountPaid != null ? `TZS ${fmtMoneyTZS(Number(x.amountPaid))}` : "")}</td>
   <td style="text-align:right;">${escapeHtml(String(x.bedsBlocked ?? "1"))}</td>
 </tr>`;
       })
@@ -631,22 +660,41 @@ export default function StaysReportPage() {
        HEADER — premium brand band
     ══════════════════════════════════════════════════════════ */
     .doc-header {
-      background: var(--brand);
-      padding: 14px 20px 13px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 16px 16px, rgba(255,255,255,0.34) 0 1.4px, transparent 1.6px),
+        radial-gradient(circle at 48px 38px, rgba(255,255,255,0.20) 0 1.2px, transparent 1.5px),
+        linear-gradient(135deg, #02665e 0%, #04786d 52%, #01534d 100%);
+      background-size: 32px 32px, 44px 44px, auto;
+      padding: 16px 20px 15px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
       border-radius: 10px 10px 0 0;
+      box-shadow: inset 0 -1px 0 rgba(255,255,255,0.16);
+    }
+    .doc-header::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.12), transparent 34%, rgba(2,180,245,0.14) 100%),
+        radial-gradient(circle at 78% 50%, rgba(255,255,255,0.18), transparent 32%);
+      pointer-events: none;
     }
     .doc-header .brand-mark {
+      position: relative; z-index: 1;
       display: flex; align-items: center; gap: 10px;
     }
     .doc-header .brand-icon {
-      width: 40px; height: 40px; border-radius: 8px;
-      background: rgba(255,255,255,0.92);
+      width: 40px; height: 40px; border-radius: 9px;
+      background: rgba(255,255,255,0.94);
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0; overflow: hidden; padding: 3px;
+      border: 1px solid rgba(255,255,255,0.70);
+      box-shadow: 0 10px 24px rgba(1,41,38,0.18);
     }
     .doc-header .brand-icon img { width: 100%; height: 100%; object-fit: contain; }
     .doc-header .brand-icon svg { width: 20px; height: 20px; fill: #fff; }
@@ -655,25 +703,24 @@ export default function StaysReportPage() {
       color: #fff; line-height: 1.1;
     }
     .doc-header .brand-tagline {
-      font-size: 9.5px; color: rgba(255,255,255,0.65); letter-spacing: 0.06em;
+      font-size: 9.5px; color: rgba(255,255,255,0.76); letter-spacing: 0.06em;
       text-transform: uppercase; margin-top: 1px;
     }
     .doc-header .doc-type {
+      position: relative; z-index: 1;
       display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+      padding: 5px 0;
     }
     .doc-header .doc-type-label {
       font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
-      color: rgba(255,255,255,0.55); font-weight: 600;
+      color: rgba(255,255,255,0.66); font-weight: 700;
     }
     .doc-header .doc-type-name {
-      font-size: 13px; font-weight: 700; color: #fff; letter-spacing: 0.01em;
+      font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 0.01em;
     }
 
     /* ── Accent rule below header ──────────────────────────── */
-    .header-rule {
-      height: 3px;
-      background: linear-gradient(90deg, var(--brand) 0%, #06b6d4 60%, transparent 100%);
-    }
+    .header-rule { display: none; }
 
     /* ── Document title block ──────────────────────────────── */
     .title-block {
@@ -975,14 +1022,17 @@ export default function StaysReportPage() {
           <thead>
             <tr>
               <th>Source</th>
+              <th>Guest</th>
+              <th>Nationality</th>
               <th>Start</th>
               <th>End</th>
               <th>Room</th>
+              <th style="text-align:right;">Paid</th>
               <th style="text-align:right;">Beds</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsExternal || '<tr><td colspan="5" style="color:var(--faint);font-style:italic;">No external reservations in this range.</td></tr>'}
+            ${rowsExternal || '<tr><td colspan="8" style="color:var(--faint);font-style:italic;">No external reservations in this range.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1114,11 +1164,11 @@ export default function StaysReportPage() {
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
-            disabled={!canExport}
+            disabled={!canUseReportActions}
             onClick={exportCsv}
             className={
               "inline-flex items-center justify-center h-9 px-4 rounded-xl border shadow-sm text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 " +
-              (canExport ? "bg-white border-[#02665e]/20 text-[#02665e] hover:bg-[#02665e]/5 hover:border-[#02665e]/30" : "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed")
+              (canUseReportActions ? "bg-white border-[#02665e]/20 text-[#02665e] hover:bg-[#02665e]/5 hover:border-[#02665e]/30" : "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed")
             }
           >
             <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden />
@@ -1126,11 +1176,11 @@ export default function StaysReportPage() {
           </button>
           <button
             type="button"
-            disabled={!canExport}
+            disabled={!canUseReportActions}
             onClick={printReport}
             className={
               "inline-flex items-center justify-center h-9 px-4 rounded-xl bg-[#02665e] text-white shadow-sm shadow-[#02665e]/20 hover:bg-[#034e47] transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
-              (!canExport ? "opacity-40 cursor-not-allowed" : "")
+              (!canUseReportActions ? "opacity-40 cursor-not-allowed" : "")
             }
           >
             <Printer className="h-3.5 w-3.5 mr-1.5" aria-hidden />
@@ -1258,13 +1308,16 @@ export default function StaysReportPage() {
             </div>
           </div>
           <div className="p-4 overflow-x-auto">
-            <table className="min-w-[640px] w-full text-sm">
+            <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/70 border-b border-gray-100">
                   <th className="text-left py-2.5 px-3">Source</th>
+                  <th className="text-left py-2.5 px-3">Guest</th>
+                  <th className="text-left py-2.5 px-3">Nationality</th>
                   <th className="text-left py-2.5 px-3">Start</th>
                   <th className="text-left py-2.5 px-3">End</th>
                   <th className="text-left py-2.5 px-3">Room</th>
+                  <th className="text-right py-2.5 px-3">Paid</th>
                   <th className="text-right py-2.5 px-3">Beds</th>
                 </tr>
               </thead>
@@ -1273,15 +1326,18 @@ export default function StaysReportPage() {
                   data.external.map((x) => (
                     <tr key={x.id} className="border-b last:border-b-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-2.5 px-3 font-medium text-gray-900">{x.source || "External"}</td>
+                      <td className="py-2.5 px-3 text-gray-700">{x.guestName || "—"}</td>
+                      <td className="py-2.5 px-3 text-gray-600">{x.nationality || "—"}</td>
                       <td className="py-2.5 px-3 text-gray-600">{fmtDate(x.startDate)}</td>
                       <td className="py-2.5 px-3 text-gray-600">{fmtDate(x.endDate)}</td>
                       <td className="py-2.5 px-3 text-gray-600">{x.roomCode || "—"}</td>
+                      <td className="py-2.5 px-3 text-right font-semibold text-emerald-700">{x.amountPaid != null ? `TZS ${fmtMoneyTZS(Number(x.amountPaid))}` : "—"}</td>
                       <td className="py-2.5 px-3 text-right font-semibold text-amber-700">{String(x.bedsBlocked ?? 1)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="py-6 px-3 text-sm text-gray-400 italic" colSpan={5}>
+                    <td className="py-6 px-3 text-sm text-gray-400 italic" colSpan={8}>
                       {loading ? "Loading…" : "No external reservations in this range."}
                     </td>
                   </tr>

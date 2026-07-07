@@ -1608,6 +1608,30 @@ router.delete("/:id/report-issue/:issueId", (async (req: AuthedRequest, res) => 
 const GROUP_MEMBER_DOCUMENT_TYPES = ["PASSPORT", "NATIONAL_ID", "BIRTH_CERTIFICATE", "OTHER"];
 const GROUP_MEMBER_RELATIONS = ["SPOUSE", "CHILD", "PARENT", "SIBLING", "RELATIVE", "FRIEND", "COLLEAGUE", "OTHER"];
 
+function sanitizeDocumentsArray(raw: unknown, nowIso: string): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const MAX_DOCS = 10;
+  const out: Array<Record<string, unknown>> = [];
+  for (const item of raw.slice(0, MAX_DOCS)) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const typeRaw = cleanText(obj.type, 30).toUpperCase();
+    const docType = GROUP_MEMBER_DOCUMENT_TYPES.includes(typeRaw) ? typeRaw : "OTHER";
+    const url = cleanUrl(obj.url);
+    if (!url) continue;
+    out.push({
+      id: cleanText(obj.id, 60) || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: docType,
+      label: cleanText(obj.label, 80) || null,
+      number: cleanText(obj.number, 60) || null,
+      url,
+      fileName: cleanText(obj.fileName, 160) || null,
+      uploadedAt: cleanText(obj.uploadedAt, 40) || nowIso,
+    });
+  }
+  return out.length > 0 ? out : null;
+}
+
 function cleanUrl(value: unknown, max = 600): string {
   const text = cleanText(value, max);
   if (!text) return "";
@@ -1690,7 +1714,9 @@ router.post("/:id/group-members", (async (req: AuthedRequest, res) => {
       return res.status(409).json({ error: `This trip is set up for ${capacity} traveller(s). Update the traveller count first.` });
     }
 
-    const entry = {
+    const documents = sanitizeDocumentsArray((req.body as any)?.documents, nowIso);
+
+    const entry: Record<string, unknown> = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       fullName,
       documentType: documentType || null,
@@ -1705,6 +1731,7 @@ router.post("/:id/group-members", (async (req: AuthedRequest, res) => {
       addedByUserId: userId,
       createdAt: nowIso,
     };
+    if (documents) entry.documents = documents;
     md.groupMembers = [...prev, entry].slice(-50);
     appendTimelineEvent(md, {
       type: "GROUP_MEMBER_ADDED",
@@ -1767,7 +1794,8 @@ router.patch("/:id/group-members/:memberId", (async (req: AuthedRequest, res) =>
 
     const nowIso = new Date().toISOString();
     const existing = safeObject(prev[idx]);
-    const updated = {
+    const documents = sanitizeDocumentsArray((req.body as any)?.documents, nowIso);
+    const updated: Record<string, unknown> = {
       ...existing,
       fullName,
       documentType: documentType || null,
@@ -1781,6 +1809,7 @@ router.patch("/:id/group-members/:memberId", (async (req: AuthedRequest, res) =>
       documentFileName: (documentUrl ? documentFileName : existing.documentFileName) || null,
       updatedAt: nowIso,
     };
+    if (documents) updated.documents = documents;
     const next = [...prev];
     next[idx] = updated;
     md.groupMembers = next;

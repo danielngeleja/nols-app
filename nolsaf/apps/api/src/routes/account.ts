@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler, Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
@@ -25,6 +25,7 @@ import {
 import { isAllowedDocumentTypeForRole, isTrustedUserDocumentUrl } from "../lib/userDocumentSecurity.js";
 import { getRedis } from "../lib/redis.js";
 import { invalidateAuthSessionCacheForUser } from "../lib/authSessionCache.js";
+import { getWebAuthnRp } from "../lib/webauthnRp.js";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -53,10 +54,15 @@ const SENSITIVE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const SENSITIVE_RATE_LIMIT_MAX = 50;
 
 // Rate limiter for sensitive endpoints
-const sensitive = rateLimit({ 
-  windowMs: SENSITIVE_RATE_LIMIT_WINDOW_MS, 
-  limit: SENSITIVE_RATE_LIMIT_MAX 
+const sensitiveLimit = rateLimit({
+  windowMs: SENSITIVE_RATE_LIMIT_WINDOW_MS,
+  limit: SENSITIVE_RATE_LIMIT_MAX
 });
+
+// Sensitive account changes (credentials, 2FA, passkeys, sessions, deletion)
+// are refused during admin impersonation sessions, then rate limited.
+const sensitive: RequestHandler = (req, res, next) =>
+  blockImpersonated(req, res, () => sensitiveLimit(req, res, next));
 
 // Rate limiter for payout updates (more restrictive - prevent unnecessary edits)
 const payoutUpdateLimit = rateLimit({
@@ -218,7 +224,7 @@ const documentMetadataValueSchema = z.union([
 const upsertDocumentSchema = z.object({
   type: z.string().min(1).max(80),
   url: z.string().url().max(2000),
-  metadata: z.record(documentMetadataValueSchema).optional(),
+  metadata: z.record(z.string(), documentMetadataValueSchema).optional(),
 }).strict();
 
 const listSessionsSchema = z.object({
@@ -282,6 +288,7 @@ const getSession: RequestHandler = async (req, res) => {
       profileImage: avatarUrl,
       isDisabled: Boolean(user.isDisabled),
       isSuspended: Boolean(user.suspendedAt),
+      impersonated: Boolean((req as AuthedRequest).user?.imp),
     });
   } catch (error: any) {
     const isProd = process.env.NODE_ENV === "production";
@@ -942,7 +949,7 @@ const requestContactChange: RequestHandler = async (req, res) => {
     sendError(res, 500, "Failed to send verification code");
   }
 };
-router.post("/contact/request-change", limitContactChangeOtp as unknown as RequestHandler, requestContactChange as unknown as RequestHandler);
+router.post("/contact/request-change", blockImpersonated as unknown as RequestHandler, limitContactChangeOtp as unknown as RequestHandler, requestContactChange as unknown as RequestHandler);
 
 /**
  * POST /account/contact/confirm-change
@@ -999,7 +1006,7 @@ const confirmContactChange: RequestHandler = async (req, res) => {
     sendError(res, 500, "Failed to confirm change");
   }
 };
-router.post("/contact/confirm-change", confirmContactChange as unknown as RequestHandler);
+router.post("/contact/confirm-change", blockImpersonated as unknown as RequestHandler, confirmContactChange as unknown as RequestHandler);
 
 /** PUT /account/payouts (Owner only fields) */
 const updatePayouts: RequestHandler = async (req, res) => {
@@ -1172,7 +1179,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
     sendError(res, 500, "Failed to update payout information");
   }
 };
-router.put("/payouts", payoutUpdateLimit, updatePayouts as unknown as RequestHandler);
+router.put("/payouts", blockImpersonated as unknown as RequestHandler, payoutUpdateLimit, updatePayouts as unknown as RequestHandler);
 
 /** POST /account/password/change */
 const changePassword: RequestHandler = async (req, res) => {
@@ -1640,8 +1647,7 @@ router.get("/security/passkeys", getAccountPasskeys as unknown as RequestHandler
 const postAccountPasskeysCreate: RequestHandler = async (req, res) => {
   const userId = getUserId(req as AuthedRequest);
   try {
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
-    const rpID = new URL(origin).hostname;
+    const { rpID } = getWebAuthnRp();
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } } as any);
     const userName = (user as any)?.email || `user-${userId}`;
@@ -1666,7 +1672,9 @@ const postAccountPasskeysCreate: RequestHandler = async (req, res) => {
       userName,
       timeout: 60000,
       attestationType: "direct",
-      authenticatorSelection: { userVerification: "preferred" },
+      // residentKey makes the credential discoverable so it can be used for
+      // username-less login (/api/auth/passkeys/options with no allowCredentials).
+      authenticatorSelection: { userVerification: "preferred", residentKey: "preferred" },
       excludeCredentials,
     });
 
@@ -1707,15 +1715,14 @@ const postAccountPasskeysVerify: RequestHandler = async (req, res) => {
     const storedChallenge = await getAccountPasskeyChallenge(userId);
     if (!storedChallenge) return res.status(400).json({ error: "no challenge found" });
 
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
-    const rpID = new URL(origin).hostname;
+    const { rpID, expectedOrigins } = getWebAuthnRp();
 
     let verification: any = null;
     try {
       verification = await (verifyRegistrationResponse as any)({
         response: credential,
         expectedChallenge: storedChallenge,
-        expectedOrigin: origin,
+        expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
         requireUserVerification: false,
       } as any);
@@ -1797,8 +1804,7 @@ router.delete("/security/passkeys/:id", sensitive as unknown as RequestHandler, 
 const postAccountPasskeysAuthenticate: RequestHandler = async (req, res) => {
   const userId = getUserId(req as AuthedRequest);
   try {
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
-    const rpID = new URL(origin).hostname;
+    const { rpID } = getWebAuthnRp();
 
     let allowCredentials: Array<any> = [];
     try {
@@ -1863,15 +1869,14 @@ const postAccountPasskeysAuthenticateVerify: RequestHandler = async (req, res) =
     const publicKey = stored.publicKey;
     const signCount = typeof stored.signCount === "number" ? stored.signCount : 0;
 
-    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
-    const rpID = new URL(origin).hostname;
+    const { rpID, expectedOrigins } = getWebAuthnRp();
 
     let verification: any = null;
     try {
       verification = await (verifyAuthenticationResponse as any)({
         response,
         expectedChallenge: storedChallenge,
-        expectedOrigin: origin,
+        expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
         authenticator: {
           credentialID: stored.credentialId || stored.credentialID || stored.id || credId,

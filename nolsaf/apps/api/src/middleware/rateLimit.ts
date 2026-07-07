@@ -269,6 +269,18 @@ export const limitOtpSend = rateLimit({
   },
 });
 
+// Rate limiter for the forgot-password account existence check. Keyed by IP
+// (not destination) so a caller cannot enumerate accounts by rotating
+// phone numbers or emails.
+export const limitAccountCheck = rateLimit({
+  windowMs: 15 * 60_000, // 15 minutes
+  limit: 20, // 20 lookups per IP per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait before trying again." },
+  keyGenerator: (req) => `account-check:${req.ip || req.socket.remoteAddress || "unknown"}`,
+});
+
 // Rate limiter for OTP verification attempts (prevents brute force)
 export const limitOtpVerify = rateLimit({
   windowMs: 15 * 60_000, // 15 minutes

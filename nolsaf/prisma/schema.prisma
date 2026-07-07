@@ -1679,6 +1679,7 @@ model SystemSetting {
   sessionMaxMinutesOwner Int?
   sessionMaxMinutesDriver Int?
   sessionMaxMinutesCustomer Int?
+  sessionMaxMinutesAgent Int?
 
   /// Maximum session duration in hours
   maxSessionDurationHours Int? @default(24)
@@ -2692,6 +2693,18 @@ model PropertyAvailabilityBlock {
 
   /// Source of the booking (e.g., "AIRBNB", "BOOKING_COM", "WALK_IN", "OTHER")
   source String? @db.VarChar(50)
+
+  /// Guest details for external bookings
+  guestName   String? @db.VarChar(160)
+  guestPhone  String? @db.VarChar(40)
+  nationality String? @db.VarChar(80)
+
+  /// Pricing snapshot for external bookings
+  roomRate         Decimal? @db.Decimal(12, 2)
+  calculatedAmount Decimal? @db.Decimal(12, 2)
+  amountPaid       Decimal? @db.Decimal(12, 2)
+  paidVia          String?  @db.VarChar(20)
+  currency         String?  @db.VarChar(8)
 
   /// Optional notes about the block
   notes String? @db.Text

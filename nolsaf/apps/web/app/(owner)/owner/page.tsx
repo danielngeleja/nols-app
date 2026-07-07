@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Building2, MessageCircle, CalendarCheck, Eye, TrendingUp, Wallet, ChevronRight } from "lucide-react";
+import { Building2, CalendarCheck, Eye, TrendingUp, Wallet, ChevronRight } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import { io } from "socket.io-client";
@@ -365,10 +365,10 @@ export default function OwnerPage() {
           { href: "/owner/properties/approved", icon: Building2,     label: "Manage listings",    sub: "Properties", topColor: "#0ea5e9", iconBg: "rgba(14,165,233,0.1)",  iconColor: "#0ea5e9" },
           { href: "/owner/reports/overview",    icon: TrendingUp,    label: "Trends & insights",  sub: "Reports",    topColor: "#10b981", iconBg: "rgba(16,185,129,0.1)",  iconColor: "#10b981" },
           { href: "/owner/revenue/paid",        icon: Wallet,        label: "Payments & receipts",sub: "Revenue",    topColor: "#f59e0b", iconBg: "rgba(245,158,11,0.1)",  iconColor: "#f59e0b" },
-          { href: "/owner/notifications",         icon: MessageCircle, label: "Updates & alerts",   sub: "Messages",   topColor: "#8b5cf6", iconBg: "rgba(139,92,246,0.1)",  iconColor: "#8b5cf6" },
+          { href: "/owner/properties/availability", icon: CalendarCheck, label: "External bookings", sub: "Reservations", topColor: "#02665e", iconBg: "rgba(2,102,94,0.1)", iconColor: "#02665e" },
         ].map(({ href, icon: Icon, label, sub, topColor, iconBg, iconColor }) => (
           <Link
-            key={href}
+            key={`${sub}-${label}`}
             href={href}
             className="group relative overflow-hidden rounded-2xl bg-white no-underline block transition-all duration-200 hover:-translate-y-0.5"
             style={{ border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 3px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.04)" }}

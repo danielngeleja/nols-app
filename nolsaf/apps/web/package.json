@@ -10,7 +10,7 @@
     "predev": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true, maxRetries:10, retryDelay:100 })\"",
     "prebuild": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true, maxRetries:10, retryDelay:100 })\"",
     "dev": "next dev --webpack -p 3000",
-    "build": "npm --prefix ../../packages/shared run build && next build && node scripts/collect-private-source-maps.mjs",
+    "build": "npm --prefix ../../packages/shared run build && node scripts/run-next-build.mjs && node scripts/collect-private-source-maps.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
