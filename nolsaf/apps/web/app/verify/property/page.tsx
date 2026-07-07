@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, BadgeCheck, CalendarCheck, Loader2, Lock, MapPin, ShieldCheck, UserCheck } from "lucide-react";
+import { AlertTriangle, BadgeCheck, CalendarCheck, Loader2, Lock, MapPin, UserCheck } from "lucide-react";
 
 type Certificate = {
   issuer: string;
@@ -114,19 +114,48 @@ function InvalidView({ reason }: { reason: string }) {
   );
 }
 
+function Seal() {
+  const bumps = Array.from({ length: 16 }, (_, i) => {
+    const a = (i * Math.PI) / 8;
+    return { cx: 100 + 58 * Math.cos(a), cy: 100 + 58 * Math.sin(a) };
+  });
+  return (
+    <svg viewBox="0 0 200 200" role="img" aria-label="Verified seal" className="mx-auto h-[84px] w-[84px]">
+      <defs>
+        <radialGradient id="certSealDisc" cx="36%" cy="30%" r="80%">
+          <stop offset="0" stopColor="#0e7e70" />
+          <stop offset="1" stopColor="#023f39" />
+        </radialGradient>
+      </defs>
+      <g fill="#065349">
+        {bumps.map((b, i) => (
+          <circle key={i} cx={b.cx} cy={b.cy} r="9" />
+        ))}
+      </g>
+      <circle cx="100" cy="100" r="60" fill="url(#certSealDisc)" />
+      <circle cx="100" cy="100" r="49" fill="none" stroke="rgba(255,255,255,0.32)" strokeWidth="1.5" />
+      <path
+        d="M100 76 L122 86 L122 104 C122 122 112 130 100 136 C88 130 78 122 78 104 L78 86 Z"
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth="4.5"
+        strokeLinejoin="round"
+      />
+      <polyline points="91,101 98,109 111,93" fill="none" stroke="#ffffff" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function ValidView({ certificate }: { certificate: Certificate }) {
   const { property, verification } = certificate;
   const certId = `NLS-P-${property.id}`;
   return (
     <div className="px-5 py-8 text-center sm:px-8 sm:py-10">
-      <div
-        className="mx-auto grid h-[76px] w-[76px] place-items-center rounded-full text-white shadow-[0_20px_44px_-22px_rgba(2,102,94,0.95)]"
-        style={{ background: `linear-gradient(155deg, #0b7568, ${BRAND} 55%, #023f39)` }}
-      >
-        <ShieldCheck className="h-8 w-8" />
-      </div>
+      <Seal />
 
-      <p className="mt-5 text-[12px] font-black uppercase tracking-[0.28em] text-[#02665e]">Certificate of Verification</p>
+      <div className="mx-auto mt-6 max-w-md border-t border-dashed border-[#d3c8ae]" />
+
+      <p className="mt-6 text-[12px] font-black uppercase tracking-[0.28em] text-[#02665e]">Certificate of Verification</p>
       <h2 className="mt-2 break-words text-4xl font-black leading-tight tracking-tight text-slate-900">{property.title}</h2>
 
       <div className="mt-3 flex items-center justify-center gap-1.5 text-[13px] font-bold uppercase tracking-[0.1em] text-slate-500">
