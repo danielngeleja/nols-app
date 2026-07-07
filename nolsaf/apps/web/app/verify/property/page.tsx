@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Lock, MapPin, ShieldCheck } from "lucide-react";
+import { AlertTriangle, BadgeCheck, CalendarCheck, Loader2, Lock, MapPin, ShieldCheck, UserCheck } from "lucide-react";
 
 type Certificate = {
   issuer: string;
@@ -134,11 +134,11 @@ function ValidView({ certificate }: { certificate: Certificate }) {
         <span>{property.location || "Location not listed"}</span>
       </div>
 
-      <dl className="mx-auto mt-7 max-w-md rounded-3xl bg-white px-5 shadow-[0_26px_60px_-40px_rgba(15,23,42,0.45)] sm:px-6">
-        <Row label="Status" value="Verified" accent />
-        <Row label="Checked on" value={formatDate(verification.verifiedAt)} />
-        <Row label="Checked by" value={verification.verifiedBy || "NoLSAF Admin"} last />
-      </dl>
+      <div className="mx-auto mt-7 grid max-w-md grid-cols-3 overflow-hidden rounded-3xl border border-[#d6e8e1] bg-[#eef6f2]">
+        <Tile icon={<BadgeCheck className="h-5 w-5" />} label="Status" value="Verified" accent />
+        <Tile icon={<CalendarCheck className="h-5 w-5" />} label="Checked on" value={formatDate(verification.verifiedAt)} className="border-x border-[#dcece6]" />
+        <Tile icon={<UserCheck className="h-5 w-5" />} label="Checked by" value={verification.verifiedBy || "NoLSAF Admin"} />
+      </div>
 
       <div className="mx-auto mt-6 flex max-w-md items-end justify-between gap-4 text-left">
         <div className="min-w-0">
@@ -153,7 +153,7 @@ function ValidView({ certificate }: { certificate: Certificate }) {
 
       <div className="mx-auto mt-6 max-w-md border-t border-dashed border-[#d3c8ae]" />
 
-      <div className="mx-auto mt-6 flex max-w-md flex-col items-center gap-2 rounded-2xl bg-white px-6 py-5 shadow-[0_26px_60px_-40px_rgba(15,23,42,0.45)]">
+      <div className="mx-auto mt-6 flex max-w-md flex-col items-center gap-2 rounded-2xl border border-[#ece2cd] bg-white/70 px-6 py-5">
         <Barcode value={certId} />
         <span className="font-mono text-[12px] tracking-[0.4em] text-slate-400">{certId.split("").join(" ")}</span>
       </div>
@@ -161,11 +161,12 @@ function ValidView({ certificate }: { certificate: Certificate }) {
   );
 }
 
-function Row({ label, value, accent, last }: { label: string; value: string; accent?: boolean; last?: boolean }) {
+function Tile({ icon, label, value, accent, className = "" }: { icon: React.ReactNode; label: string; value: string; accent?: boolean; className?: string }) {
   return (
-    <div className={`flex items-center justify-between gap-3 py-3.5 text-left sm:py-4 ${last ? "" : "border-b border-slate-100"}`}>
-      <dt className="whitespace-nowrap text-[11px] font-black uppercase tracking-[0.12em] text-slate-400 sm:text-[12px] sm:tracking-[0.16em]">{label}</dt>
-      <dd className={`min-w-0 break-words text-right text-base font-black sm:text-lg ${accent ? "text-[#02665e]" : "text-slate-900"}`}>{value || "Not available"}</dd>
+    <div className={`flex flex-col items-center px-2 py-5 text-center ${className}`}>
+      <span className="grid h-10 w-10 place-items-center rounded-full border border-[#d9eae3] bg-white text-[#02665e]">{icon}</span>
+      <p className="mt-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#7c8a86]">{label}</p>
+      <p className={`mt-1.5 break-words text-sm font-black leading-snug ${accent ? "text-[#02665e]" : "text-slate-900"}`}>{value || "Not available"}</p>
     </div>
   );
 }
