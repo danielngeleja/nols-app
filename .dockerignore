@@ -1,0 +1,41 @@
+# Root build context hardening.
+#
+# The API Dockerfile (nolsaf/Dockerfile) supports being built from the repository
+# ROOT context, where it runs `COPY . .`. Without this file that copy would pull
+# the repo root's local secrets and database dumps (.env.local, *.sql,
+# remote-backup.sql, backups/) and the entire .git history into the image layers.
+#
+# The root-context build only ever needs the `nolsaf/` workspace, so default-deny
+# everything and re-include just that — then re-exclude secrets and build
+# artifacts even inside it, as belt-and-braces.
+
+# 1) Deny everything at the root of the build context.
+*
+
+# 2) Re-include only the monorepo the Dockerfile actually builds.
+!nolsaf
+
+# 3) Never ship secrets, credentials, or environment files.
+**/.env
+**/.env.*
+!**/.env.example
+
+# 4) Never ship database dumps or backups.
+**/*.sql
+**/*.sql.gz
+**/backups/
+
+# 5) Never ship VCS metadata or CI config.
+.git
+.github
+
+# 6) Never ship host build artifacts / dependencies (image runs a clean install).
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+**/coverage/
+
+# 7) Never ship logs or local reports.
+**/*.log
+**/*.err
