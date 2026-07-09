@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
     "start": "node dist/src/index.js",
