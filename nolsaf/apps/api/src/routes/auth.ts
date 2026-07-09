@@ -17,6 +17,7 @@ import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
 import { maybeAuth, requireAuth } from '../middleware/auth.js';
+import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
 import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -2324,7 +2325,11 @@ router.post('/reset-password', async (req, res) => {
     // Hash and update password
     const pwHash = await hashPassword(String(password));
     try {
-      await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any } as any });
+      // Bump tokensValidAfter so every JWT issued before now is rejected — this
+      // is the account-recovery path, so any token an attacker still holds must
+      // stop working the moment the rightful owner resets the password.
+      await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any, tokensValidAfter: new Date() as any } as any });
+      await invalidateAuthSessionCacheForUser(Number(user.id)).catch(() => {});
     } catch (e) {
       // if DB update fails, still accept but do not persist
       console.warn('Failed to persist new password to DB', e);

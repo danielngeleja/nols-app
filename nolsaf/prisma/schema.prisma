@@ -86,6 +86,11 @@ model User {
   previousPasswords      Json? // Alternative field name
   resetPasswordToken     String?
   resetPasswordExpires   DateTime?
+  // Global token-invalidation cutoff. Any JWT whose `iat` predates this instant
+  // is rejected at auth time. Bumped on password reset/change (force-logout) and
+  // "sign out other devices" so those actions actually revoke already-issued
+  // tokens. NULL (default) means no cutoff, so existing tokens are unaffected.
+  tokensValidAfter       DateTime?
 
   // Account Status
   suspendedAt DateTime?

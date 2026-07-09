@@ -2,27 +2,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Shared secret stamped on every server-side proxy request to the API.
-// Express CSRF middleware trusts requests carrying this header, because they
-// can only come from this Next.js server process — never from a browser.
-// Set INTERNAL_PROXY_SECRET to the same value in both web and api env vars.
-const INTERNAL_PROXY_SECRET = process.env.INTERNAL_PROXY_SECRET || "";
-
+// Browser API requests must retain the API's normal CSRF protections.
+// This middleware only allows the Next.js rewrite to proxy the request.
+// It deliberately adds no trusted headers to browser traffic.
 export function middleware(req: NextRequest) {
-  // Stamp all /api/* proxy requests so Express can skip the browser-origin CSRF
-  // check.  The Next.js rewrite runs AFTER middleware, so the header added here
-  // is forwarded by the rewrite to the Express backend.
+  // API traffic is proxied by Next.js rewrites without a CSRF bypass.
+  // The rewrite runs after middleware and forwards the original request headers.
   const isApiProxy =
     req.nextUrl.pathname.startsWith("/api/") ||
     req.nextUrl.pathname.startsWith("/uploads/") ||
     req.nextUrl.pathname.startsWith("/webhooks/");
 
-  if (isApiProxy && INTERNAL_PROXY_SECRET) {
-    const headers = new Headers(req.headers);
-    headers.set("x-proxy-secret", INTERNAL_PROXY_SECRET);
-    const response = NextResponse.next({ request: { headers } });
-    return response;
-  }
+  if (isApiProxy) return NextResponse.next();
   const url = req.nextUrl.clone();
   const path = url.pathname;
 

@@ -1301,6 +1301,9 @@ const changePassword: RequestHandler = async (req, res) => {
     const forceLogout = await shouldForceLogout();
     
     if (forceLogout) {
+      // Bump tokensValidAfter so every already-issued token (this device and all
+      // others) is rejected, not just the current cookie cleared below.
+      await prisma.user.update({ where: { id: user.id }, data: { tokensValidAfter: new Date() } }).catch(() => {});
       await invalidateAuthSessionCacheForUser(user.id).catch(() => {});
       clearAuthCookie(res);
     }
@@ -2625,17 +2628,35 @@ const revokeOtherSessions: RequestHandler = async (req, res) => {
     const currentId = (req as any).sessionId as string | undefined;
     
     await prisma.session.updateMany({
-      where: { 
-        userId, 
-        ...(currentId ? { NOT: { id: currentId } } : {}), 
-        revokedAt: null 
+      where: {
+        userId,
+        ...(currentId ? { NOT: { id: currentId } } : {}),
+        revokedAt: null
       },
       data: { revokedAt: new Date() },
     });
+
+    // Bump tokensValidAfter so every token issued before now is rejected, then
+    // re-issue a fresh token for THIS device so the caller stays signed in while
+    // all other devices are logged out. The new token's `iat` is >= the cutoff
+    // (same-second compare), so it is not caught by the revocation gate.
+    const authedUser = (req as AuthedRequest).user;
+    await prisma.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } }).catch(() => {});
     await invalidateAuthSessionCacheForUser(userId).catch(() => {});
-    
+
+    let refreshedToken: string | null = null;
+    try {
+      const { signUserJwt, setAuthCookie } = await import('../lib/sessionManager.js');
+      refreshedToken = await signUserJwt({ id: userId, role: authedUser?.role, email: authedUser?.email });
+      await setAuthCookie(res, refreshedToken, authedUser?.role);
+    } catch (remintErr) {
+      // If re-mint fails, the caller's own session may end on its next request.
+      // That is fail-closed (safe) — surface nothing sensitive.
+      console.warn('account.sessions.revoke-others: token re-mint failed', remintErr);
+    }
+
     await audit(req as AuthedRequest, "USER_SESSION_REVOKE_OTHERS", `user:${userId}`);
-    sendSuccess(res, null, "Other sessions revoked successfully");
+    sendSuccess(res, refreshedToken ? { token: refreshedToken } : null, "Other sessions revoked successfully");
   } catch (error: any) {
     console.error('account.sessions.revoke-others failed', error);
     sendError(res, 500, "Failed to revoke other sessions");

@@ -138,19 +138,6 @@ function hasBearerAuth(req: Request): boolean {
   return auth.startsWith("Bearer ");
 }
 
-/**
- * Trust requests that arrive through the internal Next.js proxy.
- * The proxy stamps every forwarded request with x-proxy-secret (a shared env
- * var).  Since this header is added server-side by Next.js and never exposed
- * to browsers, its presence proves the request went through the trusted proxy
- * rather than coming directly from an untrusted origin.
- */
-function isInternalProxy(req: Request): boolean {
-  const secret = process.env.INTERNAL_PROXY_SECRET;
-  if (!secret) return false;
-  return req.headers["x-proxy-secret"] === secret;
-}
-
 function hasAuthCookie(req: Request): boolean {
   const cookieHeader = req.headers.cookie || "";
   return cookieHeader
@@ -254,12 +241,6 @@ export async function csrfProtection(req: Request, res: Response, next: NextFunc
 
   // Bearer-token clients do not rely on ambient browser cookies.
   if (hasBearerAuth(req)) {
-    return next();
-  }
-
-  // Requests forwarded by the internal Next.js proxy carry a shared secret.
-  // These are server-to-server calls; browser CSRF mitigations don't apply.
-  if (isInternalProxy(req)) {
     return next();
   }
 

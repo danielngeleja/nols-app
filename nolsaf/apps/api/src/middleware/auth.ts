@@ -115,7 +115,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       select: {
         id: true,
         user: {
-          select: { id: true, role: true, email: true, suspendedAt: true },
+          select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
         },
       },
     });
@@ -126,7 +126,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       const [dbUser, anySession] = await Promise.all([
         prisma.user.findUnique({
           where: { id: userId },
-          select: { id: true, role: true, email: true, suspendedAt: true },
+          select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
         }),
         (prisma.session as any).findFirst({
           where: { userId },
@@ -155,6 +155,19 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     // This ensures that if admin reduces TTL, old tokens are also forced out.
     // Use rawRole for TTL lookup so CUSTOMER maps to sessionMaxMinutesCustomer, not USER fallback.
     const issuedAtSec = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
+
+    // Global revocation gate: reject any token issued before the user's
+    // tokensValidAfter cutoff (bumped on password reset/change and "sign out
+    // other devices"). Compared at second granularity so a token re-issued in
+    // the same second as the cutoff is never falsely rejected.
+    const tokensValidAfter = (user as any).tokensValidAfter as Date | string | null | undefined;
+    if (tokensValidAfter && Number.isFinite(issuedAtSec)) {
+      const validAfterSec = Math.floor(new Date(tokensValidAfter).getTime() / 1000);
+      if (issuedAtSec < validAfterSec) {
+        throw authError("SESSION_REVOKED", "Session revoked");
+      }
+    }
+
     if (Number.isFinite(issuedAtSec) && issuedAtSec > 0) {
       const maxMinutes = await getRoleSessionMaxMinutes(rawRole);
       const ageSec = Math.floor(Date.now() / 1000) - issuedAtSec;
