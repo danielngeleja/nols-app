@@ -18,6 +18,7 @@ import { buildOperatorProfileSeed, mergeOperatorProfileSeed } from "../lib/opera
 import { extractPlannedActivities } from "../lib/agentPlannedActivities.js";
 import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
 import { canClaimFinalTourPayout, disputeWindowEndsAt } from "../lib/tourLifecycle.js";
+import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
 import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
 import {
   buildContractWorkflowSeed,
@@ -820,28 +821,38 @@ router.get(
         booking: {
           select: {
             id: true, bookingCode: true, title: true, destination: true,
-            startDate: true, status: true, payoutStatus: true, currency: true,
+            startDate: true, status: true, paymentStatus: true, payoutStatus: true, currency: true,
             grossAmount: true, operatorPayoutAmount: true, guestName: true,
           },
         },
-        events: { orderBy: { createdAt: "desc" }, take: 8 },
+        events: { orderBy: { createdAt: "desc" }, take: 50 },
       },
       orderBy: { createdAt: "desc" },
       take: 250,
     });
-    const requiresReconciliation = (item: typeof cases[number]) => item.status === "REJECTED" && (
+    const visibleCases = cases.flatMap((item) => {
+      const responsibility = classifyOperatorCaseResponsibility({
+        bookingOperatorAgentId: gate.agent.id,
+        requestingAgentId: gate.agent.id,
+        paymentStatus: item.booking.paymentStatus,
+        eventTypes: item.events.map((event) => event.type),
+      });
+      return responsibility.visible ? [{ ...item, operatorReceiptStatus: responsibility.status }] : [];
+    });
+    const requiresReconciliation = (item: typeof visibleCases[number]) => item.status === "REJECTED" && (
       ["CANCELED", "REFUNDED"].includes(String(item.booking.status).toUpperCase()) || item.booking.payoutStatus === "HELD"
     );
-    const reconciliationCases = cases.filter(requiresReconciliation);
-    const submittedCases = cases.filter((item) => !requiresReconciliation(item) && ["OPEN", "ELIGIBLE"].includes(item.status));
-    const reviewCases = cases.filter((item) => !requiresReconciliation(item) && ["ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"].includes(item.status));
-    const refundQueueCases = cases.filter((item) => !requiresReconciliation(item) && item.status === "APPROVED");
-    const closedCases = cases.filter((item) => !requiresReconciliation(item) && ["RESOLVED", "REJECTED", "CLOSED", "WITHDRAWN"].includes(item.status));
+    const reconciliationCases = visibleCases.filter(requiresReconciliation);
+    const submittedCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["OPEN", "ELIGIBLE"].includes(item.status));
+    const reviewCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"].includes(item.status));
+    const refundQueueCases = visibleCases.filter((item) => !requiresReconciliation(item) && item.status === "APPROVED");
+    const closedCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["RESOLVED", "REJECTED", "CLOSED", "WITHDRAWN"].includes(item.status));
+    const attentionCases = visibleCases.filter((item) => requiresReconciliation(item) || item.operatorReceiptStatus === "AWAITING_RECEIPT");
     return res.json({
       ok: true,
-      cases,
+      cases: visibleCases,
       summary: {
-        total: cases.length,
+        total: visibleCases.length,
         submitted: submittedCases.length,
         inReview: reviewCases.length,
         refundQueue: refundQueueCases.length,
@@ -849,8 +860,11 @@ router.get(
         closed: closedCases.length,
         // Retained for older clients; new UI uses the exclusive buckets above.
         actionRequired: submittedCases.length + reconciliationCases.length,
-        cancellations: cases.filter((item) => item.type === "CANCELLATION").length,
-        payoutHeld: cases.filter((item) => item.booking.payoutStatus === "HELD").length,
+        awaitingReceipt: visibleCases.filter((item) => item.operatorReceiptStatus === "AWAITING_RECEIPT").length,
+        received: visibleCases.filter((item) => item.operatorReceiptStatus === "RECEIVED").length,
+        attention: attentionCases.length,
+        cancellations: visibleCases.filter((item) => item.type === "CANCELLATION").length,
+        payoutHeld: visibleCases.filter((item) => item.booking.payoutStatus === "HELD").length,
         resolved: closedCases.length,
       },
     });
@@ -865,10 +879,14 @@ router.get(
     const gate = await getActiveAgent(req as AuthedRequest);
     if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
     const bookingId = Number(req.params.id);
-    const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, operatorAgentId: gate.agent.id }, select: { id: true } });
+    const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, operatorAgentId: gate.agent.id }, select: { id: true, operatorAgentId: true, paymentStatus: true } });
     if (!booking) return res.status(404).json({ error: "Tour booking not found" });
     const cases = await prisma.tourCase.findMany({ where: { tourBookingId: booking.id }, include: { events: { orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } });
-    return res.json({ ok: true, cases });
+    const visibleCases = cases.flatMap((item) => {
+      const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+      return responsibility.visible ? [{ ...item, operatorReceiptStatus: responsibility.status }] : [];
+    });
+    return res.json({ ok: true, cases: visibleCases });
   })
 );
 
@@ -883,9 +901,11 @@ router.post(
     const action = String(req.body?.action || "").toUpperCase();
     const message = String(req.body?.message || "").trim().slice(0, 4000);
     if (!["ACKNOWLEDGE", "ESCALATE", "RESOLVE", "REJECT"].includes(action) || !message) return res.status(400).json({ error: "Invalid action or message" });
-    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { customerId: true, bookingCode: true } } } });
+    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { customerId: true, bookingCode: true, operatorAgentId: true, paymentStatus: true } }, events: { select: { type: true } } } });
     if (!item) return res.status(404).json({ error: "Case not found" });
-    if (["CLOSED", "WITHDRAWN", "RESOLVED"].includes(item.status)) return res.status(409).json({ error: "Case is closed" });
+    const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: item.booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: item.booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+    if (!responsibility.visible || !responsibility.canRespond) return res.status(403).json({ error: "This case has not been delivered to this operator by NoLSAF", code: responsibility.status });
+    if (["CLOSED", "WITHDRAWN", "RESOLVED", "REJECTED"].includes(item.status)) return res.status(409).json({ error: "Case is closed" });
     if (["CANCELLATION", "REFUND"].includes(item.type) && ["RESOLVE", "REJECT"].includes(action)) return res.status(403).json({ error: "Cancellation and refund decisions require NoLSAF review" });
     const status = action === "ACKNOWLEDGE" ? "ACKNOWLEDGED" : action === "ESCALATE" ? "ESCALATED" : action === "RESOLVE" ? "RESOLVED" : "REJECTED";
     const updated = await prisma.$transaction(async (tx) => {
@@ -925,8 +945,10 @@ router.post(
     })) {
       return res.status(400).json({ error: "Every cost requires a valid kind, description, positive amount, and evidence URL" });
     }
-    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { bookingCode: true } } } });
+    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { bookingCode: true, operatorAgentId: true, paymentStatus: true } }, events: { select: { type: true } } } });
     if (!item) return res.status(404).json({ error: "Case not found" });
+    const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: item.booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: item.booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+    if (responsibility.status !== "RECEIVED") return res.status(409).json({ error: "Acknowledge receipt of this case before submitting operator evidence", code: "CASE_NOT_RECEIVED" });
     if (["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(item.status)) return res.status(409).json({ error: "Case is closed" });
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: item.id }, data: { status: "UNDER_REVIEW" } });

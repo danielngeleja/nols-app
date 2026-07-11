@@ -2149,8 +2149,9 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
   };
   const requestedAt = new Date();
   const hoursUntilDeparture = (new Date(booking.startDate).getTime() - requestedAt.getTime()) / 3_600_000;
-  const operatorResponseWindowHours = hoursUntilDeparture <= 72 ? 1 : 6;
-  const operatorResponseDueAt = new Date(requestedAt.getTime() + operatorResponseWindowHours * 3_600_000);
+  const operatorParticipationRequired = String(booking.paymentStatus || "").toUpperCase() === "PAID";
+  const operatorResponseWindowHours = operatorParticipationRequired ? (hoursUntilDeparture <= 72 ? 1 : 6) : null;
+  const operatorResponseDueAt = operatorResponseWindowHours == null ? null : new Date(requestedAt.getTime() + operatorResponseWindowHours * 3_600_000);
   let created;
   try {
     created = await prisma.$transaction(async (tx) => {
@@ -2176,8 +2177,9 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
           reasonCategory,
           amountPaid: Number(booking.grossAmount),
           deductionsPendingOperatorEvidence: decision.refundPercent > 0,
+          operatorParticipationRequired,
           operatorResponseWindowHours,
-          operatorResponseDueAt: operatorResponseDueAt.toISOString(),
+          operatorResponseDueAt: operatorResponseDueAt?.toISOString() || null,
         },
       } });
       return item;
@@ -2187,8 +2189,10 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
     if (error?.code === "P2034") return res.status(409).json({ error: "Another cancellation request is being processed for this booking. Please retry." });
     throw error;
   }
-  await Promise.all([
-    notifyTourOperatorCase({
+  const cancellationNotifications: Promise<unknown>[] = [
+    notifyAdmins("tour_cancellation_submitted", { caseId: created.id, bookingCode: booking.bookingCode, tourBookingId: booking.id }),
+  ];
+  if (operatorParticipationRequired) cancellationNotifications.push(notifyTourOperatorCase({
       kind: "SUBMITTED",
       operatorAgentId: booking.operatorAgentId,
       bookingId: booking.id,
@@ -2199,9 +2203,8 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
       reason,
       currency: booking.currency,
       responseDueAt: operatorResponseDueAt,
-    }),
-    notifyAdmins("tour_cancellation_submitted", { caseId: created.id, bookingCode: booking.bookingCode, tourBookingId: booking.id }),
-  ]);
+    }));
+  await Promise.all(cancellationNotifications);
   return res.status(201).json({
     ok: true,
     case: created,

@@ -7,6 +7,7 @@ import apiClient from "@/lib/apiClient";
 
 type TourCase = {
   id: number; type: string; status: string; title: string; description: string; createdAt: string;
+  operatorReceiptStatus?: "AWAITING_RECEIPT" | "RECEIVED";
   booking: { id: number; bookingCode: string; title: string; destination?: string | null; startDate?: string | null; status: string; payoutStatus: string; currency: string; grossAmount: number | string; operatorPayoutAmount: number | string; guestName?: string | null };
   events: Array<{ id: number; type: string; message?: string | null; createdAt: string }>;
 };
@@ -39,7 +40,7 @@ const PAGE_SIZE = 10;
 
 export default function OperatorCancellationInboxPage() {
   const [items, setItems] = useState<TourCase[]>([]);
-  const [summary, setSummary] = useState({ total: 0, submitted: 0, inReview: 0, refundQueue: 0, reconciliation: 0, closed: 0 });
+  const [summary, setSummary] = useState({ total: 0, submitted: 0, inReview: 0, refundQueue: 0, reconciliation: 0, closed: 0, awaitingReceipt: 0, received: 0, attention: 0 });
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"ACTIVE" | "ALL" | "CLOSED">("ACTIVE");
   const [page, setPage] = useState(1);
@@ -61,7 +62,7 @@ export default function OperatorCancellationInboxPage() {
   const filtered = useMemo(() => items.filter((item) => {
     const caseStatus = String(item.status || "").toUpperCase();
     const reconciliation = needsRecordReconciliation(item);
-    if (view === "ACTIVE" && !reconciliation && !["OPEN", "ELIGIBLE"].includes(caseStatus)) return false;
+    if (view === "ACTIVE" && !reconciliation && item.operatorReceiptStatus !== "AWAITING_RECEIPT" && !["OPEN", "ELIGIBLE"].includes(caseStatus)) return false;
     if (view === "CLOSED" && (reconciliation || !closed(caseStatus))) return false;
     const haystack = `${item.id} ${item.title} ${item.description} ${item.booking.bookingCode} ${item.booking.title} ${item.booking.guestName || ""}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
@@ -96,7 +97,7 @@ export default function OperatorCancellationInboxPage() {
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Case view</span>
         <div className="grid min-w-0 grid-cols-3 gap-2 sm:w-auto">
           {([
-            ["ACTIVE", `Needs attention (${summary.submitted + summary.reconciliation})`],
+            ["ACTIVE", `Needs attention (${summary.attention})`],
             ["ALL", `All (${summary.total})`],
             ["CLOSED", `Closed (${summary.closed})`],
           ] as const).map(([option, text]) => <button key={option} type="button" onClick={() => setView(option)} className={`min-w-0 rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors sm:min-w-28 ${view === option ? "bg-[#02665e] text-white shadow-sm" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{text}</button>)}
@@ -117,7 +118,9 @@ export default function OperatorCancellationInboxPage() {
         const rejected = caseStatus === "REJECTED";
         const needsReconciliation = needsRecordReconciliation(item);
         const outcome = needsReconciliation ? "Reconciliation required" : rejected ? "Cancellation declined" : caseStatus === "RESOLVED" ? "Case completed" : caseStatus === "APPROVED" ? "Cancellation approved" : active ? "Decision pending" : "Case closed";
-        const requiredAction = needsReconciliation
+        const requiredAction = item.operatorReceiptStatus === "AWAITING_RECEIPT"
+          ? "Open the case and acknowledge receipt from NoLSAF"
+          : needsReconciliation
           ? "Verify the booking record and await NoLSAF reconciliation"
           : ["OPEN", "ELIGIBLE"].includes(caseStatus)
             ? "Open and acknowledge the traveller request"
@@ -136,6 +139,7 @@ export default function OperatorCancellationInboxPage() {
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 xl:hidden">Case ID</div>
             <div className="font-mono text-xs font-bold text-[#02665e]">{displayId}</div>
             <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone(caseStatus, active)}`}>{label(caseStatus)}</span>
+            <div className={`mt-1 text-[10px] font-semibold ${item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "text-amber-700" : "text-emerald-700"}`}>{item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "Awaiting your receipt" : "Received by operator"}</div>
           </div>
           <div className="min-w-0">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 xl:hidden">Traveller request</div>

@@ -37,6 +37,7 @@ function eventLabel(type: string) {
     ACKNOWLEDGE: "Operator acknowledged the case",
     ESCALATE: "Operator escalated the case",
     OPERATOR_COST_EVIDENCE: "Operator submitted cost evidence",
+    OPERATOR_NOTIFIED: "Case delivered to operator",
     APPROVE_CANCELLATION: "Cancellation approved",
     RECORD_REFUND: "Refund recorded",
     REJECT: "Cancellation rejected",
@@ -76,6 +77,7 @@ export default function AdminTourCancellationDetailPage() {
   const eligibility = useMemo(() => events.find((event: any) => event.type === "ELIGIBILITY_CALCULATED")?.data || {}, [events]);
   const requestedEvidence = useMemo(() => events.find((event: any) => event.type === "REQUEST_EVIDENCE"), [events]);
   const operatorEvidence = useMemo(() => [...events].reverse().find((event: any) => event.type === "OPERATOR_COST_EVIDENCE")?.data?.items || [], [events]);
+  const operatorNotified = useMemo(() => events.find((event: any) => event.type === "OPERATOR_NOTIFIED"), [events]);
   const operatorResponse = useMemo(() => events.find((event: any) => ["ACKNOWLEDGE", "ESCALATE", "OPERATOR_COST_EVIDENCE"].includes(event.type)), [events]);
   const operatorResponseDueAt = eligibility.operatorResponseDueAt ? new Date(String(eligibility.operatorResponseDueAt)) : null;
   const operatorResponseWindowOpen = Boolean(item?.booking?.operatorAgentId && !operatorResponse && operatorResponseDueAt && operatorResponseDueAt.getTime() > Date.now());
@@ -91,7 +93,7 @@ export default function AdminTourCancellationDetailPage() {
     setConfirmAction(action);
   };
 
-  const act = async (action: "REQUEST_EVIDENCE" | DecisionAction) => {
+  const act = async (action: "DELIVER_TO_OPERATOR" | "REQUEST_EVIDENCE" | DecisionAction) => {
     if (!item || !reason.trim()) return setError("Add an administrative reason before taking this action.");
     setWorking(true);
     setError(null);
@@ -221,6 +223,7 @@ export default function AdminTourCancellationDetailPage() {
             </div>
           </dl>
         </section>
+        {!closed && !operatorNotified && String(booking.paymentStatus || "").toUpperCase() === "PAID" && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm"><div className="text-sm font-bold text-sky-950">Operator has not received this case</div><p className="mt-1 text-xs leading-relaxed text-sky-800">Deliver it before expecting acknowledgement, evidence, or an operational response.</p><button type="button" disabled={working || reason.trim().length < 2} onClick={() => void act("DELIVER_TO_OPERATOR")} className="mt-3 w-full rounded-lg bg-sky-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-sky-900 disabled:opacity-50">Deliver to operator</button></section>}
         {!closed && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Admin decision</h2><p className="mt-1 text-xs text-slate-500">Record the reason that will be kept in the case history.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Decision reason or evidence request" className="mt-4 box-border w-full min-w-0 max-w-full resize-y rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" /><label className="mt-3 flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={operatorCaused} onChange={(event) => setOperatorCaused(event.target.checked)} className="mt-0.5" />Operator or NoLSAF caused the cancellation</label>{operatorResponseWindowOpen && <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950"><input type="checkbox" checked={overrideOperatorResponse} onChange={(event) => setOverrideOperatorResponse(event.target.checked)} className="mt-0.5" /><span>Urgent decision before operator deadline<span className="mt-1 block font-normal text-amber-800">Only use when waiting until {dateTime(operatorResponseDueAt)} would materially harm the traveller or tour. The reason and override are permanently audited.</span></span></label>}<div className="mt-4 grid gap-2"><button type="button" disabled={working} onClick={() => void act("REQUEST_EVIDENCE")} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"><RotateCcw className="mr-1 inline h-4 w-4" />Request evidence</button><button type="button" disabled={working || !["ELIGIBLE", "UNDER_REVIEW", "ACKNOWLEDGED", "ESCALATED"].includes(item.status)} onClick={() => openConfirmation("APPROVE_CANCELLATION")} className="rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"><CheckCircle2 className="mr-1 inline h-4 w-4" />Approve cancellation</button><button type="button" disabled={working} onClick={() => openConfirmation("REJECT")} className="rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"><XCircle className="mr-1 inline h-4 w-4" />Reject request</button></div>{item.status === "APPROVED" && <div className="mt-4"><label className="text-xs font-semibold text-slate-700">Refund reference</label><input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} placeholder="Payment-provider reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><button type="button" disabled={working || refundReference.trim().length < 3} onClick={() => openConfirmation("RECORD_REFUND")} className="mt-2 w-full rounded-lg bg-[#02665e] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60">Record refund</button></div>}</section>}
       </aside>
     </section>

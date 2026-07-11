@@ -31,7 +31,7 @@ const deductionSchema = z.object({
 });
 
 const actionSchema = z.object({
-  action: z.enum(["REQUEST_EVIDENCE", "APPROVE_CANCELLATION", "REJECT", "RECORD_REFUND"]),
+  action: z.enum(["DELIVER_TO_OPERATOR", "REQUEST_EVIDENCE", "APPROVE_CANCELLATION", "REJECT", "RECORD_REFUND"]),
   reason: z.string().min(2).max(4000),
   refundPercent: z.number().min(0).max(100).optional(),
   deductions: z.array(deductionSchema).max(50).optional().default([]),
@@ -89,6 +89,16 @@ router.post("/:id/action", async (req: any, res) => {
   const { action, reason, deductions, operatorCaused, overrideOperatorResponse, refundReference } = parsed.data;
   const adminId = Number(req.user.id);
 
+  if (action === "DELIVER_TO_OPERATOR") {
+    if (String(item.booking.paymentStatus || "").toUpperCase() !== "PAID") return res.status(409).json({ error: "Operator responsibility begins only after the booking payment is confirmed as PAID", code: "BOOKING_NOT_OPERATIONAL" });
+    const alreadyDelivered = await prisma.tourCaseEvent.findFirst({ where: { tourCaseId: caseId, type: "OPERATOR_NOTIFIED" }, select: { id: true } });
+    if (alreadyDelivered) return res.status(409).json({ error: "This case has already been delivered to the assigned operator", code: "OPERATOR_ALREADY_NOTIFIED" });
+    const delivered = await notifyTourOperatorCase({ kind: "SUBMITTED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, currency: item.booking.currency });
+    if (!delivered) return res.status(503).json({ error: "The operator notification could not be recorded. Retry delivery before assigning responsibility.", code: "OPERATOR_DELIVERY_FAILED" });
+    const updated = await prisma.tourCase.update({ where: { id: caseId }, data: { assignedToUserId: adminId } });
+    return res.json({ ok: true, case: updated, operatorReceiptStatus: "AWAITING_RECEIPT" });
+  }
+
   if (action === "REQUEST_EVIDENCE") {
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "UNDER_REVIEW", assignedToUserId: adminId } });
@@ -117,11 +127,22 @@ router.post("/:id/action", async (req: any, res) => {
     : null;
   const responseDueAtValue = (eligibilityEvent?.data as any)?.operatorResponseDueAt;
   const responseDueAt = responseDueAtValue ? new Date(String(responseDueAtValue)) : null;
+  const operatorParticipationRequired = Boolean((eligibilityEvent?.data as any)?.operatorParticipationRequired ?? responseDueAtValue);
+  const operatorDelivery = finalDecision ? await prisma.tourCaseEvent.findFirst({
+    where: { tourCaseId: caseId, type: "OPERATOR_NOTIFIED" },
+    select: { id: true },
+  }) : null;
   const operatorResponded = finalDecision && Boolean(await prisma.tourCaseEvent.findFirst({
-    where: { tourCaseId: caseId, type: { in: ["ACKNOWLEDGE", "ESCALATE", "OPERATOR_COST_EVIDENCE"] } },
+    where: { tourCaseId: caseId, type: { in: ["OPERATOR_RECEIVED", "ACKNOWLEDGE", "ESCALATE", "OPERATOR_COST_EVIDENCE"] } },
     select: { id: true },
   }));
-  const responseWindowOpen = Boolean(finalDecision && item.booking.operatorAgentId && !operatorResponded && responseDueAt && responseDueAt.getTime() > Date.now());
+  if (finalDecision && operatorParticipationRequired && !operatorDelivery && !overrideOperatorResponse) {
+    return res.status(409).json({ error: "This paid case has not been delivered to the operator. Deliver it first or use the audited urgent-decision override.", code: "OPERATOR_NOT_NOTIFIED" });
+  }
+  if (finalDecision && operatorParticipationRequired && !operatorDelivery && overrideOperatorResponse && reason.trim().length < 20) {
+    return res.status(400).json({ error: "Explain the urgent reason for deciding without confirmed operator delivery (at least 20 characters)." });
+  }
+  const responseWindowOpen = Boolean(finalDecision && operatorDelivery && item.booking.operatorAgentId && !operatorResponded && responseDueAt && responseDueAt.getTime() > Date.now());
   if (responseWindowOpen && !overrideOperatorResponse) {
     return res.status(409).json({
       error: `The operator response window remains open until ${responseDueAt!.toISOString()}. Wait for a response or use the audited urgent-decision override.`,
@@ -132,11 +153,12 @@ router.post("/:id/action", async (req: any, res) => {
   if (responseWindowOpen && overrideOperatorResponse && reason.trim().length < 20) {
     return res.status(400).json({ error: "Explain the urgent reason for deciding before the operator response deadline (at least 20 characters)." });
   }
+  const operatorResponseOverrideUsed = Boolean(finalDecision && overrideOperatorResponse && operatorParticipationRequired && (!operatorDelivery || responseWindowOpen));
 
   if (action === "REJECT") {
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "REJECTED", resolution: reason, closedAt: new Date(), assignedToUserId: adminId } });
-      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed: responseWindowOpen && overrideOperatorResponse } } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { operatorDeliveryConfirmed: Boolean(operatorDelivery), operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed } } });
       return value;
     });
     if (item.booking.customerId) await notifyUser(item.booking.customerId, "tour_cancellation_rejected", { tourBookingId: item.booking.id, caseId, reason });
@@ -152,7 +174,7 @@ router.post("/:id/action", async (req: any, res) => {
     const breakdown = calculateFinalTourRefund(Number(item.booking.grossAmount), refundPercent, deductions, operatorCaused);
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "APPROVED", resolution: reason, resolutionAmount: breakdown.finalRefundAmount, assignedToUserId: adminId } });
-      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { ...breakdown, policyPercent: calculatedPercent, percentOverridden: !operatorCaused && refundPercent !== calculatedPercent, operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed: responseWindowOpen && overrideOperatorResponse } as any } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { ...breakdown, policyPercent: calculatedPercent, percentOverridden: !operatorCaused && refundPercent !== calculatedPercent, operatorDeliveryConfirmed: Boolean(operatorDelivery), operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed } as any } });
       await tx.tourBooking.update({ where: { id: item.booking.id }, data: { status: "CANCELED", canceledAt: new Date(), payoutStatus: "HELD" } });
       if (breakdown.finalRefundAmount > 0) await tx.tourFinancialTransaction.create({ data: {
         tourBookingId: item.booking.id, kind: "REFUND", status: "APPROVED", currency: item.booking.currency,

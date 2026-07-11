@@ -56,13 +56,13 @@ function notificationCopy(input: TourCaseOperatorNotification) {
  * SMS alerts as best-effort secondary channels. External delivery can never
  * roll back or block the cancellation case itself.
  */
-export async function notifyTourOperatorCase(input: TourCaseOperatorNotification): Promise<void> {
+export async function notifyTourOperatorCase(input: TourCaseOperatorNotification): Promise<boolean> {
   try {
     const agent = await prisma.agent.findUnique({
       where: { id: input.operatorAgentId },
       select: { userId: true, user: { select: { name: true, fullName: true, email: true, phone: true } } },
     });
-    if (!agent?.userId) return;
+    if (!agent?.userId) return false;
 
     const copy = notificationCopy(input);
     const origin = (process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
@@ -78,6 +78,22 @@ export async function notifyTourOperatorCase(input: TourCaseOperatorNotification
         meta: { href: caseUrl, tourBookingId: input.bookingId, bookingCode: input.bookingCode, caseId: input.caseId, kind: input.kind },
       },
     });
+
+    if (["SUBMITTED", "TRAVELER_EVIDENCE_SUBMITTED", "EVIDENCE_REQUESTED"].includes(input.kind)) {
+      const existingDelivery = await prisma.tourCaseEvent.findFirst({
+        where: { tourCaseId: input.caseId, type: "OPERATOR_NOTIFIED" },
+        select: { id: true },
+      });
+      if (!existingDelivery) await prisma.tourCaseEvent.create({
+        data: {
+          tourCaseId: input.caseId,
+          actorUserId: null,
+          type: "OPERATOR_NOTIFIED",
+          message: "NoLSAF delivered this case to the assigned tour operator workspace.",
+          data: { operatorAgentId: input.operatorAgentId, notificationId: created.id, channel: "IN_APP", deliveredAt: new Date().toISOString() },
+        },
+      });
+    }
 
     try {
       const io = (global as any).io;
@@ -116,7 +132,9 @@ export async function notifyTourOperatorCase(input: TourCaseOperatorNotification
       deliveries.push(sendSms(agent.user.phone, `NoLSAF: ${copy.title}. Booking ${input.bookingCode}, case #${input.caseId}. ${copy.body} Open your Agent Portal.`));
     }
     if (deliveries.length) void Promise.allSettled(deliveries);
+    return true;
   } catch (error: any) {
     console.warn("[tour-case-notify] operator notification failed:", error?.message || error);
+    return false;
   }
 }
