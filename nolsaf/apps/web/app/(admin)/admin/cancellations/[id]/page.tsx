@@ -47,6 +47,7 @@ type Item = {
   refundAmount: number | null;
   refundProvider: string | null;
   refundReference: string | null;
+  refundChargesJson?: { exempt?: boolean; cardSurcharge?: number; bankCharges?: number; adminCharge?: number; totalCharges?: number; netRefundAmount?: number } | null;
   refundInitiatedAt: string | null;
   refundedAt: string | null;
   createdAt: string;
@@ -116,6 +117,7 @@ export default function AdminCancellationDetailPage() {
   const [decisionNote, setDecisionNote] = useState<string>("");
   const [refundProvider, setRefundProvider] = useState<string>("");
   const [refundReference, setRefundReference] = useState<string>("");
+  const [bankCharges, setBankCharges] = useState<string>("");
   const [message, setMessage] = useState<string>("");
 
   async function load() {
@@ -208,7 +210,7 @@ export default function AdminCancellationDetailPage() {
     setSaving(true);
     setError(null);
     try {
-      await api.patch(`/api/admin/cancellations/${item.id}`, { status, decisionNote, refundProvider, refundReference });
+      await api.patch(`/api/admin/cancellations/${item.id}`, { status, decisionNote, refundProvider, refundReference, ...(Number(bankCharges) > 0 ? { actualBankCharges: Number(bankCharges) } : {}) });
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to save changes");
@@ -422,6 +424,9 @@ export default function AdminCancellationDetailPage() {
                   <div className="mt-4">
                     <label htmlFor="refund-provider" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Refund provider</label>
                     <input id="refund-provider" value={refundProvider} onChange={(e) => setRefundProvider(e.target.value)} maxLength={80} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Original payment provider or bank" />
+                    <label htmlFor="bank-charges" className="mb-2 mt-3 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Actual bank charges debited (optional)</label>
+                    <input id="bank-charges" value={bankCharges} onChange={(e) => setBankCharges(e.target.value)} inputMode="decimal" className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="TZS amount from the bank debit advice" />
+                    <p className="mt-2 text-xs text-slate-500">Refund payment charges apply per policy section 8.4: 6% card surcharge or actual bank charges, plus the administrative charge. Free-cancellation window and pre-policy bookings are exempt.</p>
                   </div>
                 )}
 
@@ -465,6 +470,16 @@ export default function AdminCancellationDetailPage() {
                     <div><div className="text-xs font-semibold text-emerald-700">Approved refund</div><div className="mt-1 font-bold text-emerald-950">TZS {Number(item.refundAmount).toLocaleString()}</div></div>
                     <div><div className="text-xs font-semibold text-emerald-700">Provider</div><div className="mt-1 font-bold text-emerald-950">{item.refundProvider || "Not initiated"}</div></div>
                     <div><div className="text-xs font-semibold text-emerald-700">Refund reference</div><div className="mt-1 break-all font-bold text-emerald-950">{item.refundReference || "Awaiting confirmation"}</div></div>
+                    {item.refundChargesJson && (
+                      <div className="sm:col-span-3 border-t border-emerald-200 pt-3">
+                        <div className="text-xs font-semibold text-emerald-700">Refund payment charges (policy 8.4)</div>
+                        <div className="mt-1 text-sm font-semibold text-emerald-950">
+                          {item.refundChargesJson.exempt
+                            ? "Exempt: no charges apply to this refund."
+                            : `Card surcharge TZS ${Number(item.refundChargesJson.cardSurcharge || 0).toLocaleString()} · Bank charges TZS ${Number(item.refundChargesJson.bankCharges || 0).toLocaleString()} · Admin charge TZS ${Number(item.refundChargesJson.adminCharge || 0).toLocaleString()} · Net payable TZS ${Number(item.refundChargesJson.netRefundAmount || 0).toLocaleString()}`}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 

@@ -941,7 +941,7 @@ router.post(
         const url = new URL(item.evidenceUrl);
         trustedUpload = url.protocol === "https:" && url.hostname === "res.cloudinary.com";
       } catch { trustedUpload = false; }
-      return !["NON_REFUNDABLE_COMPONENT", "CONSUMED_SERVICE", "RECOVERY_COST"].includes(item.kind) || !item.description || !(item.amount > 0) || !trustedUpload;
+      return !["NON_REFUNDABLE_COMPONENT", "CONSUMED_SERVICE", "RECOVERY_COST", "SUPPLIER_COMMITTED"].includes(item.kind) || !item.description || !(item.amount > 0) || !trustedUpload;
     })) {
       return res.status(400).json({ error: "Every cost requires a valid kind, description, positive amount, and evidence URL" });
     }

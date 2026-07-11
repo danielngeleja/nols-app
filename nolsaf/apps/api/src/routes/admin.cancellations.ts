@@ -12,6 +12,7 @@ import {
   validateAccommodationCancellationRequirements,
   type AccommodationCancellationStatus,
 } from "../lib/accommodationCancellationWorkflow.js";
+import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -101,6 +102,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
         refundReference: true,
         refundInitiatedAt: true,
         refundedAt: true,
+        refundChargesJson: true,
         policyEligible: true,
         policyRefundPercent: true,
         policyRule: true,
@@ -266,12 +268,14 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         bookingCode: true,
         policyEligible: true,
         policyRefundPercent: true,
+        policyRule: true,
         refundAmount: true,
         booking: {
           select: {
             id: true,
             status: true,
             totalAmount: true,
+            createdAt: true,
             property: { select: { ownerId: true, title: true } },
             code: { select: { id: true, status: true, codeVisible: true } },
           },
@@ -312,6 +316,25 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
     });
     if (!requirements.valid) return res.status(409).json({ error: requirements.error });
 
+    // Policy section 8.4: method-specific refund charges, computed once when
+    // the refund joins the payment queue. Policy 10.2 keeps bookings made
+    // before the charges policy exempt; the free-cancellation window stays a
+    // true 100 percent refund.
+    const refundCharges = nextStatus === "REFUND_PENDING" ? calculateRefundChannelCharges({
+      grossRefundAmount: Number(current.refundAmount || 0),
+      channel: inferRefundChannel(refundProvider),
+      eligibilityCode: current.policyRule,
+      actualBankCharges: Number(req.body?.actualBankCharges) > 0 ? Number(req.body.actualBankCharges) : 0,
+      chargesAcceptedAtBooking: current.booking
+        ? current.booking.createdAt.toISOString().slice(0, 10) >= REFUND_CHANNEL_POLICY_VERSION
+        : false,
+    }) : null;
+    const chargesNote = refundCharges
+      ? (refundCharges.exempt
+        ? " No payment-channel or administrative charges apply to this refund."
+        : ` Charges applied per the refund policy: card surcharge TZS ${refundCharges.cardSurcharge.toLocaleString()}, bank charges TZS ${refundCharges.bankCharges.toLocaleString()}, administrative charge TZS ${refundCharges.adminCharge.toLocaleString()}. Net refund payable: TZS ${refundCharges.netRefundAmount.toLocaleString()}.`)
+      : "";
+
     const { ownerTemplate, shouldVoidAndCancel } = getOwnerSideEffects(
       nextStatus,
       current.status as AccommodationCancellationStatus,
@@ -325,7 +348,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
           ...(nextStatus ? { status: nextStatus, reviewedBy: adminId, reviewedAt: new Date() } : {}),
           ...(["NEED_INFO", "APPROVED", "REJECTED"].includes(nextStatus) ? { decisionNote } : {}),
           ...(nextStatus === "APPROVED" ? { approvedAt: new Date(), approvedByAdminId: adminId, refundAmount: approvedRefundAmount } : {}),
-          ...(nextStatus === "REFUND_PENDING" ? { refundProvider, refundInitiatedAt: new Date() } : {}),
+          ...(nextStatus === "REFUND_PENDING" ? { refundProvider, refundInitiatedAt: new Date(), refundChargesJson: refundCharges as any } : {}),
           ...(nextStatus === "REFUNDED" ? { refundReference, refundedAt: new Date() } : {}),
         },
       });
@@ -344,6 +367,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
           refundReference: true,
           refundInitiatedAt: true,
           refundedAt: true,
+          refundChargesJson: true,
           userId: true,
           bookingCode: true,
         },
@@ -354,7 +378,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
           cancellationRequestId: id,
           senderId: adminId,
           senderRole: "ADMIN",
-          body: accommodationCancellationMessage(nextStatus, decisionNote).slice(0, 4000),
+          body: `${accommodationCancellationMessage(nextStatus, decisionNote)}${chargesNote}`.slice(0, 4000),
         },
       });
 

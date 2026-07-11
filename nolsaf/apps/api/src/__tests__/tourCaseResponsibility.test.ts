@@ -23,4 +23,8 @@ describe("tour case operator responsibility", () => {
   it("rejects access by a different operator", () => {
     expect(classifyOperatorCaseResponsibility({ ...base, requestingAgentId: 9, eventTypes: ["OPERATOR_NOTIFIED"] }).status).toBe("NOT_ASSIGNED");
   });
+
+  it("keeps a refunded booking's case visible to the operator", () => {
+    expect(classifyOperatorCaseResponsibility({ ...base, paymentStatus: "REFUNDED", eventTypes: ["OPERATOR_NOTIFIED", "ACKNOWLEDGE"] }).status).toBe("RECEIVED");
+  });
 });

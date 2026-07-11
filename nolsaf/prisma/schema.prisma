@@ -2684,6 +2684,8 @@ model CancellationRequest {
   refundReference   String?   @db.VarChar(160)
   refundInitiatedAt DateTime?
   refundedAt        DateTime?
+  /// Itemised payment-channel and administrative charges applied to the refund (policy section 8.4)
+  refundChargesJson Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

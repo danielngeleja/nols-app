@@ -2121,7 +2121,7 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
   if (!reason) return res.status(400).json({ error: "Cancellation reason is required" });
   const booking = await prisma.tourBooking.findFirst({
     where: { id: bookingId, customerId: req.user!.id },
-    select: { id: true, bookingCode: true, title: true, operatorAgentId: true, currency: true, status: true, startDate: true, createdAt: true, grossAmount: true, packageSnapshot: true, metadata: true, paymentStatus: true },
+    select: { id: true, bookingCode: true, title: true, operatorAgentId: true, currency: true, status: true, startDate: true, createdAt: true, grossAmount: true, packageSnapshot: true, metadata: true, paymentStatus: true, payoutStatus: true },
   });
   if (!booking) return res.status(404).json({ error: "Tour booking not found" });
   if (["CANCELED", "REFUNDED"].includes(String(booking.status).toUpperCase())) return res.status(409).json({ error: "Booking is already canceled or refunded" });
@@ -2129,6 +2129,68 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
   if (existing) return res.status(409).json({ error: "An active cancellation request already exists", caseId: existing.id });
   const md = safeObject(booking.metadata);
   const pickupValidated = Boolean(safeObject(md.pickupValidation).validated || safeObject(md.pickupValidationOperator).validated || safeObject(md.pickupValidationCustomer).validated);
+  const bookingStatusUpper = String(booking.status).toUpperCase();
+  const paymentConfirmed = String(booking.paymentStatus || "").toUpperCase() === "PAID";
+  const tourStarted = pickupValidated || ["IN_PROGRESS", "OPERATOR_COMPLETED", "COMPLETED"].includes(bookingStatusUpper);
+  // Unpaid and not started: nothing is at stake, so the booking cancels
+  // immediately with an auto-resolved case for the record. No NoLSAF review,
+  // no refund, and the operator is informed rather than made a participant.
+  if (!paymentConfirmed && !tourStarted) {
+    let autoCase;
+    try {
+      autoCase = await prisma.$transaction(async (tx) => {
+        const duplicate = await tx.tourCase.findFirst({
+          where: { tourBookingId: booking.id, type: "CANCELLATION", status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } },
+          select: { id: true },
+        });
+        if (duplicate) throw Object.assign(new Error("ACTIVE_CASE_EXISTS"), { code: "ACTIVE_CASE_EXISTS", caseId: duplicate.id });
+        const item = await tx.tourCase.create({ data: {
+          tourBookingId: booking.id,
+          type: "CANCELLATION",
+          status: "RESOLVED",
+          severity: "LOW",
+          title: `Tour cancellation: ${reasonCategory}`,
+          description: reason,
+          requestedByUserId: req.user!.id,
+          resolution: "Cancelled automatically: the booking was never paid, so no refund is due and no review is required.",
+          resolutionAmount: 0,
+          closedAt: new Date(),
+        } });
+        await tx.tourCaseEvent.create({ data: {
+          tourCaseId: item.id, actorUserId: req.user!.id, type: "AUTO_CANCELLED_UNPAID",
+          message: "The traveller cancelled before payment. The booking was cancelled immediately with no refund due.",
+          data: { reasonCategory, paymentStatus: booking.paymentStatus, bookingStatus: booking.status },
+        } });
+        await tx.tourBooking.update({ where: { id: booking.id }, data: { status: "CANCELED", canceledAt: new Date() } });
+        return item;
+      }, { isolationLevel: "Serializable" });
+    } catch (error: any) {
+      if (error?.code === "ACTIVE_CASE_EXISTS") return res.status(409).json({ error: "An active cancellation request already exists", caseId: error.caseId });
+      if (error?.code === "P2034") return res.status(409).json({ error: "Another cancellation request is being processed for this booking. Please retry." });
+      throw error;
+    }
+    const unpaidNotifications: Promise<unknown>[] = [
+      notifyAdmins("tour_cancellation_auto_cancelled_unpaid", { caseId: autoCase.id, bookingCode: booking.bookingCode, tourBookingId: booking.id }),
+    ];
+    if (booking.operatorAgentId) unpaidNotifications.push(notifyTourOperatorCase({
+      kind: "UNPAID_AUTO_CANCELLED",
+      operatorAgentId: booking.operatorAgentId,
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      caseId: autoCase.id,
+      tourTitle: booking.title,
+      startDate: booking.startDate,
+      reason,
+      currency: booking.currency,
+    }));
+    await Promise.all(unpaidNotifications);
+    return res.status(201).json({
+      ok: true,
+      case: autoCase,
+      autoCancelled: true,
+      notice: "Your booking was never paid, so it has been cancelled immediately. No refund is due and no further review is needed.",
+    });
+  }
   const policySnapshot = safeObject(md.tourCancellationPolicy);
   const calculatedDecision = evaluateTourCancellation({
     bookedAt: booking.createdAt,
@@ -2149,7 +2211,8 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
   };
   const requestedAt = new Date();
   const hoursUntilDeparture = (new Date(booking.startDate).getTime() - requestedAt.getTime()) / 3_600_000;
-  const operatorParticipationRequired = String(booking.paymentStatus || "").toUpperCase() === "PAID";
+  const operatorParticipationRequired = paymentConfirmed;
+  const payoutReleasedAtRequest = ["DISBURSED", "PAID"].includes(String(booking.payoutStatus || "").toUpperCase());
   const operatorResponseWindowHours = operatorParticipationRequired ? (hoursUntilDeparture <= 72 ? 1 : 6) : null;
   const operatorResponseDueAt = operatorResponseWindowHours == null ? null : new Date(requestedAt.getTime() + operatorResponseWindowHours * 3_600_000);
   let created;
@@ -2180,6 +2243,7 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
           operatorParticipationRequired,
           operatorResponseWindowHours,
           operatorResponseDueAt: operatorResponseDueAt?.toISOString() || null,
+          payoutReleasedAtRequest,
         },
       } });
       return item;
@@ -2210,7 +2274,7 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
     case: created,
     eligibility: decision,
     notice: decision.refundPercent > 0
-      ? "This is a provisional amount. Only disclosed, documented non-recoverable tour costs may reduce the final refund. The booking remains active until NoLSAF approves the cancellation."
+      ? "This is a provisional amount. Only disclosed, documented non-recoverable tour costs may reduce the final refund, and approved refunds are paid less the applicable payment-channel and administrative charges. Cancellations within the 24-hour cooling-off window are exempt from all charges. The booking remains active until NoLSAF approves the cancellation."
       : "No automatic refund is available. NoLSAF will review any exceptional-circumstance evidence before changing the booking.",
   });
 }) as RequestHandler);

@@ -12,7 +12,7 @@ import apiClient from "@/lib/apiClient";
 const money = (value: unknown, currency = "TZS") => `${currency} ${Number(value || 0).toLocaleString()}`;
 const dateTime = (value: unknown) => value ? new Date(String(value)).toLocaleString() : "Not recorded";
 
-type DecisionAction = "APPROVE_CANCELLATION" | "REJECT" | "RECORD_REFUND";
+type DecisionAction = "APPROVE_CANCELLATION" | "REJECT" | "RECORD_REFUND" | "RECORD_RECOVERY";
 
 function statusLabel(status: string) {
   if (status === "APPROVED") return "Refund queue";
@@ -40,6 +40,8 @@ function eventLabel(type: string) {
     OPERATOR_NOTIFIED: "Case delivered to operator",
     APPROVE_CANCELLATION: "Cancellation approved",
     RECORD_REFUND: "Refund recorded",
+    RECORD_RECOVERY: "Operator recovery recorded",
+    AUTO_CANCELLED_UNPAID: "Unpaid booking auto-cancelled",
     REJECT: "Cancellation rejected",
   };
   return labels[type] || String(type || "System update").replaceAll("_", " ");
@@ -54,6 +56,8 @@ export default function AdminTourCancellationDetailPage() {
   const [working, setWorking] = useState(false);
   const [reason, setReason] = useState("");
   const [refundReference, setRefundReference] = useState("");
+  const [recoveryReference, setRecoveryReference] = useState("");
+  const [bankCharges, setBankCharges] = useState("");
   const [operatorCaused, setOperatorCaused] = useState(false);
   const [overrideOperatorResponse, setOverrideOperatorResponse] = useState(false);
   const [confirmAction, setConfirmAction] = useState<DecisionAction | null>(null);
@@ -89,6 +93,7 @@ export default function AdminTourCancellationDetailPage() {
   const openConfirmation = (action: DecisionAction) => {
     if (!reason.trim()) return setError("Add an administrative reason before taking this action.");
     if (action === "RECORD_REFUND" && refundReference.trim().length < 3) return setError("Add the payment-provider refund reference before recording the refund.");
+    if (action === "RECORD_RECOVERY" && recoveryReference.trim().length < 3) return setError("Add the repayment receipt or payout-offset reference before recording the recovery.");
     setError(null);
     setConfirmAction(action);
   };
@@ -105,10 +110,16 @@ export default function AdminTourCancellationDetailPage() {
         payload.deductions = operatorEvidence;
         payload.operatorCaused = operatorCaused;
       }
-      if (action === "RECORD_REFUND") payload.refundReference = refundReference.trim();
+      if (action === "RECORD_REFUND") {
+        payload.refundReference = refundReference.trim();
+        if (Number(bankCharges) > 0) payload.actualBankCharges = Number(bankCharges);
+      }
+      if (action === "RECORD_RECOVERY") payload.recoveryReference = recoveryReference.trim();
       await apiClient.post(`/api/admin/cancellations/tours/${item.id}/action`, payload);
       setReason("");
       setRefundReference("");
+      setRecoveryReference("");
+      setBankCharges("");
       setOverrideOperatorResponse(false);
       setConfirmAction(null);
       await load();
@@ -125,12 +136,17 @@ export default function AdminTourCancellationDetailPage() {
   const booking = item.booking || {};
   const traveler = booking.customer || {};
   const refunds = (booking.financialTransactions || []).filter((entry: any) => entry.kind === "REFUND");
-  const confirmationTitle = confirmAction === "APPROVE_CANCELLATION" ? "Approve this cancellation?" : confirmAction === "REJECT" ? "Reject this cancellation?" : "Record this refund as completed?";
+  const recoveries = (booking.financialTransactions || []).filter((entry: any) => entry.kind === "PAYOUT_RECOVERY");
+  const pendingRecovery = recoveries.find((entry: any) => String(entry.status).toUpperCase() === "PENDING");
+  const payoutReleased = ["DISBURSED", "PAID"].includes(String(booking.payoutStatus || "").toUpperCase());
+  const confirmationTitle = confirmAction === "APPROVE_CANCELLATION" ? "Approve this cancellation?" : confirmAction === "REJECT" ? "Reject this cancellation?" : confirmAction === "RECORD_RECOVERY" ? "Record the operator recovery as settled?" : "Record this refund as completed?";
   const confirmationText = confirmAction === "APPROVE_CANCELLATION"
-    ? `${overrideOperatorResponse && operatorResponseWindowOpen ? "The urgent-decision override will be permanently recorded. " : ""}This cancels the booking, holds the operator payout, and creates the approved refund record.`
+    ? `${overrideOperatorResponse && operatorResponseWindowOpen ? "The urgent-decision override will be permanently recorded. " : ""}${payoutReleased ? "The front payment was already disbursed, so this cancels the booking, creates the approved refund record, and opens an operator recovery debt." : "This cancels the booking, holds the operator payout, and creates the approved refund record."}`
     : confirmAction === "REJECT"
       ? `${overrideOperatorResponse && operatorResponseWindowOpen ? "The urgent-decision override will be permanently recorded. " : ""}This closes the traveller's request and sends them the decision.`
-      : `This records ${refundReference.trim()} as the payment-provider refund reference.`;
+      : confirmAction === "RECORD_RECOVERY"
+        ? `This records ${recoveryReference.trim()} as the reference for the operator's repayment or payout offset.`
+        : `This records ${refundReference.trim()} as the payment-provider refund reference.`;
 
   return <main className="mx-auto w-[calc(100%-1rem)] max-w-6xl min-w-0 space-y-5 overflow-x-clip py-5 sm:w-[calc(100%-1.5rem)]">
     <Link href="/admin/cancellations?service=tours" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50" aria-label="Back to tour cancellations"><ArrowLeft className="h-5 w-5" /></Link>
@@ -223,8 +239,31 @@ export default function AdminTourCancellationDetailPage() {
             </div>
           </dl>
         </section>
+        {recoveries.length > 0 && <section className={`rounded-2xl border p-5 shadow-sm ${pendingRecovery ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+          <h2 className={`font-bold ${pendingRecovery ? "text-amber-950" : "text-emerald-950"}`}>Operator recovery</h2>
+          <p className={`mt-1 text-xs leading-relaxed ${pendingRecovery ? "text-amber-900" : "text-emerald-900"}`}>
+            {pendingRecovery
+              ? "A front payment was disbursed before this cancellation. The traveller refund proceeds first; recover this amount from the operator by repayment or by offsetting upcoming payouts."
+              : "The disbursed front payment has been recovered from the operator."}
+          </p>
+          <div className="mt-3 rounded-xl bg-white/70 px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</div>
+            <div className="mt-1 text-lg font-bold text-slate-950">{money(recoveries[0].amount, booking.currency)}</div>
+            <div className="mt-1 text-xs text-slate-600">{pendingRecovery ? "Pending recovery" : `Recovered · Reference ${recoveries[0].reference || "recorded"}`}</div>
+          </div>
+          {pendingRecovery && <div className="mt-3">
+            <label className="text-xs font-semibold text-amber-950">Recovery reference</label>
+            <input value={recoveryReference} onChange={(event) => setRecoveryReference(event.target.value)} placeholder="Repayment receipt or payout-offset reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm" />
+            {closed && <>
+              <label className="mt-2 block text-xs font-semibold text-amber-950">Administrative reason</label>
+              <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="How the recovery was settled" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm" />
+            </>}
+            {!closed && reason.trim().length < 2 && <p className="mt-2 text-xs text-amber-900">Add the administrative reason in the decision panel before recording.</p>}
+            <button type="button" disabled={working || recoveryReference.trim().length < 3 || reason.trim().length < 2} onClick={() => openConfirmation("RECORD_RECOVERY")} className="mt-2 w-full rounded-lg bg-amber-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:opacity-60">Record recovery</button>
+          </div>}
+        </section>}
         {!closed && !operatorNotified && String(booking.paymentStatus || "").toUpperCase() === "PAID" && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm"><div className="text-sm font-bold text-sky-950">Operator has not received this case</div><p className="mt-1 text-xs leading-relaxed text-sky-800">Deliver it before expecting acknowledgement, evidence, or an operational response.</p><button type="button" disabled={working || reason.trim().length < 2} onClick={() => void act("DELIVER_TO_OPERATOR")} className="mt-3 w-full rounded-lg bg-sky-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-sky-900 disabled:opacity-50">Deliver to operator</button></section>}
-        {!closed && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Admin decision</h2><p className="mt-1 text-xs text-slate-500">Record the reason that will be kept in the case history.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Decision reason or evidence request" className="mt-4 box-border w-full min-w-0 max-w-full resize-y rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" /><label className="mt-3 flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={operatorCaused} onChange={(event) => setOperatorCaused(event.target.checked)} className="mt-0.5" />Operator or NoLSAF caused the cancellation</label>{operatorResponseWindowOpen && <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950"><input type="checkbox" checked={overrideOperatorResponse} onChange={(event) => setOverrideOperatorResponse(event.target.checked)} className="mt-0.5" /><span>Urgent decision before operator deadline<span className="mt-1 block font-normal text-amber-800">Only use when waiting until {dateTime(operatorResponseDueAt)} would materially harm the traveller or tour. The reason and override are permanently audited.</span></span></label>}<div className="mt-4 grid gap-2"><button type="button" disabled={working} onClick={() => void act("REQUEST_EVIDENCE")} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"><RotateCcw className="mr-1 inline h-4 w-4" />Request evidence</button><button type="button" disabled={working || !["ELIGIBLE", "UNDER_REVIEW", "ACKNOWLEDGED", "ESCALATED"].includes(item.status)} onClick={() => openConfirmation("APPROVE_CANCELLATION")} className="rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"><CheckCircle2 className="mr-1 inline h-4 w-4" />Approve cancellation</button><button type="button" disabled={working} onClick={() => openConfirmation("REJECT")} className="rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"><XCircle className="mr-1 inline h-4 w-4" />Reject request</button></div>{item.status === "APPROVED" && <div className="mt-4"><label className="text-xs font-semibold text-slate-700">Refund reference</label><input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} placeholder="Payment-provider reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><button type="button" disabled={working || refundReference.trim().length < 3} onClick={() => openConfirmation("RECORD_REFUND")} className="mt-2 w-full rounded-lg bg-[#02665e] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60">Record refund</button></div>}</section>}
+        {!closed && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Admin decision</h2><p className="mt-1 text-xs text-slate-500">Record the reason that will be kept in the case history.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Decision reason or evidence request" className="mt-4 box-border w-full min-w-0 max-w-full resize-y rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" /><label className="mt-3 flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={operatorCaused} onChange={(event) => setOperatorCaused(event.target.checked)} className="mt-0.5" />Operator or NoLSAF caused the cancellation</label>{operatorResponseWindowOpen && <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950"><input type="checkbox" checked={overrideOperatorResponse} onChange={(event) => setOverrideOperatorResponse(event.target.checked)} className="mt-0.5" /><span>Urgent decision before operator deadline<span className="mt-1 block font-normal text-amber-800">Only use when waiting until {dateTime(operatorResponseDueAt)} would materially harm the traveller or tour. The reason and override are permanently audited.</span></span></label>}<div className="mt-4 grid gap-2"><button type="button" disabled={working} onClick={() => void act("REQUEST_EVIDENCE")} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"><RotateCcw className="mr-1 inline h-4 w-4" />Request evidence</button><button type="button" disabled={working || !["ELIGIBLE", "UNDER_REVIEW", "ACKNOWLEDGED", "ESCALATED"].includes(item.status)} onClick={() => openConfirmation("APPROVE_CANCELLATION")} className="rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"><CheckCircle2 className="mr-1 inline h-4 w-4" />Approve cancellation</button><button type="button" disabled={working} onClick={() => openConfirmation("REJECT")} className="rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"><XCircle className="mr-1 inline h-4 w-4" />Reject request</button></div>{item.status === "APPROVED" && <div className="mt-4"><label className="text-xs font-semibold text-slate-700">Refund reference</label><input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} placeholder="Payment-provider reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><label className="mt-2 block text-xs font-semibold text-slate-700">Actual bank charges debited (optional)</label><input value={bankCharges} onChange={(event) => setBankCharges(event.target.value)} placeholder={`Amount in ${booking.currency || "TZS"}, from the bank debit advice`} inputMode="decimal" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><p className="mt-2 text-xs text-slate-500">Channel charges apply per refund policy: 6% card surcharge or actual bank charges, plus the administrative charge. Cooling-off, operator-caused, and pre-policy bookings are exempt.</p><button type="button" disabled={working || refundReference.trim().length < 3} onClick={() => openConfirmation("RECORD_REFUND")} className="mt-2 w-full rounded-lg bg-[#02665e] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60">Record refund</button></div>}</section>}
       </aside>
     </section>
 

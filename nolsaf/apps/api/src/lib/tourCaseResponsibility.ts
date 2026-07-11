@@ -14,7 +14,9 @@ export function classifyOperatorCaseResponsibility(input: Input): { visible: boo
   if (!input.bookingOperatorAgentId || input.bookingOperatorAgentId !== input.requestingAgentId) {
     return { visible: false, canRespond: false, status: "NOT_ASSIGNED" };
   }
-  if (String(input.paymentStatus || "").toUpperCase() !== "PAID") {
+  // REFUNDED implies the payment was confirmed before the refund, so the
+  // operator keeps visibility of the finished case and any recovery debt.
+  if (!["PAID", "REFUNDED"].includes(String(input.paymentStatus || "").toUpperCase())) {
     return { visible: false, canRespond: false, status: "NOT_OPERATIONAL" };
   }
   const types = new Set(input.eventTypes.map((value) => String(value || "").toUpperCase()));

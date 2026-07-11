@@ -4,6 +4,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { TOUR_CANCELLATION_POLICY_VERSION } from "../lib/tourCancellationPolicy.js";
+import { REFUND_CHANNEL_POLICY } from "../lib/refundChannelCharges.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { limitPublicTourBookingCreate } from "../middleware/rateLimit.js";
@@ -288,6 +289,14 @@ router.post(
         partialRefundMinimumHoursBeforeStart: 96,
         partialRefundPercent: 50,
         commencementTrigger: "FIRST_VERIFIED_PICKUP_OR_ACTIVITY",
+        refundChannelCharges: {
+          cardSurchargePercent: REFUND_CHANNEL_POLICY.cardSurchargePercent,
+          bankAndMobileCharges: "ACTUAL_BANK_CHARGES",
+          adminChargeFlat: REFUND_CHANNEL_POLICY.adminChargeFlat,
+          coolingOffExempt: REFUND_CHANNEL_POLICY.fullGraceExempt,
+          operatorCausedExempt: true,
+        },
+        supplierCommittedEvidenceAccepted: true,
         accepted: true,
         acceptedAt: paymentAccessIssuedAt.toISOString(),
         acceptedByUserId: req.user?.id ?? null,

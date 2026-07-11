@@ -277,6 +277,17 @@ router.post("/action", async (req: any, res) => {
     if (action === "disburse" && currentStatus !== "APPROVED") {
       return res.status(400).json({ ok: false, error: "Record must be APPROVED before DISBURSE" });
     }
+    if (action === "disburse") {
+      // Never release operator money while a traveller case is unresolved:
+      // it turns a simple payout hold into a post-disbursement recovery debt.
+      const openCase = await prisma.tourCase.findFirst({
+        where: { tourBookingId: booking.id, status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE", "APPROVED"] } },
+        select: { id: true, type: true },
+      });
+      if (openCase) {
+        return res.status(409).json({ ok: false, error: `Payout cannot be disbursed while case #${openCase.id} (${String(openCase.type).toLowerCase()}) is open for this booking. Resolve the case first.` });
+      }
+    }
 
     if (action === "reject") {
       if (currentStatus === "DISBURSED" || currentStatus === "REJECTED") {
