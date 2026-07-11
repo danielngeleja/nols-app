@@ -3,7 +3,7 @@ SET
   `cr`.`refundAmount` = ROUND(
     COALESCE((
       SELECT `i`.`total`
-      FROM `Invoice` AS `i`
+      FROM `invoice` AS `i`
       WHERE `i`.`bookingId` = `cr`.`bookingId`
       ORDER BY `i`.`createdAt` DESC
       LIMIT 1
@@ -14,7 +14,7 @@ SET
     `cr`.`refundProvider`,
     (
       SELECT `i`.`paymentMethod`
-      FROM `Invoice` AS `i`
+      FROM `invoice` AS `i`
       WHERE `i`.`bookingId` = `cr`.`bookingId`
       ORDER BY `i`.`createdAt` DESC
       LIMIT 1

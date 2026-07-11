@@ -9,6 +9,7 @@ import { ArrowLeft, Loader2, CalendarDays, Ticket, Receipt, CheckCircle2, Clock3
 const api = apiClient;
 const MAX_ACTION_WORDS = 30;
 const MAX_CANCELLATION_WORDS = 120;
+const MIN_CANCELLATION_WORDS = 5;
 
 function countWords(text: string): number {
   const normalized = String(text || "").trim();
@@ -43,6 +44,7 @@ export default function TourPackageDetailsPage() {
   const [activeActionForm, setActiveActionForm] = useState<"change" | "issue" | "cancellation" | null>(null);
   const [actionTitle, setActionTitle] = useState("");
   const [actionDraft, setActionDraft] = useState("");
+  const [cancellationReviewOpen, setCancellationReviewOpen] = useState(false);
   const [changeType, setChangeType] = useState<
     "GENERAL" | "DATE_CHANGE" | "TRAVELERS" | "DOCUMENTS" | "PICKUP" | "ITINERARY" | "OTHER"
   >("GENERAL");
@@ -195,6 +197,7 @@ export default function TourPackageDetailsPage() {
     setIssueType("GENERAL");
     setIssueSeverity("MEDIUM");
     setActionMessage(null);
+    setCancellationReviewOpen(false);
   };
 
   const closeActionForm = () => {
@@ -202,6 +205,7 @@ export default function TourPackageDetailsPage() {
     setActiveActionForm(null);
     setActionTitle("");
     setActionDraft("");
+    setCancellationReviewOpen(false);
   };
 
   const confirmTourCompletion = async () => {
@@ -279,7 +283,17 @@ export default function TourPackageDetailsPage() {
       return;
     }
     if (activeActionForm === "cancellation") {
+      if (countWords(message) < MIN_CANCELLATION_WORDS) {
+        setActionMessage(`Please explain your reason in at least ${MIN_CANCELLATION_WORDS} words.`);
+        return;
+      }
+      if (!cancellationReviewOpen) {
+        setActionMessage(null);
+        setCancellationReviewOpen(true);
+        return;
+      }
       await submitCancellationRequest(title, message);
+      setCancellationReviewOpen(false);
     }
   };
 
@@ -1133,9 +1147,61 @@ export default function TourPackageDetailsPage() {
                           : "Your eligibility and provisional refund will be calculated immediately. The booking stays active until NoLSAF approves it."}
                     </div>
 
+                    {activeActionForm === "cancellation" && cancellationReviewOpen ? (
+                      <div className="mt-4">
+                        <div className="rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
+                          <div className="text-sm font-bold text-teal-950">Review your cancellation request</div>
+                          <p className="mt-1 text-xs leading-relaxed text-teal-900">Confirm the details below. Nothing is sent to NoLSAF until you confirm.</p>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Reason title</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{actionTitle.trim()}</div>
+                            <div className="mt-1 text-xs text-slate-500">Used as the reason category during review</div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Booking</div>
+                            <div className="mt-1 truncate text-sm font-semibold text-slate-900">{String(item?.title || packageSnapshot?.title || "Tour package")}</div>
+                            {item?.bookingCode ? <div className="mt-1 font-mono text-xs text-slate-500">{String(item.bookingCode)}</div> : null}
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cancellation reason</div>
+                            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{actionDraft.trim()}</p>
+                            <div className="mt-2 text-[11px] text-slate-500">{countWords(actionDraft)} words</div>
+                          </div>
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 sm:col-span-2">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-amber-800">What happens next</div>
+                            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-amber-900">
+                              <li>Your policy eligibility and provisional refund are calculated immediately.</li>
+                              <li>Your booking stays active until NoLSAF approves the cancellation.</li>
+                              <li>NoLSAF may request supporting evidence during the review.</li>
+                            </ul>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setCancellationReviewOpen(false)}
+                            disabled={actionLoading}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                          >
+                            Edit request
+                          </button>
+                          <button
+                            type="button"
+                            onClick={submitActiveAction}
+                            disabled={actionLoading}
+                            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                          >
+                            {actionLoading ? "Submitting..." : "Confirm & Submit"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
                     <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-5">
                       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
-                        <label className="text-xs font-medium text-slate-700">Title</label>
+                        <label className="text-xs font-medium text-slate-700">Title <span className="font-bold text-rose-600">*</span></label>
                         <input
                           type="text"
                           value={actionTitle}
@@ -1199,7 +1265,7 @@ export default function TourPackageDetailsPage() {
 
                     <div className="mt-3">
                       <label className="text-xs font-medium text-slate-700">
-                        {activeActionForm === "change" ? "Change details" : activeActionForm === "issue" ? "Issue details" : "Cancellation reason"}
+                        {activeActionForm === "change" ? "Change details" : activeActionForm === "issue" ? "Issue details" : "Cancellation reason"} <span className="font-bold text-rose-600">*</span>
                       </label>
                       <textarea
                         rows={4}
@@ -1210,6 +1276,9 @@ export default function TourPackageDetailsPage() {
                       />
                       <div className="mt-1 text-[11px] text-slate-500">
                         {countWords(actionDraft)}/{activeActionForm === "cancellation" ? MAX_CANCELLATION_WORDS : MAX_ACTION_WORDS} words
+                        {activeActionForm === "cancellation" && countWords(actionDraft) < MIN_CANCELLATION_WORDS && (
+                          <span className="ml-1 font-semibold text-amber-700">· at least {MIN_CANCELLATION_WORDS} words required</span>
+                        )}
                       </div>
                     </div>
 
@@ -1225,12 +1294,14 @@ export default function TourPackageDetailsPage() {
                       <button
                         type="button"
                         onClick={submitActiveAction}
-                        disabled={actionLoading}
-                        className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                        disabled={actionLoading || !actionTitle.trim() || !actionDraft.trim() || (activeActionForm === "cancellation" && countWords(actionDraft) < MIN_CANCELLATION_WORDS)}
+                        className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {actionLoading ? "Sending..." : activeActionForm === "change" ? "Send Request" : activeActionForm === "issue" ? "Submit Issue" : "Calculate & Submit"}
+                        {actionLoading ? "Sending..." : activeActionForm === "change" ? "Send Request" : activeActionForm === "issue" ? "Submit Issue" : "Review & Submit"}
                       </button>
                     </div>
+                    </>
+                    )}
                   </div>
                 )}
                 {actionMessage && (
