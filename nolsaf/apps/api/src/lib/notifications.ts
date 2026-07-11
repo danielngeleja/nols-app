@@ -165,6 +165,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "New Message on Cancellation Claim",
         body: `You have a new message on your cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""}.`
       },
+      tour_cancellation_evidence_requested: {
+        title: "Evidence requested for your tour cancellation",
+        body: `NoLSAF requested supporting evidence for tour cancellation case #${data.caseId || ""}. Open your tour booking and upload the requested files in the cancellation case.`
+      },
       booking_created: {
         title: "New Booking Received",
         body: `You have a new booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}. Open your bookings to view details and prepare for check-in.`

@@ -4,18 +4,24 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { notifyUser, notifyOwner } from "../lib/notifications.js";
 import { limitCancellationMessages } from "../middleware/rateLimit.js";
+import adminTourCasesRouter from "./admin.tourCases.js";
+import {
+  accommodationCancellationMessage,
+  normalizeAccommodationCancellationStatus,
+  validateAccommodationCancellationTransition,
+  validateAccommodationCancellationRequirements,
+  type AccommodationCancellationStatus,
+} from "../lib/accommodationCancellationWorkflow.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
 router.use(requireRole("ADMIN") as RequestHandler);
 
-const VALID_STATUSES = ["SUBMITTED", "REVIEWING", "NEED_INFO", "PROCESSING", "REFUNDED", "REJECTED"] as const;
-type CancellationStatus = (typeof VALID_STATUSES)[number];
+// Keep every cancellation workflow under the established admin cancellation
+// namespace while retaining the tour-specific policy and finance controls.
+router.use("/tours", adminTourCasesRouter as RequestHandler);
 
-function normalizeStatus(input: unknown): CancellationStatus | null {
-  const v = String(input || "").trim().toUpperCase();
-  return (VALID_STATUSES as readonly string[]).includes(v) ? (v as CancellationStatus) : null;
-}
+const normalizeStatus = normalizeAccommodationCancellationStatus;
 
 /**
  * GET /api/admin/cancellations?status=&q=
@@ -88,6 +94,13 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
         decisionNote: true,
         reviewedAt: true,
         reviewedBy: true,
+        approvedAt: true,
+        approvedByAdminId: true,
+        refundAmount: true,
+        refundProvider: true,
+        refundReference: true,
+        refundInitiatedAt: true,
+        refundedAt: true,
         policyEligible: true,
         policyRefundPercent: true,
         policyRule: true,
@@ -135,7 +148,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
     if (!item) return res.status(404).json({ error: "Cancellation request not found" });
 
     // Fetch payment information (invoice and payment events)
-    let paymentInfo: { invoice: any; paymentEvents: any[]; hasTransactionId: boolean } | null = null;
+    let paymentInfo: { invoice: any; paymentEvents: any[]; hasTransactionId: boolean; paymentConfirmed: boolean } | null = null;
     try {
       const invoice = await prisma.invoice.findFirst({
         where: { bookingId: item.bookingId },
@@ -170,6 +183,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
           invoice,
           paymentEvents,
           hasTransactionId: !!invoice.paymentRef || paymentEvents.some((e) => !!e.eventId),
+          paymentConfirmed: ["PAID", "CUSTOMER_PAID"].includes(String(invoice.status).toUpperCase()) || paymentEvents.some((e) => ["SUCCESS", "COMPLETED", "PAID"].includes(String(e.status).toUpperCase())),
         };
       }
     } catch (err) {
@@ -190,12 +204,11 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
  *
  * Progressive stages:
  *  REVIEWING  → notify owner the request is under review; no booking changes
- *  PROCESSING → notify owner it is approved; void code + cancel booking
- *  REFUNDED   → notify owner refund is complete; also void/cancel as safety
- *               fallback if admin skipped PROCESSING
+ *  APPROVED   → notify owner it is approved; void code + cancel booking
+ *  REFUNDED   → notify owner after provider-confirmed refund evidence is stored
  *  REJECTED   → notify owner request was denied; booking stays active
  */
-function getOwnerSideEffects(nextStatus: CancellationStatus | null, prevStatus: CancellationStatus): {
+function getOwnerSideEffects(nextStatus: AccommodationCancellationStatus | null, prevStatus: AccommodationCancellationStatus): {
   ownerTemplate: string | null;
   shouldVoidAndCancel: boolean;
 } {
@@ -205,13 +218,12 @@ function getOwnerSideEffects(nextStatus: CancellationStatus | null, prevStatus: 
     case "REVIEWING":
       return { ownerTemplate: "cancellation_reviewing", shouldVoidAndCancel: false };
 
-    case "PROCESSING":
-      // Admin just approved — THIS is the moment the owner loses the booking.
+    case "APPROVED":
+      // Approval is the moment the owner loses the booking and check-in access.
       return { ownerTemplate: "cancellation_processing", shouldVoidAndCancel: true };
 
     case "REFUNDED":
-      // Admin confirmed refund sent. Void/cancel only if not already done at PROCESSING.
-      return { ownerTemplate: "cancellation_refunded", shouldVoidAndCancel: prevStatus !== "PROCESSING" };
+      return { ownerTemplate: "cancellation_refunded", shouldVoidAndCancel: false };
 
     case "REJECTED":
       return { ownerTemplate: "cancellation_rejected", shouldVoidAndCancel: false };
@@ -228,8 +240,9 @@ function getOwnerSideEffects(nextStatus: CancellationStatus | null, prevStatus: 
  *
  * Progressive side-effects by status:
  *  REVIEWING  → owner notified: "request is under review"
- *  PROCESSING → booking → CANCELED, code → VOID, owner notified: "approved"
- *  REFUNDED   → owner notified: "refund complete" (void/cancel as safety fallback)
+ *  APPROVED   → booking → CANCELED, code → VOID, owner notified: "approved"
+ *  REFUND_PENDING → refund initiation is recorded
+ *  REFUNDED   → provider reference is stored, owner notified: "refund complete"
  *  REJECTED   → owner notified: "request rejected, booking stays active"
  */
 router.patch("/:id", (async (req: AuthedRequest, res) => {
@@ -251,10 +264,14 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         bookingId: true,
         userId: true,
         bookingCode: true,
+        policyEligible: true,
+        policyRefundPercent: true,
+        refundAmount: true,
         booking: {
           select: {
             id: true,
             status: true,
+            totalAmount: true,
             property: { select: { ownerId: true, title: true } },
             code: { select: { id: true, status: true, codeVisible: true } },
           },
@@ -263,27 +280,81 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
     });
     if (!current) return res.status(404).json({ error: "Cancellation request not found" });
 
+    if (!nextStatus) return res.status(400).json({ error: "A new status is required" });
+    const transition = validateAccommodationCancellationTransition(current.status, nextStatus);
+    if (!transition.valid) return res.status(409).json({ error: transition.error });
+
+    const invoice = await prisma.invoice.findFirst({
+      where: { bookingId: current.bookingId },
+      select: { total: true, status: true, paymentMethod: true, paymentRef: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const paymentEvent = await prisma.paymentEvent.findFirst({
+      where: { invoice: { bookingId: current.bookingId }, eventId: { not: "" }, status: { in: ["SUCCESS", "COMPLETED", "PAID"] } },
+      select: { eventId: true, provider: true, status: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const invoiceConfirmed = ["PAID", "CUSTOMER_PAID"].includes(String(invoice?.status || "").toUpperCase());
+    const hasPaymentProof = Boolean((invoiceConfirmed && invoice?.paymentRef) || paymentEvent?.eventId);
+    const refundProvider = String(req.body?.refundProvider || invoice?.paymentMethod || paymentEvent?.provider || "").trim().slice(0, 80);
+    const refundReference = String(req.body?.refundReference || "").trim().slice(0, 160);
+    const policyPercent = Math.max(0, Math.min(100, Number(current.policyRefundPercent || 0)));
+    const paidAmount = Number(invoice?.total ?? current.booking?.totalAmount ?? 0);
+    const approvedRefundAmount = Math.round((paidAmount * policyPercent / 100) * 100) / 100;
+    const requirements = validateAccommodationCancellationRequirements({
+      to: nextStatus,
+      decisionNote,
+      policyEligible: current.policyEligible,
+      hasPaymentProof,
+      refundProvider,
+      refundReference,
+      approvedRefundAmount: nextStatus === "APPROVED" ? approvedRefundAmount : Number(current.refundAmount || 0),
+    });
+    if (!requirements.valid) return res.status(409).json({ error: requirements.error });
+
     const { ownerTemplate, shouldVoidAndCancel } = getOwnerSideEffects(
       nextStatus,
-      current.status as CancellationStatus,
+      current.status as AccommodationCancellationStatus,
     );
 
     // Run all DB mutations atomically.
     const updated = await prisma.$transaction(async (tx) => {
-      const request = await tx.cancellationRequest.update({
-        where: { id },
+      const changed = await tx.cancellationRequest.updateMany({
+        where: { id, status: current.status },
         data: {
           ...(nextStatus ? { status: nextStatus, reviewedBy: adminId, reviewedAt: new Date() } : {}),
-          ...(decisionNote !== undefined ? { decisionNote: decisionNote || null } : {}),
+          ...(["NEED_INFO", "APPROVED", "REJECTED"].includes(nextStatus) ? { decisionNote } : {}),
+          ...(nextStatus === "APPROVED" ? { approvedAt: new Date(), approvedByAdminId: adminId, refundAmount: approvedRefundAmount } : {}),
+          ...(nextStatus === "REFUND_PENDING" ? { refundProvider, refundInitiatedAt: new Date() } : {}),
+          ...(nextStatus === "REFUNDED" ? { refundReference, refundedAt: new Date() } : {}),
         },
+      });
+      if (changed.count !== 1) throw new Error("CANCELLATION_STATE_CHANGED");
+      const request = await tx.cancellationRequest.findUniqueOrThrow({
+        where: { id },
         select: {
           id: true,
           status: true,
           decisionNote: true,
           reviewedAt: true,
           reviewedBy: true,
+          approvedAt: true,
+          refundAmount: true,
+          refundProvider: true,
+          refundReference: true,
+          refundInitiatedAt: true,
+          refundedAt: true,
           userId: true,
           bookingCode: true,
+        },
+      });
+
+      await tx.cancellationMessage.create({
+        data: {
+          cancellationRequestId: id,
+          senderId: adminId,
+          senderRole: "ADMIN",
+          body: accommodationCancellationMessage(nextStatus, decisionNote).slice(0, 4000),
         },
       });
 
@@ -362,6 +433,9 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
 
     return res.json({ item: updated });
   } catch (error: any) {
+    if (error?.message === "CANCELLATION_STATE_CHANGED") {
+      return res.status(409).json({ error: "This cancellation changed while you were reviewing it. Reload and try again." });
+    }
     console.error("PATCH /admin/cancellations/:id error:", error);
     return res.status(500).json({ error: "Failed to update cancellation request" });
   }
@@ -371,11 +445,8 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
  * POST /api/admin/cancellations/:id/messages
  * Body: { body: string, setStatus?: string }
  *
- * When setStatus is provided, applies the same progressive side-effects as PATCH:
- *  REVIEWING  → notify owner "under review"
- *  PROCESSING → void code + cancel booking + notify owner "approved"
- *  REFUNDED   → notify owner "refund complete" (void/cancel as fallback if needed)
- *  REJECTED   → notify owner "request rejected, booking stays active"
+ * Messages are communication only. Status changes must use PATCH so the
+ * authoritative transition checks and financial requirements cannot be bypassed.
  */
 router.post("/:id/messages", limitCancellationMessages, (async (req: AuthedRequest, res) => {
   try {
@@ -389,124 +460,40 @@ router.post("/:id/messages", limitCancellationMessages, (async (req: AuthedReque
     const body = String(req.body?.body || "").trim();
     if (!body) return res.status(400).json({ error: "Message body is required" });
 
-    const setStatus = req.body?.setStatus ? normalizeStatus(req.body.setStatus) : null;
-    if (req.body?.setStatus && !setStatus) return res.status(400).json({ error: "Invalid setStatus" });
-
-    // Pre-fetch state — needed for side-effect logic at every stage.
-    const current = setStatus
-      ? await prisma.cancellationRequest.findUnique({
-          where: { id },
-          select: {
-            status: true,
-            bookingId: true,
-            bookingCode: true,
-            booking: {
-              select: {
-                id: true,
-                status: true,
-                property: { select: { ownerId: true, title: true } },
-                code: { select: { id: true, status: true, codeVisible: true } },
-              },
-            },
-          },
-        })
-      : null;
-
-    const { ownerTemplate, shouldVoidAndCancel } = getOwnerSideEffects(
-      setStatus,
-      (current?.status ?? "SUBMITTED") as CancellationStatus,
-    );
-
-    const updated = await prisma.$transaction(async (tx) => {
-      const msg = await tx.cancellationMessage.create({
-        data: {
-          cancellationRequestId: id,
-          senderId: adminId,
-          senderRole: "ADMIN",
-          body: body.slice(0, 4000),
-        },
-        select: { id: true, senderId: true, senderRole: true, body: true, createdAt: true },
-      });
-
-      const reqRow = await tx.cancellationRequest.update({
-        where: { id },
-        data: setStatus ? { status: setStatus, reviewedBy: adminId, reviewedAt: new Date() } : {},
-        select: { id: true, userId: true, bookingCode: true, status: true, decisionNote: true },
-      });
-
-      if (shouldVoidAndCancel && current?.booking) {
-        // Cancel the booking.
-        if (current.booking.status !== "CANCELED") {
-          await tx.booking.update({
-            where: { id: current.booking.id },
-            data: { status: "CANCELED" },
-          });
-        }
-        // Void the check-in code.
-        if (current.booking.code && current.booking.code.status === "ACTIVE") {
-          await tx.checkinCode.update({
-            where: { id: current.booking.code.id },
-            data: {
-              status: "VOID",
-              voidReason: `Booking cancelled — cancellation request moved to ${setStatus} by admin`,
-              voidedAt: new Date(),
-            },
-          });
-        }
-      }
-
-      return { msg, reqRow };
-    });
-
-    // Post-transaction side-effects (owner notification + socket events).
-    if (ownerTemplate && current?.booking) {
-      const ownerId = current.booking.property?.ownerId;
-      const propertyTitle = current.booking.property?.title;
-      const code = current.booking.code;
-
-      if (ownerId) {
-        try {
-          await notifyOwner(ownerId, ownerTemplate, {
-            bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
-            propertyTitle,
-            requestId: id,
-            newStatus: setStatus,
-            decisionNote: updated.reqRow.decisionNote,
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      const io = req.app.get("io");
-      if (io) {
-        if (shouldVoidAndCancel && code) {
-          io.emit("admin:code:voided", { bookingId: current.bookingId, code: code.codeVisible });
-        }
-        if (ownerId) {
-          io.to(`owner:${ownerId}`).emit("booking:cancellation_update", {
-            bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
-            status: setStatus,
-            cancelled: shouldVoidAndCancel,
-          });
-        }
-      }
+    if (req.body?.setStatus) {
+      return res.status(400).json({ error: "Status changes must use the enforced cancellation workflow" });
     }
+    const current = await prisma.cancellationRequest.findUnique({
+      where: { id },
+      select: { id: true, userId: true, status: true, bookingCode: true },
+    });
+    if (!current) return res.status(404).json({ error: "Cancellation request not found" });
+    if (["REFUNDED", "REJECTED"].includes(current.status)) {
+      return res.status(409).json({ error: "Messages are locked because this cancellation is final" });
+    }
+
+    const created = await prisma.cancellationMessage.create({
+      data: {
+        cancellationRequestId: id,
+        senderId: adminId,
+        senderRole: "ADMIN",
+        body: body.slice(0, 4000),
+      },
+      select: { id: true, senderId: true, senderRole: true, body: true, createdAt: true },
+    });
 
     // Notify customer (best-effort).
     try {
-      await notifyUser(updated.reqRow.userId, "cancellation_message" as any, {
-        requestId: updated.reqRow.id,
-        bookingCode: updated.reqRow.bookingCode,
-        status: updated.reqRow.status,
+      await notifyUser(current.userId, "cancellation_message" as any, {
+        requestId: current.id,
+        bookingCode: current.bookingCode,
+        status: current.status,
       });
     } catch {
       // ignore
     }
 
-    return res.status(201).json({ message: updated.msg, status: updated.reqRow.status });
+    return res.status(201).json({ message: created, status: current.status });
   } catch (error: any) {
     console.error("POST /admin/cancellations/:id/messages error:", error);
     return res.status(500).json({ error: "Failed to send message" });

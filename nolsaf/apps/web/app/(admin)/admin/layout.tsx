@@ -93,8 +93,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </aside>
 
           {/* Main content: match Owner spacing and styling (no extra border/bg) */}
-          <div className={`pt-16 pb-6 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
-            <div className="admin-workspace-surface relative flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
+          <div className={`min-w-0 max-w-full overflow-x-hidden pt-16 pb-6 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
+            <div className="admin-workspace-surface relative flex h-[calc(100vh-4rem)] w-full min-w-0 max-w-full flex-col overflow-hidden">
               <div ref={mainRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <main className="min-w-0 overflow-x-hidden">
                   <div className="w-full min-w-0 overflow-x-hidden">

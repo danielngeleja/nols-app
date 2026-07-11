@@ -155,7 +155,7 @@ const nextConfig: NextConfig = {
           // IMPORTANT: This runs AFTER Next.js pages, so Next.js admin pages always win.
           // The exclusion list is kept for safety but the afterFiles ordering is the main guard.
           source:
-            '/admin/:path((?!cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/\\d+|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
+            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/\\d+|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
           // NOTE: removed trailing $ anchors so RSC sub-paths like /owners/3.segments/... are also excluded
           destination: `${apiOrigin}/admin/:path*`,
         },

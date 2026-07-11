@@ -13,6 +13,7 @@ import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { withCache } from "../lib/performance.js";
+import { signOperatorVerificationToken, verifyOperatorVerificationToken } from "../lib/operatorVerificationToken.js";
 
 const router = Router();
 
@@ -39,6 +40,28 @@ function approvedProfile(value: unknown): any | null {
   const status = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
   if (status !== "APPROVED") return null;
   return profile.approvedSnapshot && typeof profile.approvedSnapshot === "object" ? profile.approvedSnapshot : profile;
+}
+
+/**
+ * Public verification data must come from the admin-controlled profile review,
+ * never from fields submitted by the tour operator. The certificate reference
+ * is deterministic so it can be quoted consistently without exposing review
+ * documents or reviewer identity.
+ */
+function buildPublicOperatorVerification(agent: { id: number; operatorProfile: unknown }) {
+  const source = safeObject(agent.operatorProfile);
+  const status = String(source.reviewStatus || safeObject(source.review).status || "").toUpperCase();
+  if (status !== "APPROVED") return null;
+
+  const approvedAt = String(source.approvedAt || source.reviewedAt || safeObject(source.review).reviewedAt || "").trim();
+  return {
+    status: "VERIFIED" as const,
+    certificateId: `NOLS-TO-${String(agent.id).padStart(6, "0")}`,
+    approvedAt: approvedAt || null,
+    verificationUrl: approvedAt
+      ? `/verify/operator?t=${encodeURIComponent(signOperatorVerificationToken(agent.id, approvedAt))}`
+      : null,
+  };
 }
 
 function safeObject(value: unknown): Record<string, any> {
@@ -324,6 +347,7 @@ router.get(
           id: a.id,
           level: a.level,
           totalCompletedTrips: a.totalCompletedTrips,
+          verification: buildPublicOperatorVerification(a),
           profile: (() => {
             const profile = approvedProfile(a.operatorProfile);
             return profile ? { ...profile, tripConfidence: tripConfidenceByAgent.get(a.id) || summarizeTripConfidence([]) } : null;
@@ -336,6 +360,47 @@ router.get(
 
     res.json(payload);
   })
+);
+
+// ─── GET /api/public/agents/verification ─────
+// Resolves a signed public tour-operator certificate and revalidates its status.
+router.get(
+  "/verification",
+  asyncHandler(async (req, res) => {
+    const token = String(req.query.token || req.query.t || "").trim();
+    const payload = verifyOperatorVerificationToken(token);
+    if (!payload) return res.json({ ok: true, valid: false });
+
+    const agent = await prisma.agent.findFirst({
+      where: { id: payload.agentId, status: "ACTIVE" },
+      select: { id: true, operatorProfile: true },
+    });
+    const profile = approvedProfile(agent?.operatorProfile);
+    const source = safeObject(agent?.operatorProfile);
+    const reviewStatus = String(source.reviewStatus || safeObject(source.review).status || "").toUpperCase();
+    const approvedAt = String(source.approvedAt || source.reviewedAt || safeObject(source.review).reviewedAt || "").trim();
+
+    if (!agent || !profile || reviewStatus !== "APPROVED" || !approvedAt || approvedAt !== payload.approvedAt) {
+      return res.json({ ok: true, valid: false });
+    }
+
+    const companyName = String(profile.companyName || profile.businessName || profile.operatorName || "NoLSAF Tour Operator").trim();
+    const location = String(profile.physicalLocation || profile.businessAddress || "").trim();
+    return res.json({
+      ok: true,
+      valid: true,
+      certificate: {
+        issuer: "NoLS Africa Co Ltd",
+        operator: { id: agent.id, companyName, location },
+        verification: {
+          status: "VERIFIED",
+          verifiedAt: approvedAt,
+          method: "Operator profile and business review",
+          note: "This operator is currently active and approved on the NoLSAF platform.",
+        },
+      },
+    });
+  }),
 );
 
 // ─── GET /api/public/agents/:id ─────
@@ -367,6 +432,7 @@ router.get(
         id: agent.id,
         level: agent.level,
         totalCompletedTrips: agent.totalCompletedTrips,
+        verification: buildPublicOperatorVerification(agent),
         profile: { ...profile, tripConfidence: tripConfidenceByAgent.get(agent.id) || summarizeTripConfidence([]) },
       };
     }, { ttl: 30, tags: ["public:agents"] });

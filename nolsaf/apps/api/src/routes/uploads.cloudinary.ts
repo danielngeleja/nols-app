@@ -119,10 +119,10 @@ router.get("/sign", limitCloudinarySign as any, (req, res) => {
 
   // Cloudinary signature is sensitive to exact param values.
   // Use string values to match what browsers send via FormData.
+  // `max_file_size` is not included by Cloudinary in the upload signature
+  // canonical string. Keep the signed fields to the exact fields sent to its
+  // upload API; size limits remain enforced by the application upload flow.
   const params: Record<string, string | number> = { timestamp, folder, overwrite: "true" };
-  if (typeof maxFileSize === "number") {
-    params.max_file_size = String(maxFileSize);
-  }
   const signature = cloudinary.utils.api_sign_request(params as any, process.env.CLOUDINARY_API_SECRET!);
   res.setHeader("Cache-Control", "no-store");
   res.json({

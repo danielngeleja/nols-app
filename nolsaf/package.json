@@ -42,7 +42,8 @@
     "smoke:driver-payouts": "npm --workspace=@nolsaf/api run smoke:driver-payouts",
     "smoke-test:staging": "API_URL=$npm_config_api_url node scripts/smoke-test.mjs",
     "uptime:check": "node scripts/uptime-check.mjs",
-    "no4p-otp:cleanup": "node scripts/cleanup-no4p-otp.mjs"
+    "no4p-otp:cleanup": "node scripts/cleanup-no4p-otp.mjs",
+    "backfill:tour-operations": "tsx scripts/backfill-tour-operations.ts"
   },
   "dependencies": {
     "axios": "^1.16.0",

@@ -321,7 +321,7 @@ router.post("/action", async (req: any, res) => {
     } else if (action === "disburse") {
       if (!paymentRef) return res.status(400).json({ ok: false, error: "Payment reference required" });
       updatedData.payoutStatus = "DISBURSED";
-      updatedData.paymentRef = paymentRef;
+      updatedData.operatorPayoutRef = paymentRef;
       updatedData.payoutPaidAt = new Date();
       history.disbursed = {
         ...(history.disbursed || {}),
@@ -349,6 +349,22 @@ router.post("/action", async (req: any, res) => {
       where: { id: Number(revenueId) },
       data: updatedData,
     });
+
+    if (action === "disburse") {
+      await prisma.tourFinancialTransaction.upsert({
+        where: { reference: String(paymentRef) },
+        create: {
+          tourBookingId: booking.id,
+          kind: "PAYOUT",
+          status: "DISBURSED",
+          reference: String(paymentRef),
+          currency: booking.currency,
+          amount: booking.operatorPayoutAmount,
+          metadata: { adminId },
+        },
+        update: { status: "DISBURSED", metadata: { adminId } },
+      });
+    }
 
     // Log audit trail
     try {

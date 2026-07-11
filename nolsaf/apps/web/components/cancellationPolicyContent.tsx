@@ -3,7 +3,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const CANCELLATION_POLICY_LAST_UPDATED = "1 January 2026";
+export const CANCELLATION_POLICY_LAST_UPDATED = "11 July 2026";
 
 export const CANCELLATION_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -380,6 +380,23 @@ export const CANCELLATION_POLICY_SECTIONS: TermsSection[] = [
           <strong>4.10 Group Stay Dispute Resolution</strong><br />
           Disputes regarding group stay cancellations follow the dispute resolution process outlined in section 10 (Dispute Resolution). However, group stay disputes may require additional documentation and coordination time due to the complexity of these bookings.
         </p>
+      </div>
+    ),
+  },
+  {
+    title: "4A. Tour Package Cancellations and Refunds",
+    content: (
+      <div className="space-y-4">
+        <p><strong>4A.1 Scope and Tour Commencement</strong><br />This section applies specifically to paid tour packages booked with a NoLSAF tour operator. Tour refunds are calculated from the Tour Booking amount paid and not from an accommodation invoice. A tour is considered commenced at the first verified pickup or meetup, admission using the tour voucher, or completion of the first itinerary activity, whichever occurs first.</p>
+        <p><strong>4A.2 System-Initiated Request</strong><br />The Traveler has the right to initiate a cancellation through the Tour Package section of their NoLSAF account. Submission creates a dated cancellation case and immediate provisional eligibility calculation. Submission does not itself cancel the booking: the booking remains active until NoLSAF approves the request and confirms the final refund or other remedy.</p>
+        <p><strong>4A.3 Cooling-Off Refund</strong><br />A Traveler who requests cancellation within 24 hours after booking, and at least 72 hours before tour commencement, is provisionally eligible for a 100% refund. Any component clearly disclosed and accepted as non-refundable before payment remains subject to NoLSAF review, except where the operator or NoLSAF caused the cancellation.</p>
+        <p><strong>4A.4 Advance Partial Refund</strong><br />After the 24-hour cooling-off period, a cancellation submitted at least 96 hours before tour commencement is provisionally eligible for a 50% refund of the amount paid. The final refund may be reduced only by non-refundable components that were disclosed before payment and supported by verifiable supplier receipts, permits, tickets, deposits, or equivalent records.</p>
+        <p><strong>4A.5 Late Cancellation, No-Show and Commenced Tours</strong><br />Voluntary cancellation less than 96 hours before commencement, failure to attend the confirmed pickup without notice, or cancellation after commencement is normally non-refundable. A Traveler may still submit evidence of an exceptional circumstance. If approved after commencement, only the recoverable value of unconsumed services may be refunded; completed activities, used services and documented non-recoverable costs are excluded.</p>
+        <p><strong>4A.6 Exceptional Circumstances</strong><br />Strict review may be available for a sudden serious medical emergency, death of the Traveler or immediate family member, declared natural disaster, government restriction, destination closure, or serious operator failure. Evidence must normally be submitted within 48 hours of the event. Ordinary weather, change of mind, personal scheduling conflicts, minor illness, expired travel documents, avoidable missed transport, or ordinary visa refusal do not automatically qualify.</p>
+        <p><strong>4A.7 Operator Cancellation or Material Failure</strong><br />If the operator cancels, cannot lawfully or safely provide the principal package, fails the confirmed pickup, or materially fails to deliver the booked tour, NoLSAF will first attempt a comparable replacement at no additional cost. If no suitable replacement is available or accepted for reasonable grounds, the Traveler is eligible for a full refund of undelivered services. No platform fee or operator cost will be deducted from an operator-caused full cancellation.</p>
+        <p><strong>4A.8 Refund Calculation and Evidence</strong><br />NoLSAF will show the amount paid, policy percentage, consumed services, documented non-recoverable components, adjustments and final refund. Operators must provide evidence for every proposed deduction. Undocumented preparation costs may not reduce the refund. The provisional amount displayed when the request is submitted is not the final approved refund.</p>
+        <p><strong>4A.9 Alternatives, Review and Payment</strong><br />NoLSAF may offer rescheduling, a comparable replacement or future travel credit. Unreasonably refusing a safe and materially equivalent remedy may affect eligibility. Approved monetary refunds are returned to the original payment method and currency, subject to the processing timelines in section 8. Open cancellation, refund or serious issue cases place the operator&apos;s final payout on hold.</p>
+        <p><strong>4A.10 Policy Version</strong><br />The tour cancellation terms and version in effect when the Traveler books are stored with the Tour Booking and govern that booking. Package-specific stricter conditions apply only when clearly disclosed and affirmatively accepted before payment. This section does not limit statutory consumer rights.</p>
       </div>
     ),
   },

@@ -32,27 +32,27 @@ model SiteUpdate {
 //  USER MODEL - One table for admins, owners, drivers, and customers
 // =========================================================
 model User {
-  id              Int       @id @default(autoincrement())
-  role            String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
-  name            String?
+  id                Int       @id @default(autoincrement())
+  role              String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
+  name              String?
   /// Human-friendly display name (used by newer UI)
-  fullName        String?   @db.VarChar(160)
-  email           String?   @unique
-  phone           String?   @unique
-  passwordHash    String?
+  fullName          String?   @db.VarChar(160)
+  email             String?   @unique
+  phone             String?   @unique
+  passwordHash      String?
   /// Profile avatar image URL (Cloudinary, etc.)
-  avatarUrl       String?   @db.VarChar(500)
+  avatarUrl         String?   @db.VarChar(500)
   /// User timezone (e.g., Africa/Dar_es_Salaam)
-  timezone        String?   @db.VarChar(80)
+  timezone          String?   @db.VarChar(80)
   /// Preferred display currency (ISO 4217, e.g. "TZS"). Presentation only — never the money of record.
-  preferredCurrency String? @default("TZS") @db.VarChar(3)
+  preferredCurrency String?   @default("TZS") @db.VarChar(3)
   /// Date of birth (date-only)
-  dateOfBirth     DateTime? @db.Date
+  dateOfBirth       DateTime? @db.Date
   /// Location fields used by driver onboarding/profile UI
-  region          String?   @db.VarChar(120)
-  district        String?   @db.VarChar(120)
-  emailVerifiedAt DateTime?
-  phoneVerifiedAt DateTime?
+  region            String?   @db.VarChar(120)
+  district          String?   @db.VarChar(120)
+  emailVerifiedAt   DateTime?
+  phoneVerifiedAt   DateTime?
 
   // Owner / business details
   tin     String? @db.VarChar(50)
@@ -64,13 +64,13 @@ model User {
   nin         String? @db.VarChar(50)
 
   // Driver vehicle / license details
-  licenseNumber  String?  @db.VarChar(80)
-  plateNumber    String?  @db.VarChar(30)
-  vehicleType    String?  @db.VarChar(50)
-  vehicleMake    String?  @db.VarChar(100)
-  vehiclePlate   String?  @db.VarChar(30)
-  operationArea  String?  @db.VarChar(200)
-  paymentPhone   String?  @db.VarChar(30)
+  licenseNumber   String?  @db.VarChar(80)
+  plateNumber     String?  @db.VarChar(30)
+  vehicleType     String?  @db.VarChar(50)
+  vehicleMake     String?  @db.VarChar(100)
+  vehiclePlate    String?  @db.VarChar(30)
+  operationArea   String?  @db.VarChar(200)
+  paymentPhone    String?  @db.VarChar(30)
   paymentVerified Boolean? @default(false)
 
   // Two-Factor Authentication
@@ -93,11 +93,11 @@ model User {
   tokensValidAfter       DateTime?
 
   // Account Status
-  suspendedAt DateTime?
-  isDisabled  Boolean?  @default(false)
-  kycStatus   String? // PENDING_KYC, APPROVED_KYC, REJECTED_KYC
+  suspendedAt       DateTime?
+  isDisabled        Boolean?  @default(false)
+  kycStatus         String? // PENDING_KYC, APPROVED_KYC, REJECTED_KYC
   kycNote           String? // Admin note sent with request_info action
-  kycFieldApprovals Json?   // Per-field admin review map: { fieldName: "approved"|"flagged" }
+  kycFieldApprovals Json? // Per-field admin review map: { fieldName: "approved"|"flagged" }
 
   // Driver-specific fields
   rating      Decimal? @db.Decimal(3, 2) // Driver rating (e.g., 4.5)
@@ -132,7 +132,7 @@ model User {
   properties Property[]
 
   // Bookings made by this user (if customer)
-  bookings Booking[]
+  bookings     Booking[]
   tourBookings TourBooking[] @relation("UserTourBookings")
 
   // Bookings assigned to this user as a driver (optional)
@@ -151,9 +151,9 @@ model User {
   invoicesPaid     Invoice[] @relation("InvoicePaidBy")
 
   // Group bookings
-  groupBookings GroupBooking[]
-  assignedGroupBookings GroupBooking[] @relation("GroupBookingOwner")
-  groupBookingClaims    GroupBookingClaim[] @relation("GroupBookingClaims")
+  groupBookings              GroupBooking[]
+  assignedGroupBookings      GroupBooking[]      @relation("GroupBookingOwner")
+  groupBookingClaims         GroupBookingClaim[] @relation("GroupBookingClaims")
   reviewedGroupBookingClaims GroupBookingClaim[] @relation("GroupBookingClaimReviews")
 
   // Transport bookings as customer
@@ -166,12 +166,12 @@ model User {
   transportBookingOffers TransportBookingOffer[] @relation("DriverTransportBookingOffers")
 
   // Transport payout records (driver earnings for transport trips)
-  transportPayouts        TransportPayout[] @relation("TransportPayoutDriver")
+  transportPayouts         TransportPayout[] @relation("TransportPayoutDriver")
   approvedTransportPayouts TransportPayout[] @relation("TransportPayoutApprover")
   paidTransportPayouts     TransportPayout[] @relation("TransportPayoutPayer")
 
   // Property reviews written by this user
-  propertyReviews PropertyReview[]
+  propertyReviews       PropertyReview[]
   propertyVerifications PropertyVerification[] @relation("PropertyVerificationVerifier")
 
   // Agent reviews written by this user
@@ -393,15 +393,15 @@ model Property {
 
 model PropertyVerification {
   id         Int       @id @default(autoincrement())
-  propertyId Int      @unique
-  status     String   @default("PENDING") @db.VarChar(30) // PENDING, VERIFIED, REJECTED
+  propertyId Int       @unique
+  status     String    @default("PENDING") @db.VarChar(30) // PENDING, VERIFIED, REJECTED
   verifiedAt DateTime?
   verifiedBy Int?
-  method     String?  @db.VarChar(120)
-  note       String?  @db.Text
+  method     String?   @db.VarChar(120)
+  note       String?   @db.Text
   checklist  Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   verifier User?    @relation("PropertyVerificationVerifier", fields: [verifiedBy], references: [id], onDelete: SetNull)
@@ -527,10 +527,10 @@ model Invoice {
   approvedBy Int?
   paidBy     Int?
 
-  paymentMethod     String? @db.VarChar(40)  // BANK, MPESA, TIGOPESA, CARD...
-  paymentRef        String? @unique @db.VarChar(80)  // Gateway merchant ref (set at PROCESSING)
+  paymentMethod     String? @db.VarChar(40) // BANK, MPESA, TIGOPESA, CARD...
+  paymentRef        String? @unique @db.VarChar(80) // Gateway merchant ref (set at PROCESSING)
   checkoutSessionId String? @unique @db.VarChar(120) // AzamPay transactionId
-  payerPhone        String? @db.VarChar(40)           // Phone used for MNO payment
+  payerPhone        String? @db.VarChar(40) // Phone used for MNO payment
   notes             String? @db.Text
 
   receiptQrPayload String? @db.Text
@@ -860,41 +860,41 @@ model GroupBooking {
   /// Timestamp when user confirmed a property
   propertyConfirmedAt    DateTime?
   /// Owner ID assigned to handle this group stay (admin assigns)
-  assignedOwnerId       Int?
+  assignedOwnerId        Int?
   /// Timestamp when owner was assigned
-  ownerAssignedAt       DateTime?
+  ownerAssignedAt        DateTime?
   /// Whether this group stay is open for owners to claim (admin can open for competitive bidding)
-  isOpenForClaims       Boolean @default(false)
+  isOpenForClaims        Boolean   @default(false)
   /// Timestamp when opened for claims
-  openedForClaimsAt     DateTime?
+  openedForClaimsAt      DateTime?
 
   // ==================== Status & Financial ====================
   /// Booking status: PENDING, AWAITING_DEPOSIT, CONFIRMED, PROCESSING, CANCELED, COMPLETED
-  status      String   @default("PENDING")
+  status            String    @default("PENDING")
   /// Total estimated or confirmed amount for the booking
-  totalAmount Decimal? @db.Decimal(12, 2)
+  totalAmount       Decimal?  @db.Decimal(12, 2)
   /// Currency code (default: TZS)
-  currency    String   @default("TZS")
+  currency          String    @default("TZS")
   /// Deposit amount required to confirm the booking. For group stay auctions this is the NoLSAF commission amount.
-  depositAmount Decimal? @db.Decimal(12, 2)
+  depositAmount     Decimal?  @db.Decimal(12, 2)
   /// Whether the deposit has been paid
-  depositPaid   Boolean  @default(false)
+  depositPaid       Boolean   @default(false)
   /// Timestamp when the deposit was paid
-  depositPaidAt DateTime?
+  depositPaidAt     DateTime?
   /// Deadline to pay the deposit before the offer expires (set to 24h after AWAITING_DEPOSIT)
-  depositDueAt  DateTime?
+  depositDueAt      DateTime?
   /// Owner's payout amount for this stay (their offered/discounted total, before commission markup)
-  ownerAmount       Decimal? @db.Decimal(12, 2)
+  ownerAmount       Decimal?  @db.Decimal(12, 2)
   /// Commission percentage applied on top of ownerAmount to derive totalAmount (snapshot at confirm time)
-  commissionPercent Decimal? @db.Decimal(5, 2)
+  commissionPercent Decimal?  @db.Decimal(5, 2)
   /// Gateway merchant reference for the deposit payment (set when payment is initiated)
-  paymentRef        String? @unique @db.VarChar(80)
+  paymentRef        String?   @unique @db.VarChar(80)
   /// AzamPay transactionId for the deposit checkout
-  checkoutSessionId String? @unique @db.VarChar(120)
+  checkoutSessionId String?   @unique @db.VarChar(120)
   /// Phone number used to pay the deposit
-  payerPhone        String? @db.VarChar(40)
+  payerPhone        String?   @db.VarChar(40)
   /// Payment provider used for the deposit (e.g. AZAMPAY)
-  paymentProvider   String? @db.VarChar(40)
+  paymentProvider   String?   @db.VarChar(40)
 
   // ==================== Owner Payout (group stay) ====================
   /// Timestamp when the assigned owner marked the group as checked in (triggers the payout obligation)
@@ -927,21 +927,21 @@ model GroupBooking {
 
   // ==================== Relations ====================
   /// User who created this booking
-  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Owner assigned to handle this group stay
-  assignedOwner User?                @relation("GroupBookingOwner", fields: [assignedOwnerId], references: [id], onDelete: SetNull)
+  assignedOwner     User?                   @relation("GroupBookingOwner", fields: [assignedOwnerId], references: [id], onDelete: SetNull)
   /// Property confirmed for this group stay
-  confirmedProperty Property?        @relation(fields: [confirmedPropertyId], references: [id], onDelete: SetNull)
+  confirmedProperty Property?               @relation(fields: [confirmedPropertyId], references: [id], onDelete: SetNull)
   /// Individual passenger records (alternative to JSON roster)
-  passengers GroupBookingPassenger[]
+  passengers        GroupBookingPassenger[]
   /// Audit logs for this booking
-  auditLogs  GroupBookingAudit[]
+  auditLogs         GroupBookingAudit[]
   /// Messages in the conversation
-  messages   GroupBookingMessage[]
+  messages          GroupBookingMessage[]
   /// Owner claims/offers for this group stay
-  claims     GroupBookingClaim[]
+  claims            GroupBookingClaim[]
   /// Payment events for the deposit
-  paymentEvents PaymentEvent[]
+  paymentEvents     PaymentEvent[]
 
   // ==================== Indexes ====================
   @@index([userId])
@@ -1021,27 +1021,27 @@ model GroupBookingClaim {
   /// Foreign key to group booking
   groupBookingId Int
   /// Owner who submitted the claim
-  ownerId Int
+  ownerId        Int
   /// Property being offered
-  propertyId Int
+  propertyId     Int
 
   // ==================== Offer Details ====================
   /// Owner's base price per room/night before any offer discount
-  offeredPricePerNight Decimal @db.Decimal(12, 2)
+  offeredPricePerNight Decimal  @db.Decimal(12, 2)
   /// Discount percentage (e.g., 15 for 15% off)
-  discountPercent Decimal? @db.Decimal(5, 2)
+  discountPercent      Decimal? @db.Decimal(5, 2)
   /// Special offers/favors (free breakfast, airport pickup, etc.)
-  specialOffers String? @db.Text
+  specialOffers        String?  @db.Text
   /// Additional notes from owner
-  notes String? @db.Text
+  notes                String?  @db.Text
   /// Total owner amount for the stay after discount, before NoLSAF commission
-  totalAmount Decimal @db.Decimal(12, 2)
+  totalAmount          Decimal  @db.Decimal(12, 2)
   /// Currency code
-  currency String @default("TZS")
+  currency             String   @default("TZS")
 
   // ==================== Status ====================
   /// Claim status: PENDING, ACCEPTED, REJECTED, WITHDRAWN
-  status String @default("PENDING")
+  status     String    @default("PENDING")
   /// Timestamp when claim was accepted/rejected
   reviewedAt DateTime?
   /// Admin who reviewed the claim
@@ -1053,9 +1053,9 @@ model GroupBookingClaim {
 
   // ==================== Relations ====================
   groupBooking GroupBooking @relation(fields: [groupBookingId], references: [id], onDelete: Cascade)
-  owner        User        @relation("GroupBookingClaims", fields: [ownerId], references: [id], onDelete: Cascade)
-  property     Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  reviewer     User?       @relation("GroupBookingClaimReviews", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  owner        User         @relation("GroupBookingClaims", fields: [ownerId], references: [id], onDelete: Cascade)
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  reviewer     User?        @relation("GroupBookingClaimReviews", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@unique([groupBookingId, ownerId]) // One claim per owner per group booking
   @@index([groupBookingId])
@@ -1284,8 +1284,8 @@ model TransportPayout {
   /// Approval and payout audit
   approvedAt DateTime?
   approvedBy Int?
-  paidAt DateTime?
-  paidBy Int?
+  paidAt     DateTime?
+  paidBy     Int?
 
   /// Payment details
   paymentMethod String? @db.VarChar(40)
@@ -1295,9 +1295,9 @@ model TransportPayout {
   updatedAt DateTime @updatedAt
 
   booking  TransportBooking @relation(fields: [transportBookingId], references: [id], onDelete: Cascade)
-  driver   User            @relation("TransportPayoutDriver", fields: [driverId], references: [id], onDelete: Cascade)
-  approver User?           @relation("TransportPayoutApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
-  payer    User?           @relation("TransportPayoutPayer", fields: [paidBy], references: [id], onDelete: SetNull)
+  driver   User             @relation("TransportPayoutDriver", fields: [driverId], references: [id], onDelete: Cascade)
+  approver User?            @relation("TransportPayoutApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+  payer    User?            @relation("TransportPayoutPayer", fields: [paidBy], references: [id], onDelete: SetNull)
 
   @@index([driverId])
   @@index([status])
@@ -1315,7 +1315,7 @@ model TransportBookingClaim {
   /// Transport booking being claimed
   bookingId Int
   /// Driver who submitted the claim
-  driverId Int
+  driverId  Int
 
   /// Claim status: PENDING, ACCEPTED, REJECTED, WITHDRAWN
   status String @default("PENDING") @db.VarChar(40)
@@ -1329,8 +1329,8 @@ model TransportBookingClaim {
   updatedAt DateTime @updatedAt
 
   booking  TransportBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  driver   User            @relation("DriverTransportBookingClaims", fields: [driverId], references: [id], onDelete: Cascade)
-  reviewer User?           @relation("TransportBookingClaimReviews", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  driver   User             @relation("DriverTransportBookingClaims", fields: [driverId], references: [id], onDelete: Cascade)
+  reviewer User?            @relation("TransportBookingClaimReviews", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@unique([bookingId, driverId])
   @@index([bookingId])
@@ -1357,7 +1357,7 @@ model TransportBookingOffer {
   distanceKm Decimal? @db.Decimal(6, 3)
   score      Decimal? @db.Decimal(8, 2)
 
-  offeredAt   DateTime @default(now())
+  offeredAt   DateTime  @default(now())
   expiresAt   DateTime
   respondedAt DateTime?
 
@@ -1365,7 +1365,7 @@ model TransportBookingOffer {
   updatedAt DateTime @updatedAt
 
   booking TransportBooking @relation("TransportBookingOffers", fields: [bookingId], references: [id], onDelete: Cascade)
-  driver  User            @relation("DriverTransportBookingOffers", fields: [driverId], references: [id], onDelete: Cascade)
+  driver  User             @relation("DriverTransportBookingOffers", fields: [driverId], references: [id], onDelete: Cascade)
 
   @@index([bookingId, status, expiresAt])
   @@index([driverId, status, expiresAt])
@@ -1680,11 +1680,11 @@ model SystemSetting {
   sessionIdleMinutes Int? @default(30)
 
   /// Session TTL by role (minutes). If null, falls back to sessionIdleMinutes.
-  sessionMaxMinutesAdmin Int?
-  sessionMaxMinutesOwner Int?
-  sessionMaxMinutesDriver Int?
+  sessionMaxMinutesAdmin    Int?
+  sessionMaxMinutesOwner    Int?
+  sessionMaxMinutesDriver   Int?
   sessionMaxMinutesCustomer Int?
-  sessionMaxMinutesAgent Int?
+  sessionMaxMinutesAgent    Int?
 
   /// Maximum session duration in hours
   maxSessionDurationHours Int? @default(24)
@@ -1910,21 +1910,21 @@ model TourBooking {
   packageSnapshot  Json?
   operatorSnapshot Json?
 
-  title       String @db.VarChar(200)
-  destination String? @db.VarChar(200)
-  category    String? @db.VarChar(80)
+  title       String    @db.VarChar(200)
+  destination String?   @db.VarChar(200)
+  category    String?   @db.VarChar(80)
   startDate   DateTime?
   endDate     DateTime?
 
-  guestName    String? @db.VarChar(160)
-  guestEmail   String? @db.VarChar(160)
-  guestPhone   String? @db.VarChar(40)
-  nationality  String? @db.VarChar(80)
-  travelerCount Int    @default(1)
+  guestName     String? @db.VarChar(160)
+  guestEmail    String? @db.VarChar(160)
+  guestPhone    String? @db.VarChar(40)
+  nationality   String? @db.VarChar(80)
+  travelerCount Int     @default(1)
 
   status        String @default("PENDING_PAYMENT") @db.VarChar(40) // PENDING_PAYMENT, PAID, CONFIRMED, COMPLETED, CANCELED, REFUNDED
-  paymentStatus String @default("UNPAID") @db.VarChar(40)          // UNPAID, PENDING, PAID, FAILED, REFUNDED
-  payoutStatus  String @default("NOT_READY") @db.VarChar(40)       // NOT_READY, AVAILABLE, CLAIMED, VERIFIED, APPROVED, DISBURSED, REJECTED, HELD
+  paymentStatus String @default("UNPAID") @db.VarChar(40) // UNPAID, PENDING, PAID, FAILED, REFUNDED
+  payoutStatus  String @default("NOT_READY") @db.VarChar(40) // NOT_READY, AVAILABLE, CLAIMED, VERIFIED, APPROVED, DISBURSED, REJECTED, HELD
 
   currency             String  @default("TZS") @db.VarChar(3)
   unitPrice            Decimal @default(0.00) @db.Decimal(12, 2)
@@ -1933,18 +1933,25 @@ model TourBooking {
   commissionAmount     Decimal @default(0.00) @db.Decimal(12, 2)
   operatorPayoutAmount Decimal @default(0.00) @db.Decimal(12, 2)
 
-  paymentProvider   String? @db.VarChar(40)
-  paymentRef        String? @unique @db.VarChar(100)
-  checkoutSessionId String? @unique @db.VarChar(120)
-  payerPhone        String? @db.VarChar(40)
+  paymentProvider    String? @db.VarChar(40)
+  paymentRef         String? @unique @db.VarChar(100)
+  /// Immutable reference for the customer's incoming payment. `paymentRef` is retained for legacy reads.
+  customerPaymentRef String? @unique @db.VarChar(120)
+  /// Reference for the outgoing transfer to the operator; never overwrites the customer payment reference.
+  operatorPayoutRef  String? @unique @db.VarChar(120)
+  checkoutSessionId  String? @unique @db.VarChar(120)
+  payerPhone         String? @db.VarChar(40)
 
-  paidAt            DateTime?
-  confirmedAt       DateTime?
-  completedAt       DateTime?
-  canceledAt        DateTime?
-  payoutRequestedAt DateTime?
-  payoutApprovedAt  DateTime?
-  payoutPaidAt      DateTime?
+  paidAt              DateTime?
+  confirmedAt         DateTime?
+  completedAt         DateTime?
+  operatorCompletedAt DateTime?
+  customerConfirmedAt DateTime?
+  disputeWindowEndsAt DateTime?
+  canceledAt          DateTime?
+  payoutRequestedAt   DateTime?
+  payoutApprovedAt    DateTime?
+  payoutPaidAt        DateTime?
 
   notes    String? @db.Text
   metadata Json?
@@ -1953,10 +1960,13 @@ model TourBooking {
   updatedAt DateTime @updatedAt
 
   // Relations
-  operator      Agent          @relation("AgentTourBookings", fields: [operatorAgentId], references: [id], onDelete: Cascade)
-  customer      User?          @relation("UserTourBookings", fields: [customerId], references: [id], onDelete: SetNull)
-  paymentEvents PaymentEvent[]
-  agentReview   AgentReview?   @relation("AgentReviewsTourBooking")
+  operator              Agent                      @relation("AgentTourBookings", fields: [operatorAgentId], references: [id], onDelete: Cascade)
+  customer              User?                      @relation("UserTourBookings", fields: [customerId], references: [id], onDelete: SetNull)
+  paymentEvents         PaymentEvent[]
+  agentReview           AgentReview?               @relation("AgentReviewsTourBooking")
+  cases                 TourCase[]
+  travelers             TourTraveler[]
+  financialTransactions TourFinancialTransaction[]
 
   @@index([operatorAgentId])
   @@index([customerId])
@@ -1970,6 +1980,134 @@ model TourBooking {
   @@index([operatorAgentId, status, createdAt])
   @@index([paymentStatus, createdAt])
   @@map("tour_bookings")
+}
+
+/// Versioned, searchable package record. Legacy operatorProfile.packageItems remains a compatibility source.
+model TourPackage {
+  id              Int             @id @default(autoincrement())
+  operatorAgentId Int
+  legacyPackageId String          @db.VarChar(120)
+  version         Int             @default(1)
+  status          String          @default("DRAFT") @db.VarChar(30)
+  name            String          @db.VarChar(200)
+  destination     String?         @db.VarChar(200)
+  category        String?         @db.VarChar(100)
+  currency        String          @default("TZS") @db.VarChar(3)
+  pricePerPerson  Decimal         @default(0.00) @db.Decimal(12, 2)
+  minPax          Int?
+  maxPax          Int?
+  content         Json
+  publishedAt     DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  operator        Agent           @relation(fields: [operatorAgentId], references: [id], onDelete: Cascade)
+  departures      TourDeparture[]
+
+  @@unique([operatorAgentId, legacyPackageId, version])
+  @@index([status, destination])
+  @@map("tour_packages")
+}
+
+model TourDeparture {
+  id              Int         @id @default(autoincrement())
+  tourPackageId   Int
+  startDate       DateTime
+  endDate         DateTime?
+  capacity        Int
+  reservedCount   Int         @default(0)
+  status          String      @default("OPEN") @db.VarChar(30)
+  bookingCutoffAt DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  tourPackage     TourPackage @relation(fields: [tourPackageId], references: [id], onDelete: Cascade)
+
+  @@unique([tourPackageId, startDate])
+  @@index([status, startDate])
+  @@map("tour_departures")
+}
+
+model TourTraveler {
+  id             Int         @id @default(autoincrement())
+  tourBookingId  Int
+  legacyMemberId String?     @db.VarChar(120)
+  fullName       String      @db.VarChar(180)
+  email          String?     @db.VarChar(180)
+  phone          String?     @db.VarChar(50)
+  nationality    String?     @db.VarChar(100)
+  documentType   String?     @db.VarChar(40)
+  documentNumber String?     @db.VarChar(100)
+  documentUrl    String?     @db.VarChar(1000)
+  permitStatus   String      @default("NOT_REQUIRED") @db.VarChar(40)
+  status         String      @default("ACTIVE") @db.VarChar(30)
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  booking        TourBooking @relation(fields: [tourBookingId], references: [id], onDelete: Cascade)
+
+  @@unique([tourBookingId, legacyMemberId])
+  @@index([tourBookingId, status])
+  @@map("tour_travelers")
+}
+
+/// Append-only operational case. Withdrawal changes status but never deletes the record or its events.
+model TourCase {
+  id                 Int             @id @default(autoincrement())
+  tourBookingId      Int
+  type               String          @db.VarChar(40)
+  status             String          @default("OPEN") @db.VarChar(40)
+  severity           String          @default("MEDIUM") @db.VarChar(20)
+  title              String          @db.VarChar(180)
+  description        String          @db.Text
+  requestedByUserId  Int?
+  assignedToUserId   Int?
+  requestedStartDate DateTime?
+  requestedEndDate   DateTime?
+  resolution         String?         @db.Text
+  resolutionAmount   Decimal?        @db.Decimal(12, 2)
+  withdrawnAt        DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  booking            TourBooking     @relation(fields: [tourBookingId], references: [id], onDelete: Cascade)
+  events             TourCaseEvent[]
+
+  @@index([tourBookingId, status])
+  @@index([type, status, severity])
+  @@map("tour_cases")
+}
+
+model TourCaseEvent {
+  id          Int      @id @default(autoincrement())
+  tourCaseId  Int
+  actorUserId Int?
+  type        String   @db.VarChar(50)
+  message     String?  @db.Text
+  data        Json?
+  createdAt   DateTime @default(now())
+  tourCase    TourCase @relation(fields: [tourCaseId], references: [id], onDelete: Cascade)
+
+  @@index([tourCaseId, createdAt])
+  @@map("tour_case_events")
+}
+
+model TourFinancialTransaction {
+  id             Int         @id @default(autoincrement())
+  tourBookingId  Int
+  kind           String      @db.VarChar(30)
+  status         String      @db.VarChar(30)
+  provider       String?     @db.VarChar(50)
+  reference      String?     @unique @db.VarChar(160)
+  idempotencyKey String?     @unique @db.VarChar(160)
+  currency       String      @db.VarChar(3)
+  amount         Decimal     @db.Decimal(12, 2)
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  booking        TourBooking @relation(fields: [tourBookingId], references: [id], onDelete: Cascade)
+
+  @@index([tourBookingId, kind, status])
+  @@map("tour_financial_transactions")
 }
 
 // =========================================================
@@ -2003,16 +2141,16 @@ model PaymentEvent {
   status String @default("PENDING")
 
   /// Payment channel: MNO (mobile money), BANK, or CARD
-  paymentChannel String? @db.VarChar(10) @map("payment_channel")
+  paymentChannel String? @map("payment_channel") @db.VarChar(10)
 
   /// E.164 phone number for MNO payments (e.g. +255712345678)
   phone String? @db.VarChar(20)
 
   /// Original status string from AzamPay before normalization
-  rawStatus String? @db.VarChar(80) @map("raw_status")
+  rawStatus String? @map("raw_status") @db.VarChar(80)
 
   /// Card redirect URL returned by AzamPay CardCheckout
-  checkoutUrl String? @db.VarChar(2048) @map("checkout_url")
+  checkoutUrl String? @map("checkout_url") @db.VarChar(2048)
 
   /// Raw payload from payment provider (JSON)
   payload Json?
@@ -2263,24 +2401,25 @@ model Agent {
   totalRevenueGenerated Decimal @default(0) @db.Decimal(15, 2)
 
   /// Suspension metadata — populated when status = SUSPENDED
-  suspendedAt      DateTime?            /// Timestamp when the suspension was applied
+  suspendedAt      DateTime? /// Timestamp when the suspension was applied
   suspensionReason String?   @db.VarChar(1000) /// Reason recorded by the admin (max 1000 chars)
-  suspendedBy      Int?                 /// Admin user ID who applied the suspension
+  suspendedBy      Int? /// Admin user ID who applied the suspension
 
   /// Restoration metadata — populated when agent is reinstated from suspension
-  restoredAt       DateTime?            /// Timestamp when access was reinstated
-  restoredBy       Int?                 /// Admin user ID who reinstated the agent
+  restoredAt DateTime? /// Timestamp when access was reinstated
+  restoredBy Int? /// Admin user ID who reinstated the agent
 
   /// Created and updated timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedPlanRequests PlanRequest[]   @relation("AssignedAgent")
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedPlanRequests PlanRequest[]    @relation("AssignedAgent")
   applications         JobApplication[] @relation // All job applications that resulted in this agent's hire
   reviews              AgentReview[] // Reviews received from users
-  tourBookings         TourBooking[]   @relation("AgentTourBookings")
+  tourBookings         TourBooking[]    @relation("AgentTourBookings")
+  tourPackages         TourPackage[]
 
   @@index([status])
   @@index([isAvailable])
@@ -2525,8 +2664,8 @@ model CancellationRequest {
   userId      Int
   bookingCode String @db.VarChar(32)
 
-  /// Workflow status: SUBMITTED, REVIEWING, NEED_INFO, PROCESSING, REFUNDED, REJECTED
-  status String @default("SUBMITTED") @db.VarChar(20)
+  /// Workflow status: SUBMITTED, REVIEWING, NEED_INFO, APPROVED, REFUND_PENDING, REFUNDED, REJECTED
+  status String  @default("SUBMITTED") @db.VarChar(20)
   reason String? @db.Text
 
   /// Snapshot of policy evaluation at submission time
@@ -2538,6 +2677,13 @@ model CancellationRequest {
   reviewedAt   DateTime?
   reviewedBy   Int?
   decisionNote String?   @db.Text
+  approvedAt        DateTime?
+  approvedByAdminId Int?
+  refundAmount      Decimal?  @db.Decimal(12, 2)
+  refundProvider    String?   @db.VarChar(80)
+  refundReference   String?   @db.VarChar(160)
+  refundInitiatedAt DateTime?
+  refundedAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2741,7 +2887,7 @@ model KycAuditLog {
   adminId        Int?
   action         String   @db.VarChar(32) // approve | reject | request_info | field_review
   note           String?  @db.Text
-  fieldApprovals Json?    // snapshot of kycFieldApprovals at time of action
+  fieldApprovals Json? // snapshot of kycFieldApprovals at time of action
   createdAt      DateTime @default(now())
 
   driver User @relation("DriverKycAuditLogs", fields: [driverId], references: [id], onDelete: Cascade)
@@ -2755,19 +2901,19 @@ model KycAuditLog {
 //  PODCAST EPISODES
 // =========================================================
 model PodcastEpisode {
-  id          String   @id @db.VarChar(64)
-  title       String   @db.VarChar(300)
-  description String   @db.Text
-  youtubeUrl  String   @db.VarChar(500)
-  thumbnailUrl String? @db.VarChar(500)
-  guestName   String?  @db.VarChar(200)
-  guestRole   String?  @db.VarChar(200)
-  tags        Json?                        // e.g. ["interview","stakeholder","update"]
-  duration    String?  @db.VarChar(20)     // e.g. "12:34"
-  published   Boolean  @default(false)
-  publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @db.VarChar(64)
+  title        String    @db.VarChar(300)
+  description  String    @db.Text
+  youtubeUrl   String    @db.VarChar(500)
+  thumbnailUrl String?   @db.VarChar(500)
+  guestName    String?   @db.VarChar(200)
+  guestRole    String?   @db.VarChar(200)
+  tags         Json? // e.g. ["interview","stakeholder","update"]
+  duration     String?   @db.VarChar(20) // e.g. "12:34"
+  published    Boolean   @default(false)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([published, publishedAt])
   @@index([createdAt])
@@ -2781,59 +2927,59 @@ model PodcastEpisode {
 /// Stores every trip cost estimate request and its result.
 /// One estimate can later be linked to a Booking for conversion tracking.
 model TripEstimate {
-  id                  Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
   // ── Request parameters ──────────────────────────────────────────────
-  destination         String   @db.VarChar(120)                    // "Serengeti", "Zanzibar"
-  destinationType     String?  @db.VarChar(40)                     // "park" | "island" | "city" | "region"
+  destination         String   @db.VarChar(120) // "Serengeti", "Zanzibar"
+  destinationType     String?  @db.VarChar(40) // "park" | "island" | "city" | "region"
   startDate           DateTime @db.Date
   endDate             DateTime @db.Date
   travelers           Int      @default(1)
-  accommodationLevel  String   @db.VarChar(20)                     // "budget" | "mid-range" | "luxury"
-  transportPreference String?  @db.VarChar(30)                     // "shared" | "private" | "flight" | "bus"
-  nationality         String   @default("US") @db.VarChar(5)       // ISO 3166-1 alpha-2
-  currency            String   @default("USD") @db.VarChar(3)      // ISO 4217
+  accommodationLevel  String   @db.VarChar(20) // "budget" | "mid-range" | "luxury"
+  transportPreference String?  @db.VarChar(30) // "shared" | "private" | "flight" | "bus"
+  nationality         String   @default("US") @db.VarChar(5) // ISO 3166-1 alpha-2
+  currency            String   @default("USD") @db.VarChar(3) // ISO 4217
   /// Activity codes requested, e.g. ["safari-full-day","diving-2-tank"]
   requestedActivities Json?
 
   // ── Calculation results ─────────────────────────────────────────────
-  totalCost           Decimal  @db.Decimal(12, 2)
-  confidence          Decimal  @db.Decimal(3, 2)                   // 0.00 – 1.00
+  totalCost  Decimal  @db.Decimal(12, 2)
+  confidence Decimal  @db.Decimal(3, 2) // 0.00 – 1.00
   /// Full cost breakdown object
   /// { visa, accommodation, transport, activities, parkFees, serviceCharges }
-  breakdown           Json
-  minCost             Decimal? @db.Decimal(12, 2)
-  maxCost             Decimal? @db.Decimal(12, 2)
+  breakdown  Json
+  minCost    Decimal? @db.Decimal(12, 2)
+  maxCost    Decimal? @db.Decimal(12, 2)
 
   // ── Seasonality ─────────────────────────────────────────────────────
-  currentSeason       String?  @db.VarChar(20)                     // "peak" | "shoulder" | "off-peak"
-  offPeakCost         Decimal? @db.Decimal(12, 2)
-  offPeakSavings      Decimal? @db.Decimal(12, 2)
+  currentSeason  String?  @db.VarChar(20) // "peak" | "shoulder" | "off-peak"
+  offPeakCost    Decimal? @db.Decimal(12, 2)
+  offPeakSavings Decimal? @db.Decimal(12, 2)
   /// e.g. [{"type":"timing","message":"Travel in May saves $300","savings":300}]
-  suggestions         Json?
+  suggestions    Json?
 
   // ── Validity ────────────────────────────────────────────────────────
-  validUntil          DateTime
+  validUntil      DateTime
   /// e.g. ["nolsaf-listings","static-park-fees","market-rates"]
-  dataSourcesUsed     Json?
+  dataSourcesUsed Json?
 
   // ── User tracking ───────────────────────────────────────────────────
-  userId              Int?
-  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  sessionId           String?  @db.VarChar(128)                    // anonymous users
-  ipAddress           String?  @db.VarChar(45)                     // IPv4 or IPv6
+  userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId String? @db.VarChar(128) // anonymous users
+  ipAddress String? @db.VarChar(45) // IPv4 or IPv6
 
   // ── Conversion tracking ─────────────────────────────────────────────
-  convertedToBooking  Boolean  @default(false)
-  bookingId           Int?
-  booking             Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  convertedToBooking Boolean  @default(false)
+  bookingId          Int?
+  booking            Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   // ── Analytics ───────────────────────────────────────────────────────
-  viewCount           Int      @default(1)
-  lastViewedAt        DateTime @default(now())
+  viewCount    Int      @default(1)
+  lastViewedAt DateTime @default(now())
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([destination, startDate])
   @@index([userId])
@@ -2847,28 +2993,28 @@ model TripEstimate {
 //  VISA FEES  (updated quarterly from immigration.go.tz)
 // ─────────────────────────────────────────────────────────────────────────────
 model VisaFee {
-  id              Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
   /// ISO 3166-1 alpha-2 country code, e.g. "US", "UK", "KE"
-  nationality     String   @db.VarChar(5)
-  visaType        String   @default("tourist") @db.VarChar(30)    // "tourist" | "business" | "transit"
-  entries         String   @default("single") @db.VarChar(20)     // "single" | "multiple"
-  durationDays    Int      @default(90)
+  nationality  String @db.VarChar(5)
+  visaType     String @default("tourist") @db.VarChar(30) // "tourist" | "business" | "transit"
+  entries      String @default("single") @db.VarChar(20) // "single" | "multiple"
+  durationDays Int    @default(90)
 
-  amount          Decimal  @db.Decimal(10, 2)
-  currency        String   @default("USD") @db.VarChar(3)
-  description     String?  @db.VarChar(500)
-  processingTime  String?  @db.VarChar(80)                        // "on-arrival" | "7-14 days"
+  amount         Decimal @db.Decimal(10, 2)
+  currency       String  @default("USD") @db.VarChar(3)
+  description    String? @db.VarChar(500)
+  processingTime String? @db.VarChar(80) // "on-arrival" | "7-14 days"
   /// e.g. ["passport","photo","yellow-fever-certificate"]
-  requirements    Json?
+  requirements   Json?
 
-  validFrom       DateTime @default(now())
-  validUntil      DateTime?
-  lastVerified    DateTime @default(now())
-  isActive        Boolean  @default(true)
+  validFrom    DateTime  @default(now())
+  validUntil   DateTime?
+  lastVerified DateTime  @default(now())
+  isActive     Boolean   @default(true)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([nationality, visaType, entries])
   @@index([nationality])
@@ -2880,12 +3026,12 @@ model VisaFee {
 //  PARK / ATTRACTION FEES  (updated when TANAPA publishes new fee schedule)
 // ─────────────────────────────────────────────────────────────────────────────
 model ParkFee {
-  id                Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  parkName          String   @db.VarChar(200)
-  parkCode          String   @unique @db.VarChar(30)               // "SERENP", "NGORO", "KILIM"
-  category          String   @db.VarChar(40)                       // "national-park" | "conservation-area" | "marine-park"
-  region            String   @db.VarChar(100)                      // "Northern Circuit" | "Zanzibar" | "Southern"
+  parkName String @db.VarChar(200)
+  parkCode String @unique @db.VarChar(30) // "SERENP", "NGORO", "KILIM"
+  category String @db.VarChar(40) // "national-park" | "conservation-area" | "marine-park"
+  region   String @db.VarChar(100) // "Northern Circuit" | "Zanzibar" | "Southern"
 
   /// Per-person per-day entry fees
   adultForeignerFee Decimal  @db.Decimal(10, 2)
@@ -2894,20 +3040,20 @@ model ParkFee {
   childResidentFee  Decimal? @db.Decimal(10, 2)
   currency          String   @default("USD") @db.VarChar(3)
 
-  vehicleFee        Decimal? @db.Decimal(10, 2)                    // per vehicle per day
-  guideFee          Decimal? @db.Decimal(10, 2)                    // mandatory guide fee where applicable
-  campingFee        Decimal? @db.Decimal(10, 2)                    // per person per night
+  vehicleFee Decimal? @db.Decimal(10, 2) // per vehicle per day
+  guideFee   Decimal? @db.Decimal(10, 2) // mandatory guide fee where applicable
+  campingFee Decimal? @db.Decimal(10, 2) // per person per night
 
-  requiresGuide     Boolean  @default(false)
-  minimumDays       Int?
+  requiresGuide Boolean @default(false)
+  minimumDays   Int?
 
-  description       String?  @db.Text
-  officialWebsite   String?  @db.VarChar(300)
-  lastVerified      DateTime @default(now())
-  isActive          Boolean  @default(true)
+  description     String?  @db.Text
+  officialWebsite String?  @db.VarChar(300)
+  lastVerified    DateTime @default(now())
+  isActive        Boolean  @default(true)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([region])
   @@index([isActive])
@@ -2918,37 +3064,37 @@ model ParkFee {
 //  TRANSPORT COST AVERAGES  (updated monthly)
 // ─────────────────────────────────────────────────────────────────────────────
 model TransportCostAverage {
-  id                Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  fromLocation      String   @db.VarChar(120)
-  toLocation        String   @db.VarChar(120)
-  transportType     String   @db.VarChar(30)                       // "flight" | "bus" | "private-car" | "shared-taxi" | "ferry"
+  fromLocation  String @db.VarChar(120)
+  toLocation    String @db.VarChar(120)
+  transportType String @db.VarChar(30) // "flight" | "bus" | "private-car" | "shared-taxi" | "ferry"
 
-  minCost           Decimal  @db.Decimal(10, 2)
-  maxCost           Decimal  @db.Decimal(10, 2)
-  averageCost       Decimal  @db.Decimal(10, 2)
-  currency          String   @default("USD") @db.VarChar(3)
+  minCost     Decimal @db.Decimal(10, 2)
+  maxCost     Decimal @db.Decimal(10, 2)
+  averageCost Decimal @db.Decimal(10, 2)
+  currency    String  @default("USD") @db.VarChar(3)
 
-  durationHours     Decimal? @db.Decimal(5, 1)
-  distanceKm        Int?
-  frequency         String?  @db.VarChar(60)                       // "daily" | "3x-weekly" | "on-demand"
+  durationHours Decimal? @db.Decimal(5, 1)
+  distanceKm    Int?
+  frequency     String?  @db.VarChar(60) // "daily" | "3x-weekly" | "on-demand"
 
-  peakMultiplier    Decimal  @default(1.00) @db.Decimal(3, 2)
-  offPeakMultiplier Decimal  @default(1.00) @db.Decimal(3, 2)
+  peakMultiplier    Decimal @default(1.00) @db.Decimal(3, 2)
+  offPeakMultiplier Decimal @default(1.00) @db.Decimal(3, 2)
 
-  description       String?  @db.VarChar(500)
-  provider          String?  @db.VarChar(200)
-  requiresBooking   Boolean  @default(false)
-  bookingLeadDays   Int?
+  description     String? @db.VarChar(500)
+  provider        String? @db.VarChar(200)
+  requiresBooking Boolean @default(false)
+  bookingLeadDays Int?
 
   /// Confidence in this estimate (0–1)
-  confidence        Decimal  @default(0.80) @db.Decimal(3, 2)
-  dataSource        String?  @db.VarChar(60)                       // "provider-api" | "manual-entry" | "aggregator"
-  lastUpdated       DateTime @default(now())
-  isActive          Boolean  @default(true)
+  confidence  Decimal  @default(0.80) @db.Decimal(3, 2)
+  dataSource  String?  @db.VarChar(60) // "provider-api" | "manual-entry" | "aggregator"
+  lastUpdated DateTime @default(now())
+  isActive    Boolean  @default(true)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([fromLocation, toLocation, transportType])
   @@index([fromLocation, toLocation])
@@ -2961,49 +3107,49 @@ model TransportCostAverage {
 //  ACTIVITY COSTS  (safaris, water sports, cultural tours, adventure)
 // ─────────────────────────────────────────────────────────────────────────────
 model ActivityCost {
-  id                Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  activityCode      String   @unique @db.VarChar(80)               // "safari-full-day", "diving-2-tank"
-  activityName      String   @db.VarChar(200)
-  category          String   @db.VarChar(40)                       // "safari" | "water-sports" | "cultural" | "adventure"
-  destination       String   @db.VarChar(120)
+  activityCode String @unique @db.VarChar(80) // "safari-full-day", "diving-2-tank"
+  activityName String @db.VarChar(200)
+  category     String @db.VarChar(40) // "safari" | "water-sports" | "cultural" | "adventure"
+  destination  String @db.VarChar(120)
 
-  minCost           Decimal  @db.Decimal(10, 2)
-  maxCost           Decimal  @db.Decimal(10, 2)
-  averageCost       Decimal  @db.Decimal(10, 2)
-  currency          String   @default("USD") @db.VarChar(3)
-  priceUnit         String   @default("per-person") @db.VarChar(30) // "per-person" | "per-group" | "per-vehicle"
+  minCost     Decimal @db.Decimal(10, 2)
+  maxCost     Decimal @db.Decimal(10, 2)
+  averageCost Decimal @db.Decimal(10, 2)
+  currency    String  @default("USD") @db.VarChar(3)
+  priceUnit   String  @default("per-person") @db.VarChar(30) // "per-person" | "per-group" | "per-vehicle"
 
-  duration          String?  @db.VarChar(40)                       // "full-day" | "half-day" | "3-hours"
-  durationHours     Decimal? @db.Decimal(4, 1)
-  groupSize         String?  @db.VarChar(60)                       // "2-6 people" | "private" | "shared"
-  difficulty        String?  @db.VarChar(20)                       // "easy" | "moderate" | "challenging"
+  duration      String?  @db.VarChar(40) // "full-day" | "half-day" | "3-hours"
+  durationHours Decimal? @db.Decimal(4, 1)
+  groupSize     String?  @db.VarChar(60) // "2-6 people" | "private" | "shared"
+  difficulty    String?  @db.VarChar(20) // "easy" | "moderate" | "challenging"
 
   /// e.g. ["guide","equipment","lunch","transport"]
-  includes          Json?
+  includes     Json?
   /// e.g. ["park-fees","tips","drinks"]
-  excludes          Json?
+  excludes     Json?
   /// e.g. ["padi-certified","medical-clearance"]
-  requirements      Json?
+  requirements Json?
 
-  seasonalActivity  Boolean  @default(false)
+  seasonalActivity Boolean @default(false)
   /// Months activity is available (1–12)
-  availableMonths   Json?
-  requiresBooking   Boolean  @default(true)
-  bookingLeadDays   Int?     @default(3)
+  availableMonths  Json?
+  requiresBooking  Boolean @default(true)
+  bookingLeadDays  Int?    @default(3)
 
-  peakMultiplier    Decimal  @default(1.00) @db.Decimal(3, 2)
-  offPeakMultiplier Decimal  @default(1.00) @db.Decimal(3, 2)
+  peakMultiplier    Decimal @default(1.00) @db.Decimal(3, 2)
+  offPeakMultiplier Decimal @default(1.00) @db.Decimal(3, 2)
 
-  description       String?  @db.Text
-  provider          String?  @db.VarChar(200)
-  website           String?  @db.VarChar(300)
+  description String? @db.Text
+  provider    String? @db.VarChar(200)
+  website     String? @db.VarChar(300)
   /// Popularity score 1–100
-  popularity        Int      @default(50)
-  isActive          Boolean  @default(true)
+  popularity  Int     @default(50)
+  isActive    Boolean @default(true)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([destination, category])
   @@index([category])
@@ -3015,41 +3161,41 @@ model ActivityCost {
 //  PRICING RULES  (seasonal multipliers and demand-based adjustments)
 // ─────────────────────────────────────────────────────────────────────────────
 model PricingRule {
-  id              Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  ruleName        String   @unique @db.VarChar(120)
-  ruleType        String   @db.VarChar(30)                         // "seasonal" | "demand-based" | "special-event"
+  ruleName String @unique @db.VarChar(120)
+  ruleType String @db.VarChar(30) // "seasonal" | "demand-based" | "special-event"
 
   /// NULL = applies to all destinations
-  destination     String?  @db.VarChar(120)
+  destination String? @db.VarChar(120)
   /// NULL = applies to all cost categories
-  category        String?  @db.VarChar(40)                         // "accommodation" | "transport" | "activity"
+  category    String? @db.VarChar(40) // "accommodation" | "transport" | "activity"
 
-  seasonName      String?  @db.VarChar(30)                         // "peak" | "shoulder" | "off-peak"
-  startMonth      Int?                                             // 1–12
-  endMonth        Int?                                             // 1–12
+  seasonName    String? @db.VarChar(30) // "peak" | "shoulder" | "off-peak"
+  startMonth    Int? // 1–12
+  endMonth      Int? // 1–12
   /// Date-range overrides, e.g. [{"start":"2026-12-20","end":"2027-01-05"}]
-  specificDates   Json?
+  specificDates Json?
 
   /// e.g. 1.25 = 25% markup, 0.90 = 10% discount
-  priceMultiplier Decimal  @db.Decimal(4, 2)
+  priceMultiplier Decimal @db.Decimal(4, 2)
 
-  minTravelers    Int?
-  maxTravelers    Int?
+  minTravelers  Int?
+  maxTravelers  Int?
   /// Only apply when trip is booked at least N days in advance
-  daysInAdvance   Int?
+  daysInAdvance Int?
 
   /// Higher number = evaluated first
-  priority        Int      @default(100)
-  isActive        Boolean  @default(true)
-  validFrom       DateTime @default(now())
-  validUntil      DateTime?
+  priority   Int       @default(100)
+  isActive   Boolean   @default(true)
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
 
-  description     String?  @db.Text
-  createdBy       String?  @db.VarChar(80)
+  description String? @db.Text
+  createdBy   String? @db.VarChar(80)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([destination, seasonName])
   @@index([isActive, priority])
@@ -3060,31 +3206,31 @@ model PricingRule {
 //  TRIP DESTINATIONS  (master reference list for the cost estimator)
 // ─────────────────────────────────────────────────────────────────────────────
 model TripDestination {
-  id                      Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  destinationCode         String   @unique @db.VarChar(30)         // "SERENP", "ZANZIBAR", "ARUSHA"
-  destinationName         String   @db.VarChar(120)                // "Serengeti", "Zanzibar"
-  displayName             String?  @db.VarChar(200)                // "Serengeti National Park"
-  destinationType         String   @db.VarChar(30)                 // "park" | "island" | "city" | "region"
+  destinationCode String  @unique @db.VarChar(30) // "SERENP", "ZANZIBAR", "ARUSHA"
+  destinationName String  @db.VarChar(120) // "Serengeti", "Zanzibar"
+  displayName     String? @db.VarChar(200) // "Serengeti National Park"
+  destinationType String  @db.VarChar(30) // "park" | "island" | "city" | "region"
 
-  country                 String   @default("Tanzania") @db.VarChar(80)
-  region                  String   @db.VarChar(100)                // "Northern Circuit" | "Zanzibar" | "Southern"
+  country     String @default("Tanzania") @db.VarChar(80)
+  region      String @db.VarChar(100) // "Northern Circuit" | "Zanzibar" | "Southern"
   /// e.g. {"lat": -2.333, "lng": 34.833}
-  coordinates             Json?
-  timezone                String   @default("Africa/Dar_es_Salaam") @db.VarChar(60)
+  coordinates Json?
+  timezone    String @default("Africa/Dar_es_Salaam") @db.VarChar(60)
 
-  mainAirport             String?  @db.VarChar(100)                // "Seronera Airstrip (SEU)"
-  nearestCity             String?  @db.VarChar(80)
-  accessDifficulty        String   @default("moderate") @db.VarChar(20) // "easy" | "moderate" | "difficult"
+  mainAirport      String? @db.VarChar(100) // "Seronera Airstrip (SEU)"
+  nearestCity      String? @db.VarChar(80)
+  accessDifficulty String  @default("moderate") @db.VarChar(20) // "easy" | "moderate" | "difficult"
 
   /// Best months to visit (1–12)
-  bestMonths              Json?
+  bestMonths    Json?
   /// Rainy/green season months (1–12)
-  rainyMonths             Json?
+  rainyMonths   Json?
   /// Peak pricing months (1–12)
-  peakMonths              Json?
+  peakMonths    Json?
   /// Off-peak/discount months (1–12)
-  offPeakMonths           Json?
+  offPeakMonths Json?
 
   /// Multiplier applied to accommodation base price for this destination
   accommodationMultiplier Decimal  @default(1.00) @db.Decimal(3, 2)
@@ -3093,15 +3239,15 @@ model TripDestination {
   /// Typical length of stay (days)
   avgStayDays             Int?
 
-  description             String?  @db.Text
-  imageUrl                String?  @db.VarChar(500)
-  officialWebsite         String?  @db.VarChar(300)
+  description     String? @db.Text
+  imageUrl        String? @db.VarChar(500)
+  officialWebsite String? @db.VarChar(300)
   /// Popularity score 1–100
-  popularity              Int      @default(50)
-  isActive                Boolean  @default(true)
+  popularity      Int     @default(50)
+  isActive        Boolean @default(true)
 
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([destinationType])
   @@index([region])

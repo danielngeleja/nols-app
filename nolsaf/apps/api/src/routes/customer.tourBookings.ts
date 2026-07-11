@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import type { SignOptions } from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { evaluateTourCancellation, packageIsNonRefundable } from "../lib/tourCancellationPolicy.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -584,6 +585,12 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
         operatorAgentId: true,
         createdAt: true,
         updatedAt: true,
+        cases: {
+          where: { type: "CANCELLATION" },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          include: { events: { orderBy: { createdAt: "desc" }, take: 5 } },
+        },
       },
     });
 
@@ -2102,6 +2109,185 @@ router.post("/:id/agent-review", (async (req: AuthedRequest, res) => {
     console.error("POST /customer/tour-bookings/:id/agent-review error:", error);
     return res.status(500).json({ error: "Failed to submit review" });
   }
+}) as RequestHandler);
+
+/** Normalized, append-only operational cases for changes, incidents, cancellation, rescheduling, and refunds. */
+router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const reason = cleanText(req.body?.reason, 4000);
+  const reasonCategory = cleanText(req.body?.reasonCategory, 80).toUpperCase() || "OTHER";
+  if (!reason) return res.status(400).json({ error: "Cancellation reason is required" });
+  const booking = await prisma.tourBooking.findFirst({
+    where: { id: bookingId, customerId: req.user!.id },
+    select: { id: true, status: true, startDate: true, createdAt: true, grossAmount: true, packageSnapshot: true, metadata: true, paymentStatus: true },
+  });
+  if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+  if (["CANCELED", "REFUNDED"].includes(String(booking.status).toUpperCase())) return res.status(409).json({ error: "Booking is already canceled or refunded" });
+  const existing = await prisma.tourCase.findFirst({ where: { tourBookingId: booking.id, type: "CANCELLATION", status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } } });
+  if (existing) return res.status(409).json({ error: "An active cancellation request already exists", caseId: existing.id });
+  const md = safeObject(booking.metadata);
+  const pickupValidated = Boolean(safeObject(md.pickupValidation).validated || safeObject(md.pickupValidationOperator).validated || safeObject(md.pickupValidationCustomer).validated);
+  const policySnapshot = safeObject(md.tourCancellationPolicy);
+  const calculatedDecision = evaluateTourCancellation({
+    bookedAt: booking.createdAt,
+    startDate: booking.startDate,
+    requestedAt: new Date(),
+    amountPaid: String(booking.paymentStatus).toUpperCase() === "PAID" ? Number(booking.grossAmount) : 0,
+    status: booking.status,
+    pickupValidated,
+    nonRefundable: packageIsNonRefundable(booking.packageSnapshot),
+  });
+  const decision = policySnapshot.version ? calculatedDecision : {
+    ...calculatedDecision,
+    eligibilityCode: "MANUAL_REVIEW" as const,
+    eligible: false,
+    refundPercent: 0,
+    estimatedRefundAmount: 0,
+    reason: "This booking predates the stored tour cancellation policy version. NoLSAF will review it under the terms accepted when the booking was made.",
+  };
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const duplicate = await tx.tourCase.findFirst({
+        where: { tourBookingId: booking.id, type: "CANCELLATION", status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } },
+        select: { id: true },
+      });
+      if (duplicate) throw Object.assign(new Error("ACTIVE_CASE_EXISTS"), { code: "ACTIVE_CASE_EXISTS", caseId: duplicate.id });
+      const item = await tx.tourCase.create({ data: {
+        tourBookingId: booking.id,
+        type: "CANCELLATION",
+        status: decision.eligible ? "ELIGIBLE" : "UNDER_REVIEW",
+        severity: "MEDIUM",
+        title: `Tour cancellation: ${reasonCategory}`,
+        description: reason,
+        requestedByUserId: req.user!.id,
+        resolutionAmount: decision.estimatedRefundAmount,
+      } });
+      await tx.tourCaseEvent.create({ data: {
+        tourCaseId: item.id, actorUserId: req.user!.id, type: "ELIGIBILITY_CALCULATED", message: decision.reason,
+        data: { ...decision, reasonCategory, amountPaid: Number(booking.grossAmount), deductionsPendingOperatorEvidence: decision.refundPercent > 0 },
+      } });
+      return item;
+    }, { isolationLevel: "Serializable" });
+  } catch (error: any) {
+    if (error?.code === "ACTIVE_CASE_EXISTS") return res.status(409).json({ error: "An active cancellation request already exists", caseId: error.caseId });
+    if (error?.code === "P2034") return res.status(409).json({ error: "Another cancellation request is being processed for this booking. Please retry." });
+    throw error;
+  }
+  return res.status(201).json({
+    ok: true,
+    case: created,
+    eligibility: decision,
+    notice: decision.refundPercent > 0
+      ? "This is a provisional amount. Only disclosed, documented non-recoverable tour costs may reduce the final refund. The booking remains active until NoLSAF approves the cancellation."
+      : "No automatic refund is available. NoLSAF will review any exceptional-circumstance evidence before changing the booking.",
+  });
+}) as RequestHandler);
+
+router.get("/:id/cases", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, customerId: req.user!.id }, select: { id: true } });
+  if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+  const cases = await prisma.tourCase.findMany({
+    where: { tourBookingId: booking.id },
+    include: { events: { orderBy: { createdAt: "asc" } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return res.json({ ok: true, cases });
+}) as RequestHandler);
+
+router.post("/:id/cases/:caseId/evidence", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const caseId = Number(req.params.caseId);
+  const documents = Array.isArray(req.body?.documents)
+    ? req.body.documents
+      .map((entry: any) => ({
+        url: cleanText(entry?.url, 1500),
+        fileName: cleanText(entry?.fileName, 240),
+        type: cleanText(entry?.type, 80),
+        label: cleanText(entry?.label, 180),
+        uploadedAt: cleanText(entry?.uploadedAt, 80),
+      }))
+      .filter((entry: any) => {
+        // Only NoLSAF-hosted uploads are accepted as evidence; arbitrary links are dropped.
+        try {
+          const url = new URL(entry.url);
+          return url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+        } catch { return false; }
+      })
+    : [];
+  if (!Number.isFinite(bookingId) || !Number.isFinite(caseId)) return res.status(400).json({ error: "Invalid tour cancellation evidence request" });
+  if (documents.length === 0) return res.status(400).json({ error: "Upload at least one evidence file through the NoLSAF document uploader" });
+  if (documents.length > 10) return res.status(400).json({ error: "Submit up to 10 evidence files at a time" });
+
+  const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, customerId: req.user!.id }, select: { id: true } });
+  if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+  const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: booking.id, type: "CANCELLATION" } });
+  if (!item) return res.status(404).json({ error: "Tour cancellation case not found" });
+  if (["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(String(item.status).toUpperCase())) return res.status(409).json({ error: "This cancellation case is closed" });
+
+  const event = await prisma.tourCaseEvent.create({
+    data: {
+      tourCaseId: item.id,
+      actorUserId: req.user!.id,
+      type: "TRAVELER_EVIDENCE_SUBMITTED",
+      message: "Traveller submitted requested cancellation evidence through the booking workspace.",
+      data: { documents },
+    },
+  });
+  return res.status(201).json({ ok: true, event, submittedFiles: documents.length });
+}) as RequestHandler);
+
+router.post("/:id/cases", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const type = String(req.body?.type || "").trim().toUpperCase();
+  const allowedTypes = ["CHANGE", "ISSUE", "CANCELLATION", "RESCHEDULE", "REFUND"];
+  const title = cleanText(req.body?.title, 180);
+  const description = cleanText(req.body?.description || req.body?.message, 4000);
+  const severityInput = String(req.body?.severity || "MEDIUM").toUpperCase();
+  const severity = ["LOW", "MEDIUM", "HIGH", "URGENT"].includes(severityInput) ? severityInput : "MEDIUM";
+  if (!allowedTypes.includes(type) || !title || !description) return res.status(400).json({ error: "Invalid case type, title, or description" });
+  const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, customerId: req.user!.id }, select: { id: true, status: true } });
+  if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+  if (["REFUNDED"].includes(String(booking.status).toUpperCase())) return res.status(409).json({ error: "Booking is already refunded" });
+  const created = await prisma.$transaction(async (tx) => {
+    const tourCase = await tx.tourCase.create({ data: {
+      tourBookingId: booking.id, type, title, description, severity, requestedByUserId: req.user!.id,
+      requestedStartDate: req.body?.requestedStartDate ? new Date(req.body.requestedStartDate) : null,
+      requestedEndDate: req.body?.requestedEndDate ? new Date(req.body.requestedEndDate) : null,
+    } });
+    await tx.tourCaseEvent.create({ data: { tourCaseId: tourCase.id, actorUserId: req.user!.id, type: "CREATED", message: description } });
+    return tourCase;
+  });
+  return res.status(201).json({ ok: true, case: created });
+}) as RequestHandler);
+
+router.post("/:id/cases/:caseId/withdraw", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const caseId = Number(req.params.caseId);
+  const existing = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, requestedByUserId: req.user!.id } });
+  if (!existing) return res.status(404).json({ error: "Case not found" });
+  if (["RESOLVED", "CLOSED", "WITHDRAWN"].includes(existing.status)) return res.status(409).json({ error: "Case is already closed" });
+  const updated = await prisma.$transaction(async (tx) => {
+    const item = await tx.tourCase.update({ where: { id: caseId }, data: { status: "WITHDRAWN", withdrawnAt: new Date(), closedAt: new Date() } });
+    await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: req.user!.id, type: "WITHDRAWN", message: cleanText(req.body?.reason, 1000) } });
+    return item;
+  });
+  return res.json({ ok: true, case: updated });
+}) as RequestHandler);
+
+router.post("/:id/confirm-completion", (async (req: AuthedRequest, res) => {
+  const bookingId = Number(req.params.id);
+  const booking = await prisma.tourBooking.findFirst({
+    where: { id: bookingId, customerId: req.user!.id },
+    select: { id: true, status: true, cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"] } }, select: { id: true } } },
+  });
+  if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+  if (booking.status !== "OPERATOR_COMPLETED") return res.status(409).json({ error: "Operator has not completed the tour" });
+  if (booking.cases.length) return res.status(409).json({ error: "Open cases must be resolved before completion" });
+  const now = new Date();
+  const updated = await prisma.tourBooking.update({ where: { id: booking.id }, data: { status: "COMPLETED", customerConfirmedAt: now, completedAt: now } });
+  return res.json({ ok: true, booking: updated });
 }) as RequestHandler);
 
 export default router;

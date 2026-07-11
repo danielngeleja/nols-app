@@ -31,6 +31,7 @@ type PaymentInfo = {
   };
   paymentEvents: PaymentEvent[];
   hasTransactionId: boolean;
+  paymentConfirmed: boolean;
 } | null;
 type Item = {
   id: number;
@@ -41,6 +42,13 @@ type Item = {
   policyEligible: boolean;
   policyRefundPercent: number | null;
   policyRule: string | null;
+  approvedAt: string | null;
+  approvedByAdminId: number | null;
+  refundAmount: number | null;
+  refundProvider: string | null;
+  refundReference: string | null;
+  refundInitiatedAt: string | null;
+  refundedAt: string | null;
   createdAt: string;
   updatedAt: string;
   user: { id: number; name: string | null; email: string | null; phone: string | null };
@@ -85,7 +93,8 @@ function statusTone(status: string) {
   const key = String(status || "").toUpperCase();
   if (key === "REFUNDED") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   if (key === "REJECTED") return "bg-red-50 text-red-700 ring-red-200";
-  if (key === "PROCESSING") return "bg-teal-50 text-teal-700 ring-teal-200";
+  if (key === "REFUND_PENDING") return "bg-teal-50 text-teal-700 ring-teal-200";
+  if (key === "APPROVED") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   if (key === "NEED_INFO") return "bg-amber-50 text-amber-700 ring-amber-200";
   if (key === "REVIEWING") return "bg-blue-50 text-blue-700 ring-blue-200";
   return "bg-slate-50 text-slate-700 ring-slate-200";
@@ -104,8 +113,10 @@ export default function AdminCancellationDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [status, setStatus] = useState<string>("");
+  const [decisionNote, setDecisionNote] = useState<string>("");
+  const [refundProvider, setRefundProvider] = useState<string>("");
+  const [refundReference, setRefundReference] = useState<string>("");
   const [message, setMessage] = useState<string>("");
-  const [setStatusOnMessage, setSetStatusOnMessage] = useState<string>("");
 
   async function load() {
     setLoading(true);
@@ -114,7 +125,10 @@ export default function AdminCancellationDetailPage() {
       const res = await api.get(`/api/admin/cancellations/${id}`);
       const it: Item = res.data.item;
       setItem(it);
-      setStatus(it.status);
+      setStatus("");
+      setDecisionNote("");
+      setRefundProvider(it.refundProvider || res.data.paymentInfo?.invoice?.paymentMethod || "");
+      setRefundReference(it.refundReference || "");
       setPaymentInfo(res.data.paymentInfo || null);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load cancellation request");
@@ -129,22 +143,13 @@ export default function AdminCancellationDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const canSave = useMemo(() => !!item && status !== item.status, [item, status]);
-
-  // Generate automatic message based on status change
-  function getAutoMessage(newStatus: string, oldStatus: string): string | null {
-    if (newStatus === oldStatus) return null; // No status change, no auto message
-    
-    const messages: Record<string, string> = {
-      REVIEWING: "Thanks for your patience. We are currently reviewing your cancellation request. We will update you about the decision within 24-48 hours.",
-      NEED_INFO: "We need some additional information to process your cancellation request. Please provide the requested details so we can proceed with your request.",
-      PROCESSING: "Your cancellation request has been approved and is now being processed. We will complete the refund process within 3-5 business days.",
-      REFUNDED: "Great news! Your cancellation has been processed and the refund has been completed. The amount will be credited back to your original payment method within 5-7 business days.",
-      REJECTED: "We have reviewed your cancellation request. Unfortunately, it does not meet our cancellation policy requirements. If you have any questions, please contact our support team."
-    };
-    
-    return messages[newStatus] || null;
-  }
+  const canSave = useMemo(() => {
+    if (!item || !status) return false;
+    if (["NEED_INFO", "APPROVED", "REJECTED"].includes(status) && !decisionNote.trim()) return false;
+    if (status === "REFUND_PENDING" && !refundProvider.trim()) return false;
+    if (status === "REFUNDED" && refundReference.trim().length < 3) return false;
+    return true;
+  }, [decisionNote, item, refundProvider, refundReference, status]);
 
   // Get workflow flow - next possible actions based on current status
   // Workflow principles:
@@ -161,28 +166,24 @@ export default function AdminCancellationDetailPage() {
     const workflow: Record<string, { current: string; next: string[] }> = {
       SUBMITTED: {
         current: "Submitted",
-        next: ["Reviewing", "Need Info"]
+        next: ["Reviewing"]
       },
       REVIEWING: {
         current: "Reviewing",
         // Can request more info, proceed to processing if all info is available, or reject
         // CANNOT go directly to Refunded - must go through Processing first
         // CANNOT go to both Refunded and Rejected - they are mutually exclusive
-        next: ["Need Info", "Processing", "Rejected"]
+        next: ["Need Info", "Approved", "Rejected"]
       },
       NEED_INFO: {
         current: "Need Info",
         // After getting info: can re-review, or if info is sufficient, proceed to Processing/Rejected
         // Admin should not use NEED_INFO as a required step if they can proceed directly to Processing
         // CANNOT go to Refunded from here - must go through Processing
-        next: ["Reviewing", "Processing", "Rejected"]
+        next: ["Reviewing"]
       },
-      PROCESSING: {
-        current: "Processing",
-        // Processing is the required step before Refunded
-        // Once in Processing, can only go to Refunded (NOT Rejected - that path is closed)
-        next: ["Refunded"]
-      },
+      APPROVED: { current: "Approved", next: ["Refund Pending"] },
+      REFUND_PENDING: { current: "Refund Pending", next: ["Refunded"] },
       REFUNDED: {
         current: "Refunded",
         // Final state - mutually exclusive with REJECTED
@@ -200,55 +201,15 @@ export default function AdminCancellationDetailPage() {
     return workflow[currentStatus] || { current: currentStatus, next: [] };
   }
 
-  // Validate status transition - enforce workflow principles
-  function validateStatusTransition(currentStatus: string, newStatus: string): { valid: boolean; message?: string } {
-    // Principle: SUBMITTED must go through Reviewing first (cannot skip Reviewing)
-    // Reviewing is the primary required step, but Need Info is allowed as alternative
-    if (currentStatus === "SUBMITTED" && newStatus !== "REVIEWING" && newStatus !== "NEED_INFO") {
-      return {
-        valid: false,
-        message: "Please review the claim first. Claims in 'Submitted' status must go through 'Reviewing' before proceeding to other actions."
-      };
-    }
-    
-    return { valid: true };
-  }
-
   async function save() {
     if (!item) return;
-    
-    // Validate the status transition
-    const validation = validateStatusTransition(item.status, status);
-    if (!validation.valid) {
-      setError(validation.message || "Invalid status transition");
-      setSaving(false);
-      return;
-    }
+    if (!canSave) return;
     
     setSaving(true);
     setError(null);
     try {
-      const oldStatus = item.status;
-      const res = await api.patch(`/api/admin/cancellations/${item.id}`, { status });
-      setItem((prev) => (prev ? { ...prev, status: res.data.item.status } : prev));
-      
-      // Automatically send message if status changed
-      if (status !== oldStatus) {
-        const autoMessage = getAutoMessage(status, oldStatus);
-        if (autoMessage) {
-          try {
-            await api.post(`/api/admin/cancellations/${item.id}/messages`, {
-              body: autoMessage,
-              setStatus: undefined, // Don't change status again, it's already changed
-            });
-            // Reload to show the new message
-            await load();
-          } catch (msgErr: any) {
-            // If message sending fails, log but don't block the status update
-            console.warn("Failed to send auto message:", msgErr?.response?.data?.error);
-          }
-        }
-      }
+      await api.patch(`/api/admin/cancellations/${item.id}`, { status, decisionNote, refundProvider, refundReference });
+      await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to save changes");
     } finally {
@@ -263,16 +224,14 @@ export default function AdminCancellationDetailPage() {
     setSending(true);
     setError(null);
     try {
-      const res = await api.post(`/api/admin/cancellations/${item.id}/messages`, {
+      await api.post(`/api/admin/cancellations/${item.id}/messages`, {
         body,
-        setStatus: setStatusOnMessage || undefined,
       });
       setMessage("");
-      setSetStatusOnMessage("");
       // Reload to get latest thread + status
       await load();
       // Keep local status aligned
-      setStatus(res.data.status || status);
+      setStatus("");
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to send message");
     } finally {
@@ -281,7 +240,7 @@ export default function AdminCancellationDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 py-5 sm:px-5 lg:px-6 space-y-5">
+    <div className="mx-auto w-[calc(100%-1rem)] max-w-6xl min-w-0 space-y-5 overflow-x-clip py-5 sm:w-[calc(100%-1.5rem)]">
       {/* Header with Back Button */}
       <div className="flex items-center justify-between">
         <Link 
@@ -309,9 +268,9 @@ export default function AdminCancellationDetailPage() {
           </div>
         </div>
       ) : !item ? null : (
-        <div className="space-y-6">
+        <div className="min-w-0 max-w-full space-y-6 overflow-x-clip">
           {/* Main Request Card */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {/* Header Section */}
             <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -320,7 +279,7 @@ export default function AdminCancellationDetailPage() {
                     <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e] shadow-sm">
                       <FileText className="h-5 w-5 text-white" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Cancellation Request</div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2">
                         <span className="text-2xl font-black text-slate-950">#{item.id}</span>
@@ -330,15 +289,15 @@ export default function AdminCancellationDetailPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-3 inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                  <div className="mt-3 inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-600">
                     <span className="font-semibold">Booking code</span>
-                    <span className="font-mono font-bold text-slate-950">{item.bookingCode}</span>
+                    <span className="break-all font-mono font-bold text-slate-950">{item.bookingCode}</span>
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:min-w-[260px]">
+                <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:w-auto sm:min-w-[240px] sm:max-w-[320px]">
                   <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><User className="h-3.5 w-3.5 text-[#02665e]" />Customer</div>
                   <div className="font-bold text-slate-950">{item.user?.name || `User #${item.user.id}`}</div>
-                  <div className="text-sm text-gray-600 mt-1">{item.user.email || item.user.phone || "—"}</div>
+                  <div className="mt-1 break-all text-sm text-gray-600">{item.user.email || item.user.phone || "—"}</div>
                 </div>
               </div>
             </div>
@@ -352,9 +311,11 @@ export default function AdminCancellationDetailPage() {
                     <div className="text-xs font-bold text-blue-700 uppercase tracking-wider">Property</div>
                   </div>
                   <div className="font-bold text-gray-900 text-sm mb-1">{item.booking.property.title}</div>
-                  <div className="text-xs text-gray-600 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
+                  <div className="flex min-w-0 items-start gap-1 text-xs text-gray-600">
+                    <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                    <span className="break-words">
                     {[item.booking.property.regionName, item.booking.property.city, item.booking.property.district].filter(Boolean).join(" • ") || "—"}
+                    </span>
                   </div>
                 </div>
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
@@ -397,7 +358,7 @@ export default function AdminCancellationDetailPage() {
                       <div className="flex-1">
                         <div className="text-xs font-semibold text-amber-900 mb-1">Review Required - Cannot Skip</div>
                         <div className="text-xs text-amber-800 leading-relaxed">
-                          This claim is in &quot;Submitted&quot; status. <strong>You must review it first</strong> by selecting &quot;Reviewing&quot; before proceeding to other actions. You cannot skip the review step. If you need additional information from the customer, you can select &quot;Need Info&quot; instead, but &quot;Reviewing&quot; is the primary required step.
+                          This claim is in &quot;Submitted&quot; status. <strong>You must move it to Reviewing first</strong> before requesting information, approving, or rejecting it.
                         </div>
                       </div>
                     </div>
@@ -405,7 +366,7 @@ export default function AdminCancellationDetailPage() {
                 )}
                 
                 <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-                  <div>
+                  <div className="min-w-0">
                     <label htmlFor="status-select" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
                       New status
                     </label>
@@ -414,15 +375,17 @@ export default function AdminCancellationDetailPage() {
                       aria-label="Status"
                       value={status}
                       onChange={(e) => setStatus(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none transition-all focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20"
+                      className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none transition-all focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20"
                     >
+                      <option value="" disabled>Select the next workflow step</option>
                       {(() => {
                         const flow = getWorkflowFlow(item.status);
                         return flow.next.map((nextStatus) => {
                           const valueMap: Record<string, string> = {
                             "Reviewing": "REVIEWING",
                             "Need Info": "NEED_INFO",
-                            "Processing": "PROCESSING",
+                            "Approved": "APPROVED",
+                            "Refund Pending": "REFUND_PENDING",
                             "Refunded": "REFUNDED",
                             "Rejected": "REJECTED"
                           };
@@ -445,6 +408,29 @@ export default function AdminCancellationDetailPage() {
                     Save Changes
                   </button>
                 </div>
+
+                {["NEED_INFO", "APPROVED", "REJECTED"].includes(status) && (
+                  <div className="mt-4">
+                    <label htmlFor="decision-note" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                      {status === "NEED_INFO" ? "Information required" : status === "REJECTED" ? "Rejection reason" : "Approval decision"}
+                    </label>
+                    <textarea id="decision-note" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} rows={3} maxLength={4000} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Record the evidence and reason for this decision" />
+                  </div>
+                )}
+
+                {status === "REFUND_PENDING" && (
+                  <div className="mt-4">
+                    <label htmlFor="refund-provider" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Refund provider</label>
+                    <input id="refund-provider" value={refundProvider} onChange={(e) => setRefundProvider(e.target.value)} maxLength={80} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Original payment provider or bank" />
+                  </div>
+                )}
+
+                {status === "REFUNDED" && (
+                  <div className="mt-4">
+                    <label htmlFor="refund-reference" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Provider refund reference</label>
+                    <input id="refund-reference" value={refundReference} onChange={(e) => setRefundReference(e.target.value)} maxLength={160} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Required proof that the refund completed" />
+                  </div>
+                )}
                 
                 {/* Workflow Flow Indicator */}
                 {(() => {
@@ -473,6 +459,14 @@ export default function AdminCancellationDetailPage() {
                     </div>
                   );
                 })()}
+
+                {item.refundAmount != null && (
+                  <div className="mt-4 grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:grid-cols-3">
+                    <div><div className="text-xs font-semibold text-emerald-700">Approved refund</div><div className="mt-1 font-bold text-emerald-950">TZS {Number(item.refundAmount).toLocaleString()}</div></div>
+                    <div><div className="text-xs font-semibold text-emerald-700">Provider</div><div className="mt-1 font-bold text-emerald-950">{item.refundProvider || "Not initiated"}</div></div>
+                    <div><div className="text-xs font-semibold text-emerald-700">Refund reference</div><div className="mt-1 break-all font-bold text-emerald-950">{item.refundReference || "Awaiting confirmation"}</div></div>
+                  </div>
+                )}
                 
                 <p className="mt-3 text-xs text-slate-500">
                   Changing the status will automatically send a message to the customer
@@ -499,17 +493,17 @@ export default function AdminCancellationDetailPage() {
             <div className="px-6 py-5 space-y-6">
 
               {/* Security Alert for Missing Transaction ID */}
-              {paymentInfo && !paymentInfo.hasTransactionId && (
+              {paymentInfo && (!paymentInfo.hasTransactionId || !paymentInfo.paymentConfirmed) && (
                 <div className="rounded-lg border-2 border-red-300 bg-gradient-to-r from-red-50 to-red-100/50 p-4 shadow-sm">
                   <div className="flex items-start gap-3">
                     <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
                       <AlertTriangle className="h-5 w-5 text-red-600" />
                     </div>
                     <div className="flex-1">
-                      <div className="font-bold text-red-900 mb-1.5 text-sm">⚠️ Security Warning: Missing Transaction ID</div>
+                      <div className="font-bold text-red-900 mb-1.5 text-sm">Payment verification required</div>
                       <div className="text-sm text-red-800 leading-relaxed">
-                        This booking code does not have an associated payment transaction ID. This is a critical security requirement to prevent fraudulent refund claims.
-                        <strong className="block mt-2 text-red-900">Please verify the payment was made and request the transaction ID from the customer before processing any refund.</strong>
+                        The original payment needs both a transaction identifier and a successful payment status.
+                        <strong className="block mt-2 text-red-900">Approval is blocked by the API until the payment is confirmed.</strong>
                       </div>
                     </div>
                   </div>
@@ -524,12 +518,12 @@ export default function AdminCancellationDetailPage() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-all ${
-                    paymentInfo?.hasTransactionId 
+                    paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed
                       ? "border-emerald-200 bg-emerald-50/50" 
                       : "border-amber-200 bg-amber-50/50"
                   }`}>
                     <div className="mt-0.5 flex-shrink-0">
-                      {paymentInfo?.hasTransactionId ? (
+                      {paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed ? (
                         <div className="h-6 w-6 rounded-full bg-emerald-100 flex items-center justify-center">
                           <CheckCircle className="h-4 w-4 text-emerald-600" />
                         </div>
@@ -540,42 +534,42 @@ export default function AdminCancellationDetailPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">1. Verify Transaction ID</div>
+                      <div className="font-semibold text-gray-900 text-sm mb-1">1. Payment {paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed ? "Verified" : "Not Verified"}</div>
                       <div className="text-xs text-gray-600 leading-relaxed">
-                        Confirm the booking code has a valid payment transaction ID to prevent fraud
+                        A successful payment status and transaction identifier are required
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-200 bg-amber-50/50">
-                    <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Clock className="h-4 w-4 text-amber-600" />
+                  <div className="flex items-start gap-3 rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-4">
+                    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                      <CheckCircle className="h-4 w-4 text-emerald-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">2. Verify Booking Code Match</div>
+                      <div className="font-semibold text-gray-900 text-sm mb-1">2. Booking Code Verified</div>
                       <div className="text-xs text-gray-600 leading-relaxed">
-                        Ensure the submitted booking code matches the actual booking code in the system
+                        The authenticated submission route matched this code to the booking
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-200 bg-amber-50/50">
-                    <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Clock className="h-4 w-4 text-amber-600" />
+                  <div className="flex items-start gap-3 rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-4">
+                    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                      <CheckCircle className="h-4 w-4 text-emerald-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">3. Verify Customer Identity</div>
+                      <div className="font-semibold text-gray-900 text-sm mb-1">3. Customer Ownership Verified</div>
                       <div className="text-xs text-gray-600 leading-relaxed">
-                        Confirm the cancellation request is from the actual booking owner
+                        The requester was authenticated and matched to the booking customer
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-200 bg-amber-50/50">
-                    <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Clock className="h-4 w-4 text-amber-600" />
+                  <div className={`flex items-start gap-3 rounded-lg border-2 p-4 ${item.policyEligible ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50"}`}>
+                    <div className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${item.policyEligible ? "bg-emerald-100" : "bg-red-100"}`}>
+                      {item.policyEligible ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-red-600" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">4. Verify Policy Eligibility</div>
+                      <div className="font-semibold text-gray-900 text-sm mb-1">4. Policy {item.policyEligible ? "Verified" : "Not Eligible"}</div>
                       <div className="text-xs text-gray-600 leading-relaxed">
-                        Confirm the cancellation request meets the policy requirements for refund
+                        Stored policy decision: {item.policyRefundPercent ?? 0}% refund under {item.policyRule || "manual review"}
                       </div>
                     </div>
                   </div>
@@ -821,11 +815,11 @@ export default function AdminCancellationDetailPage() {
           </div>
 
           {/* Messages Section */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {/* Messages Header */}
             <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-4 py-4 sm:px-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]">
                     <MessageSquare className="h-5 w-5 text-white" />
                   </div>
@@ -837,7 +831,7 @@ export default function AdminCancellationDetailPage() {
                 <button
                   type="button"
                   onClick={() => load()}
-                  className="inline-flex flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] shadow-sm transition-colors hover:bg-[#02665e]/5"
+                  className="mr-0.5 inline-flex flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] shadow-sm transition-colors hover:bg-[#02665e]/5"
                 >
                   Refresh
                 </button>
@@ -857,7 +851,7 @@ export default function AdminCancellationDetailPage() {
                   item.messages.map((m) => (
                     <div
                       key={m.id}
-                      className={`rounded-xl border p-3 shadow-sm ${
+                      className={`min-w-0 max-w-full overflow-hidden rounded-xl border p-3 shadow-sm ${
                         m.senderRole === "ADMIN"
                           ? "border-emerald-100 bg-emerald-50/70"
                           : "border-slate-200 bg-white"
@@ -880,9 +874,9 @@ export default function AdminCancellationDetailPage() {
                             {m.senderRole === "ADMIN" ? "Admin" : "Customer"}
                           </span>
                         </div>
-                        <div className="text-xs text-slate-500">{fmt(m.createdAt)}</div>
+                        <div className="flex-shrink-0 text-xs text-slate-500">{fmt(m.createdAt)}</div>
                       </div>
-                      <div className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">{m.body}</div>
+                      <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800 [overflow-wrap:anywhere]">{m.body}</div>
                     </div>
                   ))
                 )}

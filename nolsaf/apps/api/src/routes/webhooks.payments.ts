@@ -713,6 +713,8 @@ export async function markTourBookingPaid(
       guestPhone: true,
       guestEmail: true,
       paymentStatus: true,
+      paymentRef: true,
+      customerPaymentRef: true,
       operatorAgentId: true,
       title: true,
       destination: true,
@@ -734,8 +736,26 @@ export async function markTourBookingPaid(
       status: "CONFIRMED",
       paidAt: new Date(),
       paymentProvider: provider,
+      customerPaymentRef: tour.customerPaymentRef ?? tour.paymentRef,
     },
   });
+
+  const incomingRef = tour.customerPaymentRef ?? tour.paymentRef;
+  if (incomingRef) {
+    await prisma.tourFinancialTransaction.upsert({
+      where: { reference: incomingRef },
+      create: {
+        tourBookingId: tour.id,
+        kind: "PAYMENT",
+        status: "PAID",
+        provider,
+        reference: incomingRef,
+        currency: tour.currency,
+        amount: tour.grossAmount,
+      },
+      update: { status: "PAID", provider },
+    });
+  }
 
   // Notify operator (agent): in-app + email + SMS, so they prepare immediately.
   if (tour.operatorAgentId) {

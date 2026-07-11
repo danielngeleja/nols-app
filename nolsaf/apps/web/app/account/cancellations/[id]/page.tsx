@@ -20,6 +20,11 @@ type Item = {
   policyEligible: boolean;
   policyRefundPercent: number | null;
   policyRule: string | null;
+  refundAmount: number | null;
+  refundProvider: string | null;
+  refundReference: string | null;
+  refundInitiatedAt: string | null;
+  refundedAt: string | null;
   createdAt: string;
   updatedAt: string;
   booking: {
@@ -57,7 +62,8 @@ function badge(status: string) {
   if (s === "SUBMITTED") return `${base} bg-blue-50 text-blue-700 border-blue-200`;
   if (s === "REVIEWING") return `${base} bg-amber-50 text-amber-700 border-amber-200`;
   if (s === "NEED_INFO") return `${base} bg-orange-50 text-orange-700 border-orange-200`;
-  if (s === "PROCESSING") return `${base} bg-purple-50 text-purple-700 border-purple-200`;
+  if (s === "APPROVED") return `${base} bg-teal-50 text-teal-700 border-teal-200`;
+  if (s === "REFUND_PENDING") return `${base} bg-purple-50 text-purple-700 border-purple-200`;
   if (s === "REFUNDED") return `${base} bg-emerald-50 text-emerald-700 border-emerald-200`;
   if (s === "REJECTED") return `${base} bg-red-50 text-red-700 border-red-200`;
   return `${base} bg-gray-50 text-gray-700 border-gray-200`;
@@ -157,7 +163,7 @@ export default function CustomerCancellationDetailPage() {
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <span className={`${badge(item.status)} border transition-all`}>{item.status}</span>
+                  <span className={`${badge(item.status)} border transition-all`}>{item.status.replace(/_/g, " ")}</span>
                 </div>
               </div>
             </div>
@@ -258,6 +264,14 @@ export default function CustomerCancellationDetailPage() {
                 )}
               </div>
 
+              {item.refundAmount != null && (
+                <div className="grid gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-5 py-4 sm:grid-cols-3">
+                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Approved refund</div><div className="mt-1 font-bold text-emerald-950">{Number(item.refundAmount).toLocaleString()} TZS</div></div>
+                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Provider</div><div className="mt-1 font-bold text-emerald-950">{item.refundProvider || "Not initiated"}</div></div>
+                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Reference</div><div className="mt-1 break-all font-bold text-emerald-950">{item.refundReference || "Awaiting confirmation"}</div></div>
+                </div>
+              )}
+
               {/* Admin Note */}
               {item.decisionNote && (
                 <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 px-5 py-4">
@@ -326,7 +340,9 @@ export default function CustomerCancellationDetailPage() {
 
             {/* Message Input */}
             <div className="border-t border-gray-200 pt-6">
-              <div className="space-y-3">
+              {["REFUNDED", "REJECTED"].includes(item.status) ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">This cancellation is final. The message history remains available for your records.</div>
+              ) : <div className="space-y-3">
                 <div className="relative">
                   <textarea
                     value={message}
@@ -365,7 +381,7 @@ export default function CustomerCancellationDetailPage() {
                     <div className="text-xs text-red-600 font-medium">{error}</div>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
