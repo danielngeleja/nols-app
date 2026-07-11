@@ -380,6 +380,12 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       }
 
       return request;
+    }, {
+      // This workflow contains only atomic database writes. Fifteen seconds
+      // tolerates short database/commit stalls without masking sustained
+      // contention behind an excessively long request.
+      maxWait: 5_000,
+      timeout: 15_000,
     });
 
     // Post-transaction side-effects: notify owner + real-time events.
@@ -435,6 +441,9 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
   } catch (error: any) {
     if (error?.message === "CANCELLATION_STATE_CHANGED") {
       return res.status(409).json({ error: "This cancellation changed while you were reviewing it. Reload and try again." });
+    }
+    if (error?.code === "P2028") {
+      return res.status(503).json({ error: "The database was temporarily busy. No cancellation change was completed; please retry." });
     }
     console.error("PATCH /admin/cancellations/:id error:", error);
     return res.status(500).json({ error: "Failed to update cancellation request" });

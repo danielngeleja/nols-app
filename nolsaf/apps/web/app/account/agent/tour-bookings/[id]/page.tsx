@@ -7,6 +7,7 @@ import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import { AlertTriangle, ArrowLeft, Calendar, CheckCircle2, CircleDollarSign, ClipboardList, CreditCard, ExternalLink, FileText, MapPin, Phone, Route, Send, User, Users, Handshake, ShieldCheck, Key } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import TourCancellationWorkspace from "@/components/agent/TourCancellationWorkspace";
 
 const api = apiClient;
 
@@ -17,6 +18,8 @@ type TourBookingDetail = {
   description?: string | null;
   status?: string;
   paymentStatus?: string;
+  payoutStatus?: string | null;
+  operatorPayoutAmount?: number | null;
   createdAt?: string;
   updatedAt?: string;
   tripDate?: string | null;
@@ -230,7 +233,6 @@ export default function AgentTourBookingDetailPage() {
         if (!alive) return;
 
         setItem(res.data?.item ?? res.data?.data?.item ?? res.data);
-        try { await loadTourCases(); } catch { setTourCases([]); }
       } catch (e: any) {
         if (!alive) return;
         if (e?.response?.status === 401) {
@@ -812,7 +814,17 @@ export default function AgentTourBookingDetailPage() {
             </section>
           </div>
 
-          <section className="rounded-2xl border border-amber-200 bg-white p-5 sm:p-6 shadow-sm">
+          <TourCancellationWorkspace
+            bookingId={bookingId}
+            bookingCode={bookingCode}
+            bookingStatus={String(item?.status || "")}
+            payoutStatus={item?.payoutStatus}
+            startDate={item?.tripDate}
+            currency={item?.currency}
+            operatorPayoutAmount={item?.operatorPayoutAmount}
+          />
+
+          <section className="hidden rounded-2xl border border-amber-200 bg-white p-5 sm:p-6 shadow-sm" aria-hidden="true">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-700" /><h2 className="text-sm font-bold text-slate-900">Traveler Cases & Refund Evidence</h2></div><p className="mt-1 text-xs text-slate-600">Respond to traveler cases and submit verifiable supplier costs. NoLSAF makes every cancellation and refund decision.</p></div>
               <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{tourCases.length} active record{tourCases.length === 1 ? "" : "s"}</span>

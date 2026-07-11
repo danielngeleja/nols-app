@@ -30,6 +30,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "New Cancellation Message",
         body: `There is a new message on cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""}.`
       },
+      tour_cancellation_submitted: {
+        title: "New Tour Cancellation Request",
+        body: `Tour cancellation case #${data.caseId || ""} was submitted for booking ${data.bookingCode || ""}. Review policy eligibility, booking impact, and operator evidence.`
+      },
+      tour_cancellation_evidence_submitted: {
+        title: "Tour Cancellation Evidence Submitted",
+        body: `${data.actor || "A participant"} submitted evidence for tour cancellation case #${data.caseId || ""}, booking ${data.bookingCode || ""}.`
+      },
       plan_request_submitted: {
         title: "New Plan Request Submitted",
         body: `A new plan request${data.requestId ? ` #${data.requestId}` : ""} has been submitted${data.customerName ? ` by ${data.customerName}` : ""}${data.role ? ` (${data.role})` : ""}.`
@@ -168,6 +176,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       tour_cancellation_evidence_requested: {
         title: "Evidence requested for your tour cancellation",
         body: `NoLSAF requested supporting evidence for tour cancellation case #${data.caseId || ""}. Open your tour booking and upload the requested files in the cancellation case.`
+      },
+      tour_case_operator_message: {
+        title: "Tour operator responded to your case",
+        body: `Your tour operator added an update to case #${data.caseId || ""}${data.bookingCode ? ` for booking ${data.bookingCode}` : ""}. Open the tour booking to review the shared case activity.`
       },
       booking_created: {
         title: "New Booking Received",

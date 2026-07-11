@@ -6,6 +6,8 @@ import type { SignOptions } from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { evaluateTourCancellation, packageIsNonRefundable } from "../lib/tourCancellationPolicy.js";
+import { notifyAdmins } from "../lib/notifications.js";
+import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -2119,7 +2121,7 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
   if (!reason) return res.status(400).json({ error: "Cancellation reason is required" });
   const booking = await prisma.tourBooking.findFirst({
     where: { id: bookingId, customerId: req.user!.id },
-    select: { id: true, status: true, startDate: true, createdAt: true, grossAmount: true, packageSnapshot: true, metadata: true, paymentStatus: true },
+    select: { id: true, bookingCode: true, title: true, operatorAgentId: true, currency: true, status: true, startDate: true, createdAt: true, grossAmount: true, packageSnapshot: true, metadata: true, paymentStatus: true },
   });
   if (!booking) return res.status(404).json({ error: "Tour booking not found" });
   if (["CANCELED", "REFUNDED"].includes(String(booking.status).toUpperCase())) return res.status(409).json({ error: "Booking is already canceled or refunded" });
@@ -2145,6 +2147,10 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
     estimatedRefundAmount: 0,
     reason: "This booking predates the stored tour cancellation policy version. NoLSAF will review it under the terms accepted when the booking was made.",
   };
+  const requestedAt = new Date();
+  const hoursUntilDeparture = (new Date(booking.startDate).getTime() - requestedAt.getTime()) / 3_600_000;
+  const operatorResponseWindowHours = hoursUntilDeparture <= 72 ? 1 : 6;
+  const operatorResponseDueAt = new Date(requestedAt.getTime() + operatorResponseWindowHours * 3_600_000);
   let created;
   try {
     created = await prisma.$transaction(async (tx) => {
@@ -2165,7 +2171,14 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
       } });
       await tx.tourCaseEvent.create({ data: {
         tourCaseId: item.id, actorUserId: req.user!.id, type: "ELIGIBILITY_CALCULATED", message: decision.reason,
-        data: { ...decision, reasonCategory, amountPaid: Number(booking.grossAmount), deductionsPendingOperatorEvidence: decision.refundPercent > 0 },
+        data: {
+          ...decision,
+          reasonCategory,
+          amountPaid: Number(booking.grossAmount),
+          deductionsPendingOperatorEvidence: decision.refundPercent > 0,
+          operatorResponseWindowHours,
+          operatorResponseDueAt: operatorResponseDueAt.toISOString(),
+        },
       } });
       return item;
     }, { isolationLevel: "Serializable" });
@@ -2174,6 +2187,21 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
     if (error?.code === "P2034") return res.status(409).json({ error: "Another cancellation request is being processed for this booking. Please retry." });
     throw error;
   }
+  await Promise.all([
+    notifyTourOperatorCase({
+      kind: "SUBMITTED",
+      operatorAgentId: booking.operatorAgentId,
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      caseId: created.id,
+      tourTitle: booking.title,
+      startDate: booking.startDate,
+      reason,
+      currency: booking.currency,
+      responseDueAt: operatorResponseDueAt,
+    }),
+    notifyAdmins("tour_cancellation_submitted", { caseId: created.id, bookingCode: booking.bookingCode, tourBookingId: booking.id }),
+  ]);
   return res.status(201).json({
     ok: true,
     case: created,
@@ -2186,7 +2214,7 @@ router.post("/:id/request-cancellation", (async (req: AuthedRequest, res) => {
 
 router.get("/:id/cases", (async (req: AuthedRequest, res) => {
   const bookingId = Number(req.params.id);
-  const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, customerId: req.user!.id }, select: { id: true } });
+  const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, customerId: req.user!.id }, select: { id: true, bookingCode: true, title: true, operatorAgentId: true, startDate: true, currency: true } });
   if (!booking) return res.status(404).json({ error: "Tour booking not found" });
   const cases = await prisma.tourCase.findMany({
     where: { tourBookingId: booking.id },
@@ -2235,6 +2263,19 @@ router.post("/:id/cases/:caseId/evidence", (async (req: AuthedRequest, res) => {
       data: { documents },
     },
   });
+  await Promise.all([
+    notifyTourOperatorCase({
+      kind: "TRAVELER_EVIDENCE_SUBMITTED",
+      operatorAgentId: booking.operatorAgentId,
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      caseId: item.id,
+      tourTitle: booking.title,
+      startDate: booking.startDate,
+      currency: booking.currency,
+    }),
+    notifyAdmins("tour_cancellation_evidence_submitted", { actor: "The traveller", caseId: item.id, bookingCode: booking.bookingCode, tourBookingId: booking.id }),
+  ]);
   return res.status(201).json({ ok: true, event, submittedFiles: documents.length });
 }) as RequestHandler);
 

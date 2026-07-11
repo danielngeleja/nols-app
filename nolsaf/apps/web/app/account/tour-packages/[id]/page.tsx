@@ -1068,6 +1068,15 @@ export default function TourPackageDetailsPage() {
                         <div><div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Provisional refund</div><div className="mt-1 font-semibold text-slate-900">{Number(activeCancellationDecision?.refundPercent || 0)}% · {Number(activeCancellationDecision?.estimatedRefundAmount || 0).toLocaleString()} {item?.currency || "TZS"}</div></div>
                       </div>
                     </div>
+                    <div className="border-t border-slate-100 px-5 py-4">
+                      <div className="text-sm font-semibold text-slate-900">Shared case activity</div>
+                      <div className="mt-3 space-y-3">
+                        {(activeCancellationCase.events || [])
+                          .filter((event: any) => ["ACKNOWLEDGE", "ESCALATE", "REQUEST_EVIDENCE", "TRAVELER_EVIDENCE_SUBMITTED", "APPROVE_CANCELLATION", "REJECT", "RECORD_REFUND"].includes(String(event?.type || "").toUpperCase()))
+                          .slice(0, 5)
+                          .map((event: any) => <div key={event.id} className="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="text-xs font-semibold text-slate-800">{String(event.type || "Update").replaceAll("_", " ")}</div><div className="mt-0.5 break-words text-xs text-slate-600">{displayText(event.message, "Case update recorded")}</div></div><div className="flex-shrink-0 text-[11px] text-slate-400">{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</div></div>)}
+                      </div>
+                    </div>
                     <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-600">Your booking remains active until NoLSAF makes a final decision. Updates and uploaded evidence remain linked to this case.</div>
                   </section>
                 ) : (

@@ -34,6 +34,9 @@ function eventLabel(type: string) {
     ELIGIBILITY_CALCULATED: "Policy eligibility calculated",
     REQUEST_EVIDENCE: "NoLSAF requested evidence",
     TRAVELER_EVIDENCE_SUBMITTED: "Traveller submitted evidence",
+    ACKNOWLEDGE: "Operator acknowledged the case",
+    ESCALATE: "Operator escalated the case",
+    OPERATOR_COST_EVIDENCE: "Operator submitted cost evidence",
     APPROVE_CANCELLATION: "Cancellation approved",
     RECORD_REFUND: "Refund recorded",
     REJECT: "Cancellation rejected",
@@ -51,6 +54,7 @@ export default function AdminTourCancellationDetailPage() {
   const [reason, setReason] = useState("");
   const [refundReference, setRefundReference] = useState("");
   const [operatorCaused, setOperatorCaused] = useState(false);
+  const [overrideOperatorResponse, setOverrideOperatorResponse] = useState(false);
   const [confirmAction, setConfirmAction] = useState<DecisionAction | null>(null);
 
   const load = async () => {
@@ -72,6 +76,9 @@ export default function AdminTourCancellationDetailPage() {
   const eligibility = useMemo(() => events.find((event: any) => event.type === "ELIGIBILITY_CALCULATED")?.data || {}, [events]);
   const requestedEvidence = useMemo(() => events.find((event: any) => event.type === "REQUEST_EVIDENCE"), [events]);
   const operatorEvidence = useMemo(() => [...events].reverse().find((event: any) => event.type === "OPERATOR_COST_EVIDENCE")?.data?.items || [], [events]);
+  const operatorResponse = useMemo(() => events.find((event: any) => ["ACKNOWLEDGE", "ESCALATE", "OPERATOR_COST_EVIDENCE"].includes(event.type)), [events]);
+  const operatorResponseDueAt = eligibility.operatorResponseDueAt ? new Date(String(eligibility.operatorResponseDueAt)) : null;
+  const operatorResponseWindowOpen = Boolean(item?.booking?.operatorAgentId && !operatorResponse && operatorResponseDueAt && operatorResponseDueAt.getTime() > Date.now());
   const evidenceFiles = useMemo(() => events
     .filter((event: any) => event.type === "TRAVELER_EVIDENCE_SUBMITTED")
     .flatMap((event: any) => Array.isArray(event?.data?.documents) ? event.data.documents.map((file: any) => ({ ...file, submittedAt: event.createdAt })) : []), [events]);
@@ -90,6 +97,7 @@ export default function AdminTourCancellationDetailPage() {
     setError(null);
     try {
       const payload: any = { action, reason: reason.trim() };
+      if (action === "APPROVE_CANCELLATION" || action === "REJECT") payload.overrideOperatorResponse = overrideOperatorResponse;
       if (action === "APPROVE_CANCELLATION") {
         payload.refundPercent = Number(eligibility.refundPercent || 0);
         payload.deductions = operatorEvidence;
@@ -99,6 +107,7 @@ export default function AdminTourCancellationDetailPage() {
       await apiClient.post(`/api/admin/cancellations/tours/${item.id}/action`, payload);
       setReason("");
       setRefundReference("");
+      setOverrideOperatorResponse(false);
       setConfirmAction(null);
       await load();
     } catch (actionError: any) {
@@ -116,9 +125,9 @@ export default function AdminTourCancellationDetailPage() {
   const refunds = (booking.financialTransactions || []).filter((entry: any) => entry.kind === "REFUND");
   const confirmationTitle = confirmAction === "APPROVE_CANCELLATION" ? "Approve this cancellation?" : confirmAction === "REJECT" ? "Reject this cancellation?" : "Record this refund as completed?";
   const confirmationText = confirmAction === "APPROVE_CANCELLATION"
-    ? "This cancels the booking, holds the operator payout, and creates the approved refund record."
+    ? `${overrideOperatorResponse && operatorResponseWindowOpen ? "The urgent-decision override will be permanently recorded. " : ""}This cancels the booking, holds the operator payout, and creates the approved refund record.`
     : confirmAction === "REJECT"
-      ? "This closes the traveller's request and sends them the decision."
+      ? `${overrideOperatorResponse && operatorResponseWindowOpen ? "The urgent-decision override will be permanently recorded. " : ""}This closes the traveller's request and sends them the decision.`
       : `This records ${refundReference.trim()} as the payment-provider refund reference.`;
 
   return <main className="mx-auto w-[calc(100%-1rem)] max-w-6xl min-w-0 space-y-5 overflow-x-clip py-5 sm:w-[calc(100%-1.5rem)]">
@@ -186,7 +195,7 @@ export default function AdminTourCancellationDetailPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-slate-500" /><h2 className="font-bold text-slate-950">Case activity</h2></div><div className="mt-3 divide-y divide-slate-100">{events.map((event: any) => <div key={event.id} className="py-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="font-semibold text-slate-900">{eventLabel(event.type)}</div><div className="text-xs text-slate-500">{dateTime(event.createdAt)}</div></div><p className="mt-1 text-sm leading-relaxed text-slate-600">{typeof event.message === "string" ? event.message : "Case activity recorded."}</p></div>)}</div></section>
       </div>
 
-      <aside className="min-w-0 space-y-5"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <aside className="grid min-w-0 gap-5 lg:grid-cols-2 2xl:grid-cols-1"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2">
             <CircleDollarSign className="h-5 w-5 flex-shrink-0 text-[#02665e]" />
             <h2 className="font-bold text-slate-950">Decision and refund</h2>
@@ -204,9 +213,15 @@ export default function AdminTourCancellationDetailPage() {
               <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">Refund record</dt>
               <dd className="ml-0 mt-1 text-sm font-semibold text-slate-900">{refunds.length ? String(refunds[0].status).replaceAll("_", " ") : "Created after approval"}</dd>
             </div>
+            <div className={`rounded-xl border px-4 py-3 ${operatorResponse ? "border-emerald-200 bg-emerald-50" : operatorResponseWindowOpen ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+              <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">Operator participation</dt>
+              <dd className="ml-0 mt-1 text-sm font-semibold text-slate-900">
+                {operatorResponse ? `Responded ${dateTime(operatorResponse.createdAt)}` : operatorResponseWindowOpen ? `Awaiting response until ${dateTime(operatorResponseDueAt)}` : booking.operatorAgentId ? "Response window completed" : "No operator assigned"}
+              </dd>
+            </div>
           </dl>
         </section>
-        {!closed && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Admin decision</h2><p className="mt-1 text-xs text-slate-500">Record the reason that will be kept in the case history.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Decision reason or evidence request" className="mt-4 box-border w-full min-w-0 max-w-full resize-y rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" /><label className="mt-3 flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={operatorCaused} onChange={(event) => setOperatorCaused(event.target.checked)} className="mt-0.5" />Operator or NoLSAF caused the cancellation</label><div className="mt-4 grid gap-2"><button type="button" disabled={working} onClick={() => void act("REQUEST_EVIDENCE")} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"><RotateCcw className="mr-1 inline h-4 w-4" />Request evidence</button><button type="button" disabled={working || !["ELIGIBLE", "UNDER_REVIEW", "ACKNOWLEDGED", "ESCALATED"].includes(item.status)} onClick={() => openConfirmation("APPROVE_CANCELLATION")} className="rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"><CheckCircle2 className="mr-1 inline h-4 w-4" />Approve cancellation</button><button type="button" disabled={working} onClick={() => openConfirmation("REJECT")} className="rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"><XCircle className="mr-1 inline h-4 w-4" />Reject request</button></div>{item.status === "APPROVED" && <div className="mt-4"><label className="text-xs font-semibold text-slate-700">Refund reference</label><input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} placeholder="Payment-provider reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><button type="button" disabled={working || refundReference.trim().length < 3} onClick={() => openConfirmation("RECORD_REFUND")} className="mt-2 w-full rounded-lg bg-[#02665e] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60">Record refund</button></div>}</section>}
+        {!closed && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-950">Admin decision</h2><p className="mt-1 text-xs text-slate-500">Record the reason that will be kept in the case history.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} placeholder="Decision reason or evidence request" className="mt-4 box-border w-full min-w-0 max-w-full resize-y rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" /><label className="mt-3 flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={operatorCaused} onChange={(event) => setOperatorCaused(event.target.checked)} className="mt-0.5" />Operator or NoLSAF caused the cancellation</label>{operatorResponseWindowOpen && <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950"><input type="checkbox" checked={overrideOperatorResponse} onChange={(event) => setOverrideOperatorResponse(event.target.checked)} className="mt-0.5" /><span>Urgent decision before operator deadline<span className="mt-1 block font-normal text-amber-800">Only use when waiting until {dateTime(operatorResponseDueAt)} would materially harm the traveller or tour. The reason and override are permanently audited.</span></span></label>}<div className="mt-4 grid gap-2"><button type="button" disabled={working} onClick={() => void act("REQUEST_EVIDENCE")} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"><RotateCcw className="mr-1 inline h-4 w-4" />Request evidence</button><button type="button" disabled={working || !["ELIGIBLE", "UNDER_REVIEW", "ACKNOWLEDGED", "ESCALATED"].includes(item.status)} onClick={() => openConfirmation("APPROVE_CANCELLATION")} className="rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"><CheckCircle2 className="mr-1 inline h-4 w-4" />Approve cancellation</button><button type="button" disabled={working} onClick={() => openConfirmation("REJECT")} className="rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-60"><XCircle className="mr-1 inline h-4 w-4" />Reject request</button></div>{item.status === "APPROVED" && <div className="mt-4"><label className="text-xs font-semibold text-slate-700">Refund reference</label><input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} placeholder="Payment-provider reference" className="mt-1 box-border w-full min-w-0 max-w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /><button type="button" disabled={working || refundReference.trim().length < 3} onClick={() => openConfirmation("RECORD_REFUND")} className="mt-2 w-full rounded-lg bg-[#02665e] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60">Record refund</button></div>}</section>}
       </aside>
     </section>
 

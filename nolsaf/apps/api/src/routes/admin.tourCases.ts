@@ -5,6 +5,8 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { calculateFinalTourRefund } from "../lib/tourCancellationPolicy.js";
 import { notifyUser } from "../lib/notifications.js";
+import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
+import { validateTourCancellationDecision } from "../lib/tourCancellationConsistency.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -34,6 +36,7 @@ const actionSchema = z.object({
   refundPercent: z.number().min(0).max(100).optional(),
   deductions: z.array(deductionSchema).max(50).optional().default([]),
   operatorCaused: z.boolean().optional().default(false),
+  overrideOperatorResponse: z.boolean().optional().default(false),
   refundReference: z.string().min(3).max(160).optional(),
 });
 
@@ -83,7 +86,7 @@ router.post("/:id/action", async (req: any, res) => {
   const item = await prisma.tourCase.findUnique({ where: { id: caseId }, include: { booking: true } });
   if (!item) return res.status(404).json({ error: "Tour case not found" });
   if (["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(item.status)) return res.status(409).json({ error: "Tour case is already closed" });
-  const { action, reason, deductions, operatorCaused, refundReference } = parsed.data;
+  const { action, reason, deductions, operatorCaused, overrideOperatorResponse, refundReference } = parsed.data;
   const adminId = Number(req.user.id);
 
   if (action === "REQUEST_EVIDENCE") {
@@ -93,33 +96,63 @@ router.post("/:id/action", async (req: any, res) => {
       return value;
     });
     if (item.booking.customerId) await notifyUser(item.booking.customerId, "tour_cancellation_evidence_requested", { tourBookingId: item.booking.id, caseId, reason });
+    await notifyTourOperatorCase({ kind: "EVIDENCE_REQUESTED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, currency: item.booking.currency });
     return res.json({ ok: true, case: updated });
+  }
+
+  const finalDecision = action === "APPROVE_CANCELLATION" || action === "REJECT";
+  const existingDecisionRefund = finalDecision
+    ? await prisma.tourFinancialTransaction.findFirst({ where: { tourBookingId: item.booking.id, kind: "REFUND", status: { in: ["APPROVED", "REFUNDED"] } }, select: { id: true } })
+    : null;
+  const consistency = finalDecision ? validateTourCancellationDecision({
+    action,
+    caseStatus: item.status,
+    bookingStatus: item.booking.status,
+    payoutStatus: item.booking.payoutStatus,
+    hasApprovedRefund: Boolean(existingDecisionRefund),
+  }) : null;
+  if (consistency && !consistency.valid) return res.status(409).json({ error: consistency.message, code: consistency.code, reconciliationRequired: true });
+  const eligibilityEvent = finalDecision
+    ? await prisma.tourCaseEvent.findFirst({ where: { tourCaseId: caseId, type: "ELIGIBILITY_CALCULATED" }, orderBy: { createdAt: "desc" } })
+    : null;
+  const responseDueAtValue = (eligibilityEvent?.data as any)?.operatorResponseDueAt;
+  const responseDueAt = responseDueAtValue ? new Date(String(responseDueAtValue)) : null;
+  const operatorResponded = finalDecision && Boolean(await prisma.tourCaseEvent.findFirst({
+    where: { tourCaseId: caseId, type: { in: ["ACKNOWLEDGE", "ESCALATE", "OPERATOR_COST_EVIDENCE"] } },
+    select: { id: true },
+  }));
+  const responseWindowOpen = Boolean(finalDecision && item.booking.operatorAgentId && !operatorResponded && responseDueAt && responseDueAt.getTime() > Date.now());
+  if (responseWindowOpen && !overrideOperatorResponse) {
+    return res.status(409).json({
+      error: `The operator response window remains open until ${responseDueAt!.toISOString()}. Wait for a response or use the audited urgent-decision override.`,
+      code: "OPERATOR_RESPONSE_PENDING",
+      operatorResponseDueAt: responseDueAt!.toISOString(),
+    });
+  }
+  if (responseWindowOpen && overrideOperatorResponse && reason.trim().length < 20) {
+    return res.status(400).json({ error: "Explain the urgent reason for deciding before the operator response deadline (at least 20 characters)." });
   }
 
   if (action === "REJECT") {
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "REJECTED", resolution: reason, closedAt: new Date(), assignedToUserId: adminId } });
-      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed: responseWindowOpen && overrideOperatorResponse } } });
       return value;
     });
     if (item.booking.customerId) await notifyUser(item.booking.customerId, "tour_cancellation_rejected", { tourBookingId: item.booking.id, caseId, reason });
+    await notifyTourOperatorCase({ kind: "REJECTED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, currency: item.booking.currency });
     return res.json({ ok: true, case: updated });
   }
 
   if (action === "APPROVE_CANCELLATION") {
     if (item.type !== "CANCELLATION") return res.status(409).json({ error: "This action requires a cancellation case" });
-    if (item.booking.payoutStatus === "DISBURSED") return res.status(409).json({ error: "Operator payout is already disbursed; finance recovery is required before cancellation" });
-    if (["CANCELED", "REFUNDED"].includes(String(item.booking.status).toUpperCase())) return res.status(409).json({ error: "This booking is already canceled or refunded" });
     if (String(item.booking.paymentStatus || "").toUpperCase() !== "PAID") return res.status(409).json({ error: "The original payment is not confirmed as PAID, so no refund can be approved for this booking" });
-    const existingRefund = await prisma.tourFinancialTransaction.findFirst({ where: { tourBookingId: item.booking.id, kind: "REFUND", status: { in: ["APPROVED", "REFUNDED"] } }, select: { id: true } });
-    if (existingRefund) return res.status(409).json({ error: "An approved or completed refund already exists for this booking" });
-    const eligibilityEvent = await prisma.tourCaseEvent.findFirst({ where: { tourCaseId: caseId, type: "ELIGIBILITY_CALCULATED" }, orderBy: { createdAt: "desc" } });
     const calculatedPercent = Number((eligibilityEvent?.data as any)?.refundPercent ?? 0);
     const refundPercent = operatorCaused ? 100 : (parsed.data.refundPercent ?? calculatedPercent);
     const breakdown = calculateFinalTourRefund(Number(item.booking.grossAmount), refundPercent, deductions, operatorCaused);
     const updated = await prisma.$transaction(async (tx) => {
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "APPROVED", resolution: reason, resolutionAmount: breakdown.finalRefundAmount, assignedToUserId: adminId } });
-      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { ...breakdown, policyPercent: calculatedPercent, percentOverridden: !operatorCaused && refundPercent !== calculatedPercent } as any } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { ...breakdown, policyPercent: calculatedPercent, percentOverridden: !operatorCaused && refundPercent !== calculatedPercent, operatorResponded, operatorResponseDueAt: responseDueAt?.toISOString() || null, operatorResponseOverrideUsed: responseWindowOpen && overrideOperatorResponse } as any } });
       await tx.tourBooking.update({ where: { id: item.booking.id }, data: { status: "CANCELED", canceledAt: new Date(), payoutStatus: "HELD" } });
       if (breakdown.finalRefundAmount > 0) await tx.tourFinancialTransaction.create({ data: {
         tourBookingId: item.booking.id, kind: "REFUND", status: "APPROVED", currency: item.booking.currency,
@@ -128,13 +161,21 @@ router.post("/:id/action", async (req: any, res) => {
       return value;
     });
     if (item.booking.customerId) await notifyUser(item.booking.customerId, "tour_cancellation_approved", { tourBookingId: item.booking.id, caseId, refundAmount: breakdown.finalRefundAmount, currency: item.booking.currency });
+    await notifyTourOperatorCase({ kind: "APPROVED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, refundAmount: breakdown.finalRefundAmount, currency: item.booking.currency });
     return res.json({ ok: true, case: updated, refund: breakdown });
   }
 
   if (action === "RECORD_REFUND") {
     if (!refundReference) return res.status(400).json({ error: "Refund reference is required" });
     const approvedRefund = await prisma.tourFinancialTransaction.findFirst({ where: { tourBookingId: item.booking.id, kind: "REFUND", status: "APPROVED" }, orderBy: { createdAt: "desc" } });
-    if (!approvedRefund) return res.status(409).json({ error: "No approved refund exists for this booking" });
+    const refundConsistency = validateTourCancellationDecision({
+      action,
+      caseStatus: item.status,
+      bookingStatus: item.booking.status,
+      payoutStatus: item.booking.payoutStatus,
+      hasApprovedRefund: Boolean(approvedRefund),
+    });
+    if (!refundConsistency.valid) return res.status(409).json({ error: refundConsistency.message, code: refundConsistency.code, reconciliationRequired: true });
     const updated = await prisma.$transaction(async (tx) => {
       await tx.tourFinancialTransaction.update({ where: { id: approvedRefund.id }, data: { status: "REFUNDED", reference: refundReference, provider: item.booking.paymentProvider || "MANUAL", metadata: { ...(approvedRefund.metadata as any || {}), recordedBy: adminId, recordedAt: new Date().toISOString() } } });
       await tx.tourBooking.update({ where: { id: item.booking.id }, data: { status: "REFUNDED", paymentStatus: "REFUNDED" } });
@@ -143,6 +184,7 @@ router.post("/:id/action", async (req: any, res) => {
       return value;
     });
     if (item.booking.customerId) await notifyUser(item.booking.customerId, "tour_refund_completed", { tourBookingId: item.booking.id, caseId, refundReference, amount: Number(approvedRefund.amount), currency: item.booking.currency });
+    await notifyTourOperatorCase({ kind: "REFUNDED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, refundAmount: Number(approvedRefund.amount), currency: item.booking.currency });
     return res.json({ ok: true, case: updated, refundReference });
   }
 
