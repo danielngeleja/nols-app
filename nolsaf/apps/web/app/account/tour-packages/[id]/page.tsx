@@ -1463,7 +1463,7 @@ function StarRating({
   readOnly?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-1" role={readOnly ? undefined : "radiogroup"} aria-label="Rating out of five stars">
       {[1, 2, 3, 4, 5].map((star) => {
         const active = star <= value;
         return (
@@ -1473,7 +1473,7 @@ function StarRating({
             disabled={readOnly}
             onClick={readOnly ? undefined : () => onChange?.(star)}
             aria-label={`${star} star${star > 1 ? "s" : ""}`}
-            className={`${readOnly ? "cursor-default" : "cursor-pointer hover:scale-110"} transition-transform`}
+            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 ${readOnly ? "cursor-default" : "cursor-pointer hover:bg-amber-50 hover:scale-105"} transition-transform`}
           >
             <Star
               className={`h-6 w-6 ${active ? "fill-amber-400 text-amber-400" : "fill-transparent text-slate-300"}`}
@@ -1556,8 +1556,8 @@ function AgentReviewSection({ bookingId }: { bookingId: string }) {
   if (!eligible && !review) return null;
 
   return (
-    <section className="card overflow-hidden">
-      <div className="card-section space-y-4">
+    <section className="card mx-auto w-full max-w-3xl overflow-hidden">
+      <div className="card-section space-y-4 p-4 sm:p-5">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Rate your operator</h2>
           <p className="text-sm text-slate-600 mt-0.5">
@@ -1588,12 +1588,12 @@ function AgentReviewSection({ bookingId }: { bookingId: string }) {
         ) : (
           <div className="space-y-4">
             {REVIEW_DIMENSIONS.map((d) => (
-              <div key={d.key} className="flex flex-wrap items-center justify-between gap-2">
-                <div>
+              <div key={d.key} className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-800">{d.label}</div>
                   <div className="text-xs text-slate-500">{d.hint}</div>
                 </div>
-                <StarRating value={scores[d.key]} onChange={(v) => setScores((s) => ({ ...s, [d.key]: v }))} />
+                <div className="flex justify-start sm:justify-end"><StarRating value={scores[d.key]} onChange={(v) => setScores((s) => ({ ...s, [d.key]: v }))} /></div>
               </div>
             ))}
 
@@ -1602,7 +1602,7 @@ function AgentReviewSection({ bookingId }: { bookingId: string }) {
               onChange={(e) => setComment(e.target.value.slice(0, 1000))}
               placeholder="Add a comment (optional)"
               rows={3}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none"
+              className="box-border min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none"
             />
 
             {errorMsg ? (
@@ -1613,7 +1613,7 @@ function AgentReviewSection({ bookingId }: { bookingId: string }) {
               type="button"
               onClick={submit}
               disabled={!allRated || submitting}
-              className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
               Submit review
