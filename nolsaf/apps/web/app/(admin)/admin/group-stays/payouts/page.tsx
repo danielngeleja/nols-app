@@ -1,7 +1,23 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
+
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { Wallet, Loader2, CheckCircle, Clock, User, MapPin, Building2, Calendar, Star, MessageSquare } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  Loader2,
+  MapPin,
+  MessageSquare,
+  Search,
+  Star,
+  User,
+  Wallet,
+} from "lucide-react";
 
 const api = apiClient;
 
@@ -21,21 +37,36 @@ type Earning = {
   guestReview: { rating: number; title: string | null; comment: string | null; ownerResponse: string | null; createdAt: string } | null;
 };
 
+type EarningsSummary = {
+  bookingCount: number;
+  totalAmount: number;
+  commissionAmount: number;
+  ownerCollects: number;
+};
+
+const EMPTY_SUMMARY: EarningsSummary = { bookingCount: 0, totalAmount: 0, commissionAmount: 0, ownerCollects: 0 };
+
 export default function AdminGroupStayEarningsPage() {
   const [filter, setFilter] = useState<"CHECKED_IN" | "ALL">("CHECKED_IN");
-  const [ownerId, setOwnerId] = useState<string>("");
+  const [ownerId, setOwnerId] = useState("");
   const [owners, setOwners] = useState<Array<{ id: number; name: string; count: number }>>([]);
   const [items, setItems] = useState<Earning[]>([]);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<EarningsSummary>(EMPTY_SUMMARY);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const pageSize = 25;
 
-  // Load the owner list (with record counts) for the filter dropdown once.
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
-        const r = await api.get("/api/admin/group-stays/bookings/earnings/owners");
-        setOwners(Array.isArray(r.data?.owners) ? r.data.owners : []);
-      } catch (err) {
-        console.warn("Failed to load owners for filter", err);
+        const response = await api.get("/api/admin/group-stays/bookings/earnings/owners");
+        setOwners(Array.isArray(response.data?.owners) ? response.data.owners : []);
+      } catch {
         setOwners([]);
       }
     })();
@@ -43,209 +74,146 @@ export default function AdminGroupStayEarningsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const params: any = { filter, pageSize: 100 };
+      const params: Record<string, string | number> = { filter, page, pageSize };
       if (ownerId) params.ownerId = Number(ownerId);
-      const r = await api.get("/api/admin/group-stays/bookings/earnings", { params });
-      setItems(Array.isArray(r.data?.items) ? r.data.items : []);
-    } catch (err) {
-      console.error("Failed to load earnings", err);
+      if (search) params.q = search;
+      const response = await api.get("/api/admin/group-stays/bookings/earnings", { params });
+      setItems(Array.isArray(response.data?.items) ? response.data.items : []);
+      setTotal(Number(response.data?.total || 0));
+      setSummary(response.data?.summary || EMPTY_SUMMARY);
+      setExpandedId(null);
+    } catch (caught: any) {
       setItems([]);
+      setTotal(0);
+      setSummary(EMPTY_SUMMARY);
+      setError(caught?.response?.data?.error || caught?.message || "Failed to load owner earnings");
     } finally {
       setLoading(false);
     }
-  }, [filter, ownerId]);
+  }, [filter, ownerId, page, pageSize, search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPage(1); }, [filter, ownerId, search]);
 
-  const money = (n: number | null | undefined, cur = "TZS") =>
-    n == null ? "—" : `${cur} ${Math.round(Number(n)).toLocaleString("en-US")}`;
-
-  const formatDate = (d: string | null) =>
-    d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—";
-
-  const summary = useMemo(() => {
-    const ratings = items.map((e) => e.guestReview?.rating).filter((r): r is number => typeof r === "number");
-    return {
-      count: items.length,
-      commission: items.reduce((s, e) => s + Number(e.commissionAmount || 0), 0),
-      ownerCollects: items.reduce((s, e) => s + Number(e.ownerCollects || 0), 0),
-      avgRating: ratings.length ? ratings.reduce((s, r) => s + r, 0) / ratings.length : null,
-      reviewCount: ratings.length,
-    };
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageReviewSummary = useMemo(() => {
+    const ratings = items.map((item) => item.guestReview?.rating).filter((rating): rating is number => typeof rating === "number");
+    return ratings.length ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : null;
   }, [items]);
 
+  const money = (value: number | null | undefined, currency = "TZS") =>
+    value == null ? "—" : `${currency} ${Math.round(Number(value)).toLocaleString("en-US")}`;
+  const formatDate = (value: string | null) =>
+    value ? new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—";
+
   return (
-    <div className="space-y-6 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col items-center text-center">
-          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-emerald-50 to-green-100 flex items-center justify-center mb-4">
-            <Wallet className="h-8 w-8 text-emerald-600" />
+    <div className="mx-auto box-border w-full max-w-full min-w-0 space-y-4 overflow-x-clip px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
+      <div className="relative overflow-hidden rounded-2xl shadow-2xl" style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)" }}>
+        <div className="relative z-10 flex flex-col items-center px-5 py-8 text-center sm:px-8 sm:py-10">
+          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-[0_0_0_7px_rgba(255,255,255,0.05)]">
+            <Wallet className="h-6 w-6 text-white/90" aria-hidden />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Owner Earnings</h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-xl">
-            Confirmed group stays and how the money splits. NoLSAF&apos;s commission is the deposit; the owner
-            collects the balance directly from the guest at the property. NoLSAF does not disburse to owners.
+          <div className="text-xs text-white/65">Owner earnings · Group stays</div>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Owner earnings</h1>
+          <p className="mt-2 max-w-3xl text-sm text-white/65 sm:text-base">
+            Confirmed group stays, NoLSAF deposit commission, and the balance each owner collects at the property.
           </p>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-          {/* Owner dropdown */}
-          <div className="w-full sm:w-auto sm:min-w-[260px]">
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Owner</label>
-            <select
-              value={ownerId}
-              onChange={(e) => setOwnerId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm bg-white"
-            >
-              <option value="">All owners</option>
-              {owners.map((o) => (
-                <option key={o.id} value={o.id}>{o.name} ({o.count})</option>
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#0a1a19] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
+        <div className="flex flex-col gap-3 p-4 sm:p-5">
+          <div className="relative w-full">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" aria-hidden />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { setSearch(searchInput.trim()); setPage(1); } }}
+              placeholder="Search owner, booking, property, phone, or destination"
+              className="box-border w-full rounded-lg border border-white/15 bg-white/[0.07] py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+            />
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <select value={ownerId} onChange={(event) => { setOwnerId(event.target.value); setPage(1); }} className="h-9 min-w-[210px] rounded-full border border-white/15 bg-white/[0.07] px-3 text-sm text-white outline-none">
+                <option value="" className="bg-[#0d2320]">All owners</option>
+                {owners.map((owner) => <option key={owner.id} value={owner.id} className="bg-[#0d2320]">{owner.name} ({owner.count})</option>)}
+              </select>
+              {([['CHECKED_IN', 'Checked in'], ['ALL', 'All confirmed']] as const).map(([key, label]) => (
+                <button key={key} type="button" onClick={() => { setFilter(key); setPage(1); }} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${filter === key ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-200" : "border-white/15 bg-white/[0.06] text-white/65 hover:bg-white/10"}`}>
+                  {label}
+                </button>
               ))}
-            </select>
+              {search && <button type="button" onClick={() => { setSearchInput(""); setSearch(""); setPage(1); }} className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">Clear search</button>}
+            </div>
+            <button type="button" onClick={() => void load()} className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 text-xs font-semibold text-white/75 hover:bg-white/10">
+              <RefreshIcon loading={loading} /> Refresh
+            </button>
           </div>
-
-          {/* Checked-in / All toggle */}
-          <div className="inline-flex rounded-xl border border-gray-200 p-1 flex-shrink-0">
-            {([["CHECKED_IN", "Checked in"], ["ALL", "All confirmed"]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setFilter(key)}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  filter === key ? "bg-emerald-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <p className="text-[11px] text-white/40">One row per group-stay booking. Filter by owner to reconcile all of that owner&apos;s records.</p>
         </div>
       </div>
 
-      {/* Summary */}
-      {!loading && items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SummaryCard label="Group stays" value={String(summary.count)} />
-          <SummaryCard label="NoLSAF commission" value={money(summary.commission)} />
+      {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+
+      {!loading && total > 0 && (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <SummaryCard label="Group stays" value={String(summary.bookingCount || total)} />
+          <SummaryCard label="Booking total" value={money(summary.totalAmount)} />
+          <SummaryCard label="NoLSAF commission" value={money(summary.commissionAmount)} />
           <SummaryCard label="Owners collect" value={money(summary.ownerCollects)} highlight />
-          <SummaryCard
-            label={`Avg rating${summary.reviewCount ? ` (${summary.reviewCount})` : ""}`}
-            value={summary.avgRating != null ? `${summary.avgRating.toFixed(1)} ★` : "—"}
-          />
         </div>
       )}
 
-      {/* List */}
       {loading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-        </div>
+        <div className="flex min-h-[35vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
       ) : items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-          <Wallet className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-600">
-            {ownerId ? "No group stays match this owner." : filter === "CHECKED_IN" ? "No checked-in group stays yet." : "No confirmed group stays yet."}
-          </p>
-        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center shadow-sm"><Wallet className="mx-auto mb-4 h-12 w-12 text-gray-300" /><p className="text-gray-600">{ownerId ? "No group stays match this owner." : filter === "CHECKED_IN" ? "No checked-in group stays yet." : "No confirmed group stays yet."}</p></div>
       ) : (
-        <div className="space-y-4">
-          {items.map((e) => (
-            <div key={e.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-5">
-                <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-11 w-11 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <User className="h-5 w-5 text-emerald-700" />
-                    </div>
-                    <div className="min-w-0">
-                      <button
-                        onClick={() => e.assignedOwner && setOwnerId(String(e.assignedOwner.id))}
-                        className="text-base font-bold text-gray-900 truncate hover:text-emerald-700 hover:underline text-left"
-                        title="Filter to this owner"
-                        disabled={!e.assignedOwner}
-                      >
-                        {e.assignedOwner?.name || "Owner"}
-                      </button>
-                      <p className="text-xs text-gray-500 truncate">
-                        Group stay #{e.id}
-                        {e.assignedOwner?.phone ? ` • ${e.assignedOwner.phone}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${
-                    e.checkedInAt ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
-                  }`}>
-                    {e.checkedInAt ? <CheckCircle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                    {e.checkedInAt ? "Checked in" : "Confirmed"}
-                  </span>
-                </div>
-
-                {/* Split */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                  <Stat label="Booking total" value={money(e.totalAmount, e.currency)} />
-                  <Stat label="NoLSAF commission (deposit)" value={money(e.commissionAmount, e.currency)} />
-                  <Stat label="Owner collects at property" value={money(e.ownerCollects, e.currency)} highlight />
-                </div>
-
-                {/* Meta */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                  {e.confirmedProperty && (
-                    <span className="inline-flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{e.confirmedProperty.title}</span>
-                  )}
-                  <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />{[e.toDistrict, e.toRegion].filter(Boolean).join(", ") || "—"}</span>
-                  <span className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />{e.checkedInAt ? `Checked in ${formatDate(e.checkedInAt)}` : `Stay ${formatDate(e.checkIn)}`}</span>
-                </div>
-
-                {/* Guest review */}
-                {e.guestReview && (
-                  <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <div className="inline-flex items-center gap-0.5">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <Star key={n} className={`h-4 w-4 ${n <= e.guestReview!.rating ? "text-amber-500 fill-amber-500" : "text-gray-300"}`} />
-                        ))}
-                      </div>
-                      <span className="text-sm font-bold text-gray-900">{e.guestReview.rating}/5</span>
-                      {e.guestReview.title && <span className="text-sm font-medium text-gray-700 truncate">· {e.guestReview.title}</span>}
-                    </div>
-                    {e.guestReview.comment && (
-                      <p className="text-sm text-gray-700 leading-relaxed">{e.guestReview.comment}</p>
-                    )}
-                    {e.guestReview.ownerResponse && (
-                      <div className="mt-2 flex items-start gap-2 text-xs text-gray-600 border-l-2 border-emerald-300 pl-2.5">
-                        <MessageSquare className="h-3.5 w-3.5 mt-0.5 text-emerald-600 flex-shrink-0" />
-                        <span><span className="font-semibold">Owner replied:</span> {e.guestReview.ownerResponse}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        <section className="w-full max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-5">
+            <div><h2 className="text-sm font-semibold text-slate-900">Owner earnings records</h2><p className="text-xs text-slate-500">Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p></div>
+            {pageReviewSummary != null && <span className="text-xs font-semibold text-amber-600">Page rating {pageReviewSummary.toFixed(1)} ★</span>}
+          </div>
+          <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
+            <table className="w-full min-w-[1180px] table-fixed text-xs">
+              <thead><tr className="whitespace-nowrap border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600"><th className="w-[17%] px-3 py-3 text-left">Owner</th><th className="w-[13%] px-3 py-3 text-left">Group stay</th><th className="w-[16%] px-3 py-3 text-left">Property / location</th><th className="w-[12%] px-3 py-3 text-left">Stay</th><th className="w-[10%] px-3 py-3 text-left">Status</th><th className="w-[11%] px-3 py-3 text-right">Booking total</th><th className="w-[11%] px-3 py-3 text-right">Commission</th><th className="w-[11%] px-3 py-3 text-right">Owner collects</th><th className="w-[9%] px-3 py-3 text-right">Open</th></tr></thead>
+              <tbody>
+                {items.map((earning) => {
+                  const expanded = expandedId === earning.id;
+                  return (
+                    <Fragment key={earning.id}>
+                      <tr key={earning.id} className="border-b border-slate-100 align-top transition hover:bg-slate-50">
+                        <td className="px-3 py-3"><button type="button" onClick={() => { setOwnerId(String(earning.assignedOwner?.id || "")); setPage(1); }} className="max-w-full truncate text-left font-semibold text-slate-900 hover:text-emerald-700 hover:underline">{earning.assignedOwner?.name || "Unassigned"}</button><div className="mt-1 truncate text-[11px] text-slate-500">{earning.assignedOwner?.phone || earning.assignedOwner?.email || "No contact"}</div></td>
+                        <td className="px-3 py-3 font-semibold text-slate-900">#{earning.id}<div className="mt-1 text-[11px] font-normal text-slate-500">Group stay booking</div></td>
+                        <td className="px-3 py-3 text-slate-700"><div className="truncate">{earning.confirmedProperty?.title || "Property pending"}</div><div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500"><MapPin className="h-3 w-3" />{[earning.toDistrict, earning.toRegion].filter(Boolean).join(", ") || "—"}</div></td>
+                        <td className="px-3 py-3 text-slate-700"><div className="flex items-center gap-1"><Calendar className="h-3 w-3 text-slate-400" />{formatDate(earning.checkIn)}</div><div className="mt-1 text-[11px] text-slate-500">to {formatDate(earning.checkOut)}</div></td>
+                        <td className="px-3 py-3"><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${earning.checkedInAt ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{earning.checkedInAt ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}{earning.checkedInAt ? "Checked in" : "Confirmed"}</span></td>
+                        <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-800">{money(earning.totalAmount, earning.currency)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums text-slate-700">{money(earning.commissionAmount, earning.currency)}</td>
+                        <td className="px-3 py-3 text-right font-semibold tabular-nums text-emerald-700">{money(earning.ownerCollects, earning.currency)}</td>
+                        <td className="px-3 py-3 text-right"><div className="inline-flex items-center gap-1"><button type="button" onClick={() => setExpandedId(expanded ? null : earning.id)} className="rounded-md border border-slate-300 px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50">{expanded ? "Hide" : "Details"}</button><Link href={`/admin/group-stays/bookings/${earning.id}`} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100" aria-label={`Open group stay ${earning.id}`}><ExternalLink className="h-4 w-4" /></Link></div></td>
+                      </tr>
+                      {expanded && <tr key={`${earning.id}-details`} className="border-b border-slate-200 bg-slate-50"><td colSpan={9} className="px-4 py-4"><div className="grid gap-3 md:grid-cols-3"><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Owner contact</div><div className="mt-1 text-sm text-slate-800">{earning.assignedOwner?.email || "No email"}</div></div><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Financial rule</div><div className="mt-1 text-sm text-slate-800">NoLSAF keeps the deposit; owner collects the balance at the property.</div></div><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Guest review</div><div className="mt-1 text-sm text-slate-800">{earning.guestReview ? `${earning.guestReview.rating}/5${earning.guestReview.title ? ` · ${earning.guestReview.title}` : ""}` : "No review recorded"}</div>{earning.guestReview?.comment && <p className="mt-1 text-xs text-slate-600">{earning.guestReview.comment}</p>}{earning.guestReview?.ownerResponse && <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MessageSquare className="mt-0.5 h-3 w-3 text-emerald-600" />{earning.guestReview.ownerResponse}</p>}</div></div></td></tr>}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600"><span>Page {page} of {totalPages}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" />Prev</button><button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-40">Next<ChevronRight className="h-3.5 w-3.5" /></button></div></div>
+        </section>
       )}
     </div>
   );
 }
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className={`rounded-lg p-3 border ${highlight ? "bg-emerald-600/10 border-emerald-200" : "bg-gray-50 border-gray-100"}`}>
-      <p className={`text-[11px] font-medium uppercase tracking-wider mb-1 ${highlight ? "text-emerald-700" : "text-gray-500"}`}>{label}</p>
-      <p className={`text-sm font-bold ${highlight ? "text-emerald-800" : "text-gray-900"}`}>{value}</p>
-    </div>
-  );
+function RefreshIcon({ loading }: { loading: boolean }) {
+  return <svg className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M20 11a8.1 8.1 0 0 0-14.8-4L3 10" /><path d="M3 4v6h6" /><path d="M4 13a8.1 8.1 0 0 0 14.8 4L21 14" /><path d="M21 20v-6h-6" /></svg>;
 }
 
 function SummaryCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className={`rounded-xl p-4 border shadow-sm ${highlight ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-200"}`}>
-      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 mb-1">{label}</p>
-      <p className={`text-xl font-bold ${highlight ? "text-emerald-700" : "text-gray-900"}`}>{value}</p>
-    </div>
-  );
+  return <div className={`rounded-xl border p-4 shadow-sm ${highlight ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}><p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">{label}</p><p className={`mt-1 text-lg font-bold ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</p></div>;
 }
