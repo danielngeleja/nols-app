@@ -9,6 +9,7 @@ import { invalidateOwnerReports } from "../lib/cache";
 import { sendMail, type MailAttachment } from "../lib/mailer.js";
 import { getBookingConfirmedEmail, getBookingCancelledEmail } from "../lib/bookingEmailTemplates.js";
 import { generateBookingTicketPdf } from "../lib/pdfDocuments.js";
+import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -525,6 +526,15 @@ router.get("/:id", async (req, res) => {
       cancelPolicyEligible: latestCancellation?.policyEligible ?? false,
       cancelPolicyRule: latestCancellation?.policyRule ?? null,
       cancelStatus: latestCancellation?.status ?? null,
+      lifecycle: mapPropertyLifecycle({
+        bookingStatus: b.status,
+        invoiceStatus: b.invoices?.[0]?.status,
+        hasInvoice: Boolean(b.invoices?.[0]),
+        receiptNumber: b.invoices?.[0]?.receiptNumber,
+        checkInCodeStatus: b.code?.status,
+        cancellationStatus: latestCancellation?.status,
+        cancellationLoaded: true,
+      }),
     };
     
     // Remove cancellationRequests from response to keep it clean

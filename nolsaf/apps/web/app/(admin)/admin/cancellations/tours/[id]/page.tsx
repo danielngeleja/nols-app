@@ -213,27 +213,27 @@ export default function AdminTourCancellationDetailPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-slate-500" /><h2 className="font-bold text-slate-950">Case activity</h2></div><div className="mt-3 divide-y divide-slate-100">{events.map((event: any) => <div key={event.id} className="py-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="font-semibold text-slate-900">{eventLabel(event.type)}</div><div className="text-xs text-slate-500">{dateTime(event.createdAt)}</div></div><p className="mt-1 text-sm leading-relaxed text-slate-600">{typeof event.message === "string" ? event.message : "Case activity recorded."}</p></div>)}</div></section>
       </div>
 
-      <aside className="grid min-w-0 gap-5 lg:grid-cols-2 2xl:grid-cols-1"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <aside className="grid min-w-0 grid-cols-1 gap-5"><section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <CircleDollarSign className="h-5 w-5 flex-shrink-0 text-[#02665e]" />
-            <h2 className="font-bold text-slate-950">Decision and refund</h2>
+            <h2 className="text-base font-bold leading-6 text-slate-950">Decision and refund</h2>
           </div>
-          <dl className="mt-4 space-y-2.5">
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">Policy result</dt>
-              <dd className="ml-0 mt-1 text-sm font-semibold text-slate-900">{String(eligibility.eligibilityCode || "Manual review").replaceAll("_", " ")}</dd>
+          <dl className="mt-3 space-y-2">
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Policy result</dt>
+              <dd className="ml-0 mt-1 text-sm font-semibold leading-5 text-slate-900">{String(eligibility.eligibilityCode || "Manual review").replaceAll("_", " ")}</dd>
             </div>
-            <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3">
-              <dt className="text-xs font-semibold uppercase tracking-wider text-[#02665e]">Provisional refund</dt>
-              <dd className="ml-0 mt-1 text-lg font-bold text-slate-950">{money(eligibility.estimatedRefundAmount, booking.currency)}</dd>
+            <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-2.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#02665e]">Provisional refund</dt>
+              <dd className="ml-0 mt-1 text-base font-bold leading-6 text-slate-950">{money(eligibility.estimatedRefundAmount, booking.currency)}</dd>
             </div>
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">Refund record</dt>
-              <dd className="ml-0 mt-1 text-sm font-semibold text-slate-900">{refunds.length ? String(refunds[0].status).replaceAll("_", " ") : "Created after approval"}</dd>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Refund record</dt>
+              <dd className="ml-0 mt-1 text-sm font-semibold leading-5 text-slate-900">{refunds.length ? String(refunds[0].status).replaceAll("_", " ") : "Created after approval"}</dd>
             </div>
-            <div className={`rounded-xl border px-4 py-3 ${operatorResponse ? "border-emerald-200 bg-emerald-50" : operatorResponseWindowOpen ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
-              <dt className="text-xs font-semibold uppercase tracking-wider text-slate-500">Operator participation</dt>
-              <dd className="ml-0 mt-1 text-sm font-semibold text-slate-900">
+            <div className={`rounded-xl border px-3 py-2.5 ${operatorResponse ? "border-emerald-200 bg-emerald-50" : operatorResponseWindowOpen ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+              <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Operator participation</dt>
+              <dd className="ml-0 mt-1 text-sm font-semibold leading-5 text-slate-900">
                 {operatorResponse ? `Responded ${dateTime(operatorResponse.createdAt)}` : operatorResponseWindowOpen ? `Awaiting response until ${dateTime(operatorResponseDueAt)}` : booking.operatorAgentId ? "Response window completed" : "No operator assigned"}
               </dd>
             </div>

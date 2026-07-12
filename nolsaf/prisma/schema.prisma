@@ -3289,3 +3289,59 @@ model TransportPickupPoint {
   @@index([city])
   @@map("transport_pickup_points")
 }
+
+// =========================================================
+//  LIFECYCLE OBSERVATION MODELS
+//  Read models only. They never replace native booking/payment state.
+// =========================================================
+model LifecycleSnapshot {
+  id                   Int      @id @default(autoincrement())
+  serviceType          String   @db.VarChar(20) // PROPERTY | GROUP_STAY | TOUR
+  bookingId            Int
+  bookingStage         String   @db.VarChar(30)
+  paymentStage         String   @db.VarChar(30)
+  receiptStage         String   @db.VarChar(30)
+  responsibilityStage  String   @db.VarChar(30)
+  caseStage            String   @db.VarChar(30)
+  requiredAction       String   @db.VarChar(40)
+  consistencyStatus    String   @db.VarChar(20) // CONSISTENT | REVIEW_REQUIRED
+  issueFingerprint     String?  @db.VarChar(128)
+  issues               Json?
+  calculatedAt         DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([serviceType, bookingId])
+  @@index([consistencyStatus, calculatedAt])
+  @@index([serviceType, calculatedAt])
+  @@index([requiredAction, calculatedAt])
+  @@map("lifecycle_snapshots")
+}
+
+model LifecycleException {
+  id             Int      @id @default(autoincrement())
+  serviceType    String   @db.VarChar(20)
+  bookingId      Int
+  code           String   @db.VarChar(80)
+  severity       String   @db.VarChar(20) // WARNING | ERROR
+  status         String   @default("OPEN") @db.VarChar(20) // OPEN | ACKNOWLEDGED | RESOLVED | IGNORED
+  fingerprint    String   @db.VarChar(128)
+  message        String   @db.Text
+  metadata       Json?
+  firstSeenAt    DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+  ignoredAt      DateTime?
+  acknowledgedBy Int?
+  resolvedBy     Int?
+  ignoredBy      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([serviceType, bookingId, fingerprint])
+  @@index([status, severity, lastSeenAt])
+  @@index([serviceType, bookingId])
+  @@index([code, status])
+  @@map("lifecycle_exceptions")
+}

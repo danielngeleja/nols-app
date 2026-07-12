@@ -168,6 +168,7 @@ const userDetails: Item[] = [
 
 const managementDetails: Item[] = [
   { href: "/admin/management", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/lifecycle-health", label: "Lifecycle Health", Icon: Activity },
   { href: "/admin/observability", label: "Observability", Icon: Activity },
   { href: "/admin/impact-center", label: "Impact Center", Icon: AlertTriangle },
   { href: "/admin/management/reports", label: "Reports", Icon: FileText },
@@ -211,6 +212,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     if (path.startsWith("/admin/agents")) return "No4P Agents";
     if (path.startsWith("/admin/cancellations")) return "Cancellations";
     if (path.startsWith("/admin/observability")) return "Management";
+    if (path.startsWith("/admin/lifecycle-health")) return "Management";
     if (path.startsWith("/admin/impact-center")) return "Management";
     if (path.startsWith("/admin/management")) return "Management";
     if (

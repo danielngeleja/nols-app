@@ -8,6 +8,7 @@ import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { evaluateTourCancellation, packageIsNonRefundable } from "../lib/tourCancellationPolicy.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
+import { mapTourLifecycle } from "../lib/serviceLifecycle.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -515,6 +516,13 @@ router.get("/", (async (req: AuthedRequest, res) => {
         draftExpiresAt: draftAccess?.expiresAt ?? null,
         draftExpiryStatus: draftAccess?.status ?? null,
         operatorSnapshot: item.operatorSnapshot,
+        lifecycle: mapTourLifecycle({
+          bookingStatus: item.status,
+          paymentStatus: item.paymentStatus,
+          paidAt: item.paidAt,
+          operatorAssigned: true,
+          cancellationLoaded: false,
+        }),
       };
     });
 

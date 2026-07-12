@@ -4,6 +4,7 @@ import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
 import { acquireLeaderLock } from "./leaderLock.js";
+import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -62,5 +63,10 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireStaleBookings();
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
+      startLifecycleHealthWorker();
+    } else {
+      console.log("[lifecycle-health] worker disabled (set RUN_LIFECYCLE_HEALTH_WORKER=true to enable)");
+    }
   });
 }

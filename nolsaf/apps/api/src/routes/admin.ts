@@ -29,6 +29,7 @@ import adminGroupStaysRevenueRouter from "./admin.groupStays.revenue";
 import adminGroupStaysSummaryRouter from "./admin.groupStays.summary";
 import adminHelpOwnersRouter from "./admin.helpOwners";
 import adminIntegrationsRouter from "./admin.integrations";
+import adminLifecycleHealthRouter from "./admin.lifecycleHealth";
 import adminInvoicesRouter from "./admin.invoices";
 import { router as adminNolScopeRouter } from "./admin.nolscope";
 import adminNo4pOtpRouter from "./admin.no4pOtp";
@@ -150,6 +151,7 @@ export function registerAdminPostPaymentRoutes(app: Express): void {
   app.use("/api/admin/audits", requireRole("ADMIN") as RequestHandler, adminAuditsRouter as RequestHandler);
   app.use("/api/admin/notifications", requireRole("ADMIN") as RequestHandler, adminNotificationsRouter as RequestHandler);
   app.use("/api/admin/observability", requireRole("ADMIN") as RequestHandler, adminObservabilityRouter as RequestHandler);
+  app.use("/api/admin/lifecycle-health", adminLifecycleHealthRouter as RequestHandler);
   app.use("/api/admin/cancellations", requireRole("ADMIN") as RequestHandler, adminCancellationsRouter as RequestHandler);
   app.use("/api/admin/no4p-otp", requireRole("ADMIN") as RequestHandler, adminNo4pOtpRouter as RequestHandler);
   app.use("/api/admin/pickup-points", requireRole("ADMIN") as RequestHandler, adminPickupPointsRouter as RequestHandler);

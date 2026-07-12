@@ -3,6 +3,7 @@ import type { RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
+import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -490,8 +491,19 @@ router.get("/:id", async (req, res) => {
       totalAmount: booking.totalAmount != null ? Number(booking.totalAmount) : null,
       depositAmount: booking.depositAmount != null ? Number(booking.depositAmount) : null,
       depositPaid: booking.depositPaid || false,
+      depositPaidAt: booking.depositPaidAt || null,
+      depositDueAt: booking.depositDueAt || null,
       currency: booking.currency || "TZS",
       checkedInAt: booking.checkedInAt || null,
+      lifecycle: mapGroupStayLifecycle({
+        bookingStatus: booking.status,
+        depositPaid: Boolean(booking.depositPaid),
+        depositPaidAt: booking.depositPaidAt,
+        depositAmount: booking.depositAmount,
+        depositExpired: booking.status === "AWAITING_DEPOSIT" && !booking.depositPaid && Boolean(booking.depositDueAt) && new Date(booking.depositDueAt).getTime() < Date.now(),
+        confirmedPropertyId: booking.confirmedPropertyId,
+        cancellationLoaded: true,
+      }),
     };
 
     return res.json(mapped);
