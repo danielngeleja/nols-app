@@ -92,26 +92,36 @@ export default function AdminFinancePage() {
   );
 
   return (
-    <div className="relative min-h-screen w-full bg-[#070B1C] text-slate-100 overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8">
+    <div className="box-border w-full max-w-full min-w-0 overflow-x-clip bg-[#070B1C] text-slate-100">
+      <div className="relative mx-auto box-border w-full max-w-full min-w-0 space-y-4 overflow-x-clip px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
         {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Wallet className="h-4 w-4" />
-            <span>Finance overview</span>
-            {data && (
-              <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-slate-300">
-                {data.range.allTime ? "All time" : "Filtered range"}
-              </span>
-            )}
+        <div
+          className="relative w-full max-w-full overflow-hidden rounded-2xl shadow-2xl"
+          style={{
+            background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
+            boxShadow: "0 22px 55px -20px rgba(2,102,94,0.45)",
+          }}
+        >
+          <div className="relative z-10 flex flex-col items-center px-5 py-8 text-center sm:px-8 sm:py-10">
+            <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-[0_0_0_7px_rgba(255,255,255,0.05)]">
+              <Wallet className="h-6 w-6 text-white/90" aria-hidden />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-white/65">
+              <span>Finance overview</span>
+              {data && (
+                <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-white/75">
+                  {data.range.allTime ? "All time" : "Filtered range"}
+                </span>
+              )}
+            </div>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+              NoLSAF Revenue across all streams
+            </h1>
+            <p className="mt-2 max-w-4xl text-sm text-white/65 sm:text-base">
+              GMV and NoLSAF revenue rolled up across accommodation, tours, transport, group stay and
+              subscriptions. Read only. Each stream stays managed on its own page.
+            </p>
           </div>
-          <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">
-            NoLSAF Revenue across all streams
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            GMV and NoLSAF revenue rolled up across accommodation, tours, transport, group stay and
-            subscriptions. Read only. Each stream stays managed on its own page.
-          </p>
         </div>
 
         {error && (
@@ -121,7 +131,7 @@ export default function AdminFinancePage() {
         )}
 
         {/* Hero KPIs */}
-        <div className="grid grid-cols-12 gap-4">
+        <div className="grid w-full max-w-full grid-cols-12 gap-4">
           <HeroCard
             className="col-span-12 sm:col-span-6 xl:col-span-3"
             label="NoLSAF revenue"
@@ -269,29 +279,29 @@ function HeroCard({
       className={
         "rounded-3xl border " +
         tone +
-        " p-5 " +
+        " p-4 sm:p-5 " +
         (className ?? "")
       }
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-semibold text-slate-100">{label}</div>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
-          <Icon className="h-[18px] w-[18px] text-slate-200" />
+        <div className="text-xs font-semibold text-slate-100 sm:text-sm">{label}</div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] sm:h-9 sm:w-9">
+          <Icon className="h-4 w-4 text-slate-200 sm:h-[18px] sm:w-[18px]" />
         </div>
       </div>
-      <div className="mt-4 flex min-h-8 items-baseline gap-2 whitespace-nowrap">
+      <div className="mt-3 flex min-h-7 items-baseline gap-1.5 whitespace-nowrap sm:mt-4 sm:gap-2">
         {loading ? (
           <span className="inline-block h-7 w-32 rounded bg-white/10 animate-pulse" />
         ) : (
           <>
             <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{currency}</span>
-            <span className="text-2xl font-extrabold tabular-nums tracking-tight text-white leading-none">
+            <span className="text-xl font-extrabold tabular-nums tracking-tight text-white leading-none sm:text-2xl">
               {value === null ? "0" : HERO_NF.format(Math.round(value))}
             </span>
           </>
         )}
       </div>
-      <div className="mt-2 text-xs text-slate-400">{sublabel}</div>
+      <div className="mt-1.5 text-[11px] text-slate-400 sm:mt-2 sm:text-xs">{sublabel}</div>
     </div>
   );
 }
