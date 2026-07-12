@@ -35,7 +35,7 @@ export default function OperatorVerificationPage() {
     }
 
     let alive = true;
-    fetch(`/api/public/agents/verification?t=${encodeURIComponent(token)}`, { credentials: "omit" })
+    fetch(`/api/public/agents/verification?t=${encodeURIComponent(token)}`, { credentials: "same-origin" })
       .then(async (response) => {
         const data = await response.json().catch(() => null);
         if (!alive) return;

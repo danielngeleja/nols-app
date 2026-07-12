@@ -53,7 +53,7 @@ export default function PropertyVerificationPage() {
     }
 
     let alive = true;
-    fetch(verificationEndpoint(token), { credentials: "omit" })
+    fetch(verificationEndpoint(token), { credentials: "same-origin" })
       .then(async (res) => {
         const data = await res.json().catch(() => null);
         if (!alive) return;
