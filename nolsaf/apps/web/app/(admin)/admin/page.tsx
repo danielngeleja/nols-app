@@ -1,7 +1,7 @@
 "use client";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { AlertTriangle, Bell, CheckCheck, ChevronDown, ChevronUp, Eye, EyeOff, FileCheck2, FileBadge, LayoutDashboard, Building2, RefreshCw, ShieldCheck, Users, BarChart3, LineChart, X } from "lucide-react";
+import { AlertTriangle, Bell, CalendarDays, CheckCheck, ChevronDown, ChevronUp, Clock3, Eye, EyeOff, FileCheck2, FileBadge, LayoutDashboard, Building2, Moon, RefreshCw, ShieldCheck, UserRound, Users, WalletCards, BarChart3, LineChart, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import GeneralReports from '@/components/GeneralReports';
@@ -218,53 +218,75 @@ export default function AdminHome() {
       iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—";
     const fmtTs = (iso: string | null | undefined) =>
       iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
-    const div1 = { borderRight: "1px solid rgba(255,255,255,0.07)" } as const;
-    const divH = { borderTop: "1px solid rgba(255,255,255,0.07)" } as const;
     return (
-      <div className="space-y-2">
-        {/* Unified detail card */}
-        <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.035)" }}>
-          {/* Property row — accent left bar */}
-          <div className="px-4 py-3" style={{ borderLeft: `3px solid ${accent}`, borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-            <div className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: accent }}>Property</div>
-            <div className="text-[15px] font-extrabold text-white leading-tight truncate">{d.property?.title ?? "—"}</div>
-            {d.property?.type && <div className="mt-0.5 text-[10px] text-slate-500 font-semibold uppercase tracking-wide">{d.property.type}</div>}
-          </div>
-          {/* Date / stats 2×2 */}
-          <div className="grid grid-cols-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-            <div className="px-3.5 py-2.5" style={div1}>
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider">Check-in</div>
-              <div className="font-bold text-white text-[13px] mt-0.5">{fmt(d.booking?.checkIn)}</div>
+      <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+        <div className="flex flex-col gap-4 border-b border-white/10 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl" style={{ background: `${accent}18`, border: `1px solid ${accent}35` }}>
+              <Building2 className="h-5 w-5" style={{ color: accent }} />
             </div>
-            <div className="px-3.5 py-2.5">
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider">Check-out</div>
-              <div className="font-bold text-white text-[13px] mt-0.5">{fmt(d.booking?.checkOut)}</div>
-            </div>
-            <div className="px-3.5 py-2.5" style={{ ...div1, ...divH }}>
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider">Nights</div>
-              <div className="font-bold text-white text-[13px] mt-0.5">{d.booking?.nights ?? "—"}</div>
-            </div>
-            <div className="px-3.5 py-2.5" style={divH}>
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider">Amount</div>
-              <div className="font-bold text-white text-[13px] mt-0.5 leading-tight">{d.booking?.currency ?? "TZS"} {Number(d.booking?.totalAmount ?? 0).toLocaleString()}</div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Property</div>
+              <div className="mt-1 truncate text-xl font-black tracking-tight text-white">{d.property?.title ?? "—"}</div>
             </div>
           </div>
-          {/* Owner / Guest */}
-          <div className="grid grid-cols-2">
-            <div className="px-3.5 py-2.5" style={div1}>
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Owner</div>
-              <div className="text-xs font-bold text-white leading-snug truncate">{d.property?.owner?.name ?? "—"}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5 truncate">{d.property?.owner?.phone ?? d.property?.owner?.email ?? ""}</div>
+          {d.property?.type ? (
+            <span className="w-fit shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300">
+              {d.property.type}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">
+          <div className="min-w-0 rounded-2xl border border-white/10 bg-black/15 p-3.5">
+            <CalendarDays className="h-4 w-4" style={{ color: accent }} />
+            <div className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Check-in</div>
+            <div className="mt-1 text-sm font-extrabold text-white">{fmt(d.booking?.checkIn)}</div>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-white/10 bg-black/15 p-3.5">
+            <CalendarDays className="h-4 w-4" style={{ color: accent }} />
+            <div className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Check-out</div>
+            <div className="mt-1 text-sm font-extrabold text-white">{fmt(d.booking?.checkOut)}</div>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-white/10 bg-black/15 p-3.5">
+            <Moon className="h-4 w-4" style={{ color: accent }} />
+            <div className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Nights</div>
+            <div className="mt-1 text-sm font-extrabold text-white">{d.booking?.nights ?? "—"}</div>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-white/10 bg-black/15 p-3.5">
+            <WalletCards className="h-4 w-4" style={{ color: accent }} />
+            <div className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Amount</div>
+            <div className="mt-1 break-words text-sm font-extrabold text-white">{d.booking?.currency ?? "TZS"} {Number(d.booking?.totalAmount ?? 0).toLocaleString()}</div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 border-t border-white/10 px-4 py-4 sm:grid-cols-2 sm:px-5 sm:py-5">
+          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-slate-300">
+              <Building2 className="h-4 w-4" />
             </div>
-            <div className="px-3.5 py-2.5">
-              <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Guest</div>
-              <div className="text-xs font-bold text-white leading-snug truncate">{d.guest?.fullName ?? d.customer?.name ?? "—"}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5 truncate">{d.guest?.phone ?? d.customer?.phone ?? ""}</div>
+            <div className="min-w-0">
+              <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Owner</div>
+              <div className="mt-1 break-words text-sm font-bold text-white">{d.property?.owner?.name ?? "—"}</div>
+              <div className="mt-1 break-words text-[11px] text-slate-500">{d.property?.owner?.phone ?? d.property?.owner?.email ?? ""}</div>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-slate-300">
+              <UserRound className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Guest</div>
+              <div className="mt-1 break-words text-sm font-bold text-white">{d.guest?.fullName ?? d.customer?.name ?? "—"}</div>
+              <div className="mt-1 break-words text-[11px] text-slate-500">{d.guest?.phone ?? d.customer?.phone ?? ""}</div>
             </div>
           </div>
         </div>
-        {/* Timestamp */}
-        <div className="text-[10px] text-slate-600 tabular-nums px-0.5">Code generated: {fmtTs(d.generatedAt)}</div>
+
+        <div className="flex items-center gap-2 border-t border-white/10 px-5 py-3 text-[10px] font-medium tabular-nums text-slate-500">
+          <Clock3 className="h-3.5 w-3.5" />
+          <span>Code generated {fmtTs(d.generatedAt)}</span>
+        </div>
       </div>
     );
   }
@@ -782,6 +804,34 @@ export default function AdminHome() {
                   ? <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/12 px-2.5 py-1 text-[10px] font-bold text-amber-300 uppercase tracking-widest"><AlertTriangle className="h-3 w-3" />{isBefore ? "Awaiting Check-in" : "After Checkout"}</span>
                   : <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/12 px-2.5 py-1 text-[10px] font-bold text-emerald-300 uppercase tracking-widest"><ShieldCheck className="h-3 w-3" />Ready to Validate</span>;
 
+                // State-aware suggested reply for the notify-owner panel
+                const vOwnerFirst = (d?.property?.owner?.name ?? "there").split(" ")[0];
+                const vBookingRef = d?.bookingId ? `booking #${d.bookingId}` : "this booking";
+                const vCodeUp = validationCode.toUpperCase();
+                const vSuggested = isUsed
+                  ? {
+                      subject: `Your ${vBookingRef} is already validated`,
+                      message: `Hello ${vOwnerFirst}, we reviewed code ${vCodeUp} and it was already validated on ${fmtTs(d?.usedAt)}. The guest check-in is confirmed in the system and no further action is needed. If you did not perform this validation, please reply to us immediately.`,
+                    }
+                  : isVoid
+                  ? {
+                      subject: `Code for ${vBookingRef} is no longer valid`,
+                      message: d?.cancellation
+                        ? `Hello ${vOwnerFirst}, code ${vCodeUp} cannot be validated because this booking has a cancellation on record (status: ${d.cancellation.status}). Please do not check the guest in with this code. Contact us if you need help with this booking.`
+                        : `Hello ${vOwnerFirst}, code ${vCodeUp} has been voided and can no longer be used for check-in. Please contact us if you believe this is a mistake.`,
+                    }
+                  : isBefore
+                  ? {
+                      subject: `Check-in for ${vBookingRef} is not open yet`,
+                      message: `Hello ${vOwnerFirst}, code ${vCodeUp} is valid but the stay has not started. Check-in opens on ${d?.booking?.checkIn ? new Date(d.booking.checkIn).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "the check-in date"}. Please validate the code again on that day when the guest arrives.`,
+                    }
+                  : isAfter
+                  ? {
+                      subject: `Checkout date for ${vBookingRef} has passed`,
+                      message: `Hello ${vOwnerFirst}, code ${vCodeUp} could not be validated because the checkout date has already passed. If the guest actually stayed, please contact us so we can review and resolve this booking.`,
+                    }
+                  : null;
+
                 return (
                   <div
                     className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
@@ -790,27 +840,27 @@ export default function AdminHome() {
                     onClick={(e) => { if (e.target === e.currentTarget) vCloseModal(); }}
                   >
                     <div
-                      className="relative w-full max-w-[420px] rounded-[28px] flex flex-col overflow-hidden"
+                      className="relative flex w-full max-w-[760px] flex-col overflow-hidden rounded-[30px]"
                       style={{
                         background: modalBg,
                         boxShadow: `0 40px 100px -24px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.08), 0 0 60px -20px ${accentColor}28, inset 0 1px 0 rgba(255,255,255,0.09)`,
-                        maxHeight: "min(640px, 88vh)",
+                        maxHeight: "min(860px, 92vh)",
                       }}
                     >
                       {/* Top accent bar */}
                       <div className="h-[2px] w-full flex-shrink-0" style={{ background: `linear-gradient(90deg, transparent 5%, ${accentColor}90 50%, transparent 95%)` }} />
 
                       {/* Header — 2-row, fixed */}
-                      <div className="flex-shrink-0 px-5 pt-4 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                      <div className="flex-shrink-0 px-5 pb-4 pt-5 sm:px-7" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
                         {/* Row 1: icon + title + close */}
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-9 w-9 rounded-2xl flex-shrink-0 flex items-center justify-center"
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl"
                               style={{ background: `${accentColor}18`, border: `1px solid ${accentColor}35` }}>
-                              <ShieldCheck className="h-4 w-4" style={{ color: accentColor }} />
+                              <ShieldCheck className="h-5 w-5" style={{ color: accentColor }} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-[13px] font-extrabold text-white tracking-tight">Booking Code Verification</div>
+                              <div className="text-base font-extrabold tracking-tight text-white sm:text-lg">Booking Code Verification</div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-[11px] text-slate-400 font-mono tracking-[0.15em]">{validationCode.toUpperCase()}</span>
                                 {d?.bookingId && (
@@ -840,8 +890,11 @@ export default function AdminHome() {
                         </div>
                       </div>
 
-                      {/* Body */}
-                      <div className="px-5 pt-4 pb-3 space-y-3">
+                      {/* Body — scrollable between fixed header and footer so no content is ever clipped */}
+                      <div
+                        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-5 pt-5 sm:px-7"
+                        style={{ overscrollBehavior: "contain", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.18) transparent" }}
+                      >
 
                         {/* ─ POST-CONFIRM SUCCESS ─ */}
                         {vSuccess ? (
@@ -867,42 +920,76 @@ export default function AdminHome() {
                               </div>
                             </div>
 
-                            {/* Post-confirm: send additional note to owner */}
-                            <div className="rounded-2xl border border-white/8 bg-white/4 p-4 space-y-3">
-                              <div className="flex items-center gap-2">
-                                <Bell className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                                <p className="text-sm font-bold text-slate-300">Send a note to owner</p>
-                                <span className="ml-auto text-[10px] text-slate-500 font-medium">Optional</span>
-                              </div>
-                              {vNotifSent ? (
-                                <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2.5">
-                                  <CheckCheck className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
-                                  <span className="text-xs text-emerald-300">{vNotifSent}</span>
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
-                                    <div className="rounded-xl border border-white/8 bg-white/5 px-3 py-2.5">
-                                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">To</div>
-                                      <div className="font-semibold text-white truncate">{vSuccess.ownerName}</div>
+                            {/* Post-confirm: send additional note to owner, same table style as the booking details card */}
+                            <div className="space-y-2.5">
+                              <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.035)" }}>
+                                {/* Header row with accent bar */}
+                                <div className="px-4 py-3" style={{ borderLeft: "3px solid #34d399", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <div className="text-[9px] font-bold uppercase tracking-widest mb-1 text-emerald-400">Owner Notification</div>
+                                      <div className="text-[13px] font-extrabold text-white leading-tight">Send a note to the owner</div>
+                                      <div className="mt-0.5 text-[10px] text-slate-500">Delivered instantly to the owner inside the system</div>
                                     </div>
-                                    <div className="rounded-xl border border-white/8 bg-white/5 px-3 py-2.5">
+                                    <span className="text-[10px] text-slate-500 font-medium flex-shrink-0">Optional</span>
+                                  </div>
+                                </div>
+                                {vNotifSent ? (
+                                  <div className="flex items-center gap-2 px-3.5 py-3">
+                                    <CheckCheck className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+                                    <span className="text-xs text-emerald-300">{vNotifSent}</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    {/* To / Regarding */}
+                                    <div className="grid grid-cols-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                      <div className="px-3.5 py-2.5" style={{ borderRight: "1px solid rgba(255,255,255,0.07)" }}>
+                                        <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">To</div>
+                                        <div className="text-xs font-bold text-white leading-snug break-words">{vSuccess.ownerName}</div>
+                                      </div>
+                                      <div className="px-3.5 py-2.5">
+                                        <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Regarding</div>
+                                        <div className="text-xs font-bold text-white leading-snug">Booking #{vSuccess.bookingId}</div>
+                                        <div className="text-[10px] text-slate-500 mt-0.5 font-mono tracking-wider">{vCodeUp}</div>
+                                      </div>
+                                    </div>
+                                    {/* Suggested message row */}
+                                    <button type="button"
+                                      onClick={() => {
+                                        setVNotifSubject(`Check-in confirmed for booking #${vSuccess.bookingId}`);
+                                        setVNotifMsg(`Hello ${String(vSuccess.ownerName ?? "there").split(" ")[0]}, we validated code ${vCodeUp} and confirmed the guest check-in for booking #${vSuccess.bookingId} on your behalf. The booking is now marked as checked in. No further action is needed.`);
+                                      }}
+                                      className="w-full px-3.5 py-2.5 text-left transition hover:brightness-125"
+                                      style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(52,211,153,0.04)" }}>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5">
+                                          <Bell className="h-3 w-3 flex-shrink-0 text-emerald-400" />
+                                          <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">Suggested message</span>
+                                        </div>
+                                        <span className="text-[9px] font-semibold uppercase tracking-wider rounded-md px-1.5 py-0.5 flex-shrink-0 text-emerald-400" style={{ border: "1px solid rgba(52,211,153,0.35)" }}>Tap to fill</span>
+                                      </div>
+                                      <div className="text-xs font-semibold text-white mt-1.5 leading-snug break-words">Check-in confirmed for booking #{vSuccess.bookingId}</div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed break-words">A ready-to-send confirmation note for the owner. Tap to fill, then edit freely before sending.</div>
+                                    </button>
+                                    {/* Subject cell */}
+                                    <div className="px-3.5 py-2.5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
                                       <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Subject</div>
                                       <input value={vNotifSubject} onChange={e => setVNotifSubject(e.target.value)}
                                         placeholder="e.g. Check-in confirmed"
-                                        className="w-full bg-transparent text-white placeholder:text-slate-600 outline-none text-xs font-semibold"
-                                        onFocus={e => { e.currentTarget.closest('.rounded-xl')!.setAttribute('style','border-color:rgba(99,102,241,0.4)'); }}
-                                        onBlur={e => { e.currentTarget.closest('.rounded-xl')!.setAttribute('style',''); }} />
+                                        className="w-full bg-transparent text-xs font-semibold text-white placeholder:text-slate-600 outline-none" />
                                     </div>
-                                  </div>
-                                  <div className="rounded-xl border border-white/8 bg-white/5 px-3 py-2.5">
-                                    <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Message</div>
-                                    <textarea value={vNotifMsg} onChange={e => setVNotifMsg(e.target.value)} rows={2}
-                                      placeholder="Write your message to the owner…"
-                                      className="w-full bg-transparent text-white placeholder:text-slate-600 outline-none text-xs resize-none"
-                                      onFocus={e => { e.currentTarget.closest('.rounded-xl')!.setAttribute('style','border-color:rgba(99,102,241,0.4)'); }}
-                                      onBlur={e => { e.currentTarget.closest('.rounded-xl')!.setAttribute('style',''); }} />
-                                  </div>
+                                    {/* Message cell */}
+                                    <div className="px-3.5 py-2.5">
+                                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Message</div>
+                                      <textarea value={vNotifMsg} onChange={e => setVNotifMsg(e.target.value)} rows={4}
+                                        placeholder="Write the note the owner will receive..."
+                                        className="w-full bg-transparent text-xs text-white placeholder:text-slate-600 outline-none resize-none leading-relaxed" />
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                              {!vNotifSent && (
+                                <>
                                   {vNotifError && (
                                     <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2">
                                       <AlertTriangle className="h-3 w-3 text-red-400 flex-shrink-0" />
@@ -911,14 +998,14 @@ export default function AdminHome() {
                                   )}
                                   <button type="button" onClick={vSendNotif} disabled={vNotifSending || !vNotifSubject.trim() || !vNotifMsg.trim()}
                                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
-                                    style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.25)", color: "#a5b4fc" }}
-                                    onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(99,102,241,0.25)"; }}
-                                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(99,102,241,0.15)"; }}>
+                                    style={{ background: "rgba(52,211,153,0.14)", border: "1px solid rgba(52,211,153,0.3)", color: "#6ee7b7" }}
+                                    onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgba(52,211,153,0.24)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(52,211,153,0.14)"; }}>
                                     {vNotifSending
                                       ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Sending...</>
                                       : <><Bell className="h-3.5 w-3.5" /> Send to {vSuccess.ownerName}</>}
                                   </button>
-                                </div>
+                                </>
                               )}
                             </div>
 
@@ -949,14 +1036,14 @@ export default function AdminHome() {
                                   </div>
                                   <div className="rounded-xl border border-white/8 bg-white/5 px-3 py-2.5">
                                     <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Validated by</div>
-                                    <div className="font-semibold text-white truncate">{d.usedBy?.name ?? d.property?.owner?.name ?? "—"}</div>
-                                    <div className="text-[10px] text-slate-500 truncate">{d.usedBy?.phone ?? d.property?.owner?.phone ?? ""}</div>
+                                    <div className="font-semibold text-white break-words">{d.usedBy?.name ?? d.property?.owner?.name ?? "—"}</div>
+                                    <div className="text-[10px] text-slate-500 break-words">{d.usedBy?.phone ?? d.property?.owner?.phone ?? ""}</div>
                                   </div>
                                 </div>
                                 <div className="flex items-start gap-2 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
                                   <Bell className="h-3.5 w-3.5 text-sky-400 flex-shrink-0 mt-0.5" />
                                   <p className="text-[11px] text-sky-300/80 leading-relaxed">
-                                    You may reply to the owner that this booking was validated on <span className="font-semibold text-sky-200">{fmtTs(d.usedAt)}</span>.
+                                    This booking was validated on <span className="font-semibold text-sky-200">{fmtTs(d.usedAt)}</span> and the guest check-in is confirmed in the system. No further action is needed. If the owner asks about this code, use the notify panel below to send them a ready-made reply.
                                   </p>
                                 </div>
                               </div>
@@ -1080,7 +1167,10 @@ export default function AdminHome() {
                                       style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.07)' }}>
                                       <Bell className="h-3 w-3 text-slate-500" />
                                     </div>
-                                    <span className="text-xs font-semibold text-slate-400 tracking-wide">Notify owner directly</span>
+                                    <div className="text-left">
+                                      <div className="text-xs font-semibold text-slate-300 tracking-wide">Notify owner directly</div>
+                                      <div className="text-[10px] text-slate-600 mt-0.5">Send a quick note about this verification result</div>
+                                    </div>
                                   </div>
                                   {vNotifOpen
                                     ? <ChevronUp className="h-3.5 w-3.5 text-slate-600" />
@@ -1089,45 +1179,85 @@ export default function AdminHome() {
                                 </button>
 
                                 {vNotifOpen && (
-                                  <div className="rounded-2xl border border-white/8 bg-white/3 p-3.5 space-y-2.5">
-                                    {vNotifSent ? (
-                                      <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-3 text-xs text-emerald-300">
-                                        <CheckCheck className="h-3.5 w-3.5 flex-shrink-0" /> {vNotifSent}
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <div className="flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/4 px-3 py-2.5">
-                                          <div className="h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold text-white"
-                                            style={{ background: `${accentColor}30`, border: `1px solid ${accentColor}40` }}>
-                                            {(d.property?.owner?.name ?? "O").charAt(0).toUpperCase()}
+                                  vNotifSent ? (
+                                    <div className="flex items-center gap-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-3 text-xs text-emerald-300">
+                                      <CheckCheck className="h-3.5 w-3.5 flex-shrink-0" /> {vNotifSent}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2.5">
+                                      {/* Unified compose card, same table style as the booking details card */}
+                                      <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.035)" }}>
+                                        {/* Header row with accent bar */}
+                                        <div className="px-4 py-3" style={{ borderLeft: `3px solid ${accentColor}`, borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                          <div className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: accentColor }}>Owner Notification</div>
+                                          <div className="text-[13px] font-extrabold text-white leading-tight">Direct message about this verification</div>
+                                          <div className="mt-0.5 text-[10px] text-slate-500">Delivered instantly to the owner inside the system</div>
+                                        </div>
+                                        {/* To / Regarding */}
+                                        <div className="grid grid-cols-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                          <div className="px-3.5 py-2.5" style={{ borderRight: "1px solid rgba(255,255,255,0.07)" }}>
+                                            <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">To</div>
+                                            <div className="text-xs font-bold text-white leading-snug break-words">{d.property?.owner?.name ?? "Owner"}</div>
+                                            <div className="text-[10px] text-slate-500 mt-0.5 break-all">{d.property?.owner?.email ?? d.property?.owner?.phone ?? ""}</div>
                                           </div>
-                                          <div className="min-w-0">
-                                            <div className="text-xs font-semibold text-white leading-tight">{d.property?.owner?.name ?? "Owner"}</div>
-                                            <div className="text-[10px] text-slate-500 truncate">{d.property?.owner?.email ?? d.property?.owner?.phone ?? ""}</div>
+                                          <div className="px-3.5 py-2.5">
+                                            <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Regarding</div>
+                                            <div className="text-xs font-bold text-white leading-snug">{d.bookingId ? `Booking #${d.bookingId}` : "This booking"}</div>
+                                            <div className="text-[10px] text-slate-500 mt-0.5 font-mono tracking-wider">{vCodeUp}</div>
                                           </div>
                                         </div>
-                                        <input value={vNotifSubject} onChange={e => setVNotifSubject(e.target.value)}
-                                          placeholder="Subject — e.g. Update on your booking"
-                                          className="w-full px-3 py-2.5 text-xs rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-slate-600 outline-none focus:border-sky-500/40 transition" />
-                                        <textarea value={vNotifMsg} onChange={e => setVNotifMsg(e.target.value)} rows={3}
-                                          placeholder="Write a message to the owner…"
-                                          className="w-full px-3 py-2.5 text-xs rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-slate-600 outline-none focus:border-sky-500/40 transition resize-none" />
-                                        {vNotifError && <p className="text-[11px] text-red-400">{vNotifError}</p>}
-                                        <button type="button" onClick={vSendNotif}
-                                          disabled={vNotifSending || !vNotifSubject.trim() || !vNotifMsg.trim()}
-                                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
-                                          style={{
-                                            background: `linear-gradient(135deg,${accentColor}22,${accentColor}10)`,
-                                            border: `1px solid ${accentColor}35`, color: accentColor,
-                                          }}
-                                        >
-                                          {vNotifSending
-                                            ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Sending...</>
-                                            : <><Bell className="h-3.5 w-3.5" />Send to {d.property?.owner?.name ?? "Owner"}</>}
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
+                                        {/* Suggested message row */}
+                                        {vSuggested && (
+                                          <button type="button"
+                                            onClick={() => { setVNotifSubject(vSuggested.subject); setVNotifMsg(vSuggested.message); }}
+                                            className="w-full px-3.5 py-2.5 text-left transition hover:brightness-125"
+                                            style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: `${accentColor}0a` }}>
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div className="flex items-center gap-1.5">
+                                                <Bell className="h-3 w-3 flex-shrink-0" style={{ color: accentColor }} />
+                                                <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>Suggested message</span>
+                                              </div>
+                                              <span className="text-[9px] font-semibold uppercase tracking-wider rounded-md px-1.5 py-0.5 flex-shrink-0" style={{ color: accentColor, border: `1px solid ${accentColor}35` }}>Tap to fill</span>
+                                            </div>
+                                            <div className="text-xs font-semibold text-white mt-1.5 leading-snug break-words">{vSuggested.subject}</div>
+                                            <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed break-words">{vSuggested.message}</div>
+                                          </button>
+                                        )}
+                                        {/* Subject cell */}
+                                        <div className="px-3.5 py-2.5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                                          <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Subject</div>
+                                          <input value={vNotifSubject} onChange={e => setVNotifSubject(e.target.value)}
+                                            placeholder="e.g. Update on your booking"
+                                            className="w-full bg-transparent text-xs font-semibold text-white placeholder:text-slate-600 outline-none" />
+                                        </div>
+                                        {/* Message cell */}
+                                        <div className="px-3.5 py-2.5">
+                                          <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Message</div>
+                                          <textarea value={vNotifMsg} onChange={e => setVNotifMsg(e.target.value)} rows={4}
+                                            placeholder="Write the note the owner will receive..."
+                                            className="w-full bg-transparent text-xs text-white placeholder:text-slate-600 outline-none resize-none leading-relaxed" />
+                                        </div>
+                                      </div>
+                                      {vNotifError && (
+                                        <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2">
+                                          <AlertTriangle className="h-3 w-3 text-red-400 flex-shrink-0" />
+                                          <p className="text-[11px] text-red-400">{vNotifError}</p>
+                                        </div>
+                                      )}
+                                      <button type="button" onClick={vSendNotif}
+                                        disabled={vNotifSending || !vNotifSubject.trim() || !vNotifMsg.trim()}
+                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                        style={{
+                                          background: `linear-gradient(135deg,${accentColor}22,${accentColor}10)`,
+                                          border: `1px solid ${accentColor}35`, color: accentColor,
+                                        }}
+                                      >
+                                        {vNotifSending
+                                          ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Sending...</>
+                                          : <><Bell className="h-3.5 w-3.5" />Send to {d.property?.owner?.name ?? "Owner"}</>}
+                                      </button>
+                                    </div>
+                                  )
                                 )}
                               </div>
                             )}
@@ -1136,7 +1266,7 @@ export default function AdminHome() {
                       </div>
 
                       {/* Footer — sticky action bar */}
-                      <div className="flex-shrink-0 px-5 py-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div className="flex-shrink-0 px-5 py-4 sm:px-7" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={vCloseModal}
                             className="flex-1 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition"

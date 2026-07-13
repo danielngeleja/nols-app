@@ -175,23 +175,33 @@ export default function AdminImpactCenterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8f8]">
-      <div className="space-y-4 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="border border-[#02665e] bg-[#02665e] text-white shadow-sm">
-          <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
+        <div
+          className="relative overflow-hidden rounded-2xl shadow-2xl"
+          style={{
+            background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
+            boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)",
+          }}
+        >
+          <div className="pointer-events-none absolute inset-0 opacity-60" aria-hidden>
+            <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full border border-white/10" />
+            <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full border border-white/10" />
+            <div className="absolute -bottom-36 left-1/4 h-72 w-[42rem] rotate-[-10deg] rounded-[50%] border-t border-white/15" />
+          </div>
+          <div className="relative z-10 flex flex-col gap-5 px-5 py-6 sm:px-7 sm:py-8 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <Link href="/admin/observability" className="inline-flex items-center gap-2 text-sm font-semibold text-white/65 no-underline transition-colors hover:text-white">
                 <ArrowLeft className="h-4 w-4" />
                 Observability
               </Link>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-black tracking-tight text-white">Impact Center</h1>
-                <span className={`inline-flex w-fit items-center gap-2 border px-3 py-1 text-xs font-bold ${summary.critical > 0 ? "border-red-200 bg-white text-red-700" : "border-emerald-200 bg-white text-[#02665e]"}`}>
-                  <span className={`h-2 w-2 rounded-full ${summary.critical > 0 ? "bg-red-500" : "bg-[#02665e]"}`} />
+                <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Impact Center</h1>
+                <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${summary.critical > 0 ? "border-red-300/40 bg-red-500/20 text-red-100" : "border-emerald-200/30 bg-white/10 text-emerald-100"}`}>
+                  <span className={`h-2 w-2 rounded-full ${summary.critical > 0 ? "bg-red-300" : "bg-emerald-300"}`} />
                   {summary.critical > 0 ? "Needs review" : "Quiet"}
                 </span>
               </div>
-              <p className="mt-2 max-w-4xl text-sm leading-6 text-white/65">
+              <p className="mt-2 max-w-4xl text-sm leading-6 text-white/65 sm:text-base">
                 People-first incident triage for slow calls, server errors, and frontend crashes across known users and visitor sessions.
               </p>
             </div>
@@ -199,7 +209,7 @@ export default function AdminImpactCenterPage() {
               type="button"
               onClick={() => load(true)}
               disabled={refreshing}
-              className="inline-flex h-10 w-10 items-center justify-center border border-white/20 bg-white text-[#02665e] shadow-sm transition-colors hover:bg-emerald-50 disabled:opacity-60"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-sm transition-colors hover:bg-white/20 disabled:opacity-60"
               aria-label="Refresh impact center"
               title="Refresh"
             >
@@ -210,7 +220,7 @@ export default function AdminImpactCenterPage() {
 
         {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div> : null}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <SummaryCard icon={ServerCrash} label="Active now" value={summary.attention} tone={summary.attention > 0 ? "red" : "green"} />
           <SummaryCard icon={UserRound} label="Impacted people" value={summary.people} tone="slate" />
           <SummaryCard icon={AlertTriangle} label="Critical people" value={summary.critical} tone={summary.critical > 0 ? "red" : "green"} />
@@ -220,29 +230,29 @@ export default function AdminImpactCenterPage() {
           <SummaryCard icon={ShieldCheck} label="Visitors" value={summary.visitors} tone={summary.visitors > 0 ? "amber" : "slate"} />
         </div>
 
-        <section className="overflow-hidden border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-900">Affected sessions</h2>
-                <p className="mt-1 text-sm text-slate-500">
+        <section className="w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-white/10 bg-gradient-to-br from-[#071b19] via-[#0a211f] to-[#0b202b] px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
+            <div className="flex min-w-0 max-w-full flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-sm font-black uppercase tracking-[0.16em] text-white/90">Affected sessions</h2>
+                <p className="mt-1.5 text-xs font-medium text-white/45 sm:text-sm">
                   Showing {filtered.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filtered.length)} of {filtered.length}
                 </p>
               </div>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                <div className="relative w-full lg:w-72">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <div className="flex w-full min-w-0 max-w-2xl flex-col gap-2.5 sm:flex-row sm:items-center xl:justify-end">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search user or route"
-                    className="h-10 w-full border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm font-semibold text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[#02665e]/40 focus:bg-white focus:ring-2 focus:ring-[#02665e]/10"
+                    className="box-border h-10 w-full min-w-0 rounded-lg border border-white/15 bg-white/[0.08] pl-9 pr-3 text-sm font-semibold text-white outline-none transition-colors placeholder:font-medium placeholder:text-white/45 focus:border-emerald-300/40 focus:bg-white/10 focus:ring-2 focus:ring-emerald-300/10"
                   />
                 </div>
-                <PaginationControls page={safePage} totalPages={totalPages} onPageChange={setPage} align="end" />
+                <PaginationControls page={safePage} totalPages={totalPages} onPageChange={setPage} align="end" variant="dark" />
               </div>
             </div>
-            <div className="mt-4 flex max-w-full flex-wrap gap-1.5 border border-slate-200 bg-slate-50 p-1">
+            <div className="mt-4 flex max-w-full flex-wrap gap-2 border-t border-white/10 pt-4">
               <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
               <FilterButton active={filter === "attention"} onClick={() => setFilter("attention")}>
                 Needs attention{summary.attention > 0 ? ` (${summary.attention})` : ""}
@@ -267,7 +277,6 @@ export default function AdminImpactCenterPage() {
             </div>
           ) : null}
         </section>
-      </div>
 
       {restoreTarget ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
@@ -344,7 +353,7 @@ function ImpactPersonCard({ item, onRestore }: { item: ImpactedUser; onRestore: 
 
   return (
     <div className="px-4 py-4 sm:px-5">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
+      <div className="grid min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
         <div className="flex min-w-0 gap-3">
           <div className={`grid h-10 w-10 shrink-0 place-items-center border ${iconClass}`}>
             {restored ? <CheckCircle2 className="h-5 w-5" /> : serverIssue ? <ServerCrash className="h-5 w-5" /> : clientIssue ? <Bug className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
@@ -544,13 +553,13 @@ function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof UserRoun
     },
   }[tone];
   return (
-    <div className={`group border p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${classes.card}`}>
+    <div className={`group min-w-0 rounded-xl border p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${classes.card}`}>
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className={`text-[11px] font-bold uppercase leading-5 tracking-[0.14em] ${classes.label}`}>{label}</div>
           <div className={`mt-2 text-2xl font-black tracking-tight ${classes.value}`}>{value}</div>
         </div>
-        <div className={`grid h-10 w-10 shrink-0 place-items-center border shadow-sm transition-transform duration-300 group-hover:scale-105 ${classes.icon}`}>
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${classes.icon}`}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -563,10 +572,10 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
     <button
       type="button"
       onClick={onClick}
-      className={`h-8 border px-2.5 text-xs font-bold transition-all sm:px-3 sm:text-sm ${
+      className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-xs font-bold transition-all sm:px-3.5 ${
         active
-          ? "border-emerald-200 bg-emerald-700 text-white shadow-sm shadow-emerald-900/10"
-          : "border-transparent bg-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-950"
+          ? "border-emerald-300/45 bg-emerald-500/20 text-emerald-100 shadow-sm shadow-emerald-950/20"
+          : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/20 hover:bg-white/10 hover:text-white"
       }`}
     >
       {children}
@@ -579,31 +588,40 @@ function PaginationControls({
   totalPages,
   onPageChange,
   align = "start",
+  variant = "light",
 }: {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
   align?: "start" | "end";
+  variant?: "light" | "dark";
 }) {
+  const dark = variant === "dark";
+  const buttonClass = dark
+    ? "border-white/15 bg-white/[0.08] text-white/70 hover:border-white/25 hover:bg-white/15 disabled:text-white/25"
+    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:text-slate-300";
+  const pageClass = dark
+    ? "border-white/15 bg-white/[0.08] text-white/80"
+    : "border-slate-200 bg-slate-50 text-slate-600";
   return (
-    <div className={`flex items-center gap-2 ${align === "end" ? "justify-end" : ""}`}>
+    <div className={`flex shrink-0 items-center gap-2 ${align === "end" ? "justify-end" : ""}`}>
       <button
         type="button"
         onClick={() => onPageChange(Math.max(1, page - 1))}
         disabled={page <= 1}
-        className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-colors disabled:cursor-not-allowed ${buttonClass}`}
         aria-label="Previous page"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
-      <div className="min-w-24 border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-black uppercase tracking-wide text-slate-600">
+      <div className={`min-w-20 rounded-full border px-3 py-2 text-center text-xs font-black tracking-wide ${pageClass}`}>
         {page} / {totalPages}
       </div>
       <button
         type="button"
         onClick={() => onPageChange(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
-        className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-colors disabled:cursor-not-allowed ${buttonClass}`}
         aria-label="Next page"
       >
         <ChevronRight className="h-4 w-4" />
