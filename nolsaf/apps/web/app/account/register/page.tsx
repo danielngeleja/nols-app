@@ -433,6 +433,14 @@ export default function RegisterPage() {
       if (role === 'OWNER') return '/owner';
       if (role === 'DRIVER') return '/driver';
       if (role === 'AGENT') return '/account/agent';
+      // NRMS staff members choose between their personal account and the
+      // property workspace they were assigned to.
+      try {
+        const nrms = await apiClient.get<any>('/api/nrms/operations/me');
+        if (Array.isArray(nrms.data?.properties) && nrms.data.properties.length > 0) return '/nrms/choose';
+      } catch {
+        // Not NRMS staff or the check failed; fall through to the account home
+      }
       return '/account';
     } catch {
       return '/account';

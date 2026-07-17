@@ -29,6 +29,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { safeEq } from "../lib/signature.js";
 import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
+import { markNrmsPaymentFailed, reconcileNrmsPayment } from "../lib/nrmsBilling.js";
 
 const router = Router();
 
@@ -1004,6 +1005,11 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const tourIdHint  = Number(extraProps?.tourBookingId);
     const groupIdHint = Number(extraProps?.groupBookingId);
     const sessionHint = eventId ? eventId.toString() : null;
+    const existingPayload = existing?.payload && typeof existing.payload === "object" ? existing.payload as any : null;
+    const nrmsTokenHint = String(extraProps?.nrmsToken || existingPayload?.nrmsToken || (/^NRMS-/i.test(String(paymentRef || "")) ? paymentRef : "") || "");
+    const nrmsPaymentToken = nrmsTokenHint
+      ? await (prisma as any).nrmsServicePaymentToken.findUnique({ where: { token: nrmsTokenHint }, include: { statement: { include: { account: true } }, payment: true } })
+      : null;
 
     // Find invoice by paymentRef
     let invoice = null as any;
@@ -1079,7 +1085,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // Visibility: which entity (if any) this callback resolved to, and via which signal.
     console.info(
       `[Webhook] match status=${normalizedStatus} ` +
-      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} ` +
+      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} nrms=${nrmsPaymentToken?.id ?? "-"} ` +
       `(paymentRef=${paymentRef ? "y" : "n"} tourHint=${Number.isInteger(tourIdHint) ? tourIdHint : "-"} ` +
       `groupHint=${Number.isInteger(groupIdHint) ? groupIdHint : "-"} session=${sessionHint ? "y" : "n"})`
     );
@@ -1103,6 +1109,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         payload: {
           transactionId: eventId,
           paymentRef:    paymentRef ?? null,
+          nrmsToken:     nrmsPaymentToken?.token ?? null,
           status:        payload.status ?? null,
           provider:      payload.provider ?? null,
         },
@@ -1138,6 +1145,24 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           `(diff ${Math.abs(amount - want)} TZS). Invoice NOT marked paid.`
         );
       }
+    }
+
+    if (nrmsPaymentToken && normalizedStatus === "SUCCESS") {
+      try {
+        await prisma.$transaction((tx: any) => reconcileNrmsPayment(tx, {
+          token: nrmsPaymentToken.token,
+          provider: "AZAMPAY",
+          providerRef: eventId.toString(),
+          idempotencyKey: `AZAMPAY:${eventId}`.slice(0, 120),
+          amount,
+        }));
+      } catch (nrmsError: any) {
+        const message = String(nrmsError?.message || "");
+        if (!message.includes("AMOUNT_MISMATCH")) console.error("[Webhook] NRMS reconciliation failed:", message || nrmsError);
+      }
+    }
+    if (nrmsPaymentToken && normalizedStatus === "FAILED") {
+      await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
     }
 
     // ── Tour booking payment success ──────────────────────────────────────────

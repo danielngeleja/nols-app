@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronRight, Users, HandHeart, CalendarDays,
-  CheckCircle2, Building2, BadgeCheck, TrendingUp, LogIn, LogOut, BarChart3,
+  CheckCircle2, Building2, BadgeCheck, TrendingUp, LogIn, LogOut, BarChart3, BedDouble,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -151,7 +151,7 @@ function TopItem({
   href, label, Icon,
 }: { href: string; label: string; Icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }) {
   const path = usePathname();
-  const active = path === href;
+  const active = path === href || (href !== "/owner" && path.startsWith(href + "/"));
   return (
     <Link
       href={href}
@@ -259,6 +259,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
         }}
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
+        <CollapseBtn href="/owner/nrms" label="Rooms Management" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/properties/approved" label="My Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/bookings" label="Bookings" Icon={Calendar} active={sectionActive.bookings} count={checkedInCount + checkoutDueCount || undefined} />
@@ -291,6 +292,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       <div className="px-2.5 py-2.5 space-y-0.5">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
+        <TopItem href="/owner/nrms" label="Rooms Management" Icon={BedDouble} />
         <Divider />
 
         <Section label="My Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>

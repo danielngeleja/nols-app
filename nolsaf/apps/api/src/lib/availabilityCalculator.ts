@@ -36,6 +36,7 @@
 
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
+import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
 
 /** Normalize Prisma DateTime (Date or ISO string) to Date for .getTime() / .toISOString() */
 function toDate(x: unknown): Date {
@@ -167,7 +168,7 @@ export async function calculateAvailability(
   });
 
   // Get all overlapping availability blocks (external bookings)
-  const blocks = await prisma.propertyAvailabilityBlock.findMany({
+  const blocks: any[] = await prisma.propertyAvailabilityBlock.findMany({
     where: {
       propertyId,
       AND: [
@@ -187,6 +188,15 @@ export async function calculateAvailability(
     },
     orderBy: { startDate: 'asc' },
   });
+  const nrmsConsumers = await getNrmsCapacityConsumers(prisma, propertyId, startDate, endDate);
+  blocks.push(...nrmsConsumers.map((row) => ({
+    id: -row.allocationId,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    roomCode: row.roomUnitCode ?? row.roomTypeName,
+    source: "NRMS",
+    bedsBlocked: 1,
+  })));
 
   // Group by room type
   const byRoomType: Record<string, AvailabilityCalculationResult['byRoomType'][string]> = {};

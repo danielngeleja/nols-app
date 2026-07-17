@@ -31,7 +31,7 @@ export interface SmsResult {
 }
 
 // ─── Phone normalisation ──────────────────────────────────────────────────────
-function normaliseTo255(raw: string): string {
+export function normalizeSmsPhone(raw: string): string {
   const cleaned = raw.trim();
   if (!cleaned) return cleaned;
 
@@ -177,19 +177,24 @@ async function sendViaTwilio(to: string, message: string): Promise<SmsResult> {
  *   2. Twilio            (set TWILIO_ACCOUNT_SID)
  *   3. Console log       (dev / staging only — never blocks OTP flows)
  */
-export async function sendSms(to: string, text: string, options?: { bypassEligibilityCheck?: boolean }): Promise<SmsResult> {
+export async function sendSms(
+  to: string,
+  text: string,
+  options?: { bypassEligibilityCheck?: boolean; provider?: "auto" | "africastalking" },
+): Promise<SmsResult> {
   if (!options?.bypassEligibilityCheck) {
     const eligibility = await canReceiveNotifications({ phone: to });
     if (!eligibility.allowed) {
-    console.log(
-      `[SMS] Suppressed SMS to=${to} reason=${eligibility.reason ?? 'blocked'} userId=${eligibility.matchedUserId ?? 'unknown'}`,
-    );
-    return { success: true, messageId: `suppressed-${Date.now()}`, provider: 'suppressed' };
-  }
+      console.log(
+        `[SMS] Suppressed SMS to=${to} reason=${eligibility.reason ?? 'blocked'} userId=${eligibility.matchedUserId ?? 'unknown'}`,
+      );
+      return { success: true, messageId: `suppressed-${Date.now()}`, provider: 'suppressed' };
+    }
   }
 
-  const phone = normaliseTo255(to);
+  const phone = normalizeSmsPhone(to);
   const failures: string[] = [];
+  const forceAfricasTalking = options?.provider === "africastalking";
 
   // 1 — Africa's Talking
   if (process.env.AFRICASTALKING_API_KEY) {
@@ -203,10 +208,12 @@ export async function sendSms(to: string, text: string, options?: { bypassEligib
       failures.push(`africastalking: ${message}`);
       console.error('[SMS] Africa\'s Talking threw:', message);
     }
+  } else if (forceAfricasTalking) {
+    failures.push("africastalking: AFRICASTALKING_API_KEY is not configured");
   }
 
   // 2 — Twilio
-  if (process.env.TWILIO_ACCOUNT_SID) {
+  if (!forceAfricasTalking && process.env.TWILIO_ACCOUNT_SID) {
     try {
       const r = await sendViaTwilio(phone, text);
       if (r.success) return r;
@@ -218,7 +225,7 @@ export async function sendSms(to: string, text: string, options?: { bypassEligib
   }
 
   // 3 — Dev console fallback
-  if (process.env.NODE_ENV !== 'production') {
+  if (!forceAfricasTalking && process.env.NODE_ENV !== 'production') {
     console.log(`[SMS DEV] → ${phone}: ${text}`);
     return { success: true, messageId: `dev-${Date.now()}`, provider: 'console' };
   }

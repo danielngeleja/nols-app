@@ -7,6 +7,8 @@
  *   3. generateOwnerDisbursementPdf — owner disbursement notice
  */
 import PDFDocument from "pdfkit";
+import { randomInt } from "node:crypto";
+import { existsSync } from "node:fs";
 
 // ─── Brand constants ──────────────────────────────────────────
 const TEAL        = "#02665e";
@@ -44,9 +46,9 @@ function fmtMoney(amount: number | string | null | undefined, currency = "TZS"):
   return `${currency} ${n.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 }
 
-function buildBuffer(fn: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
+function buildBuffer(fn: (doc: PDFKit.PDFDocument) => void, options?: PDFKit.PDFDocumentOptions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: MARGIN, size: "A4", compress: true });
+    const doc = new PDFDocument({ margin: MARGIN, size: "A4", compress: true, ...options });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -58,6 +60,133 @@ function buildBuffer(fn: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
       reject(e);
     }
   });
+}
+
+/**
+ * Fixed receipt reference used as both the printed number and Code 128 payload.
+ * Example: ND10-K7Q-26071511-00005.
+ */
+export function buildNrmsDocumentNumber(
+  reservationId: number,
+  generatedAt: Date | string,
+  roomType: string,
+  roomNumber: string,
+  randomCode: string,
+): string {
+  const parsedDate = new Date(generatedAt);
+  if (!Number.isFinite(parsedDate.getTime())) throw new Error("Invalid NRMS receipt generation date");
+
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Dar_es_Salaam",
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(parsedDate);
+  const part = (type: Intl.DateTimeFormatPartTypes) => dateParts.find((item) => item.type === type)?.value ?? "00";
+  const timestamp = `${part("year")}${part("month")}${part("day")}${part("hour")}`;
+
+  const typeCode = roomType.toUpperCase().replace(/[^A-Z0-9]/g, "").charAt(0) || "R";
+  const numericRoom = roomNumber.match(/\d+/g)?.at(-1);
+  const roomCode = numericRoom
+    ? numericRoom.slice(-2).padStart(2, "0")
+    : roomNumber.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(-2).padStart(2, "0");
+  const safeRandomCode = randomCode.toUpperCase();
+  if (!/^[A-HJ-NP-Z2-9]{3}$/.test(safeRandomCode)) {
+    throw new Error("NRMS receipt random code must contain three unambiguous characters");
+  }
+
+  const numericId = Math.max(0, Math.trunc(reservationId));
+  const billNumber = numericId <= 99_999
+    ? String(numericId).padStart(5, "0")
+    : numericId.toString(36).toUpperCase().padStart(5, "0").slice(-5);
+  return `N${typeCode}${roomCode}-${safeRandomCode}-${timestamp}-${billNumber}`;
+}
+
+const NRMS_RANDOM_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+export function generateNrmsRandomCode(): string {
+  return Array.from({ length: 3 }, () => NRMS_RANDOM_CHARACTERS[randomInt(NRMS_RANDOM_CHARACTERS.length)]).join("");
+}
+
+// ISO/IEC 15417 Code 128 symbol patterns. Each digit is the width, in modules,
+// of alternating bars and spaces. Index 106 is the stop symbol.
+const CODE128_PATTERNS = [
+  "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213", "221312", "231212",
+  "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131",
+  "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321",
+  "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121",
+  "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
+  "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114",
+  "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242", "121142", "121241", "114212",
+  "124112", "124211", "411212", "421112", "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113",
+  "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
+] as const;
+
+function code128BValues(value: string): number[] {
+  const normalized = value.toUpperCase();
+  if (!/^[\x20-\x7e]+$/.test(normalized)) {
+    throw new Error("Code 128 receipt references must contain printable ASCII characters only");
+  }
+
+  const startCodeB = 104;
+  const data = Array.from(normalized, (char) => char.charCodeAt(0) - 32);
+  const checksum = (startCodeB + data.reduce((sum, code, index) => sum + code * (index + 1), 0)) % 103;
+  return [startCodeB, ...data, checksum, 106];
+}
+
+function drawCode128Barcode(
+  doc: PDFKit.PDFDocument,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const values = code128BValues(value);
+  const quietZoneModules = 10;
+  const symbolModules = values.reduce(
+    (sum, code) => sum + Array.from(CODE128_PATTERNS[code], Number).reduce((a, b) => a + b, 0),
+    0,
+  );
+  const moduleWidth = width / (symbolModules + quietZoneModules * 2);
+  let cursor = x + quietZoneModules * moduleWidth;
+
+  doc.save().fillColor(TEXT_MAIN);
+  for (const code of values) {
+    const pattern = CODE128_PATTERNS[code];
+    for (let index = 0; index < pattern.length; index += 1) {
+      const segmentWidth = Number(pattern[index]) * moduleWidth;
+      if (index % 2 === 0) doc.rect(cursor, y, segmentWidth, height).fill();
+      cursor += segmentWidth;
+    }
+  }
+  doc.restore();
+}
+
+type NrmsFonts = { regular: string; bold: string };
+
+function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
+  const regularCandidates = [
+    process.env.TREBUCHET_MS_REGULAR_PATH,
+    "C:\\Windows\\Fonts\\trebuc.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebuc.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebuc.ttf",
+  ].filter((value): value is string => Boolean(value));
+  const boldCandidates = [
+    process.env.TREBUCHET_MS_BOLD_PATH,
+    "C:\\Windows\\Fonts\\trebucbd.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebucbd.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebucbd.ttf",
+  ].filter((value): value is string => Boolean(value));
+  const regularPath = regularCandidates.find(existsSync);
+  const boldPath = boldCandidates.find(existsSync);
+
+  if (!regularPath || !boldPath) return { regular: "Helvetica", bold: "Helvetica-Bold" };
+  doc.registerFont("NRMS-Trebuchet", regularPath);
+  doc.registerFont("NRMS-Trebuchet-Bold", boldPath);
+  return { regular: "NRMS-Trebuchet", bold: "NRMS-Trebuchet-Bold" };
 }
 
 function drawTealHeader(doc: PDFKit.PDFDocument, title: string, subtitle: string) {
@@ -109,6 +238,10 @@ function drawDivider(doc: PDFKit.PDFDocument) {
 
 function drawFooter(doc: PDFKit.PDFDocument) {
   const footerY = doc.page.height - 45;
+  // The footer sits below the bottom margin; zero it while drawing so pdfkit
+  // does not auto-add a blank page for each text line.
+  const bottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.strokeColor(BORDER).lineWidth(0.5)
     .moveTo(MARGIN, footerY).lineTo(MARGIN + COL_W, footerY).stroke();
   doc.font("Helvetica").fontSize(7.5).fillColor(TEXT_MUTED)
@@ -120,6 +253,7 @@ function drawFooter(doc: PDFKit.PDFDocument) {
       `This document was generated automatically. For queries contact support@nolsaf.com`,
       MARGIN, footerY + 20, { align: "center", width: COL_W }
     );
+  doc.page.margins.bottom = bottomMargin;
 }
 
 // ─── Receipt-style helpers (used by the owner Payout Receipt) ─────────────────
@@ -499,4 +633,338 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
 
     drawFooter(doc);
   });
+}
+
+// ─── 4. NRMS Guest Invoice ────────────────────────────────────────────────────
+
+export interface NrmsInvoiceData {
+  invoiceNumber: string;
+  issuedAt: Date | string;
+  reservationId: number;
+  status: string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  guestName: string;
+  guestPhone?: string | null;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  /** Active room allocations, e.g. unit code or room type name */
+  rooms: Array<{ label: string }>;
+  currency: string;
+  /** Reservation.totalAmount (room stay) */
+  roomTotal: number | string;
+  charges: Array<{ date: Date | string; category: string; description?: string | null; amount: number | string }>;
+  payments: Array<{ date: Date | string; method: string; reference?: string | null; amount: number | string }>;
+  outletPayments?: Array<{
+    date: Date | string;
+    orderNumber: string;
+    outlet: string;
+    method?: string | null;
+    items: string;
+    amount: number | string;
+  }>;
+  chargesTotal: number | string;
+  amountPaid: number | string;
+  /** roomTotal + chargesTotal - amountPaid */
+  balanceDue: number;
+}
+
+/**
+ * A5 guest invoice issued BY the property TO the guest (NoLSAF is only the
+ * "generated by" footer line). Classic invoice layout: issuer header, bill-to
+ * block, ruled line-item table, right-aligned totals. The document titles
+ * itself INVOICE while a balance is due and RECEIPT once fully settled.
+ */
+export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buffer> {
+  const A5_W = 419.53;
+  const A5_H = 595.28;
+  const M = 34;
+  const W = A5_W - M * 2;
+  const cur = data.currency;
+  const outletPayments = data.outletPayments ?? [];
+  const outletPaidTotal = outletPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const folioTotal = Number(data.roomTotal) + Number(data.chargesTotal);
+  const totalGuestSpend = folioTotal + outletPaidTotal;
+  const totalCollected = Number(data.amountPaid) + outletPaidTotal;
+  const folioPaymentTotals = data.payments.reduce<Record<string, number>>((totals, payment) => {
+    const method = payment.method || "OTHER";
+    totals[method] = (totals[method] ?? 0) + Number(payment.amount || 0);
+    return totals;
+  }, {});
+  const folioPaymentBreakdown = Object.entries(folioPaymentTotals)
+    .map(([method, amount]) => {
+      const words = method.replace(/_/g, " ").toLowerCase();
+      const label = words.charAt(0).toUpperCase() + words.slice(1);
+      return `${label} ${fmtMoney(amount, cur)}`;
+    })
+    .join(" · ");
+  const settled = data.balanceDue <= 0 && totalCollected > 0;
+  const docTitle = settled ? "RECEIPT" : "INVOICE";
+  const CONTENT_LIMIT = A5_H - 96; // keep clear of the signature/footer zone
+
+  const fmtIsoDate = (d: Date | string) => {
+    const parsed = new Date(d);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "---- -- --";
+  };
+
+  // Line-item table geometry
+  const COL_DATE = 62;
+  const COL_AMOUNT = 96;
+  const COL_DESC = W - COL_DATE - COL_AMOUNT;
+  const MIN_ROW_H = 17;
+  const MAX_ROW_H = 48;
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const drawWatermark = () => {
+      doc.save();
+      doc.opacity(0.035).fillColor(TEAL).font(fonts.bold).fontSize(48);
+      doc.rotate(-32, { origin: [A5_W / 2, A5_H / 2] });
+      doc.text("NRMS", 58, A5_H / 2 - 36, { width: A5_W - 116, align: "center", lineBreak: false });
+      doc.fontSize(13)
+        .text("GUEST RECEIPT", 58, A5_H / 2 + 15, { width: A5_W - 116, align: "center", characterSpacing: 2.2, lineBreak: false });
+      doc.restore();
+    };
+
+    let y = M;
+    drawWatermark();
+
+    const tableHeader = () => {
+      doc.rect(M, y, W, 16).fill(TEAL);
+      doc.font(fonts.bold).fontSize(6.5).fillColor("#ffffff");
+      doc.text("DATE", M + 6, y + 5, { width: COL_DATE - 6, lineBreak: false });
+      doc.text("DESCRIPTION", M + COL_DATE + 6, y + 5, { width: COL_DESC - 6, lineBreak: false });
+      doc.text("AMOUNT", M + COL_DATE + COL_DESC, y + 5, { width: COL_AMOUNT - 6, align: "right", lineBreak: false });
+      y += 16;
+    };
+
+    const tableRow = (
+      date: string,
+      description: string,
+      amount: string,
+      boldAmount = false,
+      detail?: string,
+      meta?: string,
+    ) => {
+      const descriptionWidth = COL_DESC - 10;
+      doc.font(fonts.bold).fontSize(8);
+      const titleHeight = Math.min(10, doc.heightOfString(description, { width: descriptionWidth }));
+      doc.font(fonts.regular).fontSize(7.2);
+      const detailHeight = detail ? Math.min(18, doc.heightOfString(detail, { width: descriptionWidth, lineGap: 0.5 })) : 0;
+      const metaHeight = meta ? 8 : 0;
+      const contentHeight = titleHeight + (detailHeight ? detailHeight + 2 : 0) + (metaHeight ? metaHeight + 2 : 0);
+      const rowHeight = Math.min(MAX_ROW_H, Math.max(MIN_ROW_H, Math.ceil(contentHeight) + 8));
+      if (y + rowHeight > CONTENT_LIMIT) {
+        doc.addPage({ size: "A5", margin: M });
+        drawWatermark();
+        y = M;
+        tableHeader();
+      }
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(date, M + 6, y + 4, { width: COL_DATE - 6, lineBreak: false });
+      let descriptionY = y + 4;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN)
+        .text(description, M + COL_DATE + 6, y + 4, {
+          width: descriptionWidth,
+          height: titleHeight,
+          ellipsis: true,
+        });
+      descriptionY += titleHeight + 2;
+      if (detail) {
+        doc.font(fonts.regular).fontSize(7.2).fillColor(TEXT_MAIN)
+          .text(detail, M + COL_DATE + 6, descriptionY, {
+            width: descriptionWidth,
+            height: detailHeight,
+            lineGap: 0.5,
+            ellipsis: true,
+          });
+        descriptionY += detailHeight + 2;
+      }
+      if (meta) {
+        doc.font(fonts.bold).fontSize(6).fillColor(TEXT_MUTED)
+          .text(meta.toUpperCase(), M + COL_DATE + 6, descriptionY, {
+            width: descriptionWidth,
+            height: metaHeight,
+            characterSpacing: 0.25,
+            ellipsis: true,
+          });
+      }
+      doc.font(boldAmount ? fonts.bold : fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+        .text(amount, M + COL_DATE + COL_DESC, y + 4, { width: COL_AMOUNT - 6, align: "right", lineBreak: false });
+      doc.strokeColor(BORDER).lineWidth(0.5)
+        .moveTo(M, y + rowHeight).lineTo(M + W, y + rowHeight).stroke();
+      y += rowHeight;
+    };
+
+    // ── Issuer header: the property bills the guest ──
+    doc.font(fonts.bold).fontSize(13).fillColor(TEXT_MAIN)
+      .text(data.propertyName, M, y, { width: W * 0.58, lineBreak: false, ellipsis: true });
+    if (data.propertyLocation) {
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(data.propertyLocation, M, y + 17, { width: W * 0.58, lineBreak: false, ellipsis: true });
+    }
+    doc.font(fonts.bold).fontSize(16).fillColor(TEAL)
+      .text(docTitle, M, y, { width: W, align: "right" });
+    doc.font("Courier-Bold").fontSize(7.2).fillColor(TEXT_MAIN)
+      .text(`${docTitle} No: ${data.invoiceNumber}`, M, y + 20, { width: W, align: "right" });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+      .text(`Issue date: ${fmtIsoDate(data.issuedAt)}`, M, y + 30, { width: W, align: "right" })
+      .text(`Reservation ref: NRMS-${String(data.reservationId).padStart(6, "0")}`, M, y + 40, { width: W, align: "right" });
+    if (settled) {
+      // PAID badge under the title block
+      const badgeW = 54;
+      doc.roundedRect(M + W - badgeW, y + 52, badgeW, 15, 3).fill("#dcfce7");
+      doc.font(fonts.bold).fontSize(8).fillColor("#166534")
+        .text("PAID", M + W - badgeW, y + 56, { width: badgeW, align: "center", lineBreak: false });
+    }
+    y += 72;
+
+    // Double keyline under the header
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y + 3).lineTo(M + W, y + 3).stroke();
+    y += 14;
+
+    // ── Bill-to and stay blocks, side by side ──
+    const colR = M + W * 0.52;
+    const infoCardW = W * 0.48;
+    doc.roundedRect(M, y - 6, infoCardW, 58, 5).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(colR, y - 6, M + W - colR, 58, 5).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("BILLED TO", M + 8, y, { characterSpacing: 1, lineBreak: false })
+      .text("STAY DETAILS", colR + 8, y, { characterSpacing: 1, lineBreak: false });
+    doc.font(fonts.bold).fontSize(9).fillColor(TEXT_MAIN)
+      .text(data.guestName, M + 8, y + 11, { width: infoCardW - 16, lineBreak: false, ellipsis: true });
+    if (data.guestPhone) {
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(data.guestPhone, M + 8, y + 24, { lineBreak: false });
+    }
+    const nights = Math.max(1, Math.ceil(
+      (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000
+    ));
+    const stayPairs: Array<[string, string]> = [
+      ["Check-in", fmtIsoDate(data.checkIn)],
+      ["Check-out", fmtIsoDate(data.checkOut)],
+      ["Nights", String(nights)],
+      ...(data.rooms.length ? ([["Room", data.rooms.map((r) => r.label).join(", ")]] as Array<[string, string]>) : []),
+    ];
+    let sy = y + 11;
+    for (const [label, value] of stayPairs) {
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text(label, colR + 8, sy, { lineBreak: false });
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+        .text(value, colR + 54, sy, { width: M + W - colR - 62, lineBreak: false, ellipsis: true });
+      sy += 10;
+    }
+    y = Math.max(y + 38, sy + 4) + 6;
+
+    // ── Line items ──
+    tableHeader();
+    tableRow(
+      fmtIsoDate(data.checkIn),
+      "Accommodation",
+      fmtMoney(data.roomTotal, cur),
+      false,
+      `${nights} night${nights !== 1 ? "s" : ""}${data.rooms.length ? ` · ${data.rooms.map((r) => r.label).join(", ")}` : ""}`,
+    );
+    for (const charge of data.charges) {
+      const category = charge.category.replace(/_/g, " ").toLowerCase();
+      const label = category.charAt(0).toUpperCase() + category.slice(1);
+      tableRow(
+        fmtIsoDate(charge.date),
+        label,
+        fmtMoney(charge.amount, cur),
+        false,
+        charge.description || undefined,
+      );
+    }
+    for (const payment of outletPayments) {
+      const method = payment.method
+        ? payment.method.replace(/_/g, " ").toLowerCase()
+        : "payment method not recorded";
+      tableRow(
+        fmtIsoDate(payment.date),
+        payment.outlet,
+        fmtMoney(payment.amount, cur),
+        false,
+        payment.items,
+        `Paid at outlet · ${method} · ${payment.orderNumber}`,
+      );
+    }
+
+    // ── Totals, right-aligned ──
+    const totalsW = 210;
+    const totalsLabelW = 110;
+    const totalsValueW = totalsW - totalsLabelW;
+    const totalsX = M + W - totalsW;
+    const totalsSection = (label: string) => {
+      doc.font(fonts.bold).fontSize(6).fillColor(TEAL)
+        .text(label.toUpperCase(), totalsX, y + 2, { width: totalsW, characterSpacing: 0.8, lineBreak: false });
+      y += 11;
+    };
+    const totalsLine = (label: string, value: string, bold = false, color = TEXT_MAIN) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+        .text(label, totalsX, y + 4, { width: totalsLabelW, lineBreak: false });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8.5).fillColor(color)
+        .text(value, totalsX + totalsLabelW, y + 4, { width: totalsValueW, align: "right", lineBreak: false });
+      y += 14;
+    };
+    doc.font(fonts.regular).fontSize(6.5);
+    const folioBreakdownHeight = folioPaymentBreakdown
+      ? Math.min(16, doc.heightOfString(folioPaymentBreakdown, { width: totalsW, lineGap: 0.5 }))
+      : 0;
+    const totalsRequiredHeight = 155 + (folioBreakdownHeight ? folioBreakdownHeight + 3 : 0);
+    if (y + totalsRequiredHeight > CONTENT_LIMIT) {
+      doc.addPage({ size: "A5", margin: M });
+      drawWatermark();
+      y = M;
+    }
+    y += 4;
+    totalsSection("Guest charges");
+    totalsLine("Room and folio charges", fmtMoney(folioTotal, cur));
+    totalsLine("Outlet purchases", fmtMoney(outletPaidTotal, cur));
+    totalsLine("Total guest spend", fmtMoney(totalGuestSpend, cur), true);
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(totalsX, y + 2).lineTo(M + W, y + 2).stroke();
+    y += 6;
+    totalsSection("Payments received");
+    totalsLine("Folio payments", fmtMoney(data.amountPaid, cur));
+    if (folioPaymentBreakdown) {
+      doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED);
+      doc.text(folioPaymentBreakdown, totalsX, y, { width: totalsW, height: folioBreakdownHeight, lineGap: 0.5, ellipsis: true });
+      y += folioBreakdownHeight + 3;
+    }
+    totalsLine("Outlet payments", fmtMoney(outletPaidTotal, cur));
+    totalsLine("Total collected", fmtMoney(totalCollected, cur), true, TEAL);
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(totalsX, y + 2).lineTo(M + W, y + 2).stroke();
+    y += 5;
+    const dueBoxH = 22;
+    doc.roundedRect(totalsX, y, totalsW, dueBoxH, 3).fill(settled ? "#dcfce7" : "#fef3c7");
+    doc.font(fonts.bold).fontSize(9).fillColor(settled ? "#166534" : AMBER);
+    if (settled) {
+      doc.text("PAID IN FULL", totalsX + 8, y + 7, { width: totalsW - 16, align: "center", lineBreak: false });
+    } else {
+      doc.text("FOLIO BALANCE DUE", totalsX + 8, y + 7, { width: totalsLabelW - 8, lineBreak: false });
+      doc.font(fonts.bold).fontSize(9).fillColor(AMBER)
+        .text(fmtMoney(data.balanceDue, cur), totalsX + totalsLabelW, y + 7, { width: totalsValueW - 8, align: "right", lineBreak: false });
+    }
+    y += dueBoxH + 12;
+
+    // ── Signature and footer, pinned to the bottom of the last page ──
+    // Zero the bottom margin while drawing so pdfkit does not auto-add a page.
+    doc.page.margins.bottom = 0;
+    const signY = A5_H - 74;
+    doc.strokeColor(TEXT_MUTED).lineWidth(0.5).moveTo(M, signY + 12).lineTo(M + 116, signY + 12).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Authorized signature", M, signY + 16, { lineBreak: false });
+    const barcodeX = M + 128;
+    const barcodeW = W - 128;
+    drawCode128Barcode(doc, data.invoiceNumber, barcodeX, signY - 4, barcodeW, 24);
+    doc.font("Courier-Bold").fontSize(6).fillColor(TEXT_MAIN)
+      .text(data.invoiceNumber, barcodeX, signY + 23, { width: barcodeW, align: "center", characterSpacing: 0.45, lineBreak: false });
+    doc.font(fonts.regular).fontSize(5.5).fillColor(TEXT_MUTED)
+      .text("CODE 128 | ISO/IEC 15417", barcodeX, signY + 31, { width: barcodeW, align: "center", lineBreak: false });
+    const footerY = A5_H - 34;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, footerY - 6).lineTo(M + W, footerY - 6).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Powered by NoLSAF | nolsaf.com", M, footerY, { width: W, align: "center" });
+    doc.page.margins.bottom = M;
+  }, { size: "A5", margin: M });
 }

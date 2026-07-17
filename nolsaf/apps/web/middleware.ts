@@ -42,7 +42,28 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  if (path.startsWith("/owner")) {
+  if (path.startsWith("/nrms") && !token) {
+    // Preserve the destination (e.g. the emailed /nrms/confirm?token=... link)
+    // so the user lands back on it after signing in.
+    const next = path + (req.nextUrl.search || "");
+    url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", next);
+    return NextResponse.redirect(url);
+  }
+
+  if (path.startsWith("/owner/nrms")) {
+    // NRMS staff are authorized by property-scoped memberships in the API.
+    // The page shell requires authentication but deliberately does not grant
+    // access to any other Owner route.
+    if (!token) {
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
+      return NextResponse.redirect(url);
+    }
+  } else if (path.startsWith("/owner")) {
     if (role !== "OWNER" && role !== "ADMIN") {
       url.pathname = "/login";
       return NextResponse.redirect(url);
@@ -85,8 +106,12 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // If logged in and on /login, bounce to role home
+  // If logged in and on /login, honor a safe next target, else bounce to role home
   if (path === "/login" && role) {
+    const next = url.searchParams.get("next") || "";
+    if (next.startsWith("/") && !next.startsWith("//")) {
+      return NextResponse.redirect(new URL(next, req.url));
+    }
     if (role === "ADMIN") url.pathname = "/admin/home";
     else if (role === "OWNER") url.pathname = "/owner";
     else if (role === "DRIVER") url.pathname = "/driver";

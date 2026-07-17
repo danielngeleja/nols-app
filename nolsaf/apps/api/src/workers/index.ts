@@ -5,6 +5,7 @@ import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicence
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
 import { acquireLeaderLock } from "./leaderLock.js";
 import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
+import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -63,6 +64,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireStaleBookings();
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
+    startGuestSmsCampaignWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
       startLifecycleHealthWorker();
     } else {

@@ -16,6 +16,8 @@ const socketOrigin = (process.env.NEXT_PUBLIC_SOCKET_URL || '').replace(/\/$/, '
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Keep the local NRMS shell unobstructed; production never shows this badge.
+  devIndicators: false,
   // Generated maps are immediately moved out of public static assets by the
   // post-build collector and retained as private diagnostics artifacts.
   productionBrowserSourceMaps: true,

@@ -274,6 +274,30 @@ model User {
   // TripMeter cost estimates created by this user
   tripEstimates TripEstimate[]
 
+  // NRMS (NoLSAF Rooms Management System)
+  serviceEnrollments      OwnerServiceEnrollment[] @relation("OwnerServiceEnrollments")
+  nrmsReservationsOwned   Reservation[]            @relation("NrmsReservationOwner")
+  nrmsReservationsCreated Reservation[]            @relation("NrmsReservationCreator")
+  nrmsGuestProfiles       GuestProfile[]           @relation("NrmsGuestProfileOwner")
+  roomUnitStatusChanges   RoomUnitStatusHistory[]  @relation("RoomUnitStatusChangedBy")
+  nrmsReservationEvents   ReservationEvent[]       @relation("NrmsReservationEventActor")
+  nrmsPaymentsRecorded    ExternalPaymentRecord[]  @relation("NrmsPaymentRecordedBy")
+  nrmsChargesPosted       ReservationCharge[]      @relation("NrmsChargePostedBy")
+  nrmsStaffMemberships    NrmsStaffMembership[]    @relation("NrmsStaffUser")
+  nrmsOrdersCreated       NrmsOutletOrder[]        @relation("NrmsOrderCreatedBy")
+  nrmsOrdersConfirmed     NrmsOutletOrder[]        @relation("NrmsOrderConfirmedBy")
+  nrmsOrdersSettled       NrmsOutletOrder[]        @relation("NrmsOrderSettledBy")
+  nrmsBusinessDaysOpened  NrmsBusinessDay[]        @relation("NrmsBusinessDayOpenedBy")
+  nrmsBusinessDaysClosed  NrmsBusinessDay[]        @relation("NrmsBusinessDayClosedBy")
+  nrmsNightAuditsStarted  NrmsNightAuditRun[]      @relation("NrmsNightAuditStartedBy")
+  nrmsNightAuditsClosed   NrmsNightAuditRun[]      @relation("NrmsNightAuditClosedBy")
+  nrmsCashierShifts       NrmsCashierShift[]       @relation("NrmsCashierShiftUser")
+  nrmsCashierApprovals    NrmsCashierShift[]       @relation("NrmsCashierShiftApprovedBy")
+  nrmsPaygAccounts        OwnerPaygAccount[]       @relation("NrmsPaygAccountOwner")
+  guestSmsPreferences     GuestSmsPreference[]     @relation("GuestSmsPreferenceOwner")
+  guestSmsCampaigns       GuestSmsCampaign[]       @relation("GuestSmsCampaignOwner")
+  guestSmsAnnualQuotas    GuestSmsAnnualQuota[]    @relation("GuestSmsAnnualQuotaOwner")
+
   @@index([role])
   @@index([email])
   @@index([phone])
@@ -350,6 +374,11 @@ model Property {
   lastSubmittedAt  DateTime?
   rejectionReasons Json? // Array of strings
 
+  /// NRMS operational activation timestamp. Starts the 45-day PAYG trial clock
+  /// for this property (NRMS doc section 8.2). NULL = property not NRMS-activated;
+  /// owner-level access is governed by OwnerServiceEnrollment.
+  nrmsActivatedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -365,6 +394,22 @@ model Property {
   reviews            PropertyReview[]
   savedBy            SavedProperty[]
   availabilityBlocks PropertyAvailabilityBlock[]
+
+  // NRMS (normalized room inventory + operational reservations)
+  roomTypes              RoomType[]
+  roomUnits              RoomUnit[]
+  nrmsReservations       Reservation[]
+  guestProfiles          GuestProfile[]
+  nrmsPaygAccount        OwnerPaygAccount?
+  nrmsUsageEvents        NrmsUsageEvent[]
+  nrmsSmsCampaigns       GuestSmsCampaign[]
+  nrmsOutlets            NrmsOutlet[]
+  nrmsStaff              NrmsStaffMembership[]
+  nrmsOutletOrders       NrmsOutletOrder[]
+  nrmsBusinessDays       NrmsBusinessDay[]
+  nrmsNightAudits        NrmsNightAuditRun[]
+  nrmsCashierShifts      NrmsCashierShift[]
+  nrmsLedgerTransactions NrmsLedgerTransaction[]
 
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
@@ -455,6 +500,11 @@ model Booking {
   referralEarnings     ReferralEarning[]
   cancellationRequests CancellationRequest[]
   tripEstimates        TripEstimate[]
+
+  /// NRMS operational view of this marketplace booking (NRMS doc section 6.5).
+  /// Booking remains the commercial source of truth; the linked Reservation only
+  /// carries room allocation and stay operations. Never duplicates money fields.
+  nrmsReservation Reservation?
 
   @@index([propertyId])
   @@index([propertyId, checkIn, checkOut])
@@ -2674,9 +2724,9 @@ model CancellationRequest {
   policyRule          String? @db.VarChar(40)
 
   /// Admin review fields (optional)
-  reviewedAt   DateTime?
-  reviewedBy   Int?
-  decisionNote String?   @db.Text
+  reviewedAt        DateTime?
+  reviewedBy        Int?
+  decisionNote      String?   @db.Text
   approvedAt        DateTime?
   approvedByAdminId Int?
   refundAmount      Decimal?  @db.Decimal(12, 2)
@@ -2865,17 +2915,34 @@ model PropertyAvailabilityBlock {
   /// Number of beds/rooms blocked (for room-type level tracking)
   bedsBlocked Int? @default(1)
 
+  /// NRMS classification (NRMS doc section 10.2). NULL = unclassified legacy block.
+  /// OPERATIONAL       - maintenance/owner-use/closure, never billable
+  /// EXTERNAL_LEGACY   - externally managed reservation kept as a block (Type A)
+  /// AMBIGUOUS         - insufficient evidence for safe automatic conversion
+  kind String? @db.VarChar(30)
+
+  /// Optional link to a normalized room unit once inventory is migrated
+  roomUnitId Int?
+
+  /// Set when this block was converted into an NRMS Reservation during migration.
+  /// The original block row is retained for audit (doc 10.2: no destructive deletes).
+  migratedReservationId Int? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  owner    User     @relation("PropertyAvailabilityBlocks", fields: [ownerId], references: [id], onDelete: Cascade)
+  property            Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner               User         @relation("PropertyAvailabilityBlocks", fields: [ownerId], references: [id], onDelete: Cascade)
+  roomUnit            RoomUnit?    @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+  migratedReservation Reservation? @relation("BlockMigratedReservation", fields: [migratedReservationId], references: [id], onDelete: SetNull)
 
   @@index([propertyId])
   @@index([ownerId])
   @@index([startDate, endDate])
   @@index([propertyId, startDate, endDate])
+  @@index([kind])
+  @@index([roomUnitId, startDate, endDate])
   @@index([roomCode])
   @@map("propertyavailabilityblock")
 }
@@ -3295,21 +3362,21 @@ model TransportPickupPoint {
 //  Read models only. They never replace native booking/payment state.
 // =========================================================
 model LifecycleSnapshot {
-  id                   Int      @id @default(autoincrement())
-  serviceType          String   @db.VarChar(20) // PROPERTY | GROUP_STAY | TOUR
-  bookingId            Int
-  bookingStage         String   @db.VarChar(30)
-  paymentStage         String   @db.VarChar(30)
-  receiptStage         String   @db.VarChar(30)
-  responsibilityStage  String   @db.VarChar(30)
-  caseStage            String   @db.VarChar(30)
-  requiredAction       String   @db.VarChar(40)
-  consistencyStatus    String   @db.VarChar(20) // CONSISTENT | REVIEW_REQUIRED
-  issueFingerprint     String?  @db.VarChar(128)
-  issues               Json?
-  calculatedAt         DateTime @default(now())
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                  Int      @id @default(autoincrement())
+  serviceType         String   @db.VarChar(20) // PROPERTY | GROUP_STAY | TOUR
+  bookingId           Int
+  bookingStage        String   @db.VarChar(30)
+  paymentStage        String   @db.VarChar(30)
+  receiptStage        String   @db.VarChar(30)
+  responsibilityStage String   @db.VarChar(30)
+  caseStage           String   @db.VarChar(30)
+  requiredAction      String   @db.VarChar(40)
+  consistencyStatus   String   @db.VarChar(20) // CONSISTENT | REVIEW_REQUIRED
+  issueFingerprint    String?  @db.VarChar(128)
+  issues              Json?
+  calculatedAt        DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([serviceType, bookingId])
   @@index([consistencyStatus, calculatedAt])
@@ -3319,29 +3386,880 @@ model LifecycleSnapshot {
 }
 
 model LifecycleException {
-  id             Int      @id @default(autoincrement())
-  serviceType    String   @db.VarChar(20)
+  id             Int       @id @default(autoincrement())
+  serviceType    String    @db.VarChar(20)
   bookingId      Int
-  code           String   @db.VarChar(80)
-  severity       String   @db.VarChar(20) // WARNING | ERROR
-  status         String   @default("OPEN") @db.VarChar(20) // OPEN | ACKNOWLEDGED | RESOLVED | IGNORED
-  fingerprint    String   @db.VarChar(128)
-  message        String   @db.Text
+  code           String    @db.VarChar(80)
+  severity       String    @db.VarChar(20) // WARNING | ERROR
+  status         String    @default("OPEN") @db.VarChar(20) // OPEN | ACKNOWLEDGED | RESOLVED | IGNORED
+  fingerprint    String    @db.VarChar(128)
+  message        String    @db.Text
   metadata       Json?
-  firstSeenAt    DateTime @default(now())
-  lastSeenAt     DateTime @default(now())
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
   acknowledgedAt DateTime?
   resolvedAt     DateTime?
   ignoredAt      DateTime?
   acknowledgedBy Int?
   resolvedBy     Int?
   ignoredBy      Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([serviceType, bookingId, fingerprint])
   @@index([status, severity, lastSeenAt])
   @@index([serviceType, bookingId])
   @@index([code, status])
   @@map("lifecycle_exceptions")
+}
+
+// =========================================================
+//  NRMS - NoLSAF Rooms Management System
+//  Reference: docs/NOLSAF_ROOMS_MANAGEMENT_SYSTEM.md
+//  Phase 1: entitlement + normalized room inventory
+//  Phase 2: external reservations, stays, guests, payments
+//  PAYG billing models arrive with Phase 3 (doc section 15).
+//  Booking remains the commercial source of truth for marketplace
+//  stays; PropertyAvailabilityBlock keeps serving Type A owners.
+// =========================================================
+
+/// A NoLSAF service product an owner can enroll in (doc section 5).
+/// First row: code NRMS_PAYG (usage-based subscription, no base fee).
+model ServicePlan {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique @db.VarChar(40) // e.g. NRMS_PAYG
+  name        String  @db.VarChar(120)
+  description String? @db.Text
+  status      String  @default("ACTIVE") @db.VarChar(20) // DRAFT, ACTIVE, RETIRED
+  /// Plan-level configuration (trial days, links to versioned pricing policy).
+  /// Commercial numbers must live in versioned policy, not hard-coded (doc 8.7).
+  config      Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments OwnerServiceEnrollment[]
+
+  @@index([status])
+  @@map("service_plan")
+}
+
+/// Owner enrollment into a service plan (doc section 5). Workspace mode is
+/// derived from this, never stored separately: an ACTIVE or eligible TRIAL
+/// NRMS enrollment = MARKETPLACE_NRMS, otherwise MARKETPLACE_ONLY.
+/// Cancelling must never erase room/reservation/guest history (doc 5).
+model OwnerServiceEnrollment {
+  id      Int    @id @default(autoincrement())
+  ownerId Int
+  planId  Int
+  status  String @default("PENDING") @db.VarChar(20) // PENDING, TRIAL, ACTIVE, PAST_DUE, SUSPENDED, CANCELLED
+
+  trialStartsAt DateTime?
+  trialEndsAt   DateTime?
+  activatedAt   DateTime?
+  suspendedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?   @db.VarChar(300)
+  notes         String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User        @relation("OwnerServiceEnrollments", fields: [ownerId], references: [id], onDelete: Cascade)
+  plan  ServicePlan @relation(fields: [planId], references: [id])
+
+  @@unique([ownerId, planId])
+  @@index([status])
+  @@index([planId, status])
+  @@map("owner_service_enrollment")
+}
+
+/// Normalized room category for a property (doc 7.1, 9.2).
+/// Replaces reads of Property.roomsSpec over time; roomsSpec stays until all
+/// dependent reads are migrated (doc 10.4). sourceSpecKey ties a type back to
+/// its roomsSpec entry for the reconciliation report.
+model RoomType {
+  id          Int     @id @default(autoincrement())
+  propertyId  Int
+  name        String  @db.VarChar(120)
+  description String? @db.Text
+
+  capacityAdults   Int     @default(2)
+  capacityChildren Int     @default(0)
+  /// Human-readable bed setup, e.g. "1 queen and 1 single"
+  bedSetup         String? @db.VarChar(200)
+
+  baseRate Decimal? @db.Decimal(12, 2) // standard rate per night
+  currency String   @default("TZS") @db.VarChar(3)
+
+  images    Json? // Array of URLs
+  amenities Json? // Array of strings
+
+  status    String @default("ACTIVE") @db.VarChar(20) // ACTIVE, INACTIVE
+  sortOrder Int    @default(0)
+
+  /// Key of the originating entry in Property.roomsSpec (migration audit)
+  sourceSpecKey String? @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property    Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  units       RoomUnit[]
+  allocations ReservationRoomAllocation[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, status])
+  @@map("room_type")
+}
+
+/// An individual physical room (doc 7.1, 9.2). Status here is inventory
+/// state; owner-use and temporary closures stay in PropertyAvailabilityBlock
+/// because blocks are not reservations and are never billable (doc 4).
+model RoomUnit {
+  id         Int     @id @default(autoincrement())
+  propertyId Int
+  roomTypeId Int
+  /// Room number/code shown on the door, e.g. "R101"
+  code       String  @db.VarChar(30)
+  floor      Int?
+  status     String  @default("ACTIVE") @db.VarChar(20) // ACTIVE, INACTIVE, MAINTENANCE, OUT_OF_SERVICE
+  notes      String? @db.VarChar(500)
+  /// Physical sleeping places used by NBS accommodation statistics.
+  bedCount   Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property           Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType           RoomType                    @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  statusHistory      RoomUnitStatusHistory[]
+  allocations        ReservationRoomAllocation[]
+  availabilityBlocks PropertyAvailabilityBlock[]
+
+  @@unique([propertyId, code])
+  @@index([roomTypeId, status])
+  @@index([propertyId, status])
+  @@map("room_unit")
+}
+
+/// Audit trail of room unit status changes (doc 9.2, 14).
+model RoomUnitStatusHistory {
+  id          Int     @id @default(autoincrement())
+  roomUnitId  Int
+  fromStatus  String  @db.VarChar(20)
+  toStatus    String  @db.VarChar(20)
+  reason      String? @db.VarChar(300)
+  changedById Int?
+
+  createdAt DateTime @default(now())
+
+  roomUnit  RoomUnit @relation(fields: [roomUnitId], references: [id], onDelete: Cascade)
+  changedBy User?    @relation("RoomUnitStatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([roomUnitId, createdAt])
+  @@map("room_unit_status_history")
+}
+
+/// Property-scoped guest record (doc 7.6). Tenant-isolated: one owner must
+/// never see another owner's guests (doc 4). Promotional consent is stored in
+/// GuestSmsPreference by canonical owner + phone, never inferred from a booking.
+model GuestProfile {
+  id          Int     @id @default(autoincrement())
+  propertyId  Int
+  ownerId     Int
+  fullName    String  @db.VarChar(160)
+  phone       String? @db.VarChar(40)
+  email       String? @db.VarChar(160)
+  nationality String? @db.VarChar(80)
+  notes       String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property              Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner                 User                        @relation("NrmsGuestProfileOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  reservations          Reservation[]
+  smsCampaignRecipients GuestSmsCampaignRecipient[]
+
+  @@index([propertyId, phone])
+  @@index([propertyId, fullName])
+  @@index([ownerId])
+  @@map("guest_profile")
+}
+
+/// Owner-level marketing consent keyed by canonical phone number. Keeping this
+/// separate from GuestProfile prevents duplicate profiles/properties from
+/// disagreeing about whether the same person opted in or out.
+model GuestSmsPreference {
+  id              Int       @id @default(autoincrement())
+  ownerId         Int
+  normalizedPhone String    @db.VarChar(24)
+  status          String    @default("UNKNOWN") @db.VarChar(20) // UNKNOWN, OPTED_IN, OPTED_OUT
+  consentSource   String?   @db.VarChar(40)
+  consentAt       DateTime?
+  optedOutAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  owner User @relation("GuestSmsPreferenceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, normalizedPhone])
+  @@index([ownerId, status])
+  @@map("guest_sms_preference")
+}
+
+/// One auditable promotional send request. Recipients are snapshotted when the
+/// campaign is queued so later guest/profile edits cannot silently change it.
+model GuestSmsCampaign {
+  id             Int       @id @default(autoincrement())
+  ownerId        Int
+  propertyId     Int
+  name           String    @db.VarChar(120)
+  kind           String    @db.VarChar(30) // OFFER, RETURN_INVITATION
+  message        String    @db.VarChar(612)
+  audienceType   String    @db.VarChar(30) // SELECTED, ALL_ELIGIBLE, INACTIVE_90, INACTIVE_180, INACTIVE_365, REPEAT_GUESTS
+  audienceFilter Json?
+  status         String    @default("DRAFT") @db.VarChar(20) // DRAFT, QUEUED, SENDING, COMPLETED, PARTIAL, FAILED, CANCELLED
+  totalCount     Int       @default(0)
+  eligibleCount  Int       @default(0)
+  sentCount      Int       @default(0)
+  failedCount    Int       @default(0)
+  skippedCount   Int       @default(0)
+  queuedAt       DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  owner      User                        @relation("GuestSmsCampaignOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  property   Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  recipients GuestSmsCampaignRecipient[]
+
+  @@index([ownerId, createdAt])
+  @@index([propertyId, status])
+  @@map("guest_sms_campaign")
+}
+
+/// Delivery record for one unique phone in one campaign. The unique key stops
+/// duplicate guest profiles from receiving the same campaign more than once.
+model GuestSmsCampaignRecipient {
+  id                Int       @id @default(autoincrement())
+  campaignId        Int
+  guestProfileId    Int?
+  normalizedPhone   String    @db.VarChar(24)
+  guestName         String    @db.VarChar(160)
+  status            String    @default("QUEUED") @db.VarChar(20) // QUEUED, SENDING, SENT, FAILED, SKIPPED
+  skipReason        String?   @db.VarChar(40)
+  provider          String?   @db.VarChar(30)
+  providerMessageId String?   @db.VarChar(160)
+  errorMessage      String?   @db.VarChar(500)
+  quotaYear         Int?
+  sentAt            DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  campaign     GuestSmsCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  guestProfile GuestProfile?    @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, normalizedPhone])
+  @@index([status, createdAt])
+  @@index([guestProfileId])
+  @@map("guest_sms_campaign_recipient")
+}
+
+/// Atomic reservation counter for the maximum three promotional messages per
+/// owner, phone number, and calendar year.
+model GuestSmsAnnualQuota {
+  id              Int      @id @default(autoincrement())
+  ownerId         Int
+  normalizedPhone String   @db.VarChar(24)
+  year            Int
+  usedCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner User @relation("GuestSmsAnnualQuotaOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, normalizedPhone, year])
+  @@index([ownerId, year])
+  @@map("guest_sms_annual_quota")
+}
+
+/// NRMS operational reservation (doc 6.3, 6.4, 9.3).
+/// External/direct/walk-in stays use this as their source of truth.
+/// A NoLSAF marketplace stay links here via bookingId as an operational view
+/// only; Booking keeps payment/commission/payout authority (doc 6.5).
+/// Lifecycle: DRAFT -> HELD -> CONFIRMED -> CHECKED_IN -> CHECKED_OUT,
+/// terminal alternatives CANCELLED, NO_SHOW, EXPIRED. HELD consumes inventory
+/// until holdExpiresAt; CANCELLED/EXPIRED/NO_SHOW do not (doc 6.4).
+model Reservation {
+  id             Int  @id @default(autoincrement())
+  propertyId     Int
+  ownerId        Int
+  guestProfileId Int?
+  /// 1:1 link to the marketplace booking when source is NOLSAF
+  bookingId      Int? @unique
+
+  source      String  @default("WALK_IN") @db.VarChar(20) // NOLSAF, WALK_IN, PHONE, DIRECT, AIRBNB, BOOKING_COM, EXPEDIA, OTHER
+  /// Commercial attribution (doc 7.10): NOLSAF_MARKETPLACE, OWNER_DIRECT, EXTERNAL_RECORDED
+  attribution String? @db.VarChar(30)
+  /// Reference in the external system (e.g. Airbnb confirmation code)
+  externalRef String? @db.VarChar(120)
+
+  status        String    @default("DRAFT") @db.VarChar(20) // DRAFT, HELD, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED, NO_SHOW, EXPIRED
+  holdExpiresAt DateTime?
+
+  checkIn  DateTime
+  checkOut DateTime
+  adults   Int      @default(1)
+  children Int      @default(0)
+
+  // Price snapshot for external stays (doc 4: snapshot when applied).
+  // Marketplace money stays on Booking/Invoice; these fields are NULL/0 for
+  // source NOLSAF reservations.
+  currency       String   @default("TZS") @db.VarChar(3)
+  roomRate       Decimal? @db.Decimal(12, 2) // quoted rate per night
+  discountAmount Decimal  @default(0.00) @db.Decimal(12, 2)
+  taxAmount      Decimal  @default(0.00) @db.Decimal(12, 2)
+  totalAmount    Decimal  @default(0.00) @db.Decimal(12, 2)
+  depositAmount  Decimal  @default(0.00) @db.Decimal(12, 2)
+  /// Denormalized sum of non-voided ExternalPaymentRecord rows
+  amountPaid     Decimal  @default(0.00) @db.Decimal(12, 2)
+  /// Denormalized sum of non-voided ReservationCharge rows (guest folio extras)
+  chargesTotal   Decimal  @default(0.00) @db.Decimal(12, 2)
+
+  // Lifecycle timestamps (actual, not scheduled)
+  confirmedAt  DateTime?
+  checkedInAt  DateTime?
+  checkedOutAt DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?   @db.VarChar(300)
+  noShowAt     DateTime?
+
+  notes       String? @db.Text
+  createdById Int?
+
+  /// Stable number printed on NRMS invoices/receipts and encoded in Code 128.
+  receiptNumber String? @unique @db.VarChar(32)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property     Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner        User          @relation("NrmsReservationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  guestProfile GuestProfile? @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+  booking      Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation("NrmsReservationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  allocations     ReservationRoomAllocation[]
+  events          ReservationEvent[]
+  payments        ExternalPaymentRecord[]
+  charges         ReservationCharge[]
+  outletOrders    NrmsOutletOrder[]
+  nrmsUsageEvents NrmsUsageEvent[]
+  /// Legacy availability block this reservation was migrated from (doc 10.2)
+  legacyBlock     PropertyAvailabilityBlock?  @relation("BlockMigratedReservation")
+
+  @@index([propertyId, checkIn, checkOut])
+  @@index([propertyId, status])
+  @@index([ownerId, status])
+  @@index([guestProfileId])
+  @@index([source])
+  @@index([status, holdExpiresAt])
+  @@map("reservation")
+}
+
+/// Room-type or room-unit allocation for a reservation (doc 9.3). One row per
+/// allocated room; a room move releases the old row and creates a new one so
+/// history is preserved (doc 4, 7.4). Date-range rows are what the shared
+/// availability kernel queries (doc 6.1).
+model ReservationRoomAllocation {
+  id            Int  @id @default(autoincrement())
+  reservationId Int
+  roomTypeId    Int
+  roomUnitId    Int?
+
+  startDate DateTime
+  endDate   DateTime // exclusive, like checkout
+
+  status String @default("ACTIVE") @db.VarChar(20) // ACTIVE, RELEASED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reservation     Reservation      @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  roomType        RoomType         @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  roomUnit        RoomUnit?        @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+  nrmsUsageEvents NrmsUsageEvent[]
+
+  @@index([reservationId])
+  @@index([roomUnitId, status, startDate, endDate], map: "rra_unit_status_start_end_idx")
+  @@index([roomTypeId, status, startDate, endDate], map: "rra_type_status_start_end_idx")
+  @@map("reservation_room_allocation")
+}
+
+/// Immutable audit timeline for a reservation/stay (doc 9.3 StayEvent, 14).
+model ReservationEvent {
+  id            Int    @id @default(autoincrement())
+  reservationId Int
+  type          String @db.VarChar(40) // CREATED, CONFIRMED, ROOM_ASSIGNED, ROOM_MOVED, CHECKED_IN, CHECKED_OUT, CANCELLED, NO_SHOW, EXPIRED, PAYMENT_RECORDED, PAYMENT_VOIDED, CHARGE_POSTED, CHARGE_VOIDED, EDITED
+  data          Json?
+  actorId       Int?
+
+  createdAt DateTime @default(now())
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  actor       User?       @relation("NrmsReservationEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([reservationId, createdAt])
+  @@index([type])
+  @@map("reservation_event")
+}
+
+/// Recorded external payment against an NRMS reservation (doc 7.7, 9.4).
+/// NRMS records these; it is not the merchant or collector (doc 7.7).
+/// Rows are never deleted or edited after creation: corrections use voidedAt
+/// plus a replacement row (immutable change history, doc 7.7).
+model ExternalPaymentRecord {
+  id            Int     @id @default(autoincrement())
+  reservationId Int
+  amount        Decimal @db.Decimal(12, 2)
+  currency      String  @default("TZS") @db.VarChar(3)
+  method        String  @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  reference     String? @db.VarChar(120)
+  note          String? @db.VarChar(300)
+  recordedById  Int?
+
+  voidedAt   DateTime?
+  voidReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  recordedBy  User?       @relation("NrmsPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([reservationId, createdAt])
+  @@index([method])
+  @@map("external_payment_record")
+}
+
+/// Extra guest charge posted to an NRMS reservation folio (restaurant, bar,
+/// laundry, minibar, room service, transport, damage, other). Sits on top of
+/// the room-stay totalAmount: guest balance = totalAmount + chargesTotal -
+/// amountPaid. Rows are never deleted or edited after creation: corrections
+/// use voidedAt plus a replacement row, mirroring ExternalPaymentRecord.
+model ReservationCharge {
+  id            Int     @id @default(autoincrement())
+  reservationId Int
+  category      String  @db.VarChar(30) // RESTAURANT, BAR, LAUNDRY, MINIBAR, ROOM_SERVICE, TRANSPORT, DAMAGE, OTHER
+  description   String? @db.VarChar(300)
+  amount        Decimal @db.Decimal(12, 2)
+  currency      String  @default("TZS") @db.VarChar(3)
+  postedById    Int?
+
+  voidedAt   DateTime?
+  voidReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+
+  reservation Reservation      @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  postedBy    User?            @relation("NrmsChargePostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  outletOrder NrmsOutletOrder? @relation("NrmsOrderFolioCharge")
+
+  @@index([reservationId, createdAt])
+  @@index([category])
+  @@map("reservation_charge")
+}
+
+/// Property-scoped restaurant, bar, or service outlet operating only inside NRMS.
+model NrmsOutlet {
+  id         Int    @id @default(autoincrement())
+  propertyId Int
+  name       String @db.VarChar(120)
+  code       String @db.VarChar(24)
+  type       String @db.VarChar(30) // RESTAURANT, BAR, OTHER
+  status     String @default("ACTIVE") @db.VarChar(20)
+  currency   String @default("TZS") @db.VarChar(3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  menuItems   NrmsMenuItem[]
+  memberships NrmsStaffMembership[]
+  orders      NrmsOutletOrder[]
+
+  @@unique([propertyId, code])
+  @@index([propertyId, type, status])
+  @@map("nrms_outlet")
+}
+
+/// A user may operate only the assigned property/outlet; this never grants OWNER access.
+model NrmsStaffMembership {
+  id         Int    @id @default(autoincrement())
+  propertyId Int
+  userId     Int
+  outletId   Int?
+  role       String @db.VarChar(30) // MANAGER, FRONT_DESK, RESTAURANT, BAR, OUTLET_SUPERVISOR
+  status     String @default("ACTIVE") @db.VarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User        @relation("NrmsStaffUser", fields: [userId], references: [id], onDelete: Cascade)
+  outlet   NrmsOutlet? @relation(fields: [outletId], references: [id], onDelete: SetNull)
+
+  @@unique([propertyId, userId, role])
+  @@index([userId, status])
+  @@index([outletId, status])
+  @@map("nrms_staff_membership")
+}
+
+model NrmsMenuItem {
+  id       Int     @id @default(autoincrement())
+  outletId Int
+  name     String  @db.VarChar(160)
+  category String? @db.VarChar(80)
+  sku      String? @db.VarChar(50)
+  price    Decimal @db.Decimal(12, 2)
+  status   String  @default("ACTIVE") @db.VarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet     NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  orderItems NrmsOutletOrderItem[]
+
+  @@unique([outletId, sku])
+  @@index([outletId, status, category])
+  @@map("nrms_menu_item")
+}
+
+/// Itemised outlet order. A room-folio order links to exactly one immutable charge.
+model NrmsOutletOrder {
+  id               Int     @id @default(autoincrement())
+  propertyId       Int
+  outletId         Int
+  reservationId    Int
+  folioChargeId    Int?    @unique
+  orderNumber      String  @unique @db.VarChar(40)
+  status           String  @default("CONFIRMED") @db.VarChar(30)
+  settlementMode   String  @default("ROOM_FOLIO") @db.VarChar(30)
+  currency         String  @default("TZS") @db.VarChar(3)
+  subtotal         Decimal @db.Decimal(12, 2)
+  total            Decimal @db.Decimal(12, 2)
+  note             String? @db.VarChar(300)
+  createdById      Int?
+  confirmedById    Int?
+  /// Tender used when settlementMode is OUTLET_PAYMENT.
+  settlementMethod String? @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  settledById      Int?
+
+  confirmedAt DateTime?
+  preparingAt DateTime?
+  servedAt    DateTime?
+  postedAt    DateTime?
+  settledAt   DateTime?
+  cancelledAt DateTime?
+  voidedAt    DateTime?
+  voidReason  String?   @db.VarChar(300)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  outlet      NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  reservation Reservation           @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  folioCharge ReservationCharge?    @relation("NrmsOrderFolioCharge", fields: [folioChargeId], references: [id], onDelete: SetNull)
+  createdBy   User?                 @relation("NrmsOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  confirmedBy User?                 @relation("NrmsOrderConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  settledBy   User?                 @relation("NrmsOrderSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
+  items       NrmsOutletOrderItem[]
+
+  @@index([propertyId, status, createdAt])
+  @@index([outletId, status, createdAt])
+  @@index([reservationId, createdAt])
+  @@index([settledById])
+  @@map("nrms_outlet_order")
+}
+
+/// One controlled operating date per property. A CLOSED date is immutable.
+model NrmsBusinessDay {
+  id           Int       @id @default(autoincrement())
+  propertyId   Int
+  businessDate DateTime  @db.Date
+  status       String    @default("OPEN") @db.VarChar(20) // OPEN, CLOSING, CLOSED
+  openedById   Int?
+  closedById   Int?
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime?
+
+  property      Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  openedBy      User?                   @relation("NrmsBusinessDayOpenedBy", fields: [openedById], references: [id], onDelete: SetNull)
+  closedBy      User?                   @relation("NrmsBusinessDayClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  nightAudits   NrmsNightAuditRun[]
+  cashierShifts NrmsCashierShift[]
+  transactions  NrmsLedgerTransaction[]
+
+  @@unique([propertyId, businessDate])
+  @@index([propertyId, status, businessDate])
+  @@map("nrms_business_day")
+}
+
+/// Immutable record of each attempted and completed Night Audit.
+model NrmsNightAuditRun {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  businessDayId Int
+  status        String    @default("DRAFT") @db.VarChar(20) // DRAFT, BLOCKED, CLOSED, FAILED
+  reportNumber  String    @unique @db.VarChar(48)
+  blockers      Json?
+  warnings      Json?
+  summary       Json?
+  startedById   Int?
+  closedById    Int?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  property     Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  businessDay  NrmsBusinessDay         @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
+  startedBy    User?                   @relation("NrmsNightAuditStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
+  closedBy     User?                   @relation("NrmsNightAuditClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  transactions NrmsLedgerTransaction[]
+
+  @@index([propertyId, startedAt])
+  @@index([businessDayId, status])
+  @@map("nrms_night_audit_run")
+}
+
+/// Cash accountability for one operator and business date.
+model NrmsCashierShift {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  businessDayId Int
+  userId        Int
+  businessDate  DateTime  @db.Date
+  currency      String    @default("TZS") @db.VarChar(3)
+  status        String    @default("OPEN") @db.VarChar(20) // OPEN, CLOSED
+  openingFloat  Decimal   @default(0.00) @db.Decimal(12, 2)
+  expectedCash  Decimal   @default(0.00) @db.Decimal(12, 2)
+  declaredCash  Decimal?  @db.Decimal(12, 2)
+  variance      Decimal?  @db.Decimal(12, 2)
+  closeNote     String?   @db.VarChar(300)
+  approvedById  Int?
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+
+  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  businessDay NrmsBusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
+  user        User            @relation("NrmsCashierShiftUser", fields: [userId], references: [id], onDelete: Restrict)
+  approvedBy  User?           @relation("NrmsCashierShiftApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, businessDate, status])
+  @@index([userId, openedAt])
+  @@map("nrms_cashier_shift")
+}
+
+/// Header for an immutable double-entry accounting event.
+model NrmsLedgerTransaction {
+  id                Int      @id @default(autoincrement())
+  propertyId        Int
+  businessDayId     Int
+  nightAuditRunId   Int?
+  transactionNumber String   @unique @db.VarChar(48)
+  sourceKey         String   @unique @db.VarChar(100)
+  sourceType        String   @db.VarChar(30)
+  sourceId          Int?
+  description       String   @db.VarChar(300)
+  currency          String   @default("TZS") @db.VarChar(3)
+  occurredAt        DateTime
+  createdAt         DateTime @default(now())
+
+  property      Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  businessDay   NrmsBusinessDay    @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
+  nightAuditRun NrmsNightAuditRun? @relation(fields: [nightAuditRunId], references: [id], onDelete: SetNull)
+  entries       NrmsLedgerEntry[]
+
+  @@index([propertyId, occurredAt])
+  @@index([businessDayId, sourceType])
+  @@map("nrms_ledger_transaction")
+}
+
+model NrmsLedgerEntry {
+  id            Int     @id @default(autoincrement())
+  transactionId Int
+  accountCode   String  @db.VarChar(20)
+  accountName   String  @db.VarChar(100)
+  accountType   String  @db.VarChar(20) // ASSET, LIABILITY, REVENUE, EXPENSE, EQUITY
+  debit         Decimal @default(0.00) @db.Decimal(12, 2)
+  credit        Decimal @default(0.00) @db.Decimal(12, 2)
+  description   String? @db.VarChar(300)
+
+  transaction NrmsLedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([accountCode, transactionId])
+  @@map("nrms_ledger_entry")
+}
+
+model NrmsOutletOrderItem {
+  id           Int      @id @default(autoincrement())
+  orderId      Int
+  menuItemId   Int?
+  nameSnapshot String   @db.VarChar(160)
+  quantity     Int
+  unitPrice    Decimal  @db.Decimal(12, 2)
+  lineTotal    Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+
+  order    NrmsOutletOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem NrmsMenuItem?   @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@map("nrms_outlet_order_item")
+}
+
+/// Immutable, effective-dated NRMS charging policy. A new price creates a new
+/// row/version; historical usage always points to the policy that priced it.
+model NrmsUsageChargePolicy {
+  id             Int       @id @default(autoincrement())
+  version        String    @unique @db.VarChar(60)
+  status         String    @default("ACTIVE") @db.VarChar(20)
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  currency       String    @default("TZS") @db.VarChar(3)
+  roomNightPrice Decimal   @db.Decimal(12, 2)
+  trialDays      Int       @default(45)
+  reminderAmount Decimal   @default(25000.00) @db.Decimal(12, 2)
+  warningAmount  Decimal   @default(40000.00) @db.Decimal(12, 2)
+  unpaidLimit    Decimal   @default(50000.00) @db.Decimal(12, 2)
+  createdAt      DateTime  @default(now())
+
+  accounts OwnerPaygAccount[]
+  events   NrmsUsageEvent[]
+
+  @@index([status, effectiveFrom])
+  @@map("nrms_usage_charge_policy")
+}
+
+/// Property-level trial, PAYG balance and service state. Enrollment grants the
+/// product; this account governs one property's operational/billing access.
+model OwnerPaygAccount {
+  id            Int      @id @default(autoincrement())
+  propertyId    Int      @unique
+  ownerId       Int
+  policyId      Int
+  status        String   @default("TRIAL") @db.VarChar(30) // TRIAL, ACTIVE, WARNING, PAYMENT_REQUIRED, PAYMENT_PENDING, CLOSED
+  trialStartsAt DateTime
+  trialEndsAt   DateTime
+  unpaidBalance Decimal  @default(0.00) @db.Decimal(12, 2)
+  unpaidLimit   Decimal  @default(50000.00) @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  property   Property               @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  owner      User                   @relation("NrmsPaygAccountOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  policy     NrmsUsageChargePolicy  @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  events     NrmsUsageEvent[]
+  statements NrmsBillingStatement[]
+
+  @@index([ownerId, status])
+  @@index([status, unpaidBalance])
+  @@map("owner_payg_account")
+}
+
+/// One immutable classification/charge per room allocation and service date.
+model NrmsUsageEvent {
+  id             Int      @id @default(autoincrement())
+  accountId      Int
+  propertyId     Int
+  reservationId  Int
+  allocationId   Int
+  policyId       Int
+  serviceDate    DateTime @db.Date
+  classification String   @db.VarChar(30) // BILLABLE_EXTERNAL, TRIAL_FREE, COMMISSION_ONLY, REVERSAL
+  source         String   @db.VarChar(20)
+  currency       String   @default("TZS") @db.VarChar(3)
+  amount         Decimal  @default(0.00) @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  account       OwnerPaygAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  property      Property                  @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  reservation   Reservation               @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  allocation    ReservationRoomAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  policy        NrmsUsageChargePolicy     @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  statementItem NrmsBillingStatementItem?
+
+  @@unique([allocationId, serviceDate, policyId])
+  @@index([accountId, createdAt])
+  @@index([propertyId, serviceDate])
+  @@map("nrms_usage_event")
+}
+
+model NrmsBillingStatement {
+  id        Int       @id @default(autoincrement())
+  accountId Int
+  status    String    @default("PAYABLE") @db.VarChar(20)
+  currency  String    @default("TZS") @db.VarChar(3)
+  amount    Decimal   @db.Decimal(12, 2)
+  closedAt  DateTime  @default(now())
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  account OwnerPaygAccount           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  items   NrmsBillingStatementItem[]
+  tokens  NrmsServicePaymentToken[]
+
+  @@index([accountId, status])
+  @@map("nrms_billing_statement")
+}
+
+model NrmsBillingStatementItem {
+  id           Int      @id @default(autoincrement())
+  statementId  Int
+  usageEventId Int      @unique
+  amount       Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+
+  statement  NrmsBillingStatement @relation(fields: [statementId], references: [id], onDelete: Restrict)
+  usageEvent NrmsUsageEvent       @relation(fields: [usageEventId], references: [id], onDelete: Restrict)
+
+  @@index([statementId])
+  @@map("nrms_billing_statement_item")
+}
+
+model NrmsServicePaymentToken {
+  id          Int      @id @default(autoincrement())
+  statementId Int
+  token       String   @unique @db.VarChar(80)
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("TZS") @db.VarChar(3)
+  status      String   @default("PENDING") @db.VarChar(20) // PENDING, PROCESSING, PAID, FAILED, EXPIRED, VOID
+  method      String?  @db.VarChar(30)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  statement NrmsBillingStatement @relation(fields: [statementId], references: [id], onDelete: Restrict)
+  payment   NrmsServicePayment?
+
+  @@index([statementId, status])
+  @@map("nrms_service_payment_token")
+}
+
+model NrmsServicePayment {
+  id             Int       @id @default(autoincrement())
+  tokenId        Int       @unique
+  provider       String    @db.VarChar(30)
+  providerRef    String    @unique @db.VarChar(120)
+  idempotencyKey String    @unique @db.VarChar(120)
+  amount         Decimal   @db.Decimal(12, 2)
+  currency       String    @default("TZS") @db.VarChar(3)
+  status         String    @db.VarChar(20)
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  token NrmsServicePaymentToken @relation(fields: [tokenId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("nrms_service_payment")
 }
