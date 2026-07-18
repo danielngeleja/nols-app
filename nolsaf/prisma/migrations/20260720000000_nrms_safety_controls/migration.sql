@@ -1,21 +1,17 @@
 -- NRMS safety controls: temporary freeze state, finance segregation,
 -- emergency QR shutdown, worker monitoring, and export access tracking.
+--
+-- CORRECTED after a partial P3018 failure on staging (2026-07-20): the
+-- original file referenced `SystemSetting` (the Prisma model name) instead
+-- of its mapped physical table `systemsetting`, so query #3 failed with
+-- "Table 'defaultdb.SystemSetting' doesn't exist". MySQL DDL auto-commits
+-- per statement, so the two ALTER TABLE statements before the failure
+-- (`user`, `owner_payg_account`) had already succeeded and are removed here
+-- to avoid re-applying them. Recovery steps: `prisma migrate resolve
+-- --rolled-back 20260720000000_nrms_safety_controls`, then `prisma migrate
+-- deploy` with this corrected file.
 
-ALTER TABLE `user`
-  ADD COLUMN `nrmsFinanceRole` VARCHAR(20) NOT NULL DEFAULT 'NONE';
-
-ALTER TABLE `owner_payg_account`
-  ADD COLUMN `freezePreviousStatus` VARCHAR(30) NULL,
-  ADD COLUMN `frozenAt` DATETIME(3) NULL,
-  ADD COLUMN `frozenByAdminId` INTEGER NULL,
-  ADD COLUMN `frozenReason` VARCHAR(300) NULL,
-  ADD COLUMN `maxStaff` INTEGER NOT NULL DEFAULT 100,
-  ADD COLUMN `maxOutlets` INTEGER NOT NULL DEFAULT 50,
-  ADD COLUMN `maxMenuItems` INTEGER NOT NULL DEFAULT 500,
-  ADD COLUMN `maxOrderPoints` INTEGER NOT NULL DEFAULT 1000,
-  ADD COLUMN `maxRooms` INTEGER NOT NULL DEFAULT 500;
-
-ALTER TABLE `SystemSetting`
+ALTER TABLE `systemsetting`
   ADD COLUMN `nrmsQrOrderingEnabled` BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN `nrmsQrOrderingChangedAt` DATETIME(3) NULL,
   ADD COLUMN `nrmsQrOrderingChangedById` INTEGER NULL,

@@ -4,10 +4,15 @@ const db = prisma as any;
 
 async function update(worker: string, data: Record<string, unknown>) {
   try {
+    // `{ increment: 1 }` is only valid against an existing row (the `update`
+    // branch). For `create`, Prisma needs a plain starting integer instead.
+    // Reusing the same increment object there fails argument validation on
+    // every call, since Prisma validates both branches' shapes upfront.
+    const { runCount, ...rest } = data as { runCount?: { increment: number } } & Record<string, unknown>;
     await db.nrmsWorkerHealth.upsert({
       where: { worker },
       update: data,
-      create: { worker, ...data },
+      create: { worker, ...rest, ...(runCount ? { runCount: runCount.increment } : {}) },
     });
   } catch (error) {
     // Health reporting must never stop the worker itself, especially while a
