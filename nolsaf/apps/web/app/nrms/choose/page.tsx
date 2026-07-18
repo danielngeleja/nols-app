@@ -16,6 +16,7 @@ type StaffProperty = {
 const ROLE_LABELS: Record<string, string> = {
   MANAGER: "NRMS manager",
   FRONT_DESK: "Front desk",
+  HOUSEKEEPER: "Housekeeper",
   RESTAURANT: "Restaurant staff",
   BAR: "Bar staff",
   OUTLET_SUPERVISOR: "Outlet supervisor",
@@ -56,7 +57,10 @@ export default function NrmsWorkspaceChoicePage() {
           <p className="mb-0 mt-1 text-xs text-neutral-500">You have a staff assignment, choose how to continue.</p>
         </div>
 
-        <Link href="/owner/nrms/orders" className="block overflow-hidden rounded-3xl border border-emerald-900/20 bg-[#082f2a] text-white no-underline shadow-sm transition hover:shadow-md hover:no-underline">
+        <Link
+          href={properties.every((property) => property.nrmsAccessRole === "HOUSEKEEPER") ? "/owner/nrms/housekeeping" : "/owner/nrms/orders"}
+          className="block overflow-hidden rounded-3xl border border-emerald-900/20 bg-[#082f2a] text-white no-underline shadow-sm transition hover:shadow-md hover:no-underline"
+        >
           <div className="flex items-center gap-3 px-5 py-4">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-emerald-950"><BedDouble className="h-5 w-5" /></span>
             <div className="min-w-0 flex-1">

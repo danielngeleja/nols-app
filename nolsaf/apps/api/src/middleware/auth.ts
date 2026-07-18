@@ -30,6 +30,8 @@ export interface AuthedUser {
   role: Role;
   email?: string;
   name?: string;
+  /** NRMS finance segregation: NONE, OPERATOR, or APPROVER. */
+  nrmsFinanceRole?: string;
   /** True when this session comes from an admin impersonation token. */
   imp?: boolean;
 }
@@ -115,7 +117,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       select: {
         id: true,
         user: {
-          select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
+          select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
         },
       },
     });
@@ -126,7 +128,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       const [dbUser, anySession] = await Promise.all([
         prisma.user.findUnique({
           where: { id: userId },
-          select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
+          select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
         }),
         (prisma.session as any).findFirst({
           where: { userId },
@@ -180,6 +182,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       id: user.id,
       role,
       email: user.email || undefined,
+      nrmsFinanceRole: (user as any).nrmsFinanceRole || "NONE",
       ...(decoded.imp === true ? { imp: true } : {}),
     };
     await cacheAuthSession(token, authedUser, decoded.exp);

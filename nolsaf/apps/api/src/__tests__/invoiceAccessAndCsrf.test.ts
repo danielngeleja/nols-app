@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { csrfProtection } from "../middleware/csrf";
+import { csrfProtection, csrfTokenHeader } from "../middleware/csrf";
 import { canAccessBookingInvoice } from "../routes/public.invoices";
 
 describe("invoice access authorization", () => {
@@ -15,6 +15,32 @@ describe("invoice access authorization", () => {
 });
 
 describe("CSRF proxy handling", () => {
+  it("binds CSRF to the same auth cookie regardless of Cookie header order", async () => {
+    let issuedToken = "";
+    const getReq: any = {
+      method: "GET",
+      headers: { cookie: "token=legacy-token; nolsaf_token=primary-token" },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get: () => "test-agent",
+    };
+    const getRes: any = { setHeader(_name: string, value: string) { issuedToken = value; } };
+    await csrfTokenHeader(getReq, getRes, () => undefined);
+
+    const postReq: any = {
+      method: "POST",
+      path: "/api/nrms/operations/rooms/7/housekeeping-status",
+      headers: { cookie: "nolsaf_token=primary-token; token=legacy-token", "x-csrf-token": issuedToken },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get: () => "",
+    };
+    const postRes: any = { status() { return this; }, json() { return this; } };
+    let nextCalled = false;
+    await csrfProtection(postReq, postRes, () => { nextCalled = true; });
+    expect(nextCalled).toBe(true);
+  });
+
   it("does not let a proxy marker bypass cross-site cookie CSRF protection", async () => {
     const req: any = {
       method: "POST",

@@ -9,6 +9,7 @@ import LayoutFrame from "@/components/LayoutFrame";
 import AdminNotificationListener from "@/components/AdminNotificationListener";
 import AdminOperationalFooter from "@/components/AdminOperationalFooter";
 import AdminNotificationDrawer from "@/components/AdminNotificationDrawer";
+import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -57,6 +58,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <AdminNotificationDrawer />
       {/* Full-width header */}
       <SiteHeader role="ADMIN" />
+      {/* Keep the verification modal available globally without adding a banner to every admin page. */}
+      <FinanceGrantPanel showTrigger={false} />
 
       {/* Mobile sidebar drawer */}
       <div className={`md:hidden fixed inset-0 z-[70] ${sidebarOpen ? "pointer-events-auto" : "pointer-events-none"}`} aria-hidden={!sidebarOpen}>

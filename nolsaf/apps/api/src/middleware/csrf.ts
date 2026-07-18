@@ -108,19 +108,20 @@ export async function verifyCsrfToken(sessionId: string, token: string): Promise
 function getSessionId(req: Request): string {
   const cookieHeader = req.headers.cookie || "";
   // Parse cookies manually — avoids a cookie-parser dependency.
-  const jwt = cookieHeader
+  // Match auth middleware precedence exactly. Browsers can temporarily carry
+  // legacy and __Host cookies together; header order must not select a
+  // different JWT for CSRF than the one authentication selected.
+  const cookies = cookieHeader
     .split(";")
     .map((part) => part.trim())
-    .reduce<string | null>((found, part) => {
-      if (found) return found;
+    .reduce<Record<string, string>>((result, part) => {
       const eqIdx = part.indexOf("=");
-      if (eqIdx === -1) return null;
+      if (eqIdx === -1) return result;
       const name = part.slice(0, eqIdx).trim();
-      if (name === "nolsaf_token" || name === "token") {
-        return part.slice(eqIdx + 1).trim();
-      }
-      return null;
-    }, null);
+      if (AUTH_COOKIE_NAMES.has(name)) result[name] = part.slice(eqIdx + 1).trim();
+      return result;
+    }, {});
+  const jwt = cookies["nolsaf_token"] || cookies["__Host-nolsaf_token"] || cookies["token"] || cookies["__Host-token"] || null;
 
   if (jwt) {
     // Hash the token so the raw credential never appears in any store key.

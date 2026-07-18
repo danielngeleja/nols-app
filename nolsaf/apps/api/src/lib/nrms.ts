@@ -56,6 +56,10 @@ export async function loadOwnedActiveNrmsProperty(res: Response, ownerId: number
     res.status(409).json({ error: "Activate this property for NRMS before using operational tools", code: "NRMS_PROPERTY_NOT_ACTIVE" });
     return null;
   }
+  if (account.status === "FROZEN") {
+    res.status(423).json({ error: "NRMS operations are temporarily frozen by an administrator", code: "NRMS_PROPERTY_FROZEN" });
+    return null;
+  }
   if (account.status === "TRIAL" && new Date() >= account.trialEndsAt) {
     account = await (prisma as any).ownerPaygAccount.update({ where: { id: account.id }, data: { status: "ACTIVE" } });
   }

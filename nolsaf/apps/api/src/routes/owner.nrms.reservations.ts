@@ -143,7 +143,7 @@ function formatReservation(r: any) {
     amountPaid: decimal(r.amountPaid),
     chargesTotal: decimal(r.chargesTotal),
     openOutletOrderCount: Array.isArray(r.outletOrders)
-      ? r.outletOrders.filter((order: any) => !order.status || ["CONFIRMED", "PREPARING"].includes(order.status)).length
+      ? r.outletOrders.filter((order: any) => !order.status || ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status)).length
       : undefined,
     balance:
       decimal(r.totalAmount) != null && decimal(r.amountPaid) != null
@@ -389,7 +389,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           payments: { orderBy: { createdAt: "asc" } },
           charges: detailInclude.charges,
           outletOrders: {
-            where: { status: { in: ["CONFIRMED", "PREPARING"] } },
+            where: { status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } },
             select: { id: true },
           },
         },
@@ -922,7 +922,7 @@ function transition(
   eventType: string,
   allowedFrom: string[],
   buildData: (reason: string | null) => Record<string, unknown>,
-  opts?: { releaseAllocations?: boolean; requireAssignedRooms?: boolean },
+  opts?: { releaseAllocations?: boolean; requireAssignedRooms?: boolean; requireRoomsReady?: boolean },
 ) {
   return (async (req: AuthedRequest, res: Response) => {
     try {
@@ -943,6 +943,29 @@ function transition(
             error: "Assign a specific room to every active allocation before check-in",
             code: "ROOM_ASSIGNMENT_REQUIRED",
           });
+        }
+      }
+      // Housekeeping gate: a guest must not move into a room that is not
+      // clean. The front desk can override knowingly (overrideRoomReadiness).
+      if (opts?.requireRoomsReady && req.body?.overrideRoomReadiness !== true) {
+        const unitIds = reservation.allocations
+          .filter((allocation: any) => allocation.status === "ACTIVE" && allocation.roomUnitId != null)
+          .map((allocation: any) => allocation.roomUnitId);
+        if (unitIds.length) {
+          const notReady = await prisma.roomUnit.findMany({
+            where: { id: { in: unitIds }, housekeepingStatus: { notIn: ["CLEAN", "INSPECTED"] } },
+            select: { id: true, code: true, housekeepingStatus: true },
+          });
+          if (notReady.length) {
+            const codes = notReady.map((unit) => unit.code).join(", ");
+            return res.status(409).json({
+              error: notReady.length === 1
+                ? `Room ${codes} has not been cleaned yet. Ask housekeeping to finish it or confirm the override to check the guest in anyway.`
+                : `Rooms ${codes} have not been cleaned yet. Ask housekeeping to finish them or confirm the override to check the guest in anyway.`,
+              code: "ROOM_NOT_READY",
+              rooms: notReady,
+            });
+          }
         }
       }
       const parsed = reasonSchema.safeParse(req.body ?? {});
@@ -970,8 +993,12 @@ function transition(
             data: { status: "RELEASED" },
           });
         }
+        const eventData = {
+          ...(reason ? { reason } : {}),
+          ...(eventType === "CHECKED_IN" && req.body?.overrideRoomReadiness === true ? { overrideRoomReadiness: true } : {}),
+        };
         await tx.reservationEvent.create({
-          data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: reason ? { reason } : undefined },
+          data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: Object.keys(eventData).length ? eventData : undefined },
         });
       });
 
@@ -1028,7 +1055,7 @@ router.post("/:id/confirm", (async (req: AuthedRequest, res: Response) => {
 /** POST /:id/check-in - CONFIRMED -> CHECKED_IN (owner-authorized, doc 7.4) */
 router.post(
   "/:id/check-in",
-  transition("CHECKED_IN", ["CONFIRMED"], () => ({ status: "CHECKED_IN", checkedInAt: new Date() }), { requireAssignedRooms: true }),
+  transition("CHECKED_IN", ["CONFIRMED"], () => ({ status: "CHECKED_IN", checkedInAt: new Date() }), { requireAssignedRooms: true, requireRoomsReady: true }),
 );
 
 /**

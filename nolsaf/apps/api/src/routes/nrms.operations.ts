@@ -6,22 +6,50 @@ import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
+import {
+  HOUSEKEEPING_STATUSES,
+  HOUSEKEEPING_TASK_PRIORITIES,
+  HOUSEKEEPING_TASK_TYPES,
+  dailyHousekeepingWindow,
+  ensureDailyOccupiedCleaning,
+  isCleaningTaskType,
+  roleCanHousekeep,
+  roleCanManageHousekeeping,
+  setRoomHousekeepingStatus,
+  taskActionAllowed,
+} from "../lib/nrmsHousekeeping.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sendMail } from "../lib/mailer.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
+import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
+import {
+  generateOrderPointToken,
+  generateQrSheetPdf,
+  makeOrderPointQR,
+  buildMenuUrl,
+  isValidOrderPointType,
+} from "../lib/nrmsOrderPoints.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
 
 const db = prisma as any;
-const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
+const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "HOUSEKEEPER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
 const OUTLET_TYPES = ["RESTAURANT", "BAR", "OTHER"] as const;
 const ORDER_SETTLEMENTS = ["ROOM_FOLIO", "OUTLET_PAYMENT"] as const;
 
 type AccessRole = "OWNER" | (typeof STAFF_ROLES)[number];
 type Access = {
-  property: { id: number; ownerId: number; title: string; currency: string | null; nrmsActivatedAt: Date | null };
+  property: {
+    id: number;
+    ownerId: number;
+    title: string;
+    currency: string | null;
+    nrmsActivatedAt: Date | null;
+    housekeepingDailyServiceEnabled: boolean;
+    housekeepingDailyServiceTime: string;
+  };
   role: AccessRole;
   outletId: number | null;
   membershipId: number | null;
@@ -39,6 +67,25 @@ const menuItemSchema = z.object({
   category: z.string().trim().max(80).optional().nullable(),
   sku: z.string().trim().max(50).optional().nullable(),
   price: z.number().positive(),
+  description: z.string().trim().max(500).optional().nullable(),
+  imageUrl: z.string().trim().url().max(500).startsWith("https://").optional().nullable(),
+  inStock: z.boolean().optional(),
+});
+
+const menuItemUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(160).optional(),
+  category: z.string().trim().max(80).optional().nullable(),
+  sku: z.string().trim().max(50).optional().nullable(),
+  price: z.number().positive().optional(),
+  description: z.string().trim().max(500).optional().nullable(),
+  imageUrl: z.string().trim().url().max(500).startsWith("https://").optional().nullable(),
+  inStock: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const categoryOrderSchema = z.object({
+  categoryOrder: z.array(z.string().trim().min(1).max(80)).max(40),
 });
 
 const staffSchema = z.object({
@@ -49,7 +96,10 @@ const staffSchema = z.object({
 
 const orderSchema = z.object({
   outletId: z.number().int().positive(),
-  reservationId: z.number().int().positive(),
+  /// Absent for walk-in / non-resident sales (doc NRMS_QR_ORDERING.md m1).
+  reservationId: z.number().int().positive().optional().nullable(),
+  /// Who the walk-in order is for: "Table 4", a name, defaults to "Walk-in".
+  customerLabel: z.string().trim().min(1).max(120).optional().nullable(),
   settlementMode: z.enum(ORDER_SETTLEMENTS).default("ROOM_FOLIO"),
   note: z.string().trim().max(300).optional().nullable(),
   items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(60),
@@ -57,6 +107,12 @@ const orderSchema = z.object({
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(300) });
 const advanceSchema = z.object({ settlementMethod: z.enum(["CASH", "MOBILE_MONEY", "BANK", "CARD", "OTHER"]).optional() });
+const tipRecordSchema = z.object({
+  paymentAmountReceived: z.number().finite().nonnegative().optional().nullable(),
+  tipAmount: z.number().finite().nonnegative().default(0),
+  tipRecipientId: z.number().int().positive().optional().nullable(),
+  tipMethod: z.enum(["CASH", "MOBILE_MONEY", "BANK", "CARD", "OTHER"]).optional().nullable(),
+});
 
 function number(value: unknown): number {
   const parsed = Number(value);
@@ -87,7 +143,15 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
   const userId = req.user!.id;
   const property = await db.property.findUnique({
     where: { id: propertyId },
-    select: { id: true, ownerId: true, title: true, currency: true, nrmsActivatedAt: true },
+    select: {
+      id: true,
+      ownerId: true,
+      title: true,
+      currency: true,
+      nrmsActivatedAt: true,
+      housekeepingDailyServiceEnabled: true,
+      housekeepingDailyServiceTime: true,
+    },
   });
   if (!property) {
     res.status(404).json({ error: "Property not found" });
@@ -119,6 +183,10 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
     res.status(403).json({ error: "NRMS operations are not active for this property", code: "NRMS_NOT_ACTIVE" });
     return null;
   }
+  if (["FROZEN", "CLOSED"].includes(account.status)) {
+    res.status(423).json({ error: "NRMS operations are temporarily unavailable for this property", code: "NRMS_PROPERTY_FROZEN" });
+    return null;
+  }
   return access;
 }
 
@@ -142,6 +210,9 @@ function formatOrder(order: any) {
     ...order,
     subtotal: number(order.subtotal),
     total: number(order.total),
+    paymentAmountReceived: order.paymentAmountReceived == null ? null : number(order.paymentAmountReceived),
+    tipSuggestedAmount: order.tipSuggestedAmount == null ? null : number(order.tipSuggestedAmount),
+    tipAmount: order.tipAmount == null ? null : number(order.tipAmount),
     items: (order.items ?? []).map((item: any) => ({ ...item, unitPrice: number(item.unitPrice), lineTotal: number(item.lineTotal) })),
   };
 }
@@ -159,6 +230,10 @@ const orderInclude = {
   },
   items: { orderBy: { id: "asc" as const } },
   createdBy: { select: { id: true, fullName: true, name: true } },
+  settledBy: { select: { id: true, fullName: true, name: true } },
+  tipRecipient: { select: { id: true, fullName: true, name: true } },
+  tipConfirmedBy: { select: { id: true, fullName: true, name: true } },
+  orderPoint: { select: { id: true, type: true, label: true } },
 };
 
 router.get("/me", (async (req: AuthedRequest, res: Response) => {
@@ -188,15 +263,28 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
 router.get("/property/:propertyId/context", (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
-  const outlets = await db.nrmsOutlet.findMany({
-    where: {
-      propertyId: access.property.id,
-      ...(access.outletId != null ? { id: access.outletId } : {}),
-    },
-    include: { menuItems: { where: { status: "ACTIVE" }, orderBy: [{ category: "asc" }, { name: "asc" }] } },
-    orderBy: [{ type: "asc" }, { name: "asc" }],
-  });
-  res.json({ access: { role: access.role, outletId: access.outletId }, property: access.property, outlets });
+  const [outlets, memberships, owner] = await Promise.all([
+    db.nrmsOutlet.findMany({
+      where: { propertyId: access.property.id, ...(access.outletId != null ? { id: access.outletId } : {}) },
+      include: { menuItems: { where: { status: "ACTIVE" }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    }),
+    db.nrmsStaffMembership.findMany({
+      where: {
+        propertyId: access.property.id,
+        status: "ACTIVE",
+        role: { in: ["MANAGER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] },
+        ...(access.outletId != null ? { OR: [{ outletId: access.outletId }, { outletId: null }] } : {}),
+      },
+      select: { role: true, outletId: true, user: { select: { id: true, fullName: true, name: true } } },
+      orderBy: { id: "asc" },
+    }),
+    db.user.findUnique({ where: { id: access.property.ownerId }, select: { id: true, fullName: true, name: true } }),
+  ]);
+  const attendantMap = new Map<number, any>();
+  if (owner) attendantMap.set(owner.id, { ...owner, role: "OWNER", outletId: null });
+  for (const membership of memberships) attendantMap.set(membership.user.id, { ...membership.user, role: membership.role, outletId: membership.outletId });
+  res.json({ access: { role: access.role, outletId: access.outletId, userId: req.user!.id }, property: access.property, outlets, attendants: [...attendantMap.values()] });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/in-house", (async (req: AuthedRequest, res: Response) => {
@@ -220,7 +308,7 @@ router.get("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Res
   if (!access) return;
   const outlets = await db.nrmsOutlet.findMany({
     where: { propertyId: access.property.id, ...(access.outletId != null ? { id: access.outletId } : {}) },
-    include: { menuItems: { orderBy: [{ status: "asc" }, { name: "asc" }] }, _count: { select: { orders: true, memberships: true } } },
+    include: { menuItems: { orderBy: [{ status: "asc" }, { category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] }, _count: { select: { orders: true, memberships: true } } },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
   res.json({ outlets });
@@ -234,6 +322,8 @@ router.post("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Re
   if (!parsed.success) return res.status(400).json({ error: "Invalid outlet", details: parsed.error.flatten() });
   const currency = parsed.data.currency?.toUpperCase() || access.property.currency?.toUpperCase();
   if (!currency) return res.status(409).json({ error: "Set the property currency before creating an outlet" });
+  const outletQuota = await checkNrmsQuota(db, access.property.id, "outlets");
+  if (!outletQuota.allowed) return res.status(409).json({ error: "NRMS outlet quota reached", quota: outletQuota });
   const outlet = await db.nrmsOutlet.create({
     data: {
       propertyId: access.property.id,
@@ -254,6 +344,8 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
   }
   const parsed = menuItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid menu item", details: parsed.error.flatten() });
+  const menuQuota = await checkNrmsQuota(db, resolved.outlet.propertyId, "menuItems");
+  if (!menuQuota.allowed) return res.status(409).json({ error: "NRMS menu item quota reached", quota: menuQuota });
   const item = await db.nrmsMenuItem.create({
     data: {
       outletId: resolved.outlet.id,
@@ -261,9 +353,72 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
       category: parsed.data.category ? sanitizeText(parsed.data.category) : null,
       sku: parsed.data.sku ? sanitizeText(parsed.data.sku).toUpperCase() : null,
       price: parsed.data.price,
+      description: parsed.data.description ? sanitizeText(parsed.data.description) : null,
+      imageUrl: parsed.data.imageUrl ?? null,
+      inStock: parsed.data.inStock ?? true,
     },
   });
   res.status(201).json({ item });
+}) as RequestHandler);
+
+/**
+ * PATCH /menu-items/:menuItemId
+ * Edit guest-facing menu content, price, daily stock state, or retire the
+ * item (status INACTIVE keeps history; retired items leave every menu).
+ */
+router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Response) => {
+  const menuItemId = Number(req.params.menuItemId);
+  if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
+  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true } });
+  if (!item) return res.status(404).json({ error: "Menu item not found" });
+  const resolved = await accessForOutlet(req, res, item.outletId);
+  if (!resolved) return;
+  if (!roleCanManage(resolved.access) && resolved.access.role !== "OUTLET_SUPERVISOR") {
+    return res.status(403).json({ error: "Only a manager or outlet supervisor can manage the menu" });
+  }
+  const parsed = menuItemUpdateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid menu item update", details: parsed.error.flatten() });
+  const input = parsed.data;
+  const data: Record<string, unknown> = {};
+  if (input.name !== undefined) data.name = sanitizeText(input.name);
+  if (input.category !== undefined) data.category = input.category ? sanitizeText(input.category) : null;
+  if (input.sku !== undefined) data.sku = input.sku ? sanitizeText(input.sku).toUpperCase() : null;
+  if (input.price !== undefined) data.price = input.price;
+  if (input.description !== undefined) data.description = input.description ? sanitizeText(input.description) : null;
+  if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl ?? null;
+  if (input.inStock !== undefined) data.inStock = input.inStock;
+  if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+  if (input.status !== undefined) data.status = input.status;
+  if (Object.keys(data).length === 0) return res.status(400).json({ error: "Nothing to update" });
+  const updated = await db.nrmsMenuItem.update({ where: { id: item.id }, data });
+  res.json({ item: updated });
+}) as RequestHandler);
+
+/** PATCH /outlets/:outletId/category-order - browse order for menu categories */
+router.patch("/outlets/:outletId/category-order", (async (req: AuthedRequest, res: Response) => {
+  const resolved = await accessForOutlet(req, res, Number(req.params.outletId));
+  if (!resolved) return;
+  if (!roleCanManage(resolved.access) && resolved.access.role !== "OUTLET_SUPERVISOR") {
+    return res.status(403).json({ error: "Only a manager or outlet supervisor can manage the menu" });
+  }
+  const parsed = categoryOrderSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid category order", details: parsed.error.flatten() });
+  const categoryOrder = [...new Set(parsed.data.categoryOrder.map((name) => sanitizeText(name)))];
+  const outlet = await db.nrmsOutlet.update({ where: { id: resolved.outlet.id }, data: { categoryOrder } });
+  res.json({ outlet: { id: outlet.id, categoryOrder: outlet.categoryOrder } });
+}) as RequestHandler);
+
+/** PATCH /outlets/:outletId/qr-settings - guest QR ordering behaviour */
+router.patch("/outlets/:outletId/qr-settings", (async (req: AuthedRequest, res: Response) => {
+  const resolved = await accessForOutlet(req, res, Number(req.params.outletId));
+  if (!resolved) return;
+  if (!roleCanManage(resolved.access)) {
+    return res.status(403).json({ error: "Only an owner or manager can change QR order settings" });
+  }
+  const parsed = z.object({ autoAcceptQrOrders: z.boolean() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid QR settings" });
+  const outlet = await db.nrmsOutlet.update({ where: { id: resolved.outlet.id }, data: { autoAcceptQrOrders: parsed.data.autoAcceptQrOrders } });
+  res.json({ outlet: { id: outlet.id, autoAcceptQrOrders: outlet.autoAcceptQrOrders } });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/staff", (async (req: AuthedRequest, res: Response) => {
@@ -293,6 +448,11 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
   }
   const membershipKey = { propertyId: access.property.id, userId: user.id, role: parsed.data.role };
   const existing = await db.nrmsStaffMembership.findUnique({ where: { propertyId_userId_role: membershipKey } });
+
+  if (!existing || existing.status === "DISABLED") {
+    const staffQuota = await checkNrmsQuota(db, access.property.id, "staff");
+    if (!staffQuota.allowed) return res.status(409).json({ error: "NRMS staff quota reached", quota: staffQuota });
+  }
 
   // Already confirmed assignments keep working; only the outlet scope changes.
   // New or unconfirmed assignments stay PENDING until the staff member confirms
@@ -435,7 +595,7 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
   const requestedOutletId = Number(req.query.outletId);
   const outletId = access.outletId ?? (Number.isInteger(requestedOutletId) && requestedOutletId > 0 ? requestedOutletId : null);
   const view = req.query.view === "live" ? "live" : req.query.view === "history" ? "history" : "all";
-  const liveStatuses = ["CONFIRMED", "PREPARING"];
+  const liveStatuses = ["PLACED", "CONFIRMED", "PREPARING", "SERVING"];
   const historyStatuses = ["POSTED_TO_FOLIO", "SETTLED", "CANCELLED", "VOIDED"];
   const requestedStatus = String(req.query.status ?? "");
   const allowedStatuses = view === "live" ? liveStatuses : historyStatuses;
@@ -469,13 +629,19 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
   const outlet = await db.nrmsOutlet.findFirst({ where: { id: parsed.data.outletId, propertyId: access.property.id, status: "ACTIVE" } });
   if (!outlet || !outletAllowed(access, outlet)) return res.status(403).json({ error: "Outlet is unavailable for this account" });
   if (access.role === "FRONT_DESK") return res.status(403).json({ error: "Front desk can review outlet orders but cannot create them" });
-  const reservation = await db.reservation.findFirst({ where: { id: parsed.data.reservationId, propertyId: access.property.id, status: "CHECKED_IN" } });
-  if (!reservation) return res.status(409).json({ error: "Select an actively checked-in guest before confirming the order", code: "GUEST_NOT_IN_HOUSE" });
+  let reservation: any = null;
+  if (parsed.data.reservationId != null) {
+    reservation = await db.reservation.findFirst({ where: { id: parsed.data.reservationId, propertyId: access.property.id, status: "CHECKED_IN" } });
+    if (!reservation) return res.status(409).json({ error: "Select an actively checked-in guest before confirming the order", code: "GUEST_NOT_IN_HOUSE" });
+  }
+  // Walk-in sales can never post to a room folio; they settle at the outlet.
+  const settlementMode = reservation ? parsed.data.settlementMode : "OUTLET_PAYMENT";
+  const customerLabel = reservation ? null : sanitizeText(parsed.data.customerLabel || "Walk-in");
 
   const requested = new Map<number, number>();
   for (const item of parsed.data.items) requested.set(item.menuItemId, (requested.get(item.menuItemId) ?? 0) + item.quantity);
-  const menuItems = await db.nrmsMenuItem.findMany({ where: { id: { in: [...requested.keys()] }, outletId: outlet.id, status: "ACTIVE" } });
-  if (menuItems.length !== requested.size) return res.status(400).json({ error: "One or more selected items are unavailable" });
+  const menuItems = await db.nrmsMenuItem.findMany({ where: { id: { in: [...requested.keys()] }, outletId: outlet.id, status: "ACTIVE", inStock: true } });
+  if (menuItems.length !== requested.size) return res.status(400).json({ error: "One or more selected items are unavailable or out of stock" });
   const lines = menuItems.map((item: any) => {
     const quantity = requested.get(item.id)!;
     const unitPrice = number(item.price);
@@ -489,11 +655,12 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
     data: {
       propertyId: access.property.id,
       outletId: outlet.id,
-      reservationId: reservation.id,
+      reservationId: reservation?.id ?? null,
+      customerLabel,
       orderNumber,
       status: "CONFIRMED",
-      settlementMode: parsed.data.settlementMode,
-      currency: reservation.currency,
+      settlementMode,
+      currency: reservation?.currency ?? outlet.currency,
       subtotal: total,
       total,
       note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
@@ -539,6 +706,65 @@ router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Respons
   res.json({ order: formatOrder(order) });
 }) as RequestHandler);
 
+router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) => {
+  const parsed = tipRecordSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Check the received amount and tip details", details: parsed.error.flatten() });
+  const orderId = Number(req.params.orderId);
+  const seed = await db.nrmsOutletOrder.findUnique({ where: { id: orderId }, include: { outlet: true } });
+  if (!seed) return res.status(404).json({ error: "Order not found" });
+  const access = await loadAccess(req, res, seed.propertyId);
+  if (!access) return;
+  if (!outletAllowed(access, seed.outlet) || access.role === "FRONT_DESK") return res.status(403).json({ error: "You cannot record a tip for this order" });
+  if (!["SETTLED", "POSTED_TO_FOLIO"].includes(seed.status) || !seed.servedAt) return res.status(409).json({ error: "Tips can only be confirmed after service is completed" });
+
+  const orderTotal = number(seed.total);
+  const tipAmount = parsed.data.tipAmount;
+  let amountReceived: number | null = null;
+  if (seed.settlementMode === "OUTLET_PAYMENT") {
+    amountReceived = parsed.data.paymentAmountReceived ?? null;
+    if (amountReceived == null || amountReceived < orderTotal) return res.status(400).json({ error: `Amount received must cover the ${seed.currency} ${orderTotal.toLocaleString()} bill.` });
+    const overpayment = Number((amountReceived - orderTotal).toFixed(2));
+    if (tipAmount > overpayment) return res.status(400).json({ error: "Confirmed tip cannot be greater than the amount received above the bill." });
+  } else if (tipAmount <= 0) {
+    return res.status(400).json({ error: "Enter the separate tip amount received for this room-bill order." });
+  }
+
+  if (tipAmount > 0 && (!parsed.data.tipRecipientId || !parsed.data.tipMethod)) {
+    return res.status(400).json({ error: "Select the serving team member and how the tip was received." });
+  }
+
+  if (tipAmount > 0) {
+    const recipientId = parsed.data.tipRecipientId!;
+    const propertyOwner = recipientId === access.property.ownerId;
+    const membership = propertyOwner ? null : await db.nrmsStaffMembership.findFirst({
+      where: {
+        propertyId: seed.propertyId,
+        userId: recipientId,
+        status: "ACTIVE",
+        role: { in: ["MANAGER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] },
+        OR: [{ outletId: seed.outletId }, { outletId: null }],
+      },
+      select: { userId: true },
+    });
+    if (!propertyOwner && !membership) return res.status(400).json({ error: "Select an active team member assigned to this outlet." });
+    if (!roleCanCorrect(access) && recipientId !== req.user!.id) return res.status(403).json({ error: "Only a manager or outlet supervisor can assign a tip to another team member." });
+  }
+
+  const updated = await db.nrmsOutletOrder.update({
+    where: { id: orderId },
+    data: {
+      paymentAmountReceived: amountReceived,
+      tipAmount: tipAmount > 0 ? tipAmount : null,
+      tipRecipientId: tipAmount > 0 ? parsed.data.tipRecipientId : null,
+      tipMethod: tipAmount > 0 ? parsed.data.tipMethod : null,
+      tipConfirmedById: tipAmount > 0 ? req.user!.id : null,
+      tipConfirmedAt: tipAmount > 0 ? new Date() : null,
+    },
+    include: orderInclude,
+  });
+  res.json({ order: formatOrder(updated) });
+}) as RequestHandler);
+
 router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response) => {
   const parsed = reasonSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A cancellation reason is required" });
@@ -548,10 +774,10 @@ router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response
   if (!access) return;
   if (!outletAllowed(access, order.outlet)) return res.status(403).json({ error: "You cannot cancel this order" });
   const changed = await db.nrmsOutletOrder.updateMany({
-    where: { id: order.id, status: { in: ["CONFIRMED", "PREPARING"] } },
+    where: { id: order.id, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } },
     data: { status: "CANCELLED", cancelledAt: new Date(), voidReason: sanitizeText(parsed.data.reason) },
   });
-  if (changed.count !== 1) return res.status(409).json({ error: "Only confirmed or preparing orders can be cancelled" });
+  if (changed.count !== 1) return res.status(409).json({ error: "Only placed, confirmed or preparing orders can be cancelled" });
   res.json({ ok: true });
 }) as RequestHandler);
 
@@ -575,6 +801,489 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
     await tx.reservationEvent.create({ data: { reservationId: order.reservationId, type: "CHARGE_VOIDED", actorId: req.user!.id, data: { chargeId: order.folioChargeId, orderId: order.id, reason: sanitizeText(parsed.data.reason) } } });
   });
   res.json({ ok: true });
+}) as RequestHandler);
+
+// ---------------------------------------------------------------------------
+// Housekeeping: room cleanliness board and task workflow. Live state sits on
+// RoomUnit.housekeepingStatus; NrmsHousekeepingTask rows are the audit trail.
+
+const NRMS_TZ_OFFSET = "+03:00"; // Africa/Dar_es_Salaam, no DST
+
+function nrmsToday(): { start: Date; end: Date } {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  const start = new Date(`${part("year")}-${part("month")}-${part("day")}T00:00:00${NRMS_TZ_OFFSET}`);
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+const hkStatusSchema = z.object({ status: z.enum(HOUSEKEEPING_STATUSES) });
+const hkTaskSchema = z.object({
+  roomUnitId: z.number().int().positive(),
+  type: z.enum(HOUSEKEEPING_TASK_TYPES),
+  priority: z.enum(HOUSEKEEPING_TASK_PRIORITIES).default("NORMAL"),
+  note: z.string().trim().max(500).optional().nullable(),
+  assignedToId: z.number().int().positive().optional().nullable(),
+});
+const hkAdvanceSchema = z.object({ action: z.enum(["START", "COMPLETE", "CANCEL"]) });
+const hkAssignSchema = z.object({ assignedToId: z.number().int().positive().nullable() });
+const hkSettingsSchema = z.object({
+  dailyServiceEnabled: z.boolean(),
+  dailyServiceTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 11:00"),
+});
+
+function formatHkTask(task: any) {
+  return {
+    id: task.id,
+    roomUnitId: task.roomUnitId,
+    roomCode: task.roomUnit?.code,
+    roomTypeName: task.roomUnit?.roomType?.name,
+    reservationId: task.reservationId,
+    type: task.type,
+    status: task.status,
+    priority: task.priority,
+    note: task.note,
+    assignedTo: task.assignedTo ? { id: task.assignedTo.id, name: task.assignedTo.fullName || task.assignedTo.name || task.assignedTo.email } : null,
+    completedBy: task.completedBy ? { id: task.completedBy.id, name: task.completedBy.fullName || task.completedBy.name || task.completedBy.email } : null,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+    createdAt: task.createdAt,
+  };
+}
+
+const hkTaskInclude = {
+  roomUnit: { select: { code: true, roomType: { select: { name: true } } } },
+  assignedTo: { select: { id: true, fullName: true, name: true, email: true } },
+  completedBy: { select: { id: true, fullName: true, name: true, email: true } },
+};
+
+/** Confirms the assignee actually works housekeeping at this property. */
+async function validHousekeepingAssignee(propertyId: number, ownerId: number, userId: number): Promise<boolean> {
+  if (userId === ownerId) return true;
+  const membership = await db.nrmsStaffMembership.findFirst({
+    where: { propertyId, userId, status: "ACTIVE", role: { in: ["HOUSEKEEPER", "MANAGER", "FRONT_DESK"] } },
+    select: { id: true },
+  });
+  return Boolean(membership);
+}
+
+router.get("/property/:propertyId/housekeeping", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanHousekeep(access.role)) return res.status(403).json({ error: "Your role has no access to housekeeping", code: "NRMS_HOUSEKEEPING_FORBIDDEN" });
+  await ensureDailyOccupiedCleaning(db, access.property.id);
+  const today = nrmsToday();
+  const [units, occupied, arrivals, doneToday, housekeepers] = await Promise.all([
+    db.roomUnit.findMany({
+      where: { propertyId: access.property.id },
+      include: {
+        roomType: { select: { id: true, name: true } },
+        housekeepingTasks: { where: { status: { in: ["OPEN", "IN_PROGRESS"] } }, include: hkTaskInclude, orderBy: { createdAt: "asc" } },
+      },
+      orderBy: [{ floor: "asc" }, { code: "asc" }],
+    }),
+    db.reservationRoomAllocation.findMany({
+      where: { status: "ACTIVE", roomUnitId: { not: null }, reservation: { propertyId: access.property.id, status: "CHECKED_IN" } },
+      select: { roomUnitId: true, reservation: { select: { id: true, checkIn: true, checkOut: true, guestProfile: { select: { fullName: true } } } } },
+    }),
+    db.reservationRoomAllocation.findMany({
+      where: {
+        status: "ACTIVE",
+        roomUnitId: { not: null },
+        reservation: { propertyId: access.property.id, status: "CONFIRMED", checkIn: { gte: today.start, lt: today.end } },
+      },
+      select: { roomUnitId: true, reservation: { select: { id: true, guestProfile: { select: { fullName: true } } } } },
+    }),
+    db.nrmsHousekeepingTask.findMany({
+      where: { propertyId: access.property.id, status: "DONE", completedAt: { gte: today.start } },
+      include: hkTaskInclude,
+      orderBy: { completedAt: "desc" },
+      take: 20,
+    }),
+    db.nrmsStaffMembership.findMany({
+      where: { propertyId: access.property.id, status: "ACTIVE", role: "HOUSEKEEPER" },
+      include: { user: { select: { id: true, fullName: true, name: true, email: true } } },
+      orderBy: { id: "asc" },
+    }),
+  ]);
+  const occupantByUnit = new Map<number, any>();
+  for (const row of occupied) occupantByUnit.set(row.roomUnitId, { reservationId: row.reservation.id, guestName: row.reservation.guestProfile?.fullName ?? "Guest", checkIn: row.reservation.checkIn, checkOut: row.reservation.checkOut });
+  const arrivalByUnit = new Map<number, any>();
+  for (const row of arrivals) arrivalByUnit.set(row.roomUnitId, { reservationId: row.reservation.id, guestName: row.reservation.guestProfile?.fullName ?? "Guest" });
+
+  const counts: Record<string, number> = { CLEAN: 0, DIRTY: 0, IN_PROGRESS: 0, INSPECTED: 0, OUT_OF_SERVICE: 0, OCCUPIED: occupantByUnit.size, openTasks: 0 };
+  const rooms = units.map((unit: any) => {
+    const outOfService = unit.status !== "ACTIVE";
+    if (outOfService) counts.OUT_OF_SERVICE += 1;
+    else counts[unit.housekeepingStatus] = (counts[unit.housekeepingStatus] ?? 0) + 1;
+    counts.openTasks += unit.housekeepingTasks.length;
+    return {
+      id: unit.id,
+      code: unit.code,
+      floor: unit.floor,
+      status: unit.status,
+      housekeepingStatus: unit.housekeepingStatus,
+      housekeepingUpdatedAt: unit.housekeepingUpdatedAt,
+      roomType: unit.roomType,
+      occupant: occupantByUnit.get(unit.id) ?? null,
+      arrival: arrivalByUnit.get(unit.id) ?? null,
+      openTasks: unit.housekeepingTasks.map(formatHkTask),
+    };
+  });
+  const dailyWindow = dailyHousekeepingWindow(new Date(), access.property.housekeepingDailyServiceTime);
+  res.json({
+    access: { role: access.role },
+    counts,
+    businessDate: today.start.toISOString(),
+    settings: {
+      dailyServiceEnabled: access.property.housekeepingDailyServiceEnabled,
+      dailyServiceTime: access.property.housekeepingDailyServiceTime,
+      timezone: "Africa/Dar_es_Salaam",
+      nextDailyServiceAt: dailyWindow.nextServiceAt.toISOString(),
+    },
+    rooms,
+    recentDone: doneToday.map(formatHkTask),
+    housekeepers: housekeepers.map((row: any) => ({ id: row.user.id, name: row.user.fullName || row.user.name || row.user.email })),
+  });
+}) as RequestHandler);
+
+router.put("/property/:propertyId/housekeeping/settings", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManageHousekeeping(access.role)) return res.status(403).json({ error: "Only the front desk or a manager can configure housekeeping" });
+  const parsed = hkSettingsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid housekeeping settings", details: parsed.error.flatten() });
+  const property = await db.property.update({
+    where: { id: access.property.id },
+    data: {
+      housekeepingDailyServiceEnabled: parsed.data.dailyServiceEnabled,
+      housekeepingDailyServiceTime: parsed.data.dailyServiceTime,
+    },
+    select: { housekeepingDailyServiceEnabled: true, housekeepingDailyServiceTime: true },
+  });
+  const window = dailyHousekeepingWindow(new Date(), property.housekeepingDailyServiceTime);
+  res.json({
+    settings: {
+      dailyServiceEnabled: property.housekeepingDailyServiceEnabled,
+      dailyServiceTime: property.housekeepingDailyServiceTime,
+      timezone: "Africa/Dar_es_Salaam",
+      nextDailyServiceAt: window.nextServiceAt.toISOString(),
+    },
+  });
+}) as RequestHandler);
+
+router.post("/rooms/:roomUnitId/housekeeping-status", (async (req: AuthedRequest, res: Response) => {
+  const roomUnitId = Number(req.params.roomUnitId);
+  if (!Number.isInteger(roomUnitId) || roomUnitId <= 0) return res.status(400).json({ error: "Invalid room id" });
+  const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { id: true, propertyId: true, code: true } });
+  if (!unit) return res.status(404).json({ error: "Room not found" });
+  const access = await loadAccess(req, res, unit.propertyId);
+  if (!access) return;
+  if (!roleCanHousekeep(access.role)) return res.status(403).json({ error: "Your role cannot update room cleanliness" });
+  const parsed = hkStatusSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid housekeeping status" });
+  // Inspection is a supervision step: a housekeeper marks CLEAN, the front
+  // desk or a manager confirms INSPECTED.
+  if (parsed.data.status === "INSPECTED" && !roleCanManageHousekeeping(access.role)) {
+    return res.status(403).json({ error: "Only the front desk or a manager can mark a room inspected", code: "NRMS_HK_INSPECT_FORBIDDEN" });
+  }
+  await db.$transaction(async (tx: any) => {
+    await setRoomHousekeepingStatus(tx, unit.id, parsed.data.status, req.user!.id);
+  });
+  const updated = await db.roomUnit.findUnique({ where: { id: unit.id }, select: { id: true, code: true, housekeepingStatus: true, housekeepingUpdatedAt: true } });
+  res.json({ room: updated });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/housekeeping/tasks", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManageHousekeeping(access.role)) return res.status(403).json({ error: "Only the front desk or a manager can create housekeeping tasks" });
+  const parsed = hkTaskSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid housekeeping task", details: parsed.error.flatten() });
+  const unit = await db.roomUnit.findFirst({ where: { id: parsed.data.roomUnitId, propertyId: access.property.id }, select: { id: true } });
+  if (!unit) return res.status(400).json({ error: "Selected room does not belong to this property" });
+  if (parsed.data.assignedToId != null) {
+    const valid = await validHousekeepingAssignee(access.property.id, access.property.ownerId, parsed.data.assignedToId);
+    if (!valid) return res.status(400).json({ error: "The selected assignee is not active housekeeping staff for this property" });
+  }
+  const task = await db.nrmsHousekeepingTask.create({
+    data: {
+      propertyId: access.property.id,
+      roomUnitId: unit.id,
+      type: parsed.data.type,
+      priority: parsed.data.priority,
+      note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
+      assignedToId: parsed.data.assignedToId ?? null,
+      createdById: req.user!.id,
+    },
+    include: hkTaskInclude,
+  });
+  res.status(201).json({ task: formatHkTask(task) });
+}) as RequestHandler);
+
+router.post("/housekeeping/tasks/:taskId/advance", (async (req: AuthedRequest, res: Response) => {
+  const taskId = Number(req.params.taskId);
+  if (!Number.isInteger(taskId) || taskId <= 0) return res.status(400).json({ error: "Invalid task id" });
+  const parsed = hkAdvanceSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid task action" });
+  const seed = await db.nrmsHousekeepingTask.findUnique({ where: { id: taskId }, select: { id: true, propertyId: true } });
+  if (!seed) return res.status(404).json({ error: "Task not found" });
+  const access = await loadAccess(req, res, seed.propertyId);
+  if (!access) return;
+  if (!roleCanHousekeep(access.role)) return res.status(403).json({ error: "Your role cannot work housekeeping tasks" });
+  if (parsed.data.action === "CANCEL" && !roleCanManageHousekeeping(access.role)) {
+    return res.status(403).json({ error: "Only the front desk or a manager can cancel a task" });
+  }
+  try {
+    await db.$transaction(async (tx: any) => {
+      const task = await tx.nrmsHousekeepingTask.findUnique({ where: { id: taskId } });
+      if (!task || !taskActionAllowed(task.status, parsed.data.action)) throw new Error("NRMS_HK_INVALID_TRANSITION");
+      if (parsed.data.action === "START") {
+        await tx.nrmsHousekeepingTask.update({ where: { id: task.id }, data: { status: "IN_PROGRESS", startedAt: new Date(), assignedToId: task.assignedToId ?? req.user!.id } });
+        if (isCleaningTaskType(task.type)) {
+          await tx.roomUnit.update({ where: { id: task.roomUnitId }, data: { housekeepingStatus: "IN_PROGRESS", housekeepingUpdatedAt: new Date() } });
+        }
+      } else if (parsed.data.action === "COMPLETE") {
+        await tx.nrmsHousekeepingTask.update({ where: { id: task.id }, data: { status: "DONE", completedAt: new Date(), completedById: req.user!.id } });
+        // Completing a cleaning task makes the room CLEAN and closes any
+        // sibling cleaning tasks for the same room in one sweep.
+        if (isCleaningTaskType(task.type)) await setRoomHousekeepingStatus(tx, task.roomUnitId, "CLEAN", req.user!.id);
+      } else {
+        await tx.nrmsHousekeepingTask.update({ where: { id: task.id }, data: { status: "CANCELLED" } });
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NRMS_HK_INVALID_TRANSITION") {
+      return res.status(409).json({ error: "This task cannot move to that state from its current status" });
+    }
+    console.error("[NRMS] housekeeping task advance failed", error);
+    return res.status(500).json({ error: "Unable to update the task" });
+  }
+  const task = await db.nrmsHousekeepingTask.findUnique({ where: { id: taskId }, include: hkTaskInclude });
+  res.json({ task: formatHkTask(task) });
+}) as RequestHandler);
+
+router.post("/housekeeping/tasks/:taskId/assign", (async (req: AuthedRequest, res: Response) => {
+  const taskId = Number(req.params.taskId);
+  if (!Number.isInteger(taskId) || taskId <= 0) return res.status(400).json({ error: "Invalid task id" });
+  const parsed = hkAssignSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid assignee" });
+  const task = await db.nrmsHousekeepingTask.findUnique({ where: { id: taskId }, select: { id: true, propertyId: true, status: true } });
+  if (!task) return res.status(404).json({ error: "Task not found" });
+  const access = await loadAccess(req, res, task.propertyId);
+  if (!access) return;
+  if (!roleCanManageHousekeeping(access.role)) return res.status(403).json({ error: "Only the front desk or a manager can assign tasks" });
+  if (!["OPEN", "IN_PROGRESS"].includes(task.status)) return res.status(409).json({ error: "Only open tasks can be reassigned" });
+  if (parsed.data.assignedToId != null) {
+    const valid = await validHousekeepingAssignee(access.property.id, access.property.ownerId, parsed.data.assignedToId);
+    if (!valid) return res.status(400).json({ error: "The selected assignee is not active housekeeping staff for this property" });
+  }
+  const updated = await db.nrmsHousekeepingTask.update({ where: { id: task.id }, data: { assignedToId: parsed.data.assignedToId }, include: hkTaskInclude });
+  res.json({ task: formatHkTask(updated) });
+}) as RequestHandler);
+
+// ─── Order points & QR ────────────────────────────────────────
+
+const orderPointSchema = z.object({
+  type: z.enum(["ROOM", "TABLE"]),
+  label: z.string().trim().min(1).max(60),
+  roomUnitId: z.number().int().positive().optional().nullable(),
+});
+
+router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const [points, propertyRow] = await Promise.all([
+    db.nrmsOrderPoint.findMany({
+      where: { propertyId: access.property.id },
+      include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+      orderBy: [{ type: "asc" }, { label: "asc" }],
+    }),
+    db.property.findUnique({ where: { id: access.property.id }, select: { nrmsGuestPayInstructions: true } }),
+  ]);
+  res.json({
+    orderPoints: points.map((p: any) => ({
+      ...p,
+      menuUrl: p.active ? buildMenuUrl(p.token) : null,
+    })),
+    guestPayInstructions: Array.isArray(propertyRow?.nrmsGuestPayInstructions) ? propertyRow.nrmsGuestPayInstructions : [],
+  });
+}) as RequestHandler);
+
+/**
+ * The property's own receiving channels for guest QR payments: Lipa Namba,
+ * bank account, card at counter. Shown verbatim on the guest order page so
+ * money goes straight to the hotel with no NoLSAF collection or disbursement.
+ */
+const guestPayInstructionsSchema = z.object({
+  instructions: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(40),
+        value: z.string().trim().min(1).max(80),
+        name: z.string().trim().max(60).optional().nullable(),
+      }),
+    )
+    .max(6),
+});
+
+router.patch("/property/:propertyId/guest-pay-instructions", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can change payment instructions" });
+  const parsed = guestPayInstructionsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payment instructions", details: parsed.error.flatten() });
+  const instructions = parsed.data.instructions.map((row) => ({
+    label: sanitizeText(row.label),
+    value: sanitizeText(row.value),
+    name: row.name ? sanitizeText(row.name) : null,
+  }));
+  await db.property.update({ where: { id: access.property.id }, data: { nrmsGuestPayInstructions: instructions } });
+  res.json({ guestPayInstructions: instructions });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/order-points", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can create order points" });
+  const parsed = orderPointSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid order point", details: parsed.error.flatten() });
+  if (parsed.data.type === "ROOM" && parsed.data.roomUnitId) {
+    const unit = await db.roomUnit.findFirst({ where: { id: parsed.data.roomUnitId, propertyId: access.property.id }, select: { id: true } });
+    if (!unit) return res.status(400).json({ error: "Room unit does not belong to this property" });
+  }
+  const existing = await db.nrmsOrderPoint.findUnique({
+    where: { propertyId_type_label: { propertyId: access.property.id, type: parsed.data.type, label: parsed.data.label } },
+  });
+  if (existing) return res.status(409).json({ error: `An order point for ${parsed.data.type} "${parsed.data.label}" already exists` });
+  const pointQuota = await checkNrmsQuota(db, access.property.id, "orderPoints");
+  if (!pointQuota.allowed) return res.status(409).json({ error: "NRMS order point quota reached", quota: pointQuota });
+  const point = await db.nrmsOrderPoint.create({
+    data: {
+      propertyId: access.property.id,
+      type: parsed.data.type,
+      label: sanitizeText(parsed.data.label),
+      roomUnitId: parsed.data.type === "ROOM" ? (parsed.data.roomUnitId ?? null) : null,
+      token: generateOrderPointToken(),
+    },
+    include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+  });
+  res.status(201).json({ orderPoint: { ...point, menuUrl: buildMenuUrl(point.token) } });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/order-points/generate-rooms", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can generate order points" });
+  const rooms = await db.roomUnit.findMany({
+    where: { propertyId: access.property.id, status: "ACTIVE" },
+    select: { id: true, code: true },
+    orderBy: [{ floor: "asc" }, { code: "asc" }],
+  });
+  const existing = await db.nrmsOrderPoint.findMany({
+    where: { propertyId: access.property.id, type: "ROOM" },
+    select: { roomUnitId: true, label: true },
+  });
+  const existingRoomIds = new Set(existing.map((p: any) => p.roomUnitId).filter(Boolean));
+  const existingLabels = new Set(existing.map((p: any) => p.label));
+  const toCreate = rooms.filter((r: any) => !existingRoomIds.has(r.id) && !existingLabels.has(r.code));
+  if (toCreate.length === 0) return res.json({ created: 0, message: "All active rooms already have order points" });
+  const pointQuota = await checkNrmsQuota(db, access.property.id, "orderPoints", toCreate.length);
+  if (!pointQuota.allowed) return res.status(409).json({ error: "NRMS order point quota reached", quota: pointQuota });
+  await db.nrmsOrderPoint.createMany({
+    data: toCreate.map((r: any) => ({
+      propertyId: access.property.id,
+      type: "ROOM",
+      label: r.code,
+      roomUnitId: r.id,
+      token: generateOrderPointToken(),
+    })),
+  });
+  res.status(201).json({ created: toCreate.length });
+}) as RequestHandler);
+
+router.post("/order-points/:orderPointId/rotate", (async (req: AuthedRequest, res: Response) => {
+  const pointId = Number(req.params.orderPointId);
+  if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
+  const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });
+  if (!seed) return res.status(404).json({ error: "Order point not found" });
+  const access = await loadAccess(req, res, seed.propertyId);
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can rotate tokens" });
+  const point = await db.nrmsOrderPoint.update({
+    where: { id: pointId },
+    data: { token: generateOrderPointToken(), active: true },
+    include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+  });
+  const now = new Date();
+  const metricDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  await db.nrmsPublicMetric.upsert({
+    where: { propertyId_metricDate_kind: { propertyId: point.propertyId, metricDate, kind: "QR_ROTATION" } },
+    update: { count: { increment: 1 } },
+    create: { propertyId: point.propertyId, metricDate, kind: "QR_ROTATION", count: 1 },
+  });
+  res.json({ orderPoint: { ...point, menuUrl: buildMenuUrl(point.token) } });
+}) as RequestHandler);
+
+router.post("/order-points/:orderPointId/deactivate", (async (req: AuthedRequest, res: Response) => {
+  const pointId = Number(req.params.orderPointId);
+  if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
+  const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });
+  if (!seed) return res.status(404).json({ error: "Order point not found" });
+  const access = await loadAccess(req, res, seed.propertyId);
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can deactivate order points" });
+  const point = await db.nrmsOrderPoint.update({
+    where: { id: pointId },
+    data: { active: false },
+    include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+  });
+  res.json({ orderPoint: { ...point, menuUrl: null } });
+}) as RequestHandler);
+
+router.delete("/order-points/:orderPointId", (async (req: AuthedRequest, res: Response) => {
+  const pointId = Number(req.params.orderPointId);
+  if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
+  const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });
+  if (!seed) return res.status(404).json({ error: "Order point not found" });
+  const access = await loadAccess(req, res, seed.propertyId);
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can delete order points" });
+  await db.nrmsOrderPoint.delete({ where: { id: pointId } });
+  res.json({ deleted: true });
+}) as RequestHandler);
+
+router.get("/order-points/:orderPointId/qr.png", (async (req: AuthedRequest, res: Response) => {
+  const pointId = Number(req.params.orderPointId);
+  if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
+  const point = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true, token: true, active: true } });
+  if (!point) return res.status(404).json({ error: "Order point not found" });
+  const access = await loadAccess(req, res, point.propertyId);
+  if (!access) return;
+  if (!point.active) return res.status(410).json({ error: "This order point is deactivated" });
+  const png = await makeOrderPointQR(point.token);
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.end(png);
+}) as RequestHandler);
+
+router.get("/property/:propertyId/order-points/qr-sheet.pdf", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const typeFilter = typeof req.query.type === "string" && isValidOrderPointType(req.query.type.toUpperCase())
+    ? req.query.type.toUpperCase()
+    : undefined;
+  const points = await db.nrmsOrderPoint.findMany({
+    where: { propertyId: access.property.id, active: true, ...(typeFilter ? { type: typeFilter } : {}) },
+    select: { label: true, type: true, token: true },
+    orderBy: [{ type: "asc" }, { label: "asc" }],
+  });
+  if (points.length === 0) return res.status(404).json({ error: "No active order points to print" });
+  const pdf = await generateQrSheetPdf(access.property.title, points);
+  const safeName = access.property.title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeName}_QR_Sheet.pdf"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.end(pdf);
 }) as RequestHandler);
 
 export default router;

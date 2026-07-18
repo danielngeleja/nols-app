@@ -1,4 +1,34 @@
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
+import { prisma } from "@nolsaf/prisma";
+
+const rateDb = prisma as any;
+
+async function recordPublicQrRejection(req: any, kind: string) {
+  try {
+    const token = String(req.params?.token || "");
+    const publicCode = String(req.params?.publicCode || "");
+    const point = token ? await rateDb.nrmsOrderPoint.findUnique({ where: { token }, select: { propertyId: true } }) : null;
+    const order = !point && publicCode ? await rateDb.nrmsOutletOrder.findUnique({ where: { publicCode }, select: { propertyId: true } }) : null;
+    const propertyId = point?.propertyId ?? order?.propertyId;
+    if (!propertyId) return;
+    const now = new Date();
+    const metricDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    await rateDb.nrmsPublicMetric.upsert({
+      where: { propertyId_metricDate_kind: { propertyId, metricDate, kind } },
+      update: { count: { increment: 1 } },
+      create: { propertyId, metricDate, kind, count: 1 },
+    });
+  } catch (error: any) {
+    console.warn("[nrms-rate-limit] Could not persist rejection metric:", error?.message ?? error);
+  }
+}
+
+function publicQrLimitHandler(kind: string, message: string) {
+  return (req: any, res: any) => {
+    void recordPublicQrRejection(req, kind);
+    res.status(429).json({ error: message });
+  };
+}
 
 export const limitAgentPortalRead = rateLimit({
   windowMs: 60_000, // 1 minute
@@ -441,4 +471,44 @@ export const limitDriverAvailabilityToggle = rateLimit({
     if (driverId) return `driver-availability:${String(driverId)}`;
     return req.ip || req.socket.remoteAddress || "unknown";
   },
+});
+
+// Public QR menu browsing (guests scanning room/table codes; generous but bounded)
+export const limitPublicQrMenu = rateLimit({
+  windowMs: 5 * 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: publicQrLimitHandler("QR_RATE_LIMIT_MENU", "Too many menu requests. Please wait a moment and scan again."),
+  keyGenerator: (req) => `qr-menu:${req.ip || req.socket.remoteAddress || "unknown"}`,
+});
+
+// Public QR order placement (abuse cap: a table places a handful of orders, not dozens)
+export const limitPublicQrOrderCreate = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: publicQrLimitHandler("QR_RATE_LIMIT_ORDER", "Too many orders placed from this device. Please ask a staff member for help."),
+  keyGenerator: (req) => `qr-order:${req.ip || req.socket.remoteAddress || "unknown"}`,
+});
+
+// Public QR order status polling (guest page polls every few seconds)
+export const limitPublicQrOrderStatus = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: publicQrLimitHandler("QR_RATE_LIMIT_STATUS", "Too many status checks. Please wait a moment."),
+  keyGenerator: (req) => `qr-status:${req.ip || req.socket.remoteAddress || "unknown"}`,
+});
+
+// Public QR post-service feedback (one submission per completed order)
+export const limitPublicQrOrderFeedback = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: publicQrLimitHandler("QR_RATE_LIMIT_FEEDBACK", "Too many feedback attempts. Please wait a moment."),
+  keyGenerator: (req) => `qr-feedback:${req.ip || req.socket.remoteAddress || "unknown"}`,
 });

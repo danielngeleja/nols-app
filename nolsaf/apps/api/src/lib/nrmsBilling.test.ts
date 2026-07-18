@@ -80,7 +80,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
 
     expect(updateMany).not.toHaveBeenCalled();
     expect(tx.nrmsOutletOrder.count).toHaveBeenCalledWith({
-      where: { reservationId: 1, status: { in: ["CONFIRMED", "PREPARING"] } },
+      where: { reservationId: 1, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } },
     });
   });
 

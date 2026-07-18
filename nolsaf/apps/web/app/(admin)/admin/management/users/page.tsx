@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
-import { Users, ChevronLeft, ChevronRight, Eye, Search, X, Check } from "lucide-react";
+import { Users, ChevronLeft, ChevronRight, Eye, Search, X, Check, CheckCircle2 } from "lucide-react";
 
 type UserRow = {
   id: number;
@@ -10,6 +10,7 @@ type UserRow = {
   email?: string | null;
   phone?: string | null;
   role: string;
+  nrmsFinanceRole?: "NONE" | "OPERATOR" | "APPROVER" | string;
   createdAt?: string;
   twoFactorEnabled?: boolean;
   isDisabled?: boolean | null;
@@ -50,6 +51,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editingOriginalRole, setEditingOriginalRole] = useState<string | null>(null);
+  const [financeRole, setFinanceRole] = useState("NONE");
   const [reset2FA, setReset2FA] = useState(false);
   const [pendingReset2FA, setPendingReset2FA] = useState(false);
   const [ackReset2FA, setAckReset2FA] = useState(false);
@@ -122,6 +124,7 @@ export default function Page() {
   const openEdit = (u: UserRow) => {
     setEditing(u);
     setEditingOriginalRole(u.role);
+    setFinanceRole(String(u.nrmsFinanceRole || "NONE").toUpperCase());
     setReset2FA(false);
     setPendingReset2FA(false);
     setAckReset2FA(false);
@@ -134,6 +137,7 @@ export default function Page() {
   const closeEdit = () => {
     setEditing(null);
     setEditingOriginalRole(null);
+    setFinanceRole("NONE");
     setReset2FA(false);
     setPendingReset2FA(false);
     setAckReset2FA(false);
@@ -159,6 +163,8 @@ export default function Page() {
 
       const originalDisabled = Boolean(editing.isDisabled);
       if (disableUser !== originalDisabled) body.disable = disableUser;
+      const originalFinanceRole = String(editing.nrmsFinanceRole || "NONE").toUpperCase();
+      if (financeRole !== originalFinanceRole) body.nrmsFinanceRole = financeRole;
 
       if (Object.keys(body).length === 0) {
         setNotice({
@@ -171,16 +177,16 @@ export default function Page() {
       await api.patch(`/api/admin/users/${editing.id}`, body);
       await load();
       closeEdit();
-      setNotice({ tone: "success", title: "User updated" });
+      setNotice({ tone: "success", title: "User updated successfully", message: "The access and security changes have been saved." });
     } catch (err: unknown) {
-      console.error('save error', err);
       const apiMessage = axios.isAxiosError(err)
         ? (err.response?.data as any)?.error || (err.response?.data as any)?.message
         : undefined;
+      const message = typeof apiMessage === "string" ? apiMessage : "Unable to save this user right now.";
       setNotice({
         tone: "error",
-        title: "Failed to save user",
-        message: typeof apiMessage === "string" ? apiMessage : "Please try again.",
+        title: message,
+        message: typeof apiMessage === "string" ? "No changes were made." : "Please try again.",
       });
     }
   }
@@ -278,7 +284,7 @@ export default function Page() {
         </div>
       </div>
 
-      {notice ? (
+      {notice && !editing ? (
         <div
           className={
             notice.tone === "success"
@@ -288,8 +294,13 @@ export default function Page() {
           role="status"
           aria-live="polite"
         >
-          <div className="text-sm font-semibold">{notice.title}</div>
-          {notice.message ? <div className="mt-0.5 text-sm opacity-90">{notice.message}</div> : null}
+          <div className="flex items-start gap-3">
+            {notice.tone === "success" ? <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-4 w-4" /></span> : null}
+            <div>
+              <div className="text-sm font-semibold">{notice.title}</div>
+              {notice.message ? <div className="mt-0.5 text-sm opacity-90">{notice.message}</div> : null}
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -533,7 +544,7 @@ export default function Page() {
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-base sm:text-lg font-semibold text-slate-900 tracking-tight">
-                        Edit user <span className="text-slate-500">#{editing.id}</span>
+                        Edit user
                       </h3>
                       <p className="mt-0.5 text-sm text-slate-600">Update access, security, and account status</p>
                     </div>
@@ -553,6 +564,20 @@ export default function Page() {
             </div>
 
             <div className="p-5 overflow-y-auto flex-1">
+              {notice ? (
+                <div
+                  className={
+                    notice.tone === "success"
+                      ? "mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 shadow-sm"
+                      : "mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-800 shadow-sm"
+                  }
+                  role={notice.tone === "error" ? "alert" : "status"}
+                  aria-live="polite"
+                >
+                  <div className="text-sm font-semibold">{notice.title}</div>
+                  {notice.message ? <div className="mt-0.5 text-sm opacity-90">{notice.message}</div> : null}
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-4">
                   <div className="group rounded-3xl border border-slate-200/80 bg-gradient-to-b from-white/85 to-slate-50/70 backdrop-blur shadow-sm overflow-hidden ring-1 ring-black/5 transition-all duration-300 ease-out hover:-translate-y-px hover:border-[#02665e]/30 hover:shadow-md">
@@ -724,6 +749,24 @@ export default function Page() {
                           <span className="ml-1">Original: <span className="font-semibold text-slate-700">{editingOriginalRole}</span></span>
                         ) : null}
                       </div>
+                      {editing.role === "ADMIN" ? (
+                        <div className="mt-5 border-t border-slate-200/70 pt-4">
+                          <label htmlFor="edit-nrms-finance-role" className="block text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                            NRMS finance access
+                          </label>
+                          <select
+                            id="edit-nrms-finance-role"
+                            value={financeRole}
+                            onChange={(e) => setFinanceRole(e.target.value)}
+                            className="mt-2 w-full px-3 py-2 border border-slate-200/70 rounded-2xl text-sm shadow-sm bg-white text-slate-800"
+                          >
+                            <option value="NONE">None (no finance actions)</option>
+                            <option value="OPERATOR">Operator (OTP-gated operations)</option>
+                            <option value="APPROVER">Approver (high-risk finance actions)</option>
+                          </select>
+                          <div className="mt-2 text-xs text-slate-600">Finance access is separate from the ADMIN role. High-risk actions require APPROVER.</div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

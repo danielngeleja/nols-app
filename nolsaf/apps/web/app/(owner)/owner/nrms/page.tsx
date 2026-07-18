@@ -7,6 +7,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import {
   ArrowDownToLine,
@@ -15,6 +16,7 @@ import {
   BarChart3,
   BedDouble,
   CalendarDays,
+  Check,
   CheckCircle2,
   CircleAlert,
   Loader2,
@@ -25,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useNrms } from "./_components/NrmsProvider";
+import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 
 type Reservation = {
   id: number;
@@ -148,7 +151,8 @@ function hasOutstandingBalance(reservation: Reservation): boolean {
 }
 
 export default function NrmsFrontDeskPage() {
-  const { selectedPropertyId } = useNrms();
+  const router = useRouter();
+  const { selectedPropertyId, selectedProperty } = useNrms();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -156,6 +160,7 @@ export default function NrmsFrontDeskPage() {
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reservation: Reservation; action: "check-in" | "check-out" } | null>(null);
+  const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -203,6 +208,7 @@ export default function NrmsFrontDeskPage() {
   const freeRooms = Math.max(0, totalRooms - stayingRooms - turnoverRooms - arrivingRooms);
   const tonightOccupied = Math.min(totalRooms, stayingRooms + arrivingRooms);
   const occupancyPercent = totalRooms > 0 ? Math.round((tonightOccupied / totalRooms) * 100) : 0;
+  const isPropertyFrozen = Boolean(error?.includes("temporarily frozen by an administrator"));
   const attentionItems = useMemo(() => {
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const active = new Map<number, Reservation>();
@@ -221,15 +227,23 @@ export default function NrmsFrontDeskPage() {
     });
   }, [arrivals, inHouse, today]);
 
-  const act = async (id: number, action: "check-in" | "check-out", verifiedChargeIds: number[] = []) => {
+  const act = async (id: number, action: "check-in" | "check-out", verifiedChargeIds: number[] = [], overrideRoomReadiness = false) => {
     setBusyId(id);
     setError(null);
+    setRoomNotReady(null);
     try {
-      await apiClient.post(`/api/owner/nrms/reservations/${id}/${action}`, action === "check-out" ? { verifiedChargeIds } : {});
+      await apiClient.post(
+        `/api/owner/nrms/reservations/${id}/${action}`,
+        action === "check-out" ? { verifiedChargeIds } : overrideRoomReadiness ? { overrideRoomReadiness: true } : {},
+      );
       await load();
       setPendingAction(null);
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Action failed");
+      if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
+        setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else {
+        setError(e?.response?.data?.error || "Action failed");
+      }
     } finally {
       setBusyId(null);
     }
@@ -304,19 +318,21 @@ export default function NrmsFrontDeskPage() {
         </div>
       </section>
 
-      {error && (
-        <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {error && isPropertyFrozen ? (
+        <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => void load()} />
+      ) : error ? (
+        <div role="alert" className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
-      )}
+      ) : null}
 
       {loading ? (
         <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-2xl border border-neutral-200 bg-white text-neutral-400">
           <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
           <span className="text-sm">Preparing today&apos;s front desk...</span>
         </div>
-      ) : (
+      ) : isPropertyFrozen ? null : (
         <>
           <OccupancyOverview
             totalRooms={totalRooms}
@@ -402,8 +418,18 @@ export default function NrmsFrontDeskPage() {
           roomTypes={roomTypes}
           busy={busyId === pendingAction.reservation.id}
           error={error}
+          roomNotReady={roomNotReady}
+          onOverrideCheckIn={() => void act(pendingAction.reservation.id, "check-in", [], true)}
           onClose={() => {
-            if (busyId == null) setPendingAction(null);
+            if (busyId == null) {
+              setPendingAction(null);
+              setRoomNotReady(null);
+            }
+          }}
+          onOpenDestination={(href) => {
+            setPendingAction(null);
+            setRoomNotReady(null);
+            router.push(href);
           }}
           onConfirm={(verifiedChargeIds) => void act(pendingAction.reservation.id, pendingAction.action, verifiedChargeIds)}
           onAssignRoom={(allocationId, roomUnitId) => assignRoom(pendingAction.reservation.id, allocationId, roomUnitId)}
@@ -419,7 +445,10 @@ function StayActionModal({
   roomTypes,
   busy,
   error,
+  roomNotReady,
+  onOverrideCheckIn,
   onClose,
+  onOpenDestination,
   onConfirm,
   onAssignRoom,
 }: {
@@ -428,7 +457,10 @@ function StayActionModal({
   roomTypes: RoomTypeOption[];
   busy: boolean;
   error: string | null;
+  roomNotReady: string | null;
+  onOverrideCheckIn: () => void;
   onClose: () => void;
+  onOpenDestination: (href: string) => void;
   onConfirm: (verifiedChargeIds: number[]) => void;
   onAssignRoom: (allocationId: number, roomUnitId: number) => Promise<boolean>;
 }) {
@@ -592,13 +624,34 @@ function StayActionModal({
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white" aria-label="Extra charge verification">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50 px-4 py-3">
                 <div><h3 className="m-0 text-sm font-bold text-neutral-900">Verify room-folio charges</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Only charges added to the room folio require confirmation. Outlet-paid orders are already settled.</p></div>
-                <span className={`shrink-0 text-[10px] font-bold ${chargesUnverified ? "text-amber-700" : "text-emerald-700"}`}>{verifiedChargeIds.length}/{activeCharges.length}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`text-[11px] font-bold ${chargesUnverified ? "text-amber-700" : "text-emerald-700"}`}>{verifiedChargeIds.length}/{activeCharges.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVerifiedChargeIds(chargesUnverified ? activeCharges.map((charge) => charge.id) : [])}
+                    className="min-h-8 appearance-none rounded-lg border border-neutral-200 bg-white px-2.5 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                  >
+                    {chargesUnverified ? "Select all" : "Clear all"}
+                  </button>
+                </div>
               </div>
-              <div className="divide-y divide-neutral-100">
+              <div className="space-y-2 p-3">
                 {activeCharges.map((charge) => {
                   const checked = verifiedChargeIds.includes(charge.id);
-                  return <label key={charge.id} className={`flex min-w-0 cursor-pointer items-start gap-3 px-4 py-3 transition ${checked ? "bg-emerald-50/50" : "bg-white hover:bg-neutral-50"}`}>
-                    <input type="checkbox" checked={checked} onChange={(event) => setVerifiedChargeIds((current) => event.target.checked ? [...current, charge.id] : current.filter((id) => id !== charge.id))} className="box-border mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 text-emerald-700 focus:ring-emerald-600" />
+                  return <label key={charge.id} className={`flex min-w-0 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${checked ? "border-emerald-300 bg-emerald-50 shadow-sm" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
+                    <input type="checkbox" checked={checked} onChange={(event) => setVerifiedChargeIds((current) => event.target.checked ? [...current, charge.id] : current.filter((id) => id !== charge.id))} className="peer sr-only" />
+                    <span
+                      aria-hidden="true"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-600 peer-focus-visible:ring-offset-2"
+                      style={{
+                        border: checked ? "1px solid #047857" : "1px solid #cbd5e1",
+                        backgroundColor: checked ? "#047857" : "#f8fafc",
+                        color: "#ffffff",
+                        boxShadow: "none",
+                      }}
+                    >
+                      {checked && <Check className="h-4 w-4 stroke-[3]" />}
+                    </span>
                     <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-800">{charge.description || charge.category.replaceAll("_", " ").toLowerCase()}</span>{charge.outletOrder && <span className="mt-0.5 block truncate text-[10px] text-neutral-400">{charge.outletOrder.orderNumber} · {charge.outletOrder.outlet.name} · {charge.outletOrder.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</span>}</span>
                     <strong className="shrink-0 text-xs tabular-nums text-neutral-900">{charge.currency} {(charge.amount ?? 0).toLocaleString()}</strong>
                   </label>;
@@ -705,12 +758,26 @@ function StayActionModal({
           {error && (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           )}
+
+          {isCheckIn && roomNotReady && (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <p className="m-0">{roomNotReady}</p>
+              <button
+                type="button"
+                onClick={onOverrideCheckIn}
+                disabled={busy}
+                className="mt-2 inline-flex min-h-9 appearance-none items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+              >
+                Check in anyway
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-neutral-100 bg-neutral-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <Link href={hasOpenOutletOrders ? "/owner/nrms/orders" : `/owner/nrms/reservations?reservationId=${reservation.id}`} className="inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-xs font-bold text-neutral-600 no-underline hover:bg-white hover:text-neutral-900 hover:no-underline">
+          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : `/owner/nrms/reservations?reservationId=${reservation.id}`)} disabled={busy} className="inline-flex min-h-10 appearance-none items-center justify-center rounded-lg border-0 bg-transparent px-3 text-xs font-bold text-neutral-600 transition hover:bg-white hover:text-neutral-900 disabled:opacity-50">
             {hasOpenOutletOrders ? "Open restaurant & bar orders" : folioUnsettled ? "Open reservation and settle folio" : chargesUnverified ? "Open full reservation to verify charges" : "Open full reservation"}
-          </Link>
+          </button>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={busy} className="min-h-10 flex-1 appearance-none rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-50 sm:flex-none">
               Not now
@@ -912,7 +979,16 @@ function OperationList({
           </Link>
         </div>
       ) : (
-        <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">{children}</ul>
+        <div className="min-w-0">
+          <div className="hidden grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem] items-center gap-4 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
+            <span>Guest</span>
+            <span>Room</span>
+            <span>Schedule</span>
+            <span>Account</span>
+            <span className="text-right">Action</span>
+          </div>
+          <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">{children}</ul>
+        </div>
       )}
     </article>
   );
@@ -943,35 +1019,39 @@ function OperationRow({
     : "bg-neutral-900 text-white hover:bg-neutral-800 focus-visible:ring-neutral-700";
 
   return (
-    <li className="m-0 list-none px-5 py-4 transition hover:bg-neutral-50/70">
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-bold text-neutral-600">
-          {initials(guestName)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
-            {overdue && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Overdue</span>}
+    <li className="m-0 list-none px-5 py-3.5 transition hover:bg-neutral-50/70">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem] lg:items-center lg:gap-4">
+        <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-xs font-bold text-neutral-600">
+            {initials(guestName)}
+          </span>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
+              {overdue && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Overdue</span>}
+            </div>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
-            <span className={`font-medium ${roomUnassigned ? "text-red-700" : "text-neutral-600"}`}>
-              {roomUnassigned && room !== "Room not assigned" ? `${room} · unit unassigned` : room}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>{detail}</span>
-            <span aria-hidden="true">·</span>
-            {hasOutstandingBalance(reservation) ? (
-              <span className="font-semibold text-red-700">{reservation.currency} {reservation.balance!.toLocaleString()} due</span>
-            ) : (
-              <span className="font-medium text-emerald-700">paid in full</span>
-            )}
-          </div>
+        </div>
+        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
+          <p className={`m-0 truncate text-xs font-semibold ${roomUnassigned ? "text-red-700" : "text-neutral-700"}`}>
+            {roomUnassigned && room !== "Room not assigned" ? `${room} · unit unassigned` : room}
+          </p>
+        </div>
+        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
+          <p className="m-0 truncate text-xs font-medium text-neutral-500">{detail}</p>
+        </div>
+        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
+          {hasOutstandingBalance(reservation) ? (
+            <span className="inline-flex rounded-md bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">{reservation.currency} {reservation.balance!.toLocaleString()} due</span>
+          ) : (
+            <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">Paid in full</span>
+          )}
         </div>
         <button
           type="button"
           onClick={onAction}
           disabled={busy}
-          className={`inline-flex min-h-9 shrink-0 appearance-none items-center justify-center gap-1.5 rounded-lg border-0 px-3.5 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${buttonClassName}`}
+          className={`col-start-2 row-start-1 inline-flex min-h-9 w-24 shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-3 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 lg:col-auto lg:row-auto lg:justify-self-end ${buttonClassName}`}
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {busy ? "Working..." : actionLabel}

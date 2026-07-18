@@ -901,6 +901,7 @@ function ReservationDetailModal({
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payAmountManuallyEdited, setPayAmountManuallyEdited] = useState(false);
   const [payMethod, setPayMethod] = useState("CASH");
@@ -938,12 +939,17 @@ function ReservationDetailModal({
   const runAction = async (action: string, body?: Record<string, unknown>) => {
     setBusyAction(action);
     setError(null);
+    setRoomNotReady(null);
     try {
       await apiClient.post(`/api/owner/nrms/reservations/${reservationId}/${action}`, body ?? {});
       await reload();
       await onChanged();
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Action failed");
+      if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
+        setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else {
+        setError(e?.response?.data?.error || "Action failed");
+      }
     } finally {
       setBusyAction(null);
     }
@@ -1345,6 +1351,20 @@ function ReservationDetailModal({
           )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {roomNotReady && r.status === "CONFIRMED" && (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+              <p className="m-0">{roomNotReady}</p>
+              <button
+                type="button"
+                onClick={() => runAction("check-in", { overrideRoomReadiness: true })}
+                disabled={busyAction != null}
+                className="mt-2 inline-flex appearance-none items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+              >
+                Check in anyway
+              </button>
+            </div>
+          )}
 
           {checkoutBlocked && (
             <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-800">

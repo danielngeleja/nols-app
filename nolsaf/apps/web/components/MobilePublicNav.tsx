@@ -57,6 +57,7 @@ export default function MobilePublicNav() {
     pathname.startsWith("/owner")         ||
     pathname.startsWith("/driver")        ||
     pathname.startsWith("/agent")         ||
+    pathname.startsWith("/menu/")         ||
     pathname === "/account/agent"         ||
     pathname.startsWith("/account/agent/");
 

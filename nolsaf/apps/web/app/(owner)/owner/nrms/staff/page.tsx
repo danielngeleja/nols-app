@@ -10,6 +10,7 @@ type Membership = { id: number; role: string; status: string; user: { id: number
 const ROLES = [
   { value: "MANAGER", label: "NRMS manager" },
   { value: "FRONT_DESK", label: "Front desk" },
+  { value: "HOUSEKEEPER", label: "Housekeeper" },
   { value: "RESTAURANT", label: "Restaurant staff" },
   { value: "BAR", label: "Bar staff" },
   { value: "OUTLET_SUPERVISOR", label: "Outlet supervisor" },

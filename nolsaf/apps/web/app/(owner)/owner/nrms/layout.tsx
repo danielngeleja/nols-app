@@ -10,6 +10,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  CircleAlert,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -18,9 +19,13 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  Mail,
   Menu,
+  QrCode,
   ReceiptText,
+  RefreshCw,
   ShoppingBasket,
+  Sparkles,
   Store,
   Users,
   UsersRound,
@@ -31,6 +36,7 @@ import {
 } from "lucide-react";
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
+import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 
 const PRIMARY_TABS = [
   { href: "/owner/nrms", label: "Front desk", icon: DoorOpen, exact: true },
@@ -47,6 +53,7 @@ const NAV_GROUPS = [
       { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
       { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
       { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
+      { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
       { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
       { href: "/owner/nrms/guests", label: "Guests", icon: Users },
     ],
@@ -55,6 +62,7 @@ const NAV_GROUPS = [
     label: "Management",
     items: [
       { href: "/owner/nrms/outlets", label: "Outlets & menus", icon: Store },
+      { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
       { href: "/owner/nrms/staff", label: "Staff & roles", icon: UsersRound },
       { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
     ],
@@ -85,9 +93,10 @@ function ordersNavPresentation(role: string): { label: string; icon: typeof Shop
 
 function roleCanSee(href: string, role: string) {
   if (role === "OWNER") return true;
-  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/outlets", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
   if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/outlets"].includes(href);
-  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/finance"].includes(href);
+  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
+  if (role === "HOUSEKEEPER") return href === "/owner/nrms/housekeeping";
   return href === "/owner/nrms/orders";
 }
 
@@ -124,10 +133,11 @@ function PropertyActivationGate() {
 }
 
 function NrmsShell({ children }: { children: ReactNode }) {
-  const { loading, error, entitled, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId } = useNrms();
+  const { loading, error, entitled, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId, refresh } = useNrms();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [globalFreeze, setGlobalFreeze] = useState(false);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner/bookings" : "/account";
@@ -136,6 +146,19 @@ function NrmsShell({ children }: { children: ReactNode }) {
     try { setCollapsed(localStorage.getItem("nrms-sidebar-collapsed") === "1"); } catch {}
   }, []);
   useEffect(() => setMobileOpen(false), [pathname]);
+
+  // Any NRMS request on any page can 423 once a property is frozen mid-session
+  // (reservations, orders, analytics, reports, ...). apiClient dispatches this
+  // event on every such response so the shell can show one consistent notice
+  // instead of each page rendering its own raw error text.
+  useEffect(() => {
+    const handleFrozen = () => setGlobalFreeze(true);
+    window.addEventListener("nrms-property-frozen", handleFrozen);
+    return () => window.removeEventListener("nrms-property-frozen", handleFrozen);
+  }, []);
+  // Switching to a different property (via the sidebar/topbar switcher) should
+  // drop the frozen overlay so that property's own pages get a fresh chance to load.
+  useEffect(() => { setGlobalFreeze(false); }, [selectedPropertyId]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -146,7 +169,67 @@ function NrmsShell({ children }: { children: ReactNode }) {
   };
 
   if (loading) return <div className="flex min-h-screen items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
-  if (error) return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+  if (error) {
+    const frozen = error.includes("temporarily frozen by an administrator");
+    if (frozen) {
+      return (
+        <div className="min-h-screen bg-neutral-50">
+          <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => void refresh()} />
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen bg-neutral-50 px-4 py-8 sm:px-6 sm:py-12">
+        <section role="alert" className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-red-200 bg-white shadow-[0_20px_55px_-34px_rgba(185,28,28,0.4)]">
+          <div className="border-l-4 border-red-500 bg-[linear-gradient(135deg,#fff7f7_0%,#ffffff_60%)] p-5 sm:p-7">
+            <div className="flex items-start gap-3.5">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-600 shadow-sm">
+                <CircleAlert className="h-6 w-6" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-red-700">NRMS access status</p>
+                  <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">Needs attention</span>
+                </div>
+                <h1 className="mt-1.5 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">NRMS workspace unavailable</h1>
+                <p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-neutral-600">We could not open the NRMS workspace right now. The details below can help NoLSAF support investigate the issue.</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-2.5 sm:grid-cols-3">
+              <div className="rounded-2xl border border-red-100 bg-white/80 px-3.5 py-3">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Current status</p>
+                <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">Access interrupted</p>
+              </div>
+              <div className="rounded-2xl border border-neutral-200 bg-white/80 px-3.5 py-3">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Affected area</p>
+                <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">NRMS operations</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3.5 py-3">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700/70">Marketplace</p>
+                <p className="mb-0 mt-1 text-sm font-bold text-emerald-900">Unaffected</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4 border-t border-red-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="m-0 text-xs font-bold text-neutral-800">Need help restoring access?</p>
+                <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Contact NoLSAF partners at <a href="mailto:partnerships@nolsaf.com" className="font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900">partnerships@nolsaf.com</a>.</p>
+              </div>
+              <div className="flex flex-wrap gap-2 sm:shrink-0">
+                <a href="mailto:partnerships@nolsaf.com" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#073c35] px-3.5 text-xs font-bold text-white no-underline transition hover:bg-[#0a5148] hover:text-white">
+                  <Mail className="h-3.5 w-3.5" /> Contact partners
+                </a>
+                <button type="button" onClick={() => void refresh()} disabled={loading} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-50">
+                  <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
   if (!entitled) return <NrmsActivationScreen />;
 
   const propertyNeedsActivation = Boolean(selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms"));
@@ -237,7 +320,9 @@ function NrmsShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
-          {propertyNeedsActivation ? <PropertyActivationGate /> : children}
+          {globalFreeze ? (
+            <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => { setGlobalFreeze(false); void refresh(); }} />
+          ) : propertyNeedsActivation ? <PropertyActivationGate /> : children}
         </main>
       </div>
     </div>

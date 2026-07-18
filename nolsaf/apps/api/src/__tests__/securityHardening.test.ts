@@ -82,10 +82,13 @@ describe("security hardening", () => {
 
 // ── Group A: Bank checkout schema validation ──────────────────────────────────
 describe("AzamPay bank checkout schema", () => {
+  const validBankFields = { accountNumber: "0150123456789", merchantMobileNumber: "+255712345678", otp: "123456" };
+
   it("rejects unknown bank codes", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "FAKE_BANK",
+      ...validBankFields,
     });
     expect(result.success).toBe(false);
   });
@@ -94,6 +97,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "",
+      ...validBankFields,
     });
     expect(result.success).toBe(false);
   });
@@ -102,6 +106,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });
@@ -110,6 +115,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "NMB",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });
@@ -117,7 +123,7 @@ describe("AzamPay bank checkout schema", () => {
   it("accepts all 15 supported bank codes", () => {
     const supported = ["CRDB","NMB","NBC","STANBIC","EQUITY","IM","ABSA","TCB","BOA","DTB","UBA","AZANIA","KCB","NCBA","YETU"] as const;
     for (const bankCode of supported) {
-      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode });
+      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode, ...validBankFields });
       expect(result.success, `Expected ${bankCode} to be accepted`).toBe(true);
     }
   });
@@ -126,6 +132,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
+      ...validBankFields,
       accountNumber: "<script>alert(1)</script>",
     });
     expect(result.success).toBe(false);
@@ -135,7 +142,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
-      accountNumber: "0150123456789",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });

@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import { getCheckoutSettlement } from "./nrmsFolio.js";
+import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
+import { evaluateNrmsDunning } from "./nrmsDunning.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,7 +63,7 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
       },
     }),
     tx.nrmsOutletOrder.count({
-      where: { reservationId: reservation.id, status: { in: ["CONFIRMED", "PREPARING"] } },
+      where: { reservationId: reservation.id, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } },
     }),
     tx.nrmsOutletOrder.count({
       where: {
@@ -96,6 +98,12 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   if (changed.count !== 1) throw new Error("NRMS_INVALID_TRANSITION_RACE");
 
   const allocations = await tx.reservationRoomAllocation.findMany({ where: { reservationId: reservation.id, status: "ACTIVE" } });
+  await markRoomsDirtyOnCheckout(tx, {
+    propertyId: reservation.propertyId,
+    reservationId: reservation.id,
+    roomUnitIds: allocations.map((allocation: any) => allocation.roomUnitId).filter((id: any) => id != null),
+    actorId: ownerId,
+  });
   const data = buildNrmsUsageRows({
     accountId: account.id, propertyId: reservation.propertyId, reservationId: reservation.id, policyId: account.policyId,
     trialEndsAt: account.trialEndsAt, currency: account.policy.currency, roomNightPrice: Number(account.policy.roomNightPrice),
@@ -104,10 +112,18 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   if (data.length) await tx.nrmsUsageEvent.createMany({ data, skipDuplicates: true });
   const billable = data.reduce((sum, row) => sum + Number(row.amount), 0);
   const newBalance = Number(account.unpaidBalance) + billable;
-  let status = newBalance >= Number(account.unpaidLimit) ? "PAYMENT_REQUIRED"
-    : newBalance >= Number(account.policy.warningAmount) ? "WARNING"
-      : account.status === "TRIAL" && new Date() < account.trialEndsAt ? "TRIAL" : "ACTIVE";
-  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: newBalance, status } });
+  const dunning = evaluateNrmsDunning({
+    balance: newBalance,
+    reminderAmount: Number(account.policy.reminderAmount),
+    warningAmount: Number(account.policy.warningAmount),
+    unpaidLimit: Number(account.unpaidLimit),
+    graceDays: account.policy.graceDays,
+    limitReachedAt: account.limitReachedAt,
+    trialEndsAt: account.trialEndsAt,
+    currentStatus: account.status,
+  });
+  const status = dunning.status;
+  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: newBalance, status, limitReachedAt: dunning.limitReachedAt } });
 
   if (status === "PAYMENT_REQUIRED") {
     const unstated = await tx.nrmsUsageEvent.findMany({
@@ -127,7 +143,7 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
 }
 
 export async function reconcileNrmsPayment(tx: any, input: { token: string; provider: string; providerRef: string; idempotencyKey: string; amount: number }) {
-  const token = await tx.nrmsServicePaymentToken.findUnique({ where: { token: input.token }, include: { statement: { include: { account: true } }, payment: true } });
+  const token = await tx.nrmsServicePaymentToken.findUnique({ where: { token: input.token }, include: { statement: { include: { account: { include: { policy: true } } } }, payment: true } });
   if (!token) throw new Error("NRMS_TOKEN_NOT_FOUND");
   // A repeated callback for the token that already won is idempotent. It must
   // never create another payment or reduce the account balance twice.
@@ -159,7 +175,8 @@ export async function reconcileNrmsPayment(tx: any, input: { token: string; prov
   });
   const account = token.statement.account;
   const balance = Math.max(0, Number(account.unpaidBalance) - input.amount);
-  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: balance >= Number(account.unpaidLimit) ? "PAYMENT_REQUIRED" : "ACTIVE" } });
+  const dunning = evaluateNrmsDunning({ balance, reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, trialEndsAt: account.trialEndsAt });
+  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt, reminderNotifiedAt: balance < Number(account.policy.reminderAmount) ? null : undefined, warningNotifiedAt: balance < Number(account.policy.warningAmount) ? null : undefined, freezeNotifiedAt: balance < Number(account.unpaidLimit) ? null : undefined } });
   return payment;
 }
 
@@ -178,12 +195,6 @@ export async function markNrmsPaymentFailed(tx: any, tokenValue: string) {
   if (changed.count !== 1) return;
   const account = token.statement.account;
   const balance = Number(account.unpaidBalance);
-  const status = balance >= Number(account.unpaidLimit)
-    ? "PAYMENT_REQUIRED"
-    : balance >= Number(account.policy.warningAmount)
-      ? "WARNING"
-      : new Date() < account.trialEndsAt
-        ? "TRIAL"
-        : "ACTIVE";
-  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { status } });
+  const dunning = evaluateNrmsDunning({ balance, reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, limitReachedAt: account.limitReachedAt, trialEndsAt: account.trialEndsAt });
+  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { status: dunning.status, limitReachedAt: dunning.limitReachedAt } });
 }

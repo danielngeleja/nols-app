@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -159,6 +159,16 @@ const cancellationsDetails: Item[] = [
   { href: "/admin/cancellations", label: "Dashboard", Icon: LayoutDashboard },
 ];
 
+const nrmsDetails: Item[] = [
+  { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/billing", label: "PAYG Billing", Icon: Wallet },
+  { href: "/admin/nrms/pricing", label: "Pricing & Levers", Icon: Coins },
+  { href: "/admin/nrms/reconciliation", label: "Reconciliation", Icon: Receipt },
+  { href: "/admin/nrms/integrity", label: "Integrity Signals", Icon: Activity },
+  { href: "/admin/nrms/support", label: "Support Snapshot", Icon: Eye },
+  { href: "/admin/nrms/health", label: "System Health", Icon: Activity },
+];
+
 const userDetails: Item[] = [
   { href: "/admin/users", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/users/list", label: "All Users", Icon: Users },
@@ -202,10 +212,12 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [groupStayOpen, setGroupStayOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
+  const [nrmsOpen, setNrmsOpen] = useState(false);
 
   const activeSection = (() => {
     if (!path) return null;
     if (path === "/admin/home") return "Home";
+    if (path.startsWith("/admin/nrms")) return "NRMS";
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
@@ -269,6 +281,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     const isGroupStay = path.startsWith("/admin/group-stays");
     const isAgents = path.startsWith("/admin/agents");
     const isCancellations = path.startsWith("/admin/cancellations");
+    const isNrms = path.startsWith("/admin/nrms");
     // Owner (admin) mini-sidebar: open when on /admin (owners dashboard) or admin child routes
     // but NOT on /admin/home (which is the admin , not owners)
     const isAdminChildRoute = (path === "/admin" ||
@@ -294,6 +307,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // Cancellations mini-sidebar
     if (isCancellations) setCancellationsOpen(true);
     else setCancellationsOpen(false);
+    // NRMS mini-sidebar
+    if (isNrms) setNrmsOpen(true);
+    else setNrmsOpen(false);
     // Visual chevrons for Users
     setUsersOpen(isUsers);
   }, [path]);
@@ -516,6 +532,41 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* NRMS */}
+        {collapsed ? (
+          <Item href="/admin/nrms" label="NRMS" Icon={Hotel} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="NRMS"
+              Icon={Hotel}
+              isOpen={nrmsOpen}
+              onClick={() => setNrmsOpen(v => !v)}
+              collapsed={collapsed}
+              active={activeSection === "NRMS"}
+            />
+            <div
+              aria-hidden={!nrmsOpen}
+              className={`grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-300 ease-out ${
+                nrmsOpen
+                  ? "grid-rows-[1fr] translate-y-0 opacity-100"
+                  : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
+              }`}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="mt-2">
+                  <SectionHeader title="NRMS" active={activeSection === "NRMS"} />
+                  <div className="mt-2 space-y-2">
+                    {nrmsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
+                      <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

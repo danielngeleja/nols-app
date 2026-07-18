@@ -9,6 +9,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedProperty } from "../lib/nrms.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 
 export const router = Router();
 
@@ -330,6 +331,8 @@ router.post("/:propertyId/import", (async (req: AuthedRequest, res: Response) =>
           code = `${prefix}-${seq}`;
         }
         existingCodes.add(code);
+        const roomQuota = await checkNrmsQuota(prisma as any, propertyId, "rooms");
+        if (!roomQuota.allowed) return res.status(409).json({ error: "NRMS room quota reached", quota: roomQuota });
         await prisma.roomUnit.create({ data: { propertyId, roomTypeId: type.id, code, floor: entry.unitFloors[i] ?? null } });
         createdUnits += 1;
       }
@@ -465,6 +468,8 @@ router.post("/:propertyId/units", (async (req: AuthedRequest, res: Response) => 
     if (!type) {
       return res.status(400).json({ error: "Room type does not belong to this property" });
     }
+    const roomQuota = await checkNrmsQuota(prisma as any, property.id as number, "rooms");
+    if (!roomQuota.allowed) return res.status(409).json({ error: "NRMS room quota reached", quota: roomQuota });
     const created = await prisma.roomUnit.create({
       data: {
         propertyId: property.id as number,

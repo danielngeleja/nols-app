@@ -180,13 +180,11 @@ export default function DatePickerField({
                   >
                     <Popover.Panel
                       static
-                      className="fixed z-[10000] rounded-2xl bg-white p-3 nolsaf-date-popper"
+                      className="fixed z-[10000] nolsaf-date-popper"
                       style={{
                         ...(panelPos
                           ? { top: panelPos.top, left: panelPos.left, width: panelPos.width }
                           : { top: 0, left: "50%", transform: "translateX(-50%)", width: twoMonths ? Math.min(720, Math.max(320, window.innerWidth - 32)) : Math.min(320, window.innerWidth - 32) }),
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)",
-                        border: "1px solid rgba(0,0,0,0.07)",
                         maxHeight: "calc(100dvh - 32px)",
                         overflowY: "auto",
                       }}

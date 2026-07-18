@@ -88,6 +88,12 @@ Recommended operational pattern on Render:
 - Run `npm run prisma:migrate` as a **pre-deploy / release step** (preferred)
 - Or run it manually before switching traffic
 
+Migration directory names are immutable once applied to a shared environment.
+Never rename, reorder, or delete an applied migration. Add a new forward-only
+migration instead. For the existing Aiven staging database, use
+`npm run prisma:migrate:staging`; it safely reconciles the repository's known
+legacy aliases before running the standard deploy command.
+
 ### AWS Elastic Beanstalk Prisma runbook
 
 For the production AWS API, deploys are run from `apps/api`, but the Prisma source of truth stays at repo root:

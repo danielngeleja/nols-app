@@ -37,6 +37,7 @@ const MUTATION_METHODS = new Set(["post", "put", "patch", "delete"]);
 
 const apiClient = axios.create({ baseURL: "", withCredentials: true });
 let authRedirectInFlight = false;
+let csrfRefreshInFlight: Promise<string | null> | null = null;
 
 apiClient.interceptors.request.use((config) => {
   config.headers = config.headers ?? {};
@@ -61,12 +62,51 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const status = error?.response?.status;
+    const config = error?.config as any;
+    if (status === 403 && error?.response?.data?.require2fa && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("finance-grant-required"));
+    }
+    if (status === 423 && error?.response?.data?.code === "NRMS_PROPERTY_FROZEN" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("nrms-property-frozen"));
+    }
+    const isMutation = MUTATION_METHODS.has(String(config?.method || "").toLowerCase());
+    if (
+      status === 403
+      && error?.response?.data?.error === "Invalid CSRF token"
+      && isMutation
+      && config
+      && !config.__csrfRetried
+    ) {
+      config.__csrfRetried = true;
+      const refreshed = await refreshCsrfToken();
+      if (refreshed) {
+        config.headers = config.headers ?? {};
+        config.headers["X-CSRF-Token"] = refreshed;
+        return apiClient.request(config);
+      }
+    }
     if (status === 401 && shouldForceBrowserLogout(error)) {
       await forceBrowserLogout();
     }
     return Promise.reject(error);
   }
 );
+
+async function refreshCsrfToken(): Promise<string | null> {
+  if (csrfRefreshInFlight) return csrfRefreshInFlight;
+  csrfRefreshInFlight = (async () => {
+    clearAuthToken();
+    try {
+      await apiClient.get("/api/auth/session", { params: { csrf_refresh: Date.now() } });
+      return readCsrfToken();
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    csrfRefreshInFlight = null;
+  });
+  return csrfRefreshInFlight;
+}
 
 export function saveAuthToken(token: string | null | undefined): void {
   void token;

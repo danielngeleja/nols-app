@@ -6,6 +6,10 @@ import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
 import { acquireLeaderLock } from "./leaderLock.js";
 import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
+import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
+import { startNrmsDunningWorker } from "./nrmsDunning.js";
+import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
+import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -65,6 +69,10 @@ export function startBackgroundWorkers(io: SocketServer): void {
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
     startGuestSmsCampaignWorker();
+    startDailyOccupiedHousekeepingWorker();
+    startNrmsDunningWorker();
+    startNrmsIntegritySignalsWorker();
+    startNrmsRetentionWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
       startLifecycleHealthWorker();
     } else {

@@ -34,6 +34,9 @@ model SiteUpdate {
 model User {
   id                Int       @id @default(autoincrement())
   role              String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
+  /// NRMS finance segregation: NONE, OPERATOR, or APPROVER. This is separate
+  /// from the broad ADMIN role and is required for finance OTP actions.
+  nrmsFinanceRole   String    @default("NONE") @db.VarChar(20)
   name              String?
   /// Human-friendly display name (used by newer UI)
   fullName          String?   @db.VarChar(160)
@@ -284,9 +287,14 @@ model User {
   nrmsPaymentsRecorded    ExternalPaymentRecord[]  @relation("NrmsPaymentRecordedBy")
   nrmsChargesPosted       ReservationCharge[]      @relation("NrmsChargePostedBy")
   nrmsStaffMemberships    NrmsStaffMembership[]    @relation("NrmsStaffUser")
+  nrmsHkTasksAssigned     NrmsHousekeepingTask[]   @relation("NrmsHkTaskAssignedTo")
+  nrmsHkTasksCreated      NrmsHousekeepingTask[]   @relation("NrmsHkTaskCreatedBy")
+  nrmsHkTasksCompleted    NrmsHousekeepingTask[]   @relation("NrmsHkTaskCompletedBy")
   nrmsOrdersCreated       NrmsOutletOrder[]        @relation("NrmsOrderCreatedBy")
   nrmsOrdersConfirmed     NrmsOutletOrder[]        @relation("NrmsOrderConfirmedBy")
   nrmsOrdersSettled       NrmsOutletOrder[]        @relation("NrmsOrderSettledBy")
+  nrmsTipsReceived        NrmsOutletOrder[]        @relation("NrmsOrderTipRecipient")
+  nrmsTipsConfirmed       NrmsOutletOrder[]        @relation("NrmsOrderTipConfirmedBy")
   nrmsBusinessDaysOpened  NrmsBusinessDay[]        @relation("NrmsBusinessDayOpenedBy")
   nrmsBusinessDaysClosed  NrmsBusinessDay[]        @relation("NrmsBusinessDayClosedBy")
   nrmsNightAuditsStarted  NrmsNightAuditRun[]      @relation("NrmsNightAuditStartedBy")
@@ -379,6 +387,22 @@ model Property {
   /// owner-level access is governed by OwnerServiceEnrollment.
   nrmsActivatedAt DateTime?
 
+  /// Daily occupied-room service. At this local property time, checked-in
+  /// rooms enter the housekeeping cycle once per calendar day.
+  housekeepingDailyServiceEnabled  Boolean   @default(true)
+  housekeepingDailyServiceTime     String    @default("11:00") @db.VarChar(5)
+  housekeepingLastDailyServiceDate DateTime?
+
+  /// How guests pay the property directly for QR outlet orders: the hotel's
+  /// own Lipa Namba, bank account, card-at-counter note and so on. Money never
+  /// touches NoLSAF rails. Array of { label, value, name? }.
+  nrmsGuestPayInstructions Json?
+
+  /// Admin enforcement (NRMS_ADMIN_OVERSIGHT.md phase 2): when set, the public
+  /// QR menu and ordering surface is refused for this property while staff
+  /// ordering continues unaffected.
+  nrmsQrOrderingFrozenAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -410,6 +434,10 @@ model Property {
   nrmsNightAudits        NrmsNightAuditRun[]
   nrmsCashierShifts      NrmsCashierShift[]
   nrmsLedgerTransactions NrmsLedgerTransaction[]
+  nrmsHousekeepingTasks  NrmsHousekeepingTask[]
+  nrmsOrderPoints        NrmsOrderPoint[]
+  nrmsIntegritySignals   NrmsIntegritySignal[]
+  nrmsPublicMetrics      NrmsPublicMetric[]
 
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
@@ -1661,6 +1689,13 @@ model ReferralWithdrawal {
 // =========================================================
 model SystemSetting {
   id Int @id @default(1)
+
+  /// Emergency NRMS QR ordering control. False rejects all public menu/order
+  /// requests while leaving staff ordering and records intact.
+  nrmsQrOrderingEnabled     Boolean   @default(true)
+  nrmsQrOrderingChangedAt   DateTime?
+  nrmsQrOrderingChangedById Int?
+  nrmsQrOrderingReason      String?   @db.VarChar(300)
 
   /// Property/accommodation commission percentage charged to property owners (e.g., 10.00 for 10%)
   commissionPercent Decimal? @default(10.00) @db.Decimal(5, 2)
@@ -3528,6 +3563,11 @@ model RoomUnit {
   /// Physical sleeping places used by NBS accommodation statistics.
   bedCount   Int     @default(1)
 
+  /// Cleanliness state (doc 9.2): operational axis, independent of the
+  /// inventory `status` above. CLEAN, DIRTY, IN_PROGRESS, INSPECTED.
+  housekeepingStatus    String    @default("CLEAN") @db.VarChar(20)
+  housekeepingUpdatedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3536,10 +3576,13 @@ model RoomUnit {
   statusHistory      RoomUnitStatusHistory[]
   allocations        ReservationRoomAllocation[]
   availabilityBlocks PropertyAvailabilityBlock[]
+  housekeepingTasks  NrmsHousekeepingTask[]
+  orderPoints        NrmsOrderPoint[]
 
   @@unique([propertyId, code])
   @@index([roomTypeId, status])
   @@index([propertyId, status])
+  @@index([propertyId, housekeepingStatus])
   @@map("room_unit")
 }
 
@@ -3751,14 +3794,15 @@ model Reservation {
   booking      Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   createdBy    User?         @relation("NrmsReservationCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
-  allocations     ReservationRoomAllocation[]
-  events          ReservationEvent[]
-  payments        ExternalPaymentRecord[]
-  charges         ReservationCharge[]
-  outletOrders    NrmsOutletOrder[]
-  nrmsUsageEvents NrmsUsageEvent[]
+  allocations       ReservationRoomAllocation[]
+  events            ReservationEvent[]
+  payments          ExternalPaymentRecord[]
+  charges           ReservationCharge[]
+  outletOrders      NrmsOutletOrder[]
+  nrmsUsageEvents   NrmsUsageEvent[]
+  housekeepingTasks NrmsHousekeepingTask[]
   /// Legacy availability block this reservation was migrated from (doc 10.2)
-  legacyBlock     PropertyAvailabilityBlock?  @relation("BlockMigratedReservation")
+  legacyBlock       PropertyAvailabilityBlock?  @relation("BlockMigratedReservation")
 
   @@index([propertyId, checkIn, checkOut])
   @@index([propertyId, status])
@@ -3873,13 +3917,17 @@ model ReservationCharge {
 
 /// Property-scoped restaurant, bar, or service outlet operating only inside NRMS.
 model NrmsOutlet {
-  id         Int    @id @default(autoincrement())
-  propertyId Int
-  name       String @db.VarChar(120)
-  code       String @db.VarChar(24)
-  type       String @db.VarChar(30) // RESTAURANT, BAR, OTHER
-  status     String @default("ACTIVE") @db.VarChar(20)
-  currency   String @default("TZS") @db.VarChar(3)
+  id                 Int     @id @default(autoincrement())
+  propertyId         Int
+  name               String  @db.VarChar(120)
+  code               String  @db.VarChar(24)
+  type               String  @db.VarChar(30) // RESTAURANT, BAR, OTHER
+  status             String  @default("ACTIVE") @db.VarChar(20)
+  currency           String  @default("TZS") @db.VarChar(3)
+  /// Ordered array of category names controlling browse order on menus.
+  categoryOrder      Json?
+  /// When true, guest QR orders skip PLACED and enter the queue as CONFIRMED.
+  autoAcceptQrOrders Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3916,6 +3964,74 @@ model NrmsStaffMembership {
   @@map("nrms_staff_membership")
 }
 
+/// A scannable point (room or table) that guests use to access the menu and
+/// place orders. Each point carries a cryptographically random token embedded
+/// in a QR code URL. Revoking a token deactivates the point; rotating it
+/// generates a fresh token and reactivates.
+model NrmsOrderPoint {
+  id         Int     @id @default(autoincrement())
+  propertyId Int
+  type       String  @db.VarChar(10) // ROOM, TABLE
+  label      String  @db.VarChar(60)
+  roomUnitId Int?
+  token      String  @unique @db.VarChar(48)
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomUnit RoomUnit?         @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+  orders   NrmsOutletOrder[]
+
+  @@unique([propertyId, type, label])
+  @@index([propertyId, active])
+  @@index([roomUnitId])
+  @@map("nrms_order_point")
+}
+
+/// One unit of housekeeping work for a physical room: turnover after
+/// checkout, a daily clean, a deep clean, or a maintenance note. Rows are the
+/// audit of who cleaned what and when; the room's live cleanliness state is
+/// RoomUnit.housekeepingStatus. Checkout auto-creates a TURNOVER task.
+model NrmsHousekeepingTask {
+  id            Int  @id @default(autoincrement())
+  propertyId    Int
+  roomUnitId    Int
+  /// Stay that triggered the task (TURNOVER); null for ad-hoc tasks.
+  reservationId Int?
+
+  type        String    @db.VarChar(20) // TURNOVER, DAILY_CLEAN, DEEP_CLEAN, MAINTENANCE
+  status      String    @default("OPEN") @db.VarChar(20) // OPEN, IN_PROGRESS, DONE, CANCELLED
+  priority    String    @default("NORMAL") @db.VarChar(10) // NORMAL, HIGH
+  note        String?   @db.VarChar(500)
+  /// Local service day (stored as that day's UTC instant) for idempotent
+  /// scheduled work. Null for turnover and manually created tasks.
+  serviceDate DateTime?
+
+  assignedToId  Int?
+  createdById   Int?
+  completedById Int?
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomUnit    RoomUnit     @relation(fields: [roomUnitId], references: [id], onDelete: Cascade)
+  reservation Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  assignedTo  User?        @relation("NrmsHkTaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy   User?        @relation("NrmsHkTaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  completedBy User?        @relation("NrmsHkTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@unique([roomUnitId, type, serviceDate], map: "uq_nrms_hk_room_type_service_date")
+  @@index([propertyId, status, createdAt])
+  @@index([roomUnitId, status])
+  @@index([assignedToId, status])
+  @@map("nrms_housekeeping_task")
+}
+
 model NrmsMenuItem {
   id       Int     @id @default(autoincrement())
   outletId Int
@@ -3924,6 +4040,13 @@ model NrmsMenuItem {
   sku      String? @db.VarChar(50)
   price    Decimal @db.Decimal(12, 2)
   status   String  @default("ACTIVE") @db.VarChar(20)
+
+  /// Guest-facing copy shown on the QR menu page (doc NRMS_QR_ORDERING.md m2).
+  description String? @db.VarChar(500)
+  imageUrl    String? @db.VarChar(500)
+  /// Daily availability toggle, independent of the lifecycle `status`.
+  inStock     Boolean @default(true)
+  sortOrder   Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3936,28 +4059,56 @@ model NrmsMenuItem {
   @@map("nrms_menu_item")
 }
 
-/// Itemised outlet order. A room-folio order links to exactly one immutable charge.
+/// Itemised outlet order. A room-folio order links to exactly one immutable
+/// charge. reservationId is null for walk-in / non-resident sales, which can
+/// only settle as direct outlet payments and carry a customerLabel instead.
 model NrmsOutletOrder {
-  id               Int     @id @default(autoincrement())
-  propertyId       Int
-  outletId         Int
-  reservationId    Int
-  folioChargeId    Int?    @unique
-  orderNumber      String  @unique @db.VarChar(40)
-  status           String  @default("CONFIRMED") @db.VarChar(30)
-  settlementMode   String  @default("ROOM_FOLIO") @db.VarChar(30)
-  currency         String  @default("TZS") @db.VarChar(3)
-  subtotal         Decimal @db.Decimal(12, 2)
-  total            Decimal @db.Decimal(12, 2)
-  note             String? @db.VarChar(300)
-  createdById      Int?
-  confirmedById    Int?
+  id                    Int       @id @default(autoincrement())
+  propertyId            Int
+  outletId              Int
+  reservationId         Int?
+  /// Who the order is for when there is no reservation, e.g. "Table 4", "Walk-in".
+  customerLabel         String?   @db.VarChar(120)
+  /// Set when the order arrived through a QR scan (guest self-ordering).
+  orderPointId          Int?
+  /// Random capability code for the guest's status page. Public but unguessable.
+  publicCode            String?   @unique @db.VarChar(40)
+  folioChargeId         Int?      @unique
+  orderNumber           String    @unique @db.VarChar(40)
+  /// PLACED (guest QR order awaiting staff accept) -> CONFIRMED -> PREPARING -> ...
+  status                String    @default("CONFIRMED") @db.VarChar(30)
+  settlementMode        String    @default("ROOM_FOLIO") @db.VarChar(30)
+  currency              String    @default("TZS") @db.VarChar(3)
+  subtotal              Decimal   @db.Decimal(12, 2)
+  total                 Decimal   @db.Decimal(12, 2)
+  note                  String?   @db.VarChar(300)
+  createdById           Int?
+  confirmedById         Int?
   /// Tender used when settlementMode is OUTLET_PAYMENT.
-  settlementMethod String? @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
-  settledById      Int?
+  settlementMethod      String?   @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  /// Payment method selected by the guest before sending a QR order.
+  /// This is intent only; settlementMethod remains the attendant-confirmed tender.
+  guestPaymentMethod    String?   @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  settledById           Int?
+  /// Optional post-service feedback submitted through the guest order capability.
+  guestRating           Int?
+  guestFeedback         String?   @db.VarChar(500)
+  tipIntent             String?   @db.VarChar(20) // NONE, INTERESTED
+  tipSuggestedAmount    Decimal?  @db.Decimal(12, 2)
+  feedbackAt            DateTime?
+  /// Actual collection is separate from guest intent: overpayment may be change.
+  paymentAmountReceived Decimal?  @db.Decimal(12, 2)
+  tipAmount             Decimal?  @db.Decimal(12, 2)
+  tipRecipientId        Int?
+  tipConfirmedById      Int?
+  tipMethod             String?   @db.VarChar(30)
+  tipConfirmedAt        DateTime?
 
+  placedAt    DateTime?
   confirmedAt DateTime?
   preparingAt DateTime?
+  /// When an attendant leaves the outlet to deliver/serve the prepared order.
+  servingAt   DateTime?
   servedAt    DateTime?
   postedAt    DateTime?
   settledAt   DateTime?
@@ -3967,19 +4118,25 @@ model NrmsOutletOrder {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  outlet      NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Restrict)
-  reservation Reservation           @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  folioCharge ReservationCharge?    @relation("NrmsOrderFolioCharge", fields: [folioChargeId], references: [id], onDelete: SetNull)
-  createdBy   User?                 @relation("NrmsOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  confirmedBy User?                 @relation("NrmsOrderConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
-  settledBy   User?                 @relation("NrmsOrderSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
-  items       NrmsOutletOrderItem[]
+  property       Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  outlet         NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  reservation    Reservation?          @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  orderPoint     NrmsOrderPoint?       @relation(fields: [orderPointId], references: [id], onDelete: SetNull)
+  folioCharge    ReservationCharge?    @relation("NrmsOrderFolioCharge", fields: [folioChargeId], references: [id], onDelete: SetNull)
+  createdBy      User?                 @relation("NrmsOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  confirmedBy    User?                 @relation("NrmsOrderConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  settledBy      User?                 @relation("NrmsOrderSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
+  tipRecipient   User?                 @relation("NrmsOrderTipRecipient", fields: [tipRecipientId], references: [id], onDelete: SetNull)
+  tipConfirmedBy User?                 @relation("NrmsOrderTipConfirmedBy", fields: [tipConfirmedById], references: [id], onDelete: SetNull)
+  items          NrmsOutletOrderItem[]
 
   @@index([propertyId, status, createdAt])
   @@index([outletId, status, createdAt])
   @@index([reservationId, createdAt])
+  @@index([orderPointId, status])
   @@index([settledById])
+  @@index([tipRecipientId])
+  @@index([tipConfirmedById])
   @@map("nrms_outlet_order")
 }
 
@@ -4133,6 +4290,7 @@ model NrmsUsageChargePolicy {
   reminderAmount Decimal   @default(25000.00) @db.Decimal(12, 2)
   warningAmount  Decimal   @default(40000.00) @db.Decimal(12, 2)
   unpaidLimit    Decimal   @default(50000.00) @db.Decimal(12, 2)
+  graceDays      Int       @default(3)
   createdAt      DateTime  @default(now())
 
   accounts OwnerPaygAccount[]
@@ -4145,17 +4303,35 @@ model NrmsUsageChargePolicy {
 /// Property-level trial, PAYG balance and service state. Enrollment grants the
 /// product; this account governs one property's operational/billing access.
 model OwnerPaygAccount {
-  id            Int      @id @default(autoincrement())
-  propertyId    Int      @unique
-  ownerId       Int
-  policyId      Int
-  status        String   @default("TRIAL") @db.VarChar(30) // TRIAL, ACTIVE, WARNING, PAYMENT_REQUIRED, PAYMENT_PENDING, CLOSED
-  trialStartsAt DateTime
-  trialEndsAt   DateTime
-  unpaidBalance Decimal  @default(0.00) @db.Decimal(12, 2)
-  unpaidLimit   Decimal  @default(50000.00) @db.Decimal(12, 2)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                         Int       @id @default(autoincrement())
+  propertyId                 Int       @unique
+  ownerId                    Int
+  policyId                   Int
+  status                     String    @default("TRIAL") @db.VarChar(30) // TRIAL, ACTIVE, WARNING, PAYMENT_REQUIRED, PAYMENT_PENDING, FROZEN, CLOSED
+  trialStartsAt              DateTime
+  trialEndsAt                DateTime
+  unpaidBalance              Decimal   @default(0.00) @db.Decimal(12, 2)
+  unpaidLimit                Decimal   @default(50000.00) @db.Decimal(12, 2)
+  maxStaff                   Int       @default(100)
+  maxOutlets                 Int       @default(50)
+  maxMenuItems               Int       @default(500)
+  maxOrderPoints             Int       @default(1000)
+  maxRooms                   Int       @default(500)
+  limitReachedAt             DateTime?
+  reminderNotifiedAt         DateTime?
+  warningNotifiedAt          DateTime?
+  freezeNotifiedAt           DateTime?
+  /// Temporary admin freeze state. The prior billing state is retained so an
+  /// unfreeze cannot accidentally reactivate a delinquent account.
+  freezePreviousStatus       String?   @db.VarChar(30)
+  frozenAt                   DateTime?
+  frozenByAdminId            Int?
+  frozenReason               String?   @db.VarChar(300)
+  retentionClosedAt          DateTime?
+  guestDataAnonymizedAt      DateTime?
+  operationalDataMinimizedAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   property   Property               @relation(fields: [propertyId], references: [id], onDelete: Restrict)
   owner      User                   @relation("NrmsPaygAccountOwner", fields: [ownerId], references: [id], onDelete: Restrict)
@@ -4173,8 +4349,8 @@ model NrmsUsageEvent {
   id             Int      @id @default(autoincrement())
   accountId      Int
   propertyId     Int
-  reservationId  Int
-  allocationId   Int
+  reservationId  Int?
+  allocationId   Int?
   policyId       Int
   serviceDate    DateTime @db.Date
   classification String   @db.VarChar(30) // BILLABLE_EXTERNAL, TRIAL_FREE, COMMISSION_ONLY, REVERSAL
@@ -4183,11 +4359,11 @@ model NrmsUsageEvent {
   amount         Decimal  @default(0.00) @db.Decimal(12, 2)
   createdAt      DateTime @default(now())
 
-  account       OwnerPaygAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  property      Property                  @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  reservation   Reservation               @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  allocation    ReservationRoomAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
-  policy        NrmsUsageChargePolicy     @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  account       OwnerPaygAccount           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  property      Property                   @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  reservation   Reservation?               @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  allocation    ReservationRoomAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  policy        NrmsUsageChargePolicy      @relation(fields: [policyId], references: [id], onDelete: Restrict)
   statementItem NrmsBillingStatementItem?
 
   @@unique([allocationId, serviceDate, policyId])
@@ -4262,4 +4438,83 @@ model NrmsServicePayment {
 
   @@index([status, createdAt])
   @@map("nrms_service_payment")
+}
+
+/// Daily, explainable integrity observations for admin review. Signals never
+/// punish a property automatically and can be acknowledged without deletion.
+model NrmsIntegritySignal {
+  id           Int       @id @default(autoincrement())
+  propertyId   Int
+  kind         String    @db.VarChar(60)
+  severity     String    @default("ATTENTION") @db.VarChar(20)
+  status       String    @default("OPEN") @db.VarChar(20)
+  metricValue  Decimal?  @db.Decimal(14, 4)
+  baseline     Decimal?  @db.Decimal(14, 4)
+  details      Json?
+  observedFrom DateTime
+  observedTo   DateTime
+  detectedAt   DateTime  @default(now())
+  reviewedAt   DateTime?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, kind, observedTo])
+  @@index([status, severity, detectedAt])
+  @@index([propertyId, detectedAt])
+  @@map("nrms_integrity_signal")
+}
+
+/// Persistent counters for public NRMS traffic that needs abuse review.
+model NrmsPublicMetric {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  metricDate DateTime @db.Date
+  kind       String   @db.VarChar(40)
+  count      Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, metricDate, kind])
+  @@index([metricDate, kind])
+  @@map("nrms_public_metric")
+}
+
+/// Last known state of each NRMS worker. This is deliberately persistent so
+/// an admin can detect a stopped worker after a process restart or deploy.
+model NrmsWorkerHealth {
+  id            Int       @id @default(autoincrement())
+  worker        String    @unique @db.VarChar(60)
+  status        String    @default("STARTING") @db.VarChar(20)
+  lastStartedAt DateTime?
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  lastError     String?   @db.VarChar(1000)
+  runCount      Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, lastSuccessAt])
+  @@map("nrms_worker_health")
+}
+
+/// Audit record for sensitive support/reconciliation exports.
+model NrmsAdminExport {
+  id           Int       @id @default(autoincrement())
+  adminId      Int
+  propertyId   Int?
+  kind         String    @db.VarChar(40)
+  purpose      String    @db.VarChar(300)
+  fromAt       DateTime?
+  toAt         DateTime?
+  expiresAt    DateTime
+  downloadedAt DateTime?
+  ipAddress    String?   @db.VarChar(80)
+  userAgent    String?   @db.VarChar(255)
+  sessionRef   String?   @db.VarChar(128)
+  createdAt    DateTime  @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([propertyId, kind, createdAt])
+  @@index([expiresAt])
+  @@map("nrms_admin_export")
 }

@@ -202,6 +202,96 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "Cancellation Request Rejected",
         body: `The cancellation request for booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been rejected. The booking remains active and the check-in code is still valid.`
       },
+      // NRMS admin enforcement (NRMS_ADMIN_OVERSIGHT.md phase 2). Every action
+      // is reasoned and the owner is always told what happened and why.
+      nrms_enrollment_suspended: {
+        title: "NRMS Access Suspended",
+        body: `Your NRMS workspace has been suspended by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Your marketplace account is not affected. Contact support to resolve this.`
+      },
+      nrms_enrollment_restored: {
+        title: "NRMS Access Restored",
+        body: `Your NRMS workspace has been restored. ${data.reason ? `Note: ${data.reason}.` : ""} All property operations are available again.`
+      },
+      nrms_property_frozen: {
+        title: "NRMS Property Frozen",
+        body: `NRMS operations for "${data.propertyTitle || 'your property'}" have been frozen by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Your other properties are not affected. Contact support to resolve this.`
+      },
+      nrms_property_unfrozen: {
+        title: "NRMS Property Reopened",
+        body: `NRMS operations for "${data.propertyTitle || 'your property'}" are open again. ${data.reason ? `Note: ${data.reason}.` : ""}`
+      },
+      nrms_staff_disabled: {
+        title: "NRMS Staff Member Disabled",
+        body: `The staff member ${data.staffName || 'account'} has been disabled across all NRMS properties by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Their sessions have been signed out.`
+      },
+      nrms_invites_invalidated: {
+        title: "Pending NRMS Staff Invites Cancelled",
+        body: `Pending staff invites for "${data.propertyTitle || 'your property'}" were cancelled by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} You can re-invite staff at any time.`
+      },
+      nrms_qr_ordering_frozen: {
+        title: "Guest QR Ordering Paused",
+        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Staff ordering continues to work normally.`
+      },
+      nrms_qr_ordering_unfrozen: {
+        title: "Guest QR Ordering Resumed",
+        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" is live again. ${data.reason ? `Note: ${data.reason}.` : ""}`
+      },
+      nrms_qr_points_deactivated: {
+        title: "QR Order Points Deactivated",
+        body: `All QR order points for "${data.propertyTitle || 'your property'}" were deactivated by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} You can rotate them to print fresh codes once resolved.`
+      },
+      nrms_pay_instructions_cleared: {
+        title: "Guest Payment Details Removed",
+        body: `The guest payment details shown on your QR order page for "${data.propertyTitle || 'your property'}" were removed by NoLSAF pending review. ${data.reason ? `Reason: ${data.reason}.` : ""} Please re-enter correct details on the QR order points page.`
+      },
+      nrms_trial_changed: {
+        title: "NRMS Trial Date Updated",
+        body: `The NRMS trial for "${data.propertyTitle || 'your property'}" now ends on ${data.trialEndsAt ? new Date(data.trialEndsAt).toLocaleDateString("en-TZ") : 'the updated date'}. ${data.shortening ? 'This change includes at least 7 days notice. ' : ''}${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_unpaid_limit_changed: {
+        title: "NRMS Account Limit Updated",
+        body: `The unpaid NRMS limit for "${data.propertyTitle || 'your property'}" is now TZS ${Number(data.unpaidLimit || 0).toLocaleString("en-TZ")}. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_credit_granted: {
+        title: "NRMS Credit Applied",
+        body: `NoLSAF applied a TZS ${Number(data.amount || 0).toLocaleString("en-TZ")} credit to "${data.propertyTitle || 'your property'}". ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_policy_changed: {
+        title: "NRMS Pricing Policy Updated",
+        body: `"${data.propertyTitle || 'Your property'}" now uses NRMS pricing policy ${data.version || 'the selected version'}. Existing usage charges did not change. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_balance_reminder: {
+        title: "NRMS Balance Reminder",
+        body: `The NRMS balance for "${data.propertyTitle || 'your property'}" is TZS ${Number(data.unpaidBalance || 0).toLocaleString("en-TZ")}. You can continue operating and pay from the NRMS billing page.`
+      },
+      nrms_balance_warning: {
+        title: "NRMS Balance Warning",
+        body: `The NRMS balance for "${data.propertyTitle || 'your property'}" is TZS ${Number(data.unpaidBalance || 0).toLocaleString("en-TZ")}. If it reaches the TZS ${Number(data.unpaidLimit || 0).toLocaleString("en-TZ")} limit, a ${Number(data.graceDays || 0)} day grace period starts before operations are restricted.`
+      },
+      nrms_payment_required: {
+        title: "NRMS Payment Required",
+        body: `The grace period for "${data.propertyTitle || 'your property'}" has ended. Settle the NRMS statement to restore normal operations.`
+      },
+      nrms_payment_reconciled: {
+        title: "NRMS Payment Reconciled",
+        body: `NoLSAF reconciled the NRMS payment for "${data.propertyTitle || 'your property'}". ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_payment_token_voided: {
+        title: "NRMS Payment Attempt Voided",
+        body: `A payment attempt for "${data.propertyTitle || 'your property'}" was voided so you can retry. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_signal_reviewed: {
+        title: "NRMS Activity Review",
+        body: `NoLSAF reviewed ${String(data.kind || 'an activity signal').replace(/_/g, ' ').toLowerCase()} for "${data.propertyTitle || 'your property'}". ${data.reason ? `Note: ${data.reason}.` : ""} This review did not automatically restrict your account.`
+      },
+      nrms_dispute_exported: {
+        title: "NRMS Support Export Created",
+        body: `NoLSAF created a support export for "${data.propertyTitle || 'your property'}" covering the requested period. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_retention_scheduled: {
+        title: "NRMS Data Retention Scheduled",
+        body: `Closed-account retention was scheduled for "${data.propertyTitle || 'your property'}". Guest identifiers are retained for ${Number(data.guestRetentionDays || 730)} days and operational free text for ${Number(data.operationalRetentionDays || 2555)} days from closure. Financial and audit records remain. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
       // Legacy alias kept for backward compatibility
       booking_cancelled_by_guest: {
         title: "Booking Cancelled — Refund Processing",

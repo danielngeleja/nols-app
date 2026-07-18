@@ -10,7 +10,7 @@ export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
 
 const ACTIVE_REVENUE_STATUSES = ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
-const OPEN_ORDER_STATUSES = ["CONFIRMED", "PREPARING"];
+const OPEN_ORDER_STATUSES = ["CONFIRMED", "PREPARING", "SERVING"];
 const RESERVATION_SOURCE_ORDER = ["NOLSAF", "BOOKING_COM", "AIRBNB", "EXPEDIA", "WALK_IN", "DIRECT", "PHONE", "OTHER"];
 const NRMS_TIME_ZONE = "Africa/Dar_es_Salaam";
 
@@ -206,6 +206,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           status: true,
           settlementMode: true,
           settlementMethod: true,
+          customerLabel: true,
           currency: true,
           total: true,
           createdAt: true,
@@ -488,10 +489,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         id: `order-${order.id}`,
         type: "OUTLET_PAYMENT",
         occurredAt: order.settledAt,
-        reservationId: order.reservation.id,
+        reservationId: order.reservation?.id ?? null,
         referenceNumber: order.orderNumber,
-        guest: order.reservation.guestProfile?.fullName || "Guest",
-        room: roomLabel(order.reservation.allocations),
+        guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
+        room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
         method: order.settlementMethod || "UNCLASSIFIED_OUTLET_PAYMENT",
         reference: order.outlet.name,
         currency: order.currency,
@@ -509,9 +510,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderNumber: order.orderNumber,
         outlet: order.outlet.name,
         outletType: order.outlet.type,
-        guest: order.reservation.guestProfile?.fullName || "Guest",
-        room: roomLabel(order.reservation.allocations),
-        reservationId: order.reservation.id,
+        guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
+        room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
+        reservationId: order.reservation?.id ?? null,
+        customerType: order.reservation ? "RESIDENT" : "NON_RESIDENT",
         status: order.status,
         settlementMode: order.settlementMode,
         settlementMethod: order.settlementMethod,
@@ -525,6 +527,17 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         createdBy: userLabel(order.createdBy),
         voidReason: order.voidReason,
       }));
+
+    // Resident vs walk-in outlet production per currency (doc NRMS_QR_ORDERING.md m1).
+    const outletCustomerSplit = Object.values(outletRows
+      .filter((row: any) => ["SETTLED", "POSTED_TO_FOLIO"].includes(row.status))
+      .reduce((groups: Record<string, any>, row: any) => {
+        const key = row.currency || "TZS";
+        const group = groups[key] ?? (groups[key] = { currency: key, residentOrders: 0, residentRevenue: 0, nonResidentOrders: 0, nonResidentRevenue: 0 });
+        if (row.customerType === "RESIDENT") { group.residentOrders += 1; group.residentRevenue = round(group.residentRevenue + row.total); }
+        else { group.nonResidentOrders += 1; group.nonResidentRevenue = round(group.nonResidentRevenue + row.total); }
+        return groups;
+      }, {}));
 
     const auditRows = events.map((event: any) => ({
       id: event.id,
@@ -576,6 +589,21 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     if (charges.length >= 1000) warnings.push({ key: "CHARGE_ROW_LIMIT", label: "Folio charge register reached the 1,000-row report limit", count: charges.length });
     if (orders.length >= 1000) warnings.push({ key: "OUTLET_ROW_LIMIT", label: "Outlet order register reached the 1,000-row report limit", count: orders.length });
     if (events.length >= 1000) warnings.push({ key: "AUDIT_ROW_LIMIT", label: "Audit register reached the 1,000-row report limit", count: events.length });
+
+    // Housekeeping snapshot (live state) plus work completed in the range.
+    const [hkUnits, hkOpenTaskCount, hkDoneTasks] = await Promise.all([
+      db.roomUnit.findMany({ where: { propertyId }, select: { status: true, housekeepingStatus: true } }),
+      db.nrmsHousekeepingTask.count({ where: { propertyId, status: { in: ["OPEN", "IN_PROGRESS"] } } }),
+      db.nrmsHousekeepingTask.findMany({ where: { propertyId, status: "DONE", completedAt: dateWindow }, select: { type: true } }),
+    ]);
+    const hkRoomCounts: Record<string, number> = { CLEAN: 0, DIRTY: 0, IN_PROGRESS: 0, INSPECTED: 0 };
+    for (const unit of hkUnits) {
+      if (unit.status !== "ACTIVE") continue;
+      hkRoomCounts[unit.housekeepingStatus] = (hkRoomCounts[unit.housekeepingStatus] ?? 0) + 1;
+    }
+    const hkCompletedByType: Record<string, number> = {};
+    for (const task of hkDoneTasks) hkCompletedByType[task.type] = (hkCompletedByType[task.type] ?? 0) + 1;
+    if (hkRoomCounts.DIRTY > 0) warnings.push({ key: "ROOMS_DIRTY", label: "Rooms waiting for housekeeping", count: hkRoomCounts.DIRTY });
 
     const failedFinancialChecks = financialChecks.filter((check: any) => !check.passed).length;
     const controlStatus = failedFinancialChecks > 0 ? "FAILED" : warnings.length > 0 ? "REVIEW" : "BALANCED";
@@ -636,8 +664,14 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         revPar: availableRoomNights > 0 ? round(occupancyRoomRevenue / availableRoomNights) : 0,
         byRoomType: occupancyByRoomType,
       },
+      housekeeping: {
+        rooms: { ...hkRoomCounts, outOfService: outOfServiceUnits },
+        openTasks: hkOpenTaskCount,
+        completedInRange: hkDoneTasks.length,
+        completedByType: hkCompletedByType,
+      },
       payments: { rows: paymentRows, cashVarianceAvailable: false },
-      outlets: { rows: outletRows },
+      outlets: { rows: outletRows, customerSplit: outletCustomerSplit },
       audit: { rows: auditRows },
     });
   } catch (error) {

@@ -286,7 +286,7 @@ export default function DatePicker({
         }}
         onFocus={() => setFocusedIdx(idx + refOffset)}
         className={`
-          relative aspect-square flex items-center justify-center rounded-full text-sm font-medium
+          relative aspect-square flex items-center justify-center rounded-md text-sm font-medium
           transition-all duration-150 outline-none focus:ring-2 focus:ring-[#02665e]/40 focus:ring-offset-1
           ${!cell.currentMonth ? "text-gray-300" : ""}
           ${sel ? "bg-[#02665e] text-white shadow-sm" : isToday ? "text-[#02665e] font-bold ring-2 ring-[#02665e]/40" : isDisabled ? "text-gray-300 cursor-not-allowed" : "text-gray-700 hover:bg-[#02665e]/10 hover:text-[#02665e] active:scale-95"}
@@ -302,7 +302,7 @@ export default function DatePicker({
   };
 
   return (
-    <div ref={rootRef} className={`bg-white p-4 rounded-xl border border-slate-200 shadow-xl ${twoMonths ? "w-max" : "w-[min(20rem,calc(100vw-1rem))]"}`}>
+    <div ref={rootRef} className={`bg-white p-4 rounded-lg border border-slate-200 shadow-lg ${twoMonths ? "w-max" : "w-[min(20rem,calc(100vw-1rem))]"}`}>
       {/* Header with month/year navigation */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
         <button

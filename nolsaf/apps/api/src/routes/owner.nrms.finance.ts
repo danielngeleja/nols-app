@@ -111,7 +111,7 @@ async function controlIssues(propertyId: number, key: string) {
   const { end, start } = dayRange(key);
   const [openShifts, openOrders, dueOut, unclassified, missingVoidReasons] = await Promise.all([
     db.nrmsCashierShift.count({ where: { propertyId, status: "OPEN", businessDate: dateOnly(key) } }),
-    db.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING"] } } }),
+    db.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } } }),
     db.reservation.count({ where: { propertyId, status: "CHECKED_IN", checkOut: { lte: end } } }),
     db.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: start, lt: end } } }),
     db.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["VOIDED", "CANCELLED"] }, voidReason: null, updatedAt: { gte: start, lt: end } } }),
@@ -257,7 +257,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
       db.nrmsOutletOrder.findMany({
         where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
-        select: { id: true, orderNumber: true, currency: true, total: true, settledAt: true, outlet: { select: { name: true, type: true } }, reservation: { select: { guestProfile: { select: { fullName: true } }, allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } } } } } } },
+        select: { id: true, orderNumber: true, customerLabel: true, currency: true, total: true, settledAt: true, outlet: { select: { name: true, type: true } }, reservation: { select: { guestProfile: { select: { fullName: true } }, allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } } } } } } },
         orderBy: { settledAt: "asc" },
       }),
     ]);
@@ -275,7 +275,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
       businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits } : { id: null, status: "NOT_OPENED", audits: [] },
       blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts,
-      unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation.guestProfile?.fullName || "Guest", room: order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room" })),
+      unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
       ledger: { accounts: [...accountMap.values()], transactions, balanced: transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
       nightAudits,
