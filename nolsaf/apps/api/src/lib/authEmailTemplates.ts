@@ -358,7 +358,7 @@ export function getAgentSuspensionEmail(data: {
   `;
 
   return {
-    subject: `[Important] Your NoLSAF Agent account has been temporarily suspended — Ref: ${data.caseRef}`,
+    subject: `[Important] Your NoLSAF Agent account has been temporarily suspended (Ref: ${data.caseRef})`,
     html: careersEmail("⚠️", "Account Suspended", "Temporary Suspension Notice", body, data.contactEmail || "hr@nolsaf.com"),
   };
 }
@@ -428,7 +428,7 @@ export function getAgentRestorationEmail(data: {
   `;
 
   return {
-    subject: `[Update] Your NoLSAF Agent account has been reinstated — Ref: ${data.caseRef}`,
+    subject: `[Update] Your NoLSAF Agent account has been reinstated (Ref: ${data.caseRef})`,
     html: careersEmail("✅", "Access Reinstated", "Account Restoration Notice", body, data.contactEmail || "hr@nolsaf.com"),
   };
 }

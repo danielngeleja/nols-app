@@ -74,7 +74,7 @@ function formatDateTime(value: Date): string {
 
 export function getRestrictionNoticeEmail(data: RestrictionNoticeData): { subject: string; html: string } {
   const copy = scopeCopy[data.scope];
-  const appealEmail = data.appealEmail || "partnerships@nolsaf.com";
+  const appealEmail = data.appealEmail || "partners@nolsaf.com";
   const target = data.targetName || (data.scope === "NRMS_ENROLLMENT" ? "NRMS workspace" : "Selected property");
   const appealUrl = `mailto:${appealEmail}?subject=${encodeURIComponent(`Appeal ${data.referenceCode}`)}`;
   const body = `
@@ -112,7 +112,7 @@ export function getRestrictionNoticeEmail(data: RestrictionNoticeData): { subjec
   `;
 
   return {
-    subject: `${copy.title} — Ref: ${data.referenceCode}`,
+    subject: `${copy.title} (Ref: ${data.referenceCode})`,
     html: proEmail("Temporary restriction notice", body),
   };
 }
@@ -146,7 +146,7 @@ export function getRestrictionResolvedEmail(data: RestrictionResolvedData): { su
   `;
 
   return {
-    subject: `Restriction resolved — Ref: ${data.referenceCode}`,
+    subject: `Restriction resolved (Ref: ${data.referenceCode})`,
     html: proEmail("Access restored", body),
   };
 }

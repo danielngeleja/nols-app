@@ -145,7 +145,7 @@ describe("restriction email delivery", () => {
     expect(html).toContain("Review &lt;required&gt; &amp; pending");
     expect(html).not.toContain("Review <required>");
     expect(attachments).toBeUndefined();
-    expect(options).toEqual({ bypassEligibilityCheck: true, replyTo: "partnerships@nolsaf.com" });
+    expect(options).toEqual({ bypassEligibilityCheck: true, replyTo: "partners@nolsaf.com" });
     expect(mocks.restrictionUpdate).toHaveBeenCalledWith({
       where: { id: 77 },
       data: { notificationEmailSentAt: expect.any(Date), notificationEmailError: null },

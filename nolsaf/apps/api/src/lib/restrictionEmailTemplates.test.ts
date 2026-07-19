@@ -28,7 +28,7 @@ describe("restriction email templates", () => {
     expect(email.html).toContain("NoLSAF");
     expect(email.html).toContain("Appeal and support reference");
     expect(email.html).toContain(referenceCode);
-    expect(email.html).toContain("partnerships@nolsaf.com");
+    expect(email.html).toContain("partners@nolsaf.com");
     expect(email.html).toContain("Amina &amp; Daniel");
     expect(email.html).toContain("Namibia &lt;Villa&gt;");
     expect(email.html).not.toContain("Namibia <Villa>");

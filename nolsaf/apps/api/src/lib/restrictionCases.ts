@@ -23,7 +23,7 @@ const scopePrefix: Record<RestrictionScope, string> = {
   NRMS_QR_ORDERING: "QR",
 };
 
-const APPEAL_EMAIL = "partnerships@nolsaf.com";
+const APPEAL_EMAIL = "partners@nolsaf.com";
 const db = prisma as any;
 
 function compactDate(value: Date): string {

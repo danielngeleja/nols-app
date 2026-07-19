@@ -15,8 +15,8 @@ type Props = {
 export default function NrmsFrozenNotice({ variant = "frozen", propertyTitle, referenceCode, reason, scope = "property", loading = false, onRefresh }: Props) {
   const isFrozen = variant === "frozen";
   const appealHref = referenceCode
-    ? `mailto:partnerships@nolsaf.com?subject=${encodeURIComponent(`NRMS appeal ${referenceCode}`)}`
-    : "mailto:partnerships@nolsaf.com";
+    ? `mailto:partners@nolsaf.com?subject=${encodeURIComponent(`NRMS appeal ${referenceCode}`)}`
+    : "mailto:partners@nolsaf.com";
   return (
     <div className="flex min-h-[50vh] items-center justify-center px-4 py-6">
       <section id="nrms-freeze-card" role="alert" className="relative w-full max-w-sm overflow-hidden rounded-[24px] border border-red-100 bg-[linear-gradient(180deg,#fff7f7_0%,#ffffff_60%)] p-6 text-center shadow-[0_20px_46px_-26px_rgba(185,28,28,0.4)]">
@@ -26,7 +26,7 @@ export default function NrmsFrozenNotice({ variant = "frozen", propertyTitle, re
         <span className="relative mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-red-100 bg-white text-red-600 shadow-sm ring-4 ring-red-50">
           <CircleAlert className="h-6 w-6" />
         </span>
-        <span className="relative mt-3.5 inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-red-700">{isFrozen ? "Temporarily paused" : "Service notice"}</span>
+        <span className="relative mt-3.5 inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-red-700">{isFrozen ? "Temporarily paused" : "Service notice"}
         <h2 className="relative mt-2.5 text-xl font-bold tracking-tight text-neutral-950">{isFrozen ? (scope === "enrollment" ? "NRMS access is suspended" : "Operations are frozen") : "Workspace temporarily unavailable"}</h2>
         <p className="relative mb-0 mt-2 text-sm leading-6 text-neutral-500">
           {isFrozen

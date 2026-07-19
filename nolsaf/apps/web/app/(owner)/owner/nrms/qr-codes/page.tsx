@@ -272,7 +272,7 @@ export default function QrCodesPage() {
               <p className="mb-0 mt-1 text-xs leading-5">Staff operations remain available. Contact partnerships and quote the reference below for review.</p>
               {selectedProperty.qrRestriction?.referenceCode && (
                 <a
-                  href={`mailto:partnerships@nolsaf.com?subject=${encodeURIComponent(`QR ordering appeal ${selectedProperty.qrRestriction.referenceCode}`)}`}
+                  href={`mailto:partners@nolsaf.com?subject=${encodeURIComponent(`QR ordering appeal ${selectedProperty.qrRestriction.referenceCode}`)}`}
                   className="mt-2 inline-flex break-all font-mono text-xs font-bold text-[#02665e] underline underline-offset-2"
                 >
                   {selectedProperty.qrRestriction.referenceCode}
