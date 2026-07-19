@@ -278,7 +278,7 @@ router.get("/:propertyId/reconciliation", (async (req: AuthedRequest, res: Respo
 router.post("/:propertyId/import", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId));
+    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId), { id: true, roomsSpec: true, currency: true });
     if (!property) return;
     const propertyId = property.id as number;
     const propertyCurrency = (property as { currency?: string | null }).currency?.toUpperCase();
