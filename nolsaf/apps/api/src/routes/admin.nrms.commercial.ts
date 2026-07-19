@@ -204,10 +204,13 @@ router.post("/property/:propertyId/policy", requireNrmsFinanceApprover as Reques
   if (!policy) return res.status(404).json({ error: "Policy version not found" });
   if (policy.effectiveFrom < account.policy.effectiveFrom) return res.status(400).json({ error: "Accounts can only move to a newer policy" });
   if (policy.id === account.policyId) return res.status(409).json({ error: "This account already uses that policy" });
-  await db.ownerPaygAccount.update({ where: { id: account.id }, data: { policyId: policy.id } });
-  await audit(req.user!.id, "NRMS_ACCOUNT_POLICY_MIGRATE", account.ownerId, { propertyId: account.propertyId, beforePolicyId: account.policyId, afterPolicyId: policy.id, reason: parsed.data!.reason });
+  // The unpaid limit moves with the policy too, same as reminder/warning already do via the
+  // relation - otherwise an account's credit line silently freezes at whatever the old policy
+  // said forever. limitReachedAt resets since "reached" was measured against the old threshold.
+  await db.ownerPaygAccount.update({ where: { id: account.id }, data: { policyId: policy.id, unpaidLimit: policy.unpaidLimit, limitReachedAt: null } });
+  await audit(req.user!.id, "NRMS_ACCOUNT_POLICY_MIGRATE", account.ownerId, { propertyId: account.propertyId, beforePolicyId: account.policyId, afterPolicyId: policy.id, beforeUnpaidLimit: Number(account.unpaidLimit), afterUnpaidLimit: Number(policy.unpaidLimit), reason: parsed.data!.reason });
   await notifyOwner(account.ownerId, "nrms_policy_changed", { propertyTitle: account.property.title, version: policy.version, reason: parsed.data!.reason });
-  res.json({ policy: { id: policy.id, version: policy.version } });
+  res.json({ policy: { id: policy.id, version: policy.version }, unpaidLimit: Number(policy.unpaidLimit) });
 }) as RequestHandler);
 
 export default router;

@@ -18,6 +18,12 @@ import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode
 
 export const router = Router();
 
+// Availability/conflict checks (findUnitConflicts, getRoomTypeAvailability) inside these
+// transactions can run long under real load; Prisma's 5s interactive-transaction default
+// was tripping with P2028 in production. 15s gives real headroom without holding the
+// property's inventory lock indefinitely.
+const AVAILABILITY_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
 
 const RESERVATION_SOURCES = ["WALK_IN", "PHONE", "DIRECT", "AIRBNB", "BOOKING_COM", "EXPEDIA", "OTHER"] as const;
@@ -804,7 +810,7 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
       });
 
       return { reservationId: reservation.id };
-    });
+    }, AVAILABILITY_TX_OPTIONS);
 
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({
@@ -901,7 +907,7 @@ router.patch("/:id", (async (req: AuthedRequest, res: Response) => {
         data: { reservationId: reservation.id, type: "EDITED", actorId: ownerId, data: parsed.data as object },
       });
       return {};
-    });
+    }, AVAILABILITY_TX_OPTIONS);
 
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({ error: "The new dates conflict with another stay", code: "ROOM_CONFLICT", conflict: result.conflict });
@@ -1041,7 +1047,7 @@ router.post("/:id/confirm", (async (req: AuthedRequest, res: Response) => {
       if (changed.count !== 1) return { stale: true };
       await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CONFIRMED", actorId: ownerId } });
       return { ok: true };
-    });
+    }, AVAILABILITY_TX_OPTIONS);
     if ("conflict" in result) return res.status(409).json({ error: "Reservation inventory is no longer available", code: "ROOM_CONFLICT", conflict: result.conflict });
     if ("stale" in result) return res.status(409).json({ error: "Reservation changed before confirmation", code: "INVALID_TRANSITION" });
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
@@ -1202,7 +1208,7 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
         },
       });
       return { allocationId: next.id };
-    });
+    }, AVAILABILITY_TX_OPTIONS);
 
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({ error: "The target room is not available for these dates", code: "ROOM_CONFLICT", conflict: result.conflict });
