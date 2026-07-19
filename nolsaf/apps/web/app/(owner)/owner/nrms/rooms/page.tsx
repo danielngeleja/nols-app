@@ -54,8 +54,15 @@ const UNIT_STATUS_META: Record<string, { label: string; cls: string }> = {
 
 const UNIT_STATUSES = ["ACTIVE", "INACTIVE", "MAINTENANCE", "OUT_OF_SERVICE"];
 
+const PROPERTY_CURRENCIES = [
+  { code: "TZS", enabled: true },
+  { code: "USD", enabled: false },
+  { code: "EUR", enabled: false },
+  { code: "KES", enabled: false },
+];
+
 export default function NrmsRoomsPage() {
-  const { selectedPropertyId, selectedProperty, activateProperty } = useNrms();
+  const { selectedPropertyId, selectedProperty, activateProperty, refresh } = useNrms();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
@@ -66,6 +73,23 @@ export default function NrmsRoomsPage() {
   const [unitFormType, setUnitFormType] = useState<RoomType | null>(null);
   const [editUnit, setEditUnit] = useState<RoomUnit | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [currencyChoice, setCurrencyChoice] = useState("TZS");
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const needsCurrency = !!notice && /property currency/i.test(notice);
+
+  const setPropertyCurrency = async () => {
+    if (!selectedPropertyId) return;
+    setSavingCurrency(true);
+    try {
+      await apiClient.patch(`/api/owner/properties/${selectedPropertyId}/currency`, { currency: currencyChoice });
+      await refresh();
+      setNotice(`Currency set to ${currencyChoice}. You can import or add room types now.`);
+    } catch (e: any) {
+      setNotice(e?.response?.data?.error || "Failed to set currency");
+    } finally {
+      setSavingCurrency(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -139,7 +163,40 @@ export default function NrmsRoomsPage() {
         </div>
       )}
 
-      {notice && (
+      {notice && needsCurrency && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 mb-4 text-sm text-amber-900">
+          <div className="flex items-start justify-between gap-3">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss">
+              <X className="w-4 h-4 text-amber-400" />
+            </button>
+          </div>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <select
+              value={currencyChoice}
+              onChange={(e) => setCurrencyChoice(e.target.value)}
+              className="rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-sm text-neutral-900"
+              aria-label="Property currency"
+            >
+              {PROPERTY_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code} disabled={!c.enabled}>
+                  {c.code}{c.enabled ? "" : " (coming soon)"}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={setPropertyCurrency}
+              disabled={savingCurrency}
+              className="rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 disabled:opacity-60"
+            >
+              {savingCurrency ? "Saving..." : "Set currency"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {notice && !needsCurrency && (
         <div className="rounded-xl bg-neutral-50 border border-neutral-200 px-4 py-2.5 mb-4 text-sm text-neutral-700 flex items-center justify-between gap-3">
           <span>{notice}</span>
           <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss">
