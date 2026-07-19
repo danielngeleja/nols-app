@@ -696,6 +696,39 @@ model AdminAudit {
   @@map("adminaudit")
 }
 
+/// Immutable reference and lifecycle record for administrative restrictions.
+/// The restricted business tables remain authoritative for access checks; this
+/// ledger gives owners, support, and administrators one durable appeal code
+/// across marketplace property, NRMS enrollment, NRMS property, and QR freezes.
+model PlatformRestrictionCase {
+  id                      Int       @id @default(autoincrement())
+  referenceCode           String    @unique @db.VarChar(48)
+  activeKey               String?   @unique @db.VarChar(80)
+  scope                   String    @db.VarChar(40)
+  status                  String    @default("OPEN") @db.VarChar(20) // OPEN, RESOLVED
+  ownerId                 Int
+  targetId                Int
+  propertyId              Int?
+  reason                  String    @db.VarChar(300)
+  appliedByAdminId        Int?
+  appliedAt               DateTime  @default(now())
+  resolvedByAdminId       Int?
+  resolvedAt              DateTime?
+  resolutionNote          String?   @db.VarChar(300)
+  notificationEmailSentAt DateTime?
+  notificationEmailError  String?   @db.VarChar(500)
+  resolutionEmailSentAt   DateTime?
+  resolutionEmailError    String?   @db.VarChar(500)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([scope, targetId, status])
+  @@index([ownerId, status])
+  @@index([propertyId, status])
+  @@index([createdAt])
+  @@map("platform_restriction_case")
+}
+
 // =========================================================
 //  SESSION MODEL - For user session tracking
 // =========================================================

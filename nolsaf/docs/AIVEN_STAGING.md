@@ -35,7 +35,8 @@ Keep `COOKIE_DOMAIN` blank unless staging uses a stable custom parent domain sha
 Use the guarded staging migration command from the `nolsaf/` repository root. It
 loads `apps/api/.env.staging`, verifies that the target is Aiven staging, repairs
 the repository's known legacy migration-name aliases when their checksums and
-database structures match, and then runs `prisma migrate deploy`:
+database structures match, recovers the known idempotent NRMS staff-invite
+migration failures, and then runs `prisma migrate deploy`:
 
 ```powershell
 npm run prisma:migrate:staging
@@ -61,6 +62,8 @@ Do not initialize shared staging with `prisma db push`. That creates schema
 without durable migration history and causes later `migrate deploy` failures.
 Do not rename or delete a migration directory after it has been applied to any
 shared environment; Prisma treats the directory name as an immutable ID.
+Do not run raw `prisma migrate dev` against Aiven staging. Use the guarded
+commands above so the host allowlist and verified recovery rules are enforced.
 
 On Render, keep the pre-deploy command as `npm run prisma:migrate`. The guarded
 repair is a one-time local staging operation; normal releases use standard

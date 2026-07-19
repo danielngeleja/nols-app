@@ -154,8 +154,19 @@ router.get("/property/:propertyId", (async (req, res: Response) => {
   });
 
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [account, staff, outlets, orderPoints, roomsByHk, orderStats, orderTotals, qrOrderCount, nightAudits, cashierShifts, openBusinessDay] = await Promise.all([
+  const [account, restrictionCases, staff, outlets, orderPoints, roomsByHk, orderStats, orderTotals, qrOrderCount, nightAudits, cashierShifts, openBusinessDay] = await Promise.all([
     db.ownerPaygAccount.findUnique({ where: { propertyId }, include: { policy: { select: { version: true, roomNightPrice: true, currency: true } } } }),
+    db.platformRestrictionCase.findMany({
+      where: {
+        status: "OPEN",
+        OR: [
+          { scope: "NRMS_ENROLLMENT", targetId: property.owner.id },
+          { propertyId },
+        ],
+      },
+      orderBy: { id: "desc" },
+      select: { referenceCode: true, scope: true, reason: true, appliedAt: true, notificationEmailSentAt: true, notificationEmailError: true },
+    }),
     db.nrmsStaffMembership.findMany({
       where: { propertyId },
       include: {
@@ -209,6 +220,7 @@ router.get("/property/:propertyId", (async (req, res: Response) => {
       nrmsQrOrderingFrozenAt: undefined,
     },
     enrollment,
+    restrictionCases,
     account: account
       ? {
           id: account.id,

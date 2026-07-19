@@ -17,6 +17,13 @@ import { notifyOwner } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { NRMS_PLAN_CODE } from "../lib/nrms.js";
 import { generateOrderPointToken } from "../lib/nrmsOrderPoints.js";
+import {
+  RESTRICTION_SCOPE,
+  createRestrictionCase,
+  resolveRestrictionCase,
+  sendRestrictionOpenedEmail,
+  sendRestrictionResolvedEmail,
+} from "../lib/restrictionCases.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -66,13 +73,26 @@ router.post("/enrollment/:ownerId/suspend", requireNrmsFinanceApprover as unknow
   const enrollment = await db.ownerServiceEnrollment.findFirst({ where: { ownerId, plan: { code: NRMS_PLAN_CODE } } });
   if (!enrollment) return res.status(404).json({ error: "This owner has no NRMS enrollment" });
   if (enrollment.status === "SUSPENDED") return res.status(409).json({ error: "The enrollment is already suspended" });
-  const updated = await db.ownerServiceEnrollment.update({
-    where: { id: enrollment.id },
-    data: { status: "SUSPENDED", suspendedAt: new Date(), notes: reason },
+  const appliedAt = new Date();
+  const { updated, restriction } = await db.$transaction(async (tx: any) => {
+    const nextEnrollment = await tx.ownerServiceEnrollment.update({
+      where: { id: enrollment.id },
+      data: { status: "SUSPENDED", suspendedAt: appliedAt, notes: reason },
+    });
+    const nextRestriction = await createRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_ENROLLMENT,
+      ownerId,
+      targetId: ownerId,
+      reason,
+      appliedByAdminId: req.user!.id,
+      appliedAt,
+    });
+    return { updated: nextEnrollment, restriction: nextRestriction };
   });
-  await audit(req.user!.id, "NRMS_ENROLLMENT_SUSPEND", ownerId, { enrollmentId: enrollment.id, previousStatus: enrollment.status, reason });
-  await notifyOwner(ownerId, "nrms_enrollment_suspended", { reason });
-  res.json({ enrollment: { id: updated.id, status: updated.status, suspendedAt: updated.suspendedAt } });
+  await audit(req.user!.id, "NRMS_ENROLLMENT_SUSPEND", ownerId, { enrollmentId: enrollment.id, previousStatus: enrollment.status, reason, referenceCode: restriction.referenceCode });
+  await notifyOwner(ownerId, "nrms_enrollment_suspended", { reason, referenceCode: restriction.referenceCode });
+  const emailDelivery = await sendRestrictionOpenedEmail(restriction, "NRMS workspace");
+  res.json({ enrollment: { id: updated.id, status: updated.status, suspendedAt: updated.suspendedAt }, referenceCode: restriction.referenceCode, emailDelivery });
 }) as RequestHandler);
 
 router.post("/enrollment/:ownerId/restore", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {
@@ -84,13 +104,23 @@ router.post("/enrollment/:ownerId/restore", requireNrmsFinanceApprover as unknow
   if (!enrollment) return res.status(404).json({ error: "This owner has no NRMS enrollment" });
   if (enrollment.status !== "SUSPENDED") return res.status(409).json({ error: "Only a suspended enrollment can be restored" });
   const nextStatus = enrollment.activatedAt ? "ACTIVE" : "TRIAL";
-  const updated = await db.ownerServiceEnrollment.update({
-    where: { id: enrollment.id },
-    data: { status: nextStatus, suspendedAt: null },
+  const { updated, restriction } = await db.$transaction(async (tx: any) => {
+    const nextEnrollment = await tx.ownerServiceEnrollment.update({
+      where: { id: enrollment.id },
+      data: { status: nextStatus, suspendedAt: null },
+    });
+    const resolvedRestriction = await resolveRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_ENROLLMENT,
+      targetId: ownerId,
+      resolvedByAdminId: req.user!.id,
+      resolutionNote: reason,
+    });
+    return { updated: nextEnrollment, restriction: resolvedRestriction };
   });
-  await audit(req.user!.id, "NRMS_ENROLLMENT_RESTORE", ownerId, { enrollmentId: enrollment.id, restoredTo: nextStatus, reason });
-  await notifyOwner(ownerId, "nrms_enrollment_restored", { reason });
-  res.json({ enrollment: { id: updated.id, status: updated.status } });
+  await audit(req.user!.id, "NRMS_ENROLLMENT_RESTORE", ownerId, { enrollmentId: enrollment.id, restoredTo: nextStatus, reason, referenceCode: restriction?.referenceCode ?? null });
+  await notifyOwner(ownerId, "nrms_enrollment_restored", { reason, referenceCode: restriction?.referenceCode ?? null });
+  const emailDelivery = restriction ? await sendRestrictionResolvedEmail(restriction, "NRMS workspace") : { sent: false, error: "No tracked restriction case was found" };
+  res.json({ enrollment: { id: updated.id, status: updated.status }, referenceCode: restriction?.referenceCode ?? null, emailDelivery });
 }) as RequestHandler);
 
 // ── Property-level: freeze / unfreeze the PAYG account (2FA) ────────────────
@@ -103,19 +133,32 @@ router.post("/property/:propertyId/freeze", requireNrmsFinanceApprover as unknow
   const account = await db.ownerPaygAccount.findUnique({ where: { propertyId: property.id } });
   if (!account) return res.status(404).json({ error: "This property has no NRMS account" });
   if (["FROZEN", "CLOSED"].includes(account.status)) return res.status(409).json({ error: "The property is already frozen or permanently closed" });
-  await db.ownerPaygAccount.update({
-    where: { id: account.id },
-    data: {
-      status: "FROZEN",
-      freezePreviousStatus: account.status,
-      frozenAt: new Date(),
-      frozenByAdminId: req.user!.id,
-      frozenReason: reason,
-    },
+  const appliedAt = new Date();
+  const restriction = await db.$transaction(async (tx: any) => {
+    await tx.ownerPaygAccount.update({
+      where: { id: account.id },
+      data: {
+        status: "FROZEN",
+        freezePreviousStatus: account.status,
+        frozenAt: appliedAt,
+        frozenByAdminId: req.user!.id,
+        frozenReason: reason,
+      },
+    });
+    return createRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_PROPERTY,
+      ownerId: property.ownerId,
+      targetId: property.id,
+      propertyId: property.id,
+      reason,
+      appliedByAdminId: req.user!.id,
+      appliedAt,
+    });
   });
-  await audit(req.user!.id, "NRMS_PROPERTY_FREEZE", property.ownerId, { propertyId: property.id, accountId: account.id, previousStatus: account.status, reason });
-  await notifyOwner(property.ownerId, "nrms_property_frozen", { propertyTitle: property.title, reason });
-  res.json({ account: { id: account.id, status: "FROZEN", previousStatus: account.status } });
+  await audit(req.user!.id, "NRMS_PROPERTY_FREEZE", property.ownerId, { propertyId: property.id, accountId: account.id, previousStatus: account.status, reason, referenceCode: restriction.referenceCode });
+  await notifyOwner(property.ownerId, "nrms_property_frozen", { propertyTitle: property.title, reason, referenceCode: restriction.referenceCode });
+  const emailDelivery = await sendRestrictionOpenedEmail(restriction, property.title);
+  res.json({ account: { id: account.id, status: "FROZEN", previousStatus: account.status }, referenceCode: restriction.referenceCode, emailDelivery });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/unfreeze", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {
@@ -129,13 +172,22 @@ router.post("/property/:propertyId/unfreeze", requireNrmsFinanceApprover as unkn
   const allowedBillingStates = ["TRIAL", "ACTIVE", "WARNING", "PAYMENT_REQUIRED", "PAYMENT_PENDING"];
   const nextStatus = allowedBillingStates.includes(account.freezePreviousStatus) ? account.freezePreviousStatus : null;
   if (!nextStatus) return res.status(409).json({ error: "The previous billing state is unavailable; review the account before unfreezing" });
-  await db.ownerPaygAccount.update({
-    where: { id: account.id },
-    data: { status: nextStatus, freezePreviousStatus: null, frozenAt: null, frozenByAdminId: null, frozenReason: null },
+  const restriction = await db.$transaction(async (tx: any) => {
+    await tx.ownerPaygAccount.update({
+      where: { id: account.id },
+      data: { status: nextStatus, freezePreviousStatus: null, frozenAt: null, frozenByAdminId: null, frozenReason: null },
+    });
+    return resolveRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_PROPERTY,
+      targetId: property.id,
+      resolvedByAdminId: req.user!.id,
+      resolutionNote: reason,
+    });
   });
-  await audit(req.user!.id, "NRMS_PROPERTY_UNFREEZE", property.ownerId, { propertyId: property.id, accountId: account.id, restoredTo: nextStatus, reason });
-  await notifyOwner(property.ownerId, "nrms_property_unfrozen", { propertyTitle: property.title, reason });
-  res.json({ account: { id: account.id, status: nextStatus } });
+  await audit(req.user!.id, "NRMS_PROPERTY_UNFREEZE", property.ownerId, { propertyId: property.id, accountId: account.id, restoredTo: nextStatus, reason, referenceCode: restriction?.referenceCode ?? null });
+  await notifyOwner(property.ownerId, "nrms_property_unfrozen", { propertyTitle: property.title, reason, referenceCode: restriction?.referenceCode ?? null });
+  const emailDelivery = restriction ? await sendRestrictionResolvedEmail(restriction, property.title) : { sent: false, error: "No tracked restriction case was found" };
+  res.json({ account: { id: account.id, status: nextStatus }, referenceCode: restriction?.referenceCode ?? null, emailDelivery });
 }) as RequestHandler);
 
 // Permanent closure is deliberately separate from a temporary freeze. Only a
@@ -240,10 +292,23 @@ router.post("/property/:propertyId/qr-ordering/freeze", requireNrmsFinanceApprov
   const reason = parseReason(req, res);
   if (!reason) return;
   if (property.nrmsQrOrderingFrozenAt) return res.status(409).json({ error: "QR ordering is already frozen for this property" });
-  await db.property.update({ where: { id: property.id }, data: { nrmsQrOrderingFrozenAt: new Date() } });
-  await audit(req.user!.id, "NRMS_QR_ORDERING_FREEZE", property.ownerId, { propertyId: property.id, reason });
-  await notifyOwner(property.ownerId, "nrms_qr_ordering_frozen", { propertyTitle: property.title, reason });
-  res.json({ frozen: true });
+  const appliedAt = new Date();
+  const restriction = await db.$transaction(async (tx: any) => {
+    await tx.property.update({ where: { id: property.id }, data: { nrmsQrOrderingFrozenAt: appliedAt } });
+    return createRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_QR_ORDERING,
+      ownerId: property.ownerId,
+      targetId: property.id,
+      propertyId: property.id,
+      reason,
+      appliedByAdminId: req.user!.id,
+      appliedAt,
+    });
+  });
+  await audit(req.user!.id, "NRMS_QR_ORDERING_FREEZE", property.ownerId, { propertyId: property.id, reason, referenceCode: restriction.referenceCode });
+  await notifyOwner(property.ownerId, "nrms_qr_ordering_frozen", { propertyTitle: property.title, reason, referenceCode: restriction.referenceCode });
+  const emailDelivery = await sendRestrictionOpenedEmail(restriction, property.title);
+  res.json({ frozen: true, referenceCode: restriction.referenceCode, emailDelivery });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/qr-ordering/unfreeze", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {
@@ -252,10 +317,19 @@ router.post("/property/:propertyId/qr-ordering/unfreeze", requireNrmsFinanceAppr
   const reason = parseReason(req, res);
   if (!reason) return;
   if (!property.nrmsQrOrderingFrozenAt) return res.status(409).json({ error: "QR ordering is not frozen for this property" });
-  await db.property.update({ where: { id: property.id }, data: { nrmsQrOrderingFrozenAt: null } });
-  await audit(req.user!.id, "NRMS_QR_ORDERING_UNFREEZE", property.ownerId, { propertyId: property.id, reason });
-  await notifyOwner(property.ownerId, "nrms_qr_ordering_unfrozen", { propertyTitle: property.title, reason });
-  res.json({ frozen: false });
+  const restriction = await db.$transaction(async (tx: any) => {
+    await tx.property.update({ where: { id: property.id }, data: { nrmsQrOrderingFrozenAt: null } });
+    return resolveRestrictionCase(tx, {
+      scope: RESTRICTION_SCOPE.NRMS_QR_ORDERING,
+      targetId: property.id,
+      resolvedByAdminId: req.user!.id,
+      resolutionNote: reason,
+    });
+  });
+  await audit(req.user!.id, "NRMS_QR_ORDERING_UNFREEZE", property.ownerId, { propertyId: property.id, reason, referenceCode: restriction?.referenceCode ?? null });
+  await notifyOwner(property.ownerId, "nrms_qr_ordering_unfrozen", { propertyTitle: property.title, reason, referenceCode: restriction?.referenceCode ?? null });
+  const emailDelivery = restriction ? await sendRestrictionResolvedEmail(restriction, property.title) : { sent: false, error: "No tracked restriction case was found" };
+  res.json({ frozen: false, referenceCode: restriction?.referenceCode ?? null, emailDelivery });
 }) as RequestHandler);
 
 // ── Payment instructions: clear pending owner correction ────────────────────
@@ -275,6 +349,27 @@ router.post("/property/:propertyId/pay-instructions/clear", requireNrmsFinanceAp
 }) as RequestHandler);
 
 // ── Enforcement history for the console feed ────────────────────────────────
+
+router.get("/restrictions", (async (req: AuthedRequest, res: Response) => {
+  const status = String(req.query.status || "OPEN").toUpperCase();
+  const scope = req.query.scope ? String(req.query.scope).toUpperCase() : null;
+  if (!new Set(["OPEN", "RESOLVED", "ALL"]).has(status)) {
+    return res.status(400).json({ error: "Status must be OPEN, RESOLVED, or ALL" });
+  }
+  const allowedScopes = new Set(Object.values(RESTRICTION_SCOPE));
+  if (scope && !allowedScopes.has(scope as any)) {
+    return res.status(400).json({ error: "Unknown restriction scope" });
+  }
+  const restrictions = await db.platformRestrictionCase.findMany({
+    where: {
+      ...(status === "ALL" ? {} : { status }),
+      ...(scope ? { scope } : {}),
+    },
+    orderBy: { id: "desc" },
+    take: 100,
+  });
+  res.json({ restrictions });
+}) as RequestHandler);
 
 router.get("/actions", (async (_req: AuthedRequest, res: Response) => {
   const actions = await db.adminAudit.findMany({

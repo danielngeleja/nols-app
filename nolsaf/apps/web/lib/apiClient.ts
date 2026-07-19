@@ -67,7 +67,7 @@ apiClient.interceptors.response.use(
       window.dispatchEvent(new CustomEvent("finance-grant-required"));
     }
     if (status === 423 && error?.response?.data?.code === "NRMS_PROPERTY_FROZEN" && typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("nrms-property-frozen"));
+      window.dispatchEvent(new CustomEvent("nrms-property-frozen", { detail: error.response.data }));
     }
     const isMutation = MUTATION_METHODS.has(String(config?.method || "").toLowerCase());
     if (

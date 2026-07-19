@@ -43,21 +43,46 @@ function formatEnrollment(enrollment: Awaited<ReturnType<typeof getNrmsEnrollmen
 router.get("/", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const [enrollment, usagePolicy, properties] = await Promise.all([
+    const [enrollment, usagePolicy, properties, restrictionCases] = await Promise.all([
       getNrmsEnrollment(ownerId),
       getActiveNrmsPolicy(),
       prisma.property.findMany({
         where: { ownerId },
-        select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true },
+        select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true, nrmsPaygAccount: true },
         orderBy: { id: "asc" },
       }),
+      (prisma as any).platformRestrictionCase.findMany({
+        where: {
+          ownerId,
+          status: "OPEN",
+          scope: { in: ["NRMS_ENROLLMENT", "NRMS_PROPERTY", "NRMS_QR_ORDERING"] },
+        },
+        orderBy: { id: "desc" },
+        select: { scope: true, targetId: true, referenceCode: true, reason: true },
+      }),
     ]);
+    const propertyRestrictions = new Map<number, any>();
+    const qrRestrictions = new Map<number, any>();
+    for (const restriction of restrictionCases) {
+      if (restriction.scope === "NRMS_PROPERTY" && !propertyRestrictions.has(restriction.targetId)) {
+        propertyRestrictions.set(restriction.targetId, restriction);
+      }
+      if (restriction.scope === "NRMS_QR_ORDERING" && !qrRestrictions.has(restriction.targetId)) {
+        qrRestrictions.set(restriction.targetId, restriction);
+      }
+    }
+    const enrollmentRestriction = restrictionCases.find((restriction: any) => restriction.scope === "NRMS_ENROLLMENT") ?? null;
     res.json({
       workspaceMode: workspaceMode(enrollment),
       entitled: isNrmsEntitled(enrollment),
       enrollment: formatEnrollment(enrollment),
       usagePolicy: usagePolicy ? { currency: usagePolicy.currency, roomNightPrice: usagePolicy.roomNightPrice, trialDays: usagePolicy.trialDays } : null,
-      properties,
+      restriction: enrollmentRestriction,
+      properties: properties.map((property) => ({
+        ...property,
+        restriction: propertyRestrictions.get(property.id) ?? null,
+        qrRestriction: qrRestrictions.get(property.id) ?? null,
+      })),
     });
   } catch (err) {
     console.error("[owner.nrms] status failed", err);

@@ -6,6 +6,7 @@
 import type { Response, NextFunction, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import type { AuthedRequest } from "../middleware/auth.js";
+import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "./restrictionCases.js";
 
 export const NRMS_PLAN_CODE = "NRMS_PAYG";
 
@@ -57,7 +58,13 @@ export async function loadOwnedActiveNrmsProperty(res: Response, ownerId: number
     return null;
   }
   if (account.status === "FROZEN") {
-    res.status(423).json({ error: "NRMS operations are temporarily frozen by an administrator", code: "NRMS_PROPERTY_FROZEN" });
+    const restriction = await findOpenRestrictionCase(RESTRICTION_SCOPE.NRMS_PROPERTY, propertyId);
+    res.status(423).json({
+      error: "NRMS operations are temporarily frozen by an administrator",
+      code: "NRMS_PROPERTY_FROZEN",
+      referenceCode: restriction?.referenceCode ?? null,
+      reason: restriction?.reason ?? account.frozenReason ?? null,
+    });
     return null;
   }
   if (account.status === "TRIAL" && new Date() >= account.trialEndsAt) {

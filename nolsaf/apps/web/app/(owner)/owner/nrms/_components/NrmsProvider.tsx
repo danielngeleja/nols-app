@@ -11,9 +11,12 @@ export type NrmsProperty = {
   title: string;
   currency: string | null;
   nrmsActivatedAt: string | null;
+  nrmsQrOrderingFrozenAt?: string | null;
   nrmsAccessRole?: "OWNER" | "MANAGER" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
   nrmsOutletId?: number | null;
   nrmsPaygAccount?: { status: string; trialStartsAt: string; trialEndsAt: string; unpaidBalance: string | number; unpaidLimit: string | number } | null;
+  restriction?: { referenceCode: string; reason?: string | null } | null;
+  qrRestriction?: { referenceCode: string; reason?: string | null } | null;
 };
 
 export type NrmsEnrollment = {
@@ -53,6 +56,7 @@ type NrmsStatus = {
   workspaceMode: "MARKETPLACE_ONLY" | "MARKETPLACE_NRMS";
   enrollment: NrmsEnrollment;
   usagePolicy: NrmsUsagePolicy;
+  restriction: { referenceCode: string; reason?: string | null } | null;
   properties: NrmsProperty[];
   selectedPropertyId: number | null;
   selectedProperty: NrmsProperty | null;
@@ -73,6 +77,7 @@ export function NrmsProvider({ children }: { children: ReactNode }) {
   const [workspaceMode, setWorkspaceMode] = useState<"MARKETPLACE_ONLY" | "MARKETPLACE_NRMS">("MARKETPLACE_ONLY");
   const [enrollment, setEnrollment] = useState<NrmsEnrollment>(null);
   const [usagePolicy, setUsagePolicy] = useState<NrmsUsagePolicy>(null);
+  const [restriction, setRestriction] = useState<{ referenceCode: string; reason?: string | null } | null>(null);
   const [properties, setProperties] = useState<NrmsProperty[]>([]);
   const [selectedPropertyId, setSelectedPropertyIdState] = useState<number | null>(null);
 
@@ -91,6 +96,7 @@ export function NrmsProvider({ children }: { children: ReactNode }) {
       setWorkspaceMode(data.workspaceMode === "MARKETPLACE_NRMS" ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY");
       setEnrollment(data.enrollment ?? null);
       setUsagePolicy(data.usagePolicy ?? null);
+      setRestriction(data.restriction ?? null);
       const props: NrmsProperty[] = Array.isArray(data.properties)
         ? data.properties.map((property: NrmsProperty) => ({ ...property, nrmsAccessRole: property.nrmsAccessRole ?? "OWNER" }))
         : [];
@@ -162,6 +168,7 @@ export function NrmsProvider({ children }: { children: ReactNode }) {
     workspaceMode,
     enrollment,
     usagePolicy,
+    restriction,
     properties,
     selectedPropertyId,
     selectedProperty,

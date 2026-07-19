@@ -159,7 +159,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       },
       property_suspended: {
         title: "Property Suspended",
-        body: `Your property "${data.propertyTitle || 'Property'}" has been temporarily suspended. ${data.reason ? `Reason: ${data.reason}` : ''}`
+        body: `Your property "${data.propertyTitle || 'Property'}" has been temporarily suspended. ${data.reason ? `Reason: ${data.reason}. ` : ''}${data.referenceCode ? `Reference: ${data.referenceCode}. Quote this code in any appeal.` : ''}`
       },
       property_unsuspended: {
         title: "Property Reinstated",
@@ -206,7 +206,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       // is reasoned and the owner is always told what happened and why.
       nrms_enrollment_suspended: {
         title: "NRMS Access Suspended",
-        body: `Your NRMS workspace has been suspended by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Your marketplace account is not affected. Contact support to resolve this.`
+        body: `Your NRMS workspace has been suspended by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Your marketplace account is not affected. Quote the reference when contacting partnerships.`
       },
       nrms_enrollment_restored: {
         title: "NRMS Access Restored",
@@ -214,7 +214,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       },
       nrms_property_frozen: {
         title: "NRMS Property Frozen",
-        body: `NRMS operations for "${data.propertyTitle || 'your property'}" have been frozen by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Your other properties are not affected. Contact support to resolve this.`
+        body: `NRMS operations for "${data.propertyTitle || 'your property'}" have been frozen by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Your other properties and marketplace listing are not affected.`
       },
       nrms_property_unfrozen: {
         title: "NRMS Property Reopened",
@@ -230,7 +230,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       },
       nrms_qr_ordering_frozen: {
         title: "Guest QR Ordering Paused",
-        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Staff ordering continues to work normally.`
+        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Staff ordering continues to work normally.`
       },
       nrms_qr_ordering_unfrozen: {
         title: "Guest QR Ordering Resumed",

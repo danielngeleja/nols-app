@@ -500,17 +500,25 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
       .map((item) => item.id as number);
 
     const suspensionReasonMap = new Map<number, string | null>();
+    const suspensionReferenceMap = new Map<number, string | null>();
     if (suspendedIds.length > 0) {
       try {
-        const auditLogs = await prisma.auditLog.findMany({
-          where: {
-            entity: "PROPERTY",
-            entityId: { in: suspendedIds },
-            action: "PROPERTY_SUSPEND",
-          },
-          orderBy: { id: "desc" },
-          select: { entityId: true, afterJson: true },
-        });
+        const [auditLogs, restrictionCases] = await Promise.all([
+          prisma.auditLog.findMany({
+            where: {
+              entity: "PROPERTY",
+              entityId: { in: suspendedIds },
+              action: "PROPERTY_SUSPEND",
+            },
+            orderBy: { id: "desc" },
+            select: { entityId: true, afterJson: true },
+          }),
+          (prisma as any).platformRestrictionCase.findMany({
+            where: { scope: "MARKETPLACE_PROPERTY", targetId: { in: suspendedIds }, status: "OPEN" },
+            orderBy: { id: "desc" },
+            select: { targetId: true, referenceCode: true, reason: true },
+          }),
+        ]);
         // Keep only the most-recent log per property (list is already desc by id)
         for (const log of auditLogs) {
           if (!suspensionReasonMap.has(log.entityId)) {
@@ -527,6 +535,14 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
             suspensionReasonMap.set(log.entityId, reason);
           }
         }
+        for (const restriction of restrictionCases) {
+          if (!suspensionReferenceMap.has(restriction.targetId)) {
+            suspensionReferenceMap.set(restriction.targetId, restriction.referenceCode);
+          }
+          if (!suspensionReasonMap.has(restriction.targetId)) {
+            suspensionReasonMap.set(restriction.targetId, restriction.reason ?? null);
+          }
+        }
       } catch (err) {
         console.error("Error batch-fetching suspension reasons:", err);
       }
@@ -538,6 +554,7 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
       const out = { ...item };
       if (item.status === "SUSPENDED" && item.id) {
         out.suspensionReason = suspensionReasonMap.get(item.id) ?? null;
+        out.suspensionReference = suspensionReferenceMap.get(item.id) ?? null;
       }
       return out;
     });

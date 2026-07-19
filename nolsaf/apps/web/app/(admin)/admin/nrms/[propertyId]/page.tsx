@@ -16,6 +16,7 @@ type Detail = {
     owner: { id: number; fullName: string | null; name: string | null; email: string | null; phone: string | null };
   };
   enrollment: { id: number; status: string; suspendedAt: string | null } | null;
+  restrictionCases: Array<{ referenceCode: string; scope: string; reason: string; appliedAt: string; notificationEmailSentAt: string | null; notificationEmailError: string | null }>;
   account: { id: number; status: string; freezePreviousStatus: string | null; frozenAt: string | null; frozenReason: string | null; trialStartsAt: string; trialEndsAt: string; unpaidBalance: number; unpaidLimit: number; policy: { version: string; roomNightPrice: number; currency: string } | null } | null;
   staff: Array<{ membershipId: number; role: string; status: string; confirmedAt: string | null; outlet: { name: string; type: string } | null; user: { id: number; name: string; email: string | null } }>;
   outlets: Array<{ id: number; name: string; code: string; type: string; status: string; currency: string; autoAcceptQrOrders: boolean; activeMenuItems: number; totalOrders: number }>;
@@ -135,8 +136,15 @@ export default function AdminNrmsPropertyPage() {
     setEnforcing(true);
     setEnforceError(null);
     try {
-      await apiClient.post(enforce.endpoint, { reason: reason.trim() });
-      setNotice(`${enforce.title}: done. The owner has been notified and the action is on the audit log.`);
+      const response = await apiClient.post(enforce.endpoint, { reason: reason.trim() });
+      const referenceCode = response.data?.referenceCode;
+      const emailSent = response.data?.emailDelivery?.sent;
+      setNotice(
+        `${enforce.title}: done.${referenceCode ? ` Reference ${referenceCode}.` : ""} ` +
+        (emailSent === false
+          ? "The in-app notice was saved, but the email could not be delivered; the failure is recorded for follow-up."
+          : "The owner email and in-app notice were sent, and the action is on the audit log."),
+      );
       setEnforce(null);
       await load();
     } catch (cause: any) {
@@ -198,6 +206,21 @@ export default function AdminNrmsPropertyPage() {
               {restrictions.length > 0 && (
                 <div className="mt-2.5 flex flex-wrap gap-1.5">
                   {restrictions.map((r) => <span key={r.label} className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${r.tone}`}>{r.label}</span>)}
+                </div>
+              )}
+              {(data.restrictionCases?.length ?? 0) > 0 && (
+                <div className="mt-3 space-y-1.5">
+                  {data.restrictionCases.map((restriction) => (
+                    <div key={restriction.referenceCode} className="rounded-lg border border-orange-200 bg-orange-50/80 px-3 py-2 text-xs text-orange-950">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-mono font-bold">{restriction.referenceCode}</span>
+                        <span className={`font-bold ${restriction.notificationEmailSentAt ? "text-emerald-700" : "text-red-700"}`}>
+                          {restriction.notificationEmailSentAt ? "Email sent" : "Email needs follow-up"}
+                        </span>
+                      </div>
+                      <p className="mb-0 mt-1 leading-5">{restriction.reason}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

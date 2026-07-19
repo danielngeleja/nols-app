@@ -130,11 +130,11 @@ function PropertyActivationGate() {
 }
 
 function NrmsShell({ children }: { children: ReactNode }) {
-  const { loading, error, entitled, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId, refresh } = useNrms();
+  const { loading, error, entitled, restriction, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId, refresh } = useNrms();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [globalFreeze, setGlobalFreeze] = useState(false);
+  const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner/bookings" : "/account";
@@ -149,13 +149,16 @@ function NrmsShell({ children }: { children: ReactNode }) {
   // event on every such response so the shell can show one consistent notice
   // instead of each page rendering its own raw error text.
   useEffect(() => {
-    const handleFrozen = () => setGlobalFreeze(true);
+    const handleFrozen = (event: Event) => {
+      const detail = (event as CustomEvent<{ referenceCode?: string | null; reason?: string | null }>).detail;
+      setGlobalFreeze({ referenceCode: detail?.referenceCode ?? null, reason: detail?.reason ?? null });
+    };
     window.addEventListener("nrms-property-frozen", handleFrozen);
     return () => window.removeEventListener("nrms-property-frozen", handleFrozen);
   }, []);
   // Switching to a different property (via the sidebar/topbar switcher) should
   // drop the frozen overlay so that property's own pages get a fresh chance to load.
-  useEffect(() => { setGlobalFreeze(false); }, [selectedPropertyId]);
+  useEffect(() => { setGlobalFreeze(null); }, [selectedPropertyId]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -171,7 +174,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     if (frozen) {
       return (
         <div className="min-h-screen bg-neutral-50">
-          <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => void refresh()} />
+          <NrmsFrozenNotice propertyTitle={selectedProperty?.title} referenceCode={globalFreeze?.referenceCode ?? selectedProperty?.restriction?.referenceCode} reason={globalFreeze?.reason ?? selectedProperty?.restriction?.reason} loading={loading} onRefresh={() => void refresh()} />
         </div>
       );
     }
@@ -181,7 +184,25 @@ function NrmsShell({ children }: { children: ReactNode }) {
       </div>
     );
   }
+  if (!entitled && restriction) {
+    return <NrmsFrozenNotice scope="enrollment" referenceCode={restriction.referenceCode} reason={restriction.reason} loading={loading} onRefresh={() => void refresh()} />;
+  }
   if (!entitled) return <NrmsActivationScreen />;
+
+  const selectedPropertyFrozen = selectedProperty?.nrmsPaygAccount?.status === "FROZEN";
+  if (globalFreeze || selectedPropertyFrozen) {
+    return (
+      <div className="min-h-screen bg-neutral-50">
+        <NrmsFrozenNotice
+          propertyTitle={selectedProperty?.title}
+          referenceCode={globalFreeze?.referenceCode ?? selectedProperty?.restriction?.referenceCode}
+          reason={globalFreeze?.reason ?? selectedProperty?.restriction?.reason}
+          loading={loading}
+          onRefresh={() => void refresh()}
+        />
+      </div>
+    );
+  }
 
   const propertyNeedsActivation = Boolean(selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms"));
 
@@ -271,9 +292,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
-          {globalFreeze ? (
-            <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => { setGlobalFreeze(false); void refresh(); }} />
-          ) : propertyNeedsActivation ? <PropertyActivationGate /> : children}
+          {propertyNeedsActivation ? <PropertyActivationGate /> : children}
         </main>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
 import { sendSms } from "../lib/sms.js";
 import { setFinanceGrant } from "../lib/financeGrantStore.js";
 import { requireNrmsFinanceRole } from "../middleware/financeGrant.js";
+import { getFinanceOtpEmail } from "../lib/financeOtpEmail.js";
 
 // ============================================================
 // Constants
@@ -215,10 +216,11 @@ function validate<T extends z.ZodTypeAny>(schema: T) {
 async function deliverAdminOtp(adminUser: { email: string | null; phone: string | null }, code: string): Promise<{ provider: string }> {
   const expiryMinutes = Math.ceil(OTP_EXPIRY_MS / 60_000);
   if (adminUser.email) {
+    const email = getFinanceOtpEmail({ code, expiryMinutes });
     await sendMail(
       adminUser.email,
-      "NoLSAF finance verification code",
-      `<p>Your NoLSAF finance verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>This code expires in ${expiryMinutes} minutes. Do not share it.</p>`,
+      email.subject,
+      email.html,
       undefined,
       { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
     );

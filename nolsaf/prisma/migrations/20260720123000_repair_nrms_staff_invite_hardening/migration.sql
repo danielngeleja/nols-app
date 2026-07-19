@@ -2,6 +2,8 @@
 -- recorded as applied even though its DDL did not complete. Every schema
 -- operation is conditional so this is also safe after a successful original
 -- migration and on fresh databases that replay the full history.
+-- Keep dynamic no-op statements as SELECT 1. Some managed MySQL instances
+-- enable ANSI_QUOTES, where double-quoted text is parsed as an identifier.
 
 SET @nrms_has_invite_version := (
   SELECT COUNT(*)
@@ -13,7 +15,7 @@ SET @nrms_has_invite_version := (
 SET @nrms_add_invite_version_sql := IF(
   @nrms_has_invite_version = 0,
   'ALTER TABLE `nrms_staff_membership` ADD COLUMN `inviteVersion` INTEGER NOT NULL DEFAULT 0',
-  'SELECT "skip: nrms_staff_membership.inviteVersion already exists"'
+  'SELECT 1'
 );
 PREPARE nrms_add_invite_version FROM @nrms_add_invite_version_sql;
 EXECUTE nrms_add_invite_version;
@@ -29,7 +31,7 @@ SET @nrms_has_confirmed_at := (
 SET @nrms_add_confirmed_at_sql := IF(
   @nrms_has_confirmed_at = 0,
   'ALTER TABLE `nrms_staff_membership` ADD COLUMN `confirmedAt` DATETIME(3) NULL',
-  'SELECT "skip: nrms_staff_membership.confirmedAt already exists"'
+  'SELECT 1'
 );
 PREPARE nrms_add_confirmed_at FROM @nrms_add_confirmed_at_sql;
 EXECUTE nrms_add_confirmed_at;
@@ -77,7 +79,7 @@ SET @nrms_has_single_assignment_index := (
 SET @nrms_add_single_assignment_index_sql := IF(
   @nrms_has_single_assignment_index = 0,
   'CREATE UNIQUE INDEX `nrms_staff_membership_propertyId_userId_key` ON `nrms_staff_membership`(`propertyId`, `userId`)',
-  'SELECT "skip: single NRMS staff assignment index already exists"'
+  'SELECT 1'
 );
 PREPARE nrms_add_single_assignment_index FROM @nrms_add_single_assignment_index_sql;
 EXECUTE nrms_add_single_assignment_index;
@@ -93,7 +95,7 @@ SET @nrms_has_legacy_role_index := (
 SET @nrms_drop_legacy_role_index_sql := IF(
   @nrms_has_legacy_role_index > 0,
   'DROP INDEX `nrms_staff_membership_propertyId_userId_role_key` ON `nrms_staff_membership`',
-  'SELECT "skip: legacy NRMS staff role index already removed"'
+  'SELECT 1'
 );
 PREPARE nrms_drop_legacy_role_index FROM @nrms_drop_legacy_role_index_sql;
 EXECUTE nrms_drop_legacy_role_index;

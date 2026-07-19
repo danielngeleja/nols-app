@@ -263,6 +263,25 @@ export default function QrCodesPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-10">
+      {selectedProperty?.nrmsQrOrderingFrozenAt && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-bold">Guest QR ordering is temporarily paused</p>
+              <p className="mb-0 mt-1 text-xs leading-5">Staff operations remain available. Contact partnerships and quote the reference below for review.</p>
+              {selectedProperty.qrRestriction?.referenceCode && (
+                <a
+                  href={`mailto:partnerships@nolsaf.com?subject=${encodeURIComponent(`QR ordering appeal ${selectedProperty.qrRestriction.referenceCode}`)}`}
+                  className="mt-2 inline-flex break-all font-mono text-xs font-bold text-[#02665e] underline underline-offset-2"
+                >
+                  {selectedProperty.qrRestriction.referenceCode}
+                </a>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
       {/* Premium command header */}
       <section className="relative overflow-hidden rounded-[28px] bg-[#0b302a] text-white shadow-[0_24px_55px_-34px_rgba(6,78,59,0.8)]">
         <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-emerald-300/10 blur-3xl" />

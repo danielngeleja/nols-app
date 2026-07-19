@@ -20,6 +20,7 @@ import {
 } from "../lib/nrmsHousekeeping.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sendMail } from "../lib/mailer.js";
+import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "../lib/restrictionCases.js";
 import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
@@ -185,7 +186,13 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
     return null;
   }
   if (["FROZEN", "CLOSED"].includes(account.status)) {
-    res.status(423).json({ error: "NRMS operations are temporarily unavailable for this property", code: "NRMS_PROPERTY_FROZEN" });
+    const restriction = await findOpenRestrictionCase(RESTRICTION_SCOPE.NRMS_PROPERTY, propertyId);
+    res.status(423).json({
+      error: "NRMS operations are temporarily unavailable for this property",
+      code: "NRMS_PROPERTY_FROZEN",
+      referenceCode: restriction?.referenceCode ?? null,
+      reason: restriction?.reason ?? null,
+    });
     return null;
   }
   return access;

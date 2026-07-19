@@ -73,6 +73,9 @@ const historicalPrerequisites = [
 ];
 const legacyReconciliation = "20260714130000_reconcile_legacy_database_drift";
 const legacyIndexReconciliation = "20260714195920";
+const nrmsStaffInviteHardening = "20260720120000_harden_nrms_staff_invites";
+const nrmsStaffInviteRepair =
+  "20260720123000_repair_nrms_staff_invite_hardening";
 const allowedLegacyDatabaseMigrations = new Set([
   legacyBaseline,
   "20260106185415_add_performance_indexes",
@@ -93,6 +96,21 @@ if (statusOnly) {
 const appliedNames = getAppliedNames(migrationRows);
 const activeFailures = getActiveFailures(migrationRows);
 const repairs = [];
+
+// The original invite-hardening migration predates the idempotent repair. If
+// MySQL stopped it after partially committing DDL, treating it as rolled back
+// and replaying it can fail on columns or indexes that already exist. Mark the
+// failed original as applied and let the following repair establish every
+// required invariant conditionally.
+if (activeFailures.has(nrmsStaffInviteHardening)) {
+  repairs.push(["--applied", nrmsStaffInviteHardening]);
+}
+
+// The repair itself is idempotent. A failed attempt can therefore be marked
+// rolled back and safely replayed from its corrected, committed SQL.
+if (activeFailures.has(nrmsStaffInviteRepair)) {
+  repairs.push(["--rolled-back", nrmsStaffInviteRepair]);
+}
 
 if (!appliedNames.has(renamedBaseline)) {
   const legacyRow = migrationRows.find(
