@@ -26,7 +26,7 @@ export default function NrmsFrozenNotice({ variant = "frozen", propertyTitle, re
         <span className="relative mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-red-100 bg-white text-red-600 shadow-sm ring-4 ring-red-50">
           <CircleAlert className="h-6 w-6" />
         </span>
-        <span className="relative mt-3.5 inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-red-700">{isFrozen ? "Temporarily paused" : "Service notice"}
+        <span className="relative mt-3.5 inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-red-700">{isFrozen ? "Temporarily paused" : "Service notice"}</span>
         <h2 className="relative mt-2.5 text-xl font-bold tracking-tight text-neutral-950">{isFrozen ? (scope === "enrollment" ? "NRMS access is suspended" : "Operations are frozen") : "Workspace temporarily unavailable"}</h2>
         <p className="relative mb-0 mt-2 text-sm leading-6 text-neutral-500">
           {isFrozen
