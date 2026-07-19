@@ -26,6 +26,26 @@ export type NrmsEnrollment = {
 
 export type NrmsUsagePolicy = { currency: string; roomNightPrice: string | number; trialDays: number } | null;
 
+// The API's global error handler (apps/api/src/middleware/errorHandler.ts) is
+// the single source of truth for what an error message should say: it relays
+// deliberate messages verbatim and substitutes a safe generic one for
+// unexpected 5xx failures. This function should NOT re-derive its own
+// wording — it only fills the one gap the backend cannot cover: no response
+// ever arrived at all (connection refused, timeout, DNS failure, or a proxy
+// in front of the API failing before reaching it), which reads as the
+// server or its database being unreachable.
+function describeNrmsLoadError(e: any): string {
+  if (!e?.response) {
+    return "Could not reach the NoLSAF server. This usually means the server or its database is temporarily unreachable, not just NRMS.";
+  }
+  const serverMessage = e.response.data?.error;
+  if (typeof serverMessage === "string" && serverMessage.trim()) return serverMessage;
+  const status = e.response.status;
+  return status
+    ? `The server responded with an error (status ${status}).`
+    : "The server returned an unexpected response.";
+}
+
 type NrmsStatus = {
   loading: boolean;
   error: string | null;
@@ -88,7 +108,7 @@ export function NrmsProvider({ children }: { children: ReactNode }) {
         return activated?.id ?? props[0]?.id ?? null;
       });
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to load NRMS status");
+      setError(describeNrmsLoadError(e));
     } finally {
       setLoading(false);
     }

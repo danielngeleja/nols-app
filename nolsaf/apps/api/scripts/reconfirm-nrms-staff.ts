@@ -59,11 +59,14 @@ async function main() {
       continue;
     }
 
-    await db.nrmsStaffMembership.update({ where: { id: membership.id }, data: { status: "PENDING" } });
+    const pendingMembership = await db.nrmsStaffMembership.update({
+      where: { id: membership.id },
+      data: { status: "PENDING", confirmedAt: null, inviteVersion: { increment: 1 } },
+    });
     flipped += 1;
 
     try {
-      const token = signNrmsStaffInviteToken(membership.id, membership.user.id);
+      const token = signNrmsStaffInviteToken(membership.id, membership.user.id, pendingMembership.inviteVersion);
       const confirmUrl = `${origin}/nrms/confirm?token=${encodeURIComponent(token)}`;
       const { subject, html } = nrmsStaffInviteEmail({
         staffName: membership.user.fullName || membership.user.name || "there",

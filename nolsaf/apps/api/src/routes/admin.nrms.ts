@@ -230,6 +230,7 @@ router.get("/property/:propertyId", (async (req, res: Response) => {
       outlet: m.outlet,
       user: { id: m.user.id, name: m.user.fullName || m.user.name || "Unnamed", email: m.user.email },
       since: m.createdAt,
+      confirmedAt: m.confirmedAt,
     })),
     outlets: outlets.map((o: any) => ({ ...o, activeMenuItems: o._count.menuItems, totalOrders: o._count.orders, _count: undefined })),
     orderPoints,

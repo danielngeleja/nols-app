@@ -10,7 +10,6 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
-  CircleAlert,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -19,11 +18,9 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
-  Mail,
   Menu,
   QrCode,
   ReceiptText,
-  RefreshCw,
   ShoppingBasket,
   Sparkles,
   Store,
@@ -179,54 +176,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
       );
     }
     return (
-      <div className="min-h-screen bg-neutral-50 px-4 py-8 sm:px-6 sm:py-12">
-        <section role="alert" className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-red-200 bg-white shadow-[0_20px_55px_-34px_rgba(185,28,28,0.4)]">
-          <div className="border-l-4 border-red-500 bg-[linear-gradient(135deg,#fff7f7_0%,#ffffff_60%)] p-5 sm:p-7">
-            <div className="flex items-start gap-3.5">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-600 shadow-sm">
-                <CircleAlert className="h-6 w-6" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-red-700">NRMS access status</p>
-                  <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">Needs attention</span>
-                </div>
-                <h1 className="mt-1.5 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">NRMS workspace unavailable</h1>
-                <p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-neutral-600">We could not open the NRMS workspace right now. The details below can help NoLSAF support investigate the issue.</p>
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-2.5 sm:grid-cols-3">
-              <div className="rounded-2xl border border-red-100 bg-white/80 px-3.5 py-3">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Current status</p>
-                <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">Access interrupted</p>
-              </div>
-              <div className="rounded-2xl border border-neutral-200 bg-white/80 px-3.5 py-3">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Affected area</p>
-                <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">NRMS operations</p>
-              </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3.5 py-3">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700/70">Marketplace</p>
-                <p className="mb-0 mt-1 text-sm font-bold text-emerald-900">Unaffected</p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-4 border-t border-red-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="m-0 text-xs font-bold text-neutral-800">Need help restoring access?</p>
-                <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Contact NoLSAF partners at <a href="mailto:partnerships@nolsaf.com" className="font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900">partnerships@nolsaf.com</a>.</p>
-              </div>
-              <div className="flex flex-wrap gap-2 sm:shrink-0">
-                <a href="mailto:partnerships@nolsaf.com" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#073c35] px-3.5 text-xs font-bold text-white no-underline transition hover:bg-[#0a5148] hover:text-white">
-                  <Mail className="h-3.5 w-3.5" /> Contact partners
-                </a>
-                <button type="button" onClick={() => void refresh()} disabled={loading} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-50">
-                  <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
+      <div className="min-h-screen bg-neutral-50">
+        <NrmsFrozenNotice variant="error" loading={loading} onRefresh={() => void refresh()} />
       </div>
     );
   }

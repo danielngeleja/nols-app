@@ -168,7 +168,10 @@ router.post("/staff/:userId/disable", requireNrmsFinanceApprover as unknown as R
   });
   if (memberships.length === 0) return res.status(404).json({ error: "This user has no active or pending NRMS memberships" });
   await db.$transaction([
-    db.nrmsStaffMembership.updateMany({ where: { userId, status: { in: ["ACTIVE", "PENDING"] } }, data: { status: "DISABLED" } }),
+    db.nrmsStaffMembership.updateMany({
+      where: { userId, status: { in: ["ACTIVE", "PENDING"] } },
+      data: { status: "DISABLED", inviteVersion: { increment: 1 } },
+    }),
     // Kill every live session for the disabled staff account.
     db.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } }),
   ]);
@@ -192,7 +195,7 @@ router.post("/property/:propertyId/invites/invalidate", requireNrmsFinanceApprov
   if (!reason) return;
   const changed = await db.nrmsStaffMembership.updateMany({
     where: { propertyId: property.id, status: "PENDING" },
-    data: { status: "DISABLED" },
+    data: { status: "DISABLED", inviteVersion: { increment: 1 } },
   });
   if (changed.count === 0) return res.status(409).json({ error: "There are no pending invites for this property" });
   await audit(req.user!.id, "NRMS_INVITES_INVALIDATE", property.ownerId, { propertyId: property.id, invalidated: changed.count, reason });

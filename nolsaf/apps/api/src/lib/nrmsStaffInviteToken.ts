@@ -4,6 +4,7 @@ export type NrmsStaffInviteTokenPayload = {
   typ: "NRMS_STAFF_INVITE";
   membershipId: number;
   userId: number;
+  inviteVersion: number;
 };
 
 const ISSUER = "nolsaf-nrms-staff-invite";
@@ -19,9 +20,9 @@ function getSecret(): string {
   return secret;
 }
 
-export function signNrmsStaffInviteToken(membershipId: number, userId: number): string {
+export function signNrmsStaffInviteToken(membershipId: number, userId: number, inviteVersion: number): string {
   return jwt.sign(
-    { typ: "NRMS_STAFF_INVITE", membershipId, userId } satisfies NrmsStaffInviteTokenPayload,
+    { typ: "NRMS_STAFF_INVITE", membershipId, userId, inviteVersion } satisfies NrmsStaffInviteTokenPayload,
     getSecret(),
     { issuer: ISSUER, algorithm: "HS256", expiresIn: NRMS_STAFF_INVITE_TTL },
   );
@@ -34,9 +35,13 @@ export function verifyNrmsStaffInviteToken(token: string): NrmsStaffInviteTokenP
     if (decoded?.typ !== "NRMS_STAFF_INVITE") return null;
     const membershipId = Number(decoded.membershipId);
     const userId = Number(decoded.userId);
+    // Tokens issued before invitation versioning are revision 0. They remain
+    // valid only until the assignment is resent, changed, or revoked.
+    const inviteVersion = decoded.inviteVersion == null ? 0 : Number(decoded.inviteVersion);
     if (!Number.isInteger(membershipId) || membershipId <= 0) return null;
     if (!Number.isInteger(userId) || userId <= 0) return null;
-    return { typ: "NRMS_STAFF_INVITE", membershipId, userId };
+    if (!Number.isInteger(inviteVersion) || inviteVersion < 0) return null;
+    return { typ: "NRMS_STAFF_INVITE", membershipId, userId, inviteVersion };
   } catch {
     return null;
   }

@@ -81,9 +81,20 @@ export function errorHandler(
     });
   }
 
-  // Prepare error response
+  // Prepare error response. Routes that deliberately throw a status < 500
+  // (e.g. `throw new HttpError(404, "Group stay not found")`) are relayed
+  // verbatim — that message was written to be shown to the client. A 500+ is
+  // by definition an *unexpected* failure (an unhandled exception, a driver
+  // error, ...), so its raw message may contain internals (hostnames, stack
+  // fragments) that must never reach the client. The full message is still
+  // captured above for SERVER_EXCEPTION audits, so nothing is lost, only kept
+  // out of the response body.
+  const clientSafeMessage = statusCode < 500
+    ? (err.message || 'Request failed')
+    : 'Internal server error. Our team has been notified.';
+
   const errorResponse: any = {
-    error: err.message || 'Internal server error',
+    error: clientSafeMessage,
     requestId: String((req as any).requestId || "") || undefined,
   };
 
@@ -91,6 +102,7 @@ export function errorHandler(
   if (!isProduction) {
     errorResponse.stack = err.stack;
     errorResponse.details = err;
+    if (statusCode >= 500) errorResponse.devMessage = err.message;
   }
 
   // Add status code to response

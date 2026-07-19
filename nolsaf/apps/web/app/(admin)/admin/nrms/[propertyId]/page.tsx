@@ -17,7 +17,7 @@ type Detail = {
   };
   enrollment: { id: number; status: string; suspendedAt: string | null } | null;
   account: { id: number; status: string; freezePreviousStatus: string | null; frozenAt: string | null; frozenReason: string | null; trialStartsAt: string; trialEndsAt: string; unpaidBalance: number; unpaidLimit: number; policy: { version: string; roomNightPrice: number; currency: string } | null } | null;
-  staff: Array<{ membershipId: number; role: string; status: string; outlet: { name: string; type: string } | null; user: { id: number; name: string; email: string | null } }>;
+  staff: Array<{ membershipId: number; role: string; status: string; confirmedAt: string | null; outlet: { name: string; type: string } | null; user: { id: number; name: string; email: string | null } }>;
   outlets: Array<{ id: number; name: string; code: string; type: string; status: string; currency: string; autoAcceptQrOrders: boolean; activeMenuItems: number; totalOrders: number }>;
   orderPoints: Array<{ id: number; type: string; label: string; active: boolean; updatedAt: string; roomUnit: { code: string; floor: number | null } | null }>;
   housekeeping: Array<{ status: string; count: number }>;
@@ -47,6 +47,17 @@ const ACCOUNT_BADGE: Record<string, string> = {
 function shortDate(value: string | null | undefined): string {
   if (!value) return "Never";
   return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function agreementDate(value: string | null | undefined): string {
+  if (!value) return "Awaiting confirmation";
+  return new Date(value).toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 type OrderPoint = Detail["orderPoints"][number];
@@ -285,8 +296,8 @@ export default function AdminNrmsPropertyPage() {
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={UsersRound} title="Staff" subtitle="Everyone assigned to this property" right={<CountPill count={data.staff.length} singular="member" plural="members" />} />
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[38rem] border-collapse text-left">
-            <thead><tr className="border-b border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><th className="px-4 py-2.5 sm:px-5">Name</th><th className="px-4 py-2.5">Email</th><th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Outlet</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5 sm:px-5" /></tr></thead>
+          <table className="w-full min-w-[48rem] border-collapse text-left">
+            <thead><tr className="border-b border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><th className="px-4 py-2.5 sm:px-5">Name</th><th className="px-4 py-2.5">Email</th><th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Outlet</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Agreed at</th><th className="px-4 py-2.5 sm:px-5" /></tr></thead>
             <tbody>
               {data.staff.map((m) => (
                 <tr key={m.membershipId} className="border-b border-neutral-50 text-xs transition last:border-0 hover:bg-neutral-50/60">
@@ -295,6 +306,7 @@ export default function AdminNrmsPropertyPage() {
                   <td className="px-4 py-3 text-neutral-600">{m.role.replaceAll("_", " ")}</td>
                   <td className="px-4 py-3 text-neutral-500">{m.outlet ? m.outlet.name : "All areas"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${m.status === "ACTIVE" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : m.status === "PENDING" ? "border-amber-100 bg-amber-50 text-amber-700" : "border-neutral-200 bg-neutral-100 text-neutral-400"}`}>{m.status}</span></td>
+                  <td className={`px-4 py-3 text-[10px] ${m.confirmedAt ? "font-semibold text-neutral-600" : "text-amber-600"}`}>{agreementDate(m.confirmedAt)}</td>
                   <td className="px-4 py-3 text-right sm:px-5">
                     {["ACTIVE", "PENDING"].includes(m.status) && (
                       <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/staff/${m.user.id}/disable`, `Disable ${m.user.name} globally`, "Disables this person across every NRMS property they work at and signs them out everywhere.", true)} className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[10px] font-bold text-red-600 transition hover:bg-red-50">Disable globally</button>
@@ -302,7 +314,7 @@ export default function AdminNrmsPropertyPage() {
                   </td>
                 </tr>
               ))}
-              {data.staff.length === 0 && <tr><td colSpan={6}><EmptyState icon={UsersRound} title="No staff assigned" text="Staff appear here once the owner invites members to this property." /></td></tr>}
+              {data.staff.length === 0 && <tr><td colSpan={7}><EmptyState icon={UsersRound} title="No staff assigned" text="Staff appear here once the owner invites members to this property." /></td></tr>}
             </tbody>
           </table>
         </div>

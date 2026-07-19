@@ -3944,12 +3944,14 @@ model NrmsOutlet {
 
 /// A user may operate only the assigned property/outlet; this never grants OWNER access.
 model NrmsStaffMembership {
-  id         Int    @id @default(autoincrement())
-  propertyId Int
-  userId     Int
-  outletId   Int?
-  role       String @db.VarChar(30) // MANAGER, FRONT_DESK, RESTAURANT, BAR, OUTLET_SUPERVISOR
-  status     String @default("ACTIVE") @db.VarChar(20)
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  userId        Int
+  outletId      Int?
+  role          String    @db.VarChar(30) // MANAGER, FRONT_DESK, HOUSEKEEPER, RESTAURANT, BAR, OUTLET_SUPERVISOR
+  status        String    @default("PENDING") @db.VarChar(20)
+  inviteVersion Int       @default(0)
+  confirmedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3958,7 +3960,7 @@ model NrmsStaffMembership {
   user     User        @relation("NrmsStaffUser", fields: [userId], references: [id], onDelete: Cascade)
   outlet   NrmsOutlet? @relation(fields: [outletId], references: [id], onDelete: SetNull)
 
-  @@unique([propertyId, userId, role])
+  @@unique([propertyId, userId])
   @@index([userId, status])
   @@index([outletId, status])
   @@map("nrms_staff_membership")

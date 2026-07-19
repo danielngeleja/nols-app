@@ -20,6 +20,7 @@ import {
 } from "../lib/nrmsHousekeeping.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sendMail } from "../lib/mailer.js";
+import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
@@ -446,36 +447,45 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
     const outlet = await db.nrmsOutlet.findFirst({ where: { id: parsed.data.outletId, propertyId: access.property.id } });
     if (!outlet) return res.status(400).json({ error: "Selected outlet does not belong to this property" });
   }
-  const membershipKey = { propertyId: access.property.id, userId: user.id, role: parsed.data.role };
-  const existing = await db.nrmsStaffMembership.findUnique({ where: { propertyId_userId_role: membershipKey } });
+  const membershipKey = { propertyId: access.property.id, userId: user.id };
+  const existing = await db.nrmsStaffMembership.findUnique({ where: { propertyId_userId: membershipKey } });
 
   if (!existing || existing.status === "DISABLED") {
     const staffQuota = await checkNrmsQuota(db, access.property.id, "staff");
     if (!staffQuota.allowed) return res.status(409).json({ error: "NRMS staff quota reached", quota: staffQuota });
   }
 
-  // Already confirmed assignments keep working; only the outlet scope changes.
-  // New or unconfirmed assignments stay PENDING until the staff member confirms
-  // the emailed invitation, and PENDING grants no access anywhere (all checks
-  // filter on status ACTIVE).
+  // A user has one authoritative assignment per property. Re-sending a pending
+  // invite, re-enabling a disabled assignment, or changing an active role/scope
+  // rotates the invitation version and requires fresh confirmation. Repeating
+  // an unchanged ACTIVE assignment is idempotent.
   let membership;
   let needsConfirmation = false;
-  if (existing && existing.status === "ACTIVE") {
-    membership = await db.nrmsStaffMembership.update({
-      where: { id: existing.id },
-      data: { outletId: parsed.data.outletId ?? null },
-    });
+  const requestedOutletId = parsed.data.outletId ?? null;
+  needsConfirmation = nrmsAssignmentNeedsConfirmation(existing, parsed.data.role, requestedOutletId);
+  if (!needsConfirmation && existing) {
+    membership = existing;
   } else if (existing) {
     membership = await db.nrmsStaffMembership.update({
       where: { id: existing.id },
-      data: { outletId: parsed.data.outletId ?? null, status: "PENDING" },
+      data: {
+        role: parsed.data.role,
+        outletId: requestedOutletId,
+        status: "PENDING",
+        confirmedAt: null,
+        inviteVersion: { increment: 1 },
+      },
     });
-    needsConfirmation = true;
   } else {
     membership = await db.nrmsStaffMembership.create({
-      data: { ...membershipKey, outletId: parsed.data.outletId ?? null, status: "PENDING" },
+      data: {
+        ...membershipKey,
+        role: parsed.data.role,
+        outletId: requestedOutletId,
+        status: "PENDING",
+        inviteVersion: 1,
+      },
     });
-    needsConfirmation = true;
   }
 
   let emailSent = false;
@@ -485,7 +495,7 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
         db.user.findUnique({ where: { id: req.user!.id }, select: { fullName: true, name: true } }),
         membership.outletId ? db.nrmsOutlet.findUnique({ where: { id: membership.outletId }, select: { name: true } }) : Promise.resolve(null),
       ]);
-      const token = signNrmsStaffInviteToken(membership.id, user.id);
+      const token = signNrmsStaffInviteToken(membership.id, user.id, membership.inviteVersion);
       const origin = (process.env.APP_URL || process.env.WEB_ORIGIN || "http://localhost:3000").replace(/\/+$/, "");
       const confirmUrl = `${origin}/nrms/confirm?token=${encodeURIComponent(token)}`;
       const { subject, html } = nrmsStaffInviteEmail({
@@ -509,7 +519,8 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
 // Revoke a staff assignment. Soft-disable: the row is kept for the team list
 // history, access dies instantly (all checks filter on ACTIVE), and any
 // outstanding invite link for it is rejected by the confirm endpoint.
-// Re-assigning the same email and role later re-invites through PENDING.
+  // Re-assigning the same email later re-invites through PENDING with a new
+  // invitation version, so every older link stays invalid.
 router.delete("/property/:propertyId/staff/:membershipId", (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
@@ -522,7 +533,10 @@ router.delete("/property/:propertyId/staff/:membershipId", (async (req: AuthedRe
   const membership = await db.nrmsStaffMembership.findFirst({ where: { id: membershipId, propertyId: access.property.id } });
   if (!membership) return res.status(404).json({ error: "Staff assignment not found" });
   if (membership.status === "DISABLED") return res.json({ membership });
-  const updated = await db.nrmsStaffMembership.update({ where: { id: membership.id }, data: { status: "DISABLED" } });
+  const updated = await db.nrmsStaffMembership.update({
+    where: { id: membership.id },
+    data: { status: "DISABLED", inviteVersion: { increment: 1 } },
+  });
   try {
     await db.auditLog.create({
       data: {
@@ -564,18 +578,39 @@ router.post("/staff/confirm", (async (req: AuthedRequest, res: Response) => {
   if (membership.status !== "PENDING" && membership.status !== "ACTIVE") {
     return res.status(403).json({ error: "This assignment has been deactivated. Contact the property manager.", code: "NRMS_INVITE_DISABLED" });
   }
+  if (membership.inviteVersion !== payload.inviteVersion) {
+    return res.status(409).json({ error: "This invitation has been replaced by a newer one. Open the latest assignment email.", code: "NRMS_INVITE_SUPERSEDED" });
+  }
 
-  const alreadyActive = membership.status === "ACTIVE";
-  const confirmed = alreadyActive
-    ? membership
-    : await db.nrmsStaffMembership.update({
-        where: { id: membership.id },
-        data: { status: "ACTIVE" },
-        include: {
-          property: { select: { id: true, title: true } },
-          outlet: { select: { id: true, name: true, type: true } },
-        },
-      });
+  let alreadyActive = membership.status === "ACTIVE";
+  let confirmed = membership;
+  if (!alreadyActive) {
+    // Conditional activation makes revocation and invite rotation win any race:
+    // the row must still be the same PENDING invitation at update time.
+    const activated = await db.nrmsStaffMembership.updateMany({
+      where: {
+        id: membership.id,
+        userId: req.user!.id,
+        status: "PENDING",
+        inviteVersion: payload.inviteVersion,
+      },
+      data: { status: "ACTIVE", confirmedAt: new Date() },
+    });
+    confirmed = await db.nrmsStaffMembership.findUnique({
+      where: { id: membership.id },
+      include: {
+        property: { select: { id: true, title: true } },
+        outlet: { select: { id: true, name: true, type: true } },
+      },
+    });
+    if (!confirmed || confirmed.userId !== req.user!.id || confirmed.inviteVersion !== payload.inviteVersion) {
+      return res.status(409).json({ error: "This invitation changed while it was being confirmed. Open the latest assignment email.", code: "NRMS_INVITE_SUPERSEDED" });
+    }
+    if (activated.count !== 1 && confirmed.status !== "ACTIVE") {
+      return res.status(409).json({ error: "This assignment is no longer awaiting confirmation.", code: "NRMS_INVITE_NOT_PENDING" });
+    }
+    alreadyActive = activated.count !== 1;
+  }
 
   res.json({
     alreadyActive,
@@ -583,6 +618,7 @@ router.post("/staff/confirm", (async (req: AuthedRequest, res: Response) => {
       id: confirmed.id,
       role: confirmed.role,
       status: confirmed.status,
+      confirmedAt: confirmed.confirmedAt,
       property: confirmed.property,
       outlet: confirmed.outlet,
     },

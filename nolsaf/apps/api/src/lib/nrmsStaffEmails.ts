@@ -47,10 +47,11 @@ export function nrmsStaffInviteEmail(params: {
     ${proNoteCard(
       BRAND_TEAL,
       "What happens next",
-      `Once you confirm, your access becomes active. Sign in to NoLSAF with this email
-       address and open <strong>nolsaf.com/nrms</strong> to enter your workspace. You will
-       only see the areas that match your role, and this assignment does not give access
-       to the owner marketplace account.`,
+      `Select <strong>Confirm assignment</strong> above. If NoLSAF asks you to sign in, use
+       this email address and you will return to the confirmation automatically. Once the
+       assignment is confirmed, select <strong>Open my workspace</strong> to continue. You
+       will only see the areas that match your role, and this assignment does not give
+       access to the owner marketplace account.`,
     )}
 
     ${proDivider()}
