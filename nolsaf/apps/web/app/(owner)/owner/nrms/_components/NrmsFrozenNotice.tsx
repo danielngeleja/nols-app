@@ -68,7 +68,7 @@ export default function NrmsFrozenNotice({ variant = "frozen", propertyTitle, re
         </div>
         <p className="relative mb-0 mt-3 text-xs leading-5 text-neutral-400">
           {isFrozen ? "Still frozen after a review? Email " : "If the workspace remains unavailable, email "}
-          <a href={isFrozen ? appealHref : "mailto:support@nolsaf.com"} className="font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900">{isFrozen ? "partnerships" : "support"}@nolsaf.com</a>
+          <a href={isFrozen ? appealHref : "mailto:support@nolsaf.com"} className="font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900">{isFrozen ? "partners" : "support"}@nolsaf.com</a>
           .
         </p>
       </section>
