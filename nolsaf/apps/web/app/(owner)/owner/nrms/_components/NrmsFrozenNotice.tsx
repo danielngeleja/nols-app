@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { CheckCircle2, CircleAlert, RefreshCw } from "lucide-react";
 
 type Props = {
@@ -40,7 +41,7 @@ export default function NrmsFrozenNotice({ variant = "frozen", propertyTitle, re
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{scope === "enrollment" ? "Affected service" : "Property"}</p>
               <p className="mb-0 mt-0.5 truncate text-sm font-bold text-neutral-900">{scope === "enrollment" ? "NRMS workspace" : propertyTitle || "Selected property"}</p>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Marketplace ok</span>
+            <Link href="/owner/bookings" className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 no-underline transition hover:border-emerald-200 hover:bg-emerald-100 hover:no-underline"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Marketplace ok</Link>
           </div>
         ) : (
           <div className="relative mt-4 rounded-xl border border-neutral-200 bg-white/85 px-3.5 py-2.5 text-left">
