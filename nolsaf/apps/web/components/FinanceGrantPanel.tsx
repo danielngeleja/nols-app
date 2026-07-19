@@ -55,8 +55,8 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
     }
   };
 
-  const verifyCode = async () => {
-    const codeValue = code.join("");
+  const verifyCode = async (codeOverride?: string) => {
+    const codeValue = codeOverride ?? code.join("");
     if (!/^\d{6}$/.test(codeValue)) {
       setError("Enter the six-digit code.");
       return;
@@ -69,6 +69,7 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
       setGrantedUntil(until ? new Date(until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null);
       setCode(Array.from({ length: 6 }, () => ""));
       setStage("granted");
+      window.dispatchEvent(new CustomEvent("finance-grant-granted"));
     } catch (cause: any) {
       setStage("code-sent");
       setError(errorMessage(cause));
@@ -132,12 +133,15 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                       autoComplete={index === 0 ? "one-time-code" : "off"}
                       maxLength={1}
                       value={code[index] ?? ""}
+                      disabled={stage === "verifying"}
                       onChange={(event) => {
                         const digit = event.target.value.replace(/\D/g, "").slice(-1);
                         const next = [...code];
                         next[index] = digit;
                         setCode(next);
                         if (digit && index < 5) otpRefs.current[index + 1]?.focus();
+                        const full = next.join("");
+                        if (/^\d{6}$/.test(full)) void verifyCode(full);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Backspace" && !code[index] && index > 0) otpRefs.current[index - 1]?.focus();
@@ -152,16 +156,25 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                         pasted.split("").forEach((digit, digitIndex) => { next[digitIndex] = digit; });
                         setCode(next);
                         otpRefs.current[Math.min(pasted.length, 6) - 1]?.focus();
+                        const full = next.join("");
+                        if (/^\d{6}$/.test(full)) void verifyCode(full);
                       }}
-                      className="h-10 w-9 shrink-0 rounded-lg border border-slate-200 bg-white text-center text-base font-bold text-slate-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 sm:h-11 sm:w-10 sm:text-lg"
+                      className="h-10 w-9 shrink-0 rounded-lg border border-slate-200 bg-white text-center text-base font-bold text-slate-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:opacity-60 sm:h-11 sm:w-10 sm:text-lg"
                     />
                   ))}
                 </div>
-                <p className="text-xs text-slate-500">Enter the code before it expires{expiresAt ? ` at ${expiresAt}` : ""}.</p>
-                <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={sendCode} disabled={stage === "verifying"} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:w-auto">Send another code</button>
-                  <button type="button" onClick={verifyCode} disabled={stage === "verifying" || code.some((digit) => !digit)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50 sm:w-auto">{stage === "verifying" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Verify and unlock</button>
-                </div>
+                <p className="text-xs text-slate-500">
+                  {stage === "verifying" ? (
+                    <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying automatically...</span>
+                  ) : (
+                    `Enter the code before it expires${expiresAt ? ` at ${expiresAt}` : ""}.`
+                  )}
+                </p>
+                {stage !== "verifying" && (
+                  <div className="flex justify-end pt-1">
+                    <button type="button" onClick={sendCode} className="text-xs font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900">Send another code</button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="mt-4 flex justify-end">

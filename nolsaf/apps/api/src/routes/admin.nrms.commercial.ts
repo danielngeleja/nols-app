@@ -36,6 +36,28 @@ function fail(res: Response, parsed: { success: boolean; error?: any }) {
   return !parsed.success;
 }
 
+// How much notice a shortened trial must leave, in minutes. Configurable so staging/dev can test
+// dunning flows on a short window without a code change; defaults to 7 days if unset or invalid,
+// so a missing/misconfigured env var never accidentally weakens the guardrail on production.
+function trialShortenNoticeMs(): number {
+  const raw = Number(process.env.NRMS_TRIAL_SHORTEN_NOTICE_MINUTES);
+  const minutes = Number.isFinite(raw) && raw >= 0 ? raw : 10080;
+  return minutes * 60000;
+}
+
+function describeDuration(ms: number): string {
+  const minutes = ms / 60000;
+  if (minutes !== 0 && minutes % 1440 === 0) {
+    const days = minutes / 1440;
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (minutes !== 0 && minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 async function loadAccount(res: Response, propertyId: number) {
   if (!Number.isInteger(propertyId) || propertyId <= 0) {
     res.status(400).json({ error: "Invalid property id" });
@@ -125,7 +147,8 @@ router.post("/property/:propertyId/trial", requireNrmsFinanceApprover as Request
   if (!account) return;
   if (account.status !== "TRIAL") return res.status(409).json({ error: "Only a running trial can be changed" });
   const shortening = parsed.data!.trialEndsAt < new Date(account.trialEndsAt);
-  if (shortening && parsed.data!.trialEndsAt.getTime() < Date.now() + 7 * 86400000) return res.status(400).json({ error: "A shortened trial must leave at least 7 days notice" });
+  const noticeMs = trialShortenNoticeMs();
+  if (shortening && parsed.data!.trialEndsAt.getTime() < Date.now() + noticeMs) return res.status(400).json({ error: `A shortened trial must leave at least ${describeDuration(noticeMs)} notice` });
   await db.ownerPaygAccount.update({ where: { id: account.id }, data: { trialEndsAt: parsed.data!.trialEndsAt } });
   await audit(req.user!.id, shortening ? "NRMS_TRIAL_SHORTEN" : "NRMS_TRIAL_EXTEND", account.ownerId, { propertyId: account.propertyId, before: account.trialEndsAt, after: parsed.data!.trialEndsAt, reason: parsed.data!.reason });
   await notifyOwner(account.ownerId, "nrms_trial_changed", { propertyTitle: account.property.title, trialEndsAt: parsed.data!.trialEndsAt.toISOString(), shortening, reason: parsed.data!.reason });

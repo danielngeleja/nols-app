@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Building2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, CircleDollarSign, Coins, Gauge, History, Layers, Loader2, Save, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, CircleDollarSign, Coins, Gauge, History, Layers, Loader2, Save, Search, SlidersHorizontal } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
@@ -79,6 +79,7 @@ export default function NrmsPricingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [leverQuery, setLeverQuery] = useState("");
   const [leverStage, setLeverStage] = useState("");
@@ -93,6 +94,11 @@ export default function NrmsPricingPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const handleGranted = () => { void load(); };
+    window.addEventListener("finance-grant-granted", handleGranted);
+    return () => window.removeEventListener("finance-grant-granted", handleGranted);
+  }, [load]);
 
   const publish = async () => {
     setSaving(true); setError(null);
@@ -106,13 +112,16 @@ export default function NrmsPricingPage() {
   const runAction = async (account: Account) => {
     const row = action[account.id];
     if (!row || row.reason.trim().length < 5 || !row.value) return;
-    setSaving(true); setError(null);
+    setSaving(true); setActionErrors((old) => ({ ...old, [account.id]: "" }));
     try {
       const endpoint = `/api/admin/nrms/commercial/property/${account.propertyId}/${row.kind}`;
       const payload = row.kind === "trial" ? { trialEndsAt: new Date(row.value).toISOString(), reason: row.reason } : row.kind === "unpaid-limit" ? { unpaidLimit: Number(row.value), reason: row.reason } : row.kind === "credit" ? { amount: Number(row.value), reason: row.reason } : { policyId: Number(row.value), reason: row.reason };
       await apiClient.post(endpoint, payload);
       setNotice(`${account.propertyTitle} was updated and the owner was notified.`); setAction((old) => ({ ...old, [account.id]: { kind: "", value: "", reason: "" } })); await load();
-    } catch (cause: any) { setError(cause?.response?.data?.require2fa ? "Finance OTP verification is required, then retry." : cause?.response?.data?.error || "Commercial action failed"); }
+    } catch (cause: any) {
+      const message = cause?.response?.data?.require2fa ? "Finance OTP verification is required, then retry." : cause?.response?.data?.error || "Commercial action failed";
+      setActionErrors((old) => ({ ...old, [account.id]: message }));
+    }
     finally { setSaving(false); }
   };
 
@@ -254,41 +263,77 @@ export default function NrmsPricingPage() {
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={History} title="Policy history" subtitle="Published versions and the accounts using each policy" right={<CountPill count={policies.length} singular="version" plural="versions" />} />
-        <div className="divide-y divide-neutral-100 md:hidden">
-          {policies.map((p) => (
-            <article key={p.id} className="min-w-0 px-4 py-3.5 sm:px-5">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <p className="m-0 flex min-w-0 items-center gap-2 text-xs font-bold text-neutral-900"><span className="truncate" title={p.version}>{p.version}</span>{!p.effectiveTo && <span className="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Live</span>}</p>
-                <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-600">{p.accountCount} accounts</span>
-              </div>
-              <p className="mb-0 mt-1 text-[10px] text-neutral-500">{shortDate(p.effectiveFrom)} to {p.effectiveTo ? shortDate(p.effectiveTo) : "open"}</p>
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] tabular-nums text-neutral-600 sm:grid-cols-3">
-                <span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Room-night</b>{p.roomNightPrice.toLocaleString()}</span><span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Trial</b>{p.trialDays}d</span><span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Reminder</b>{p.reminderAmount.toLocaleString()}</span><span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Warning</b>{p.warningAmount.toLocaleString()}</span><span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Limit</b>{p.unpaidLimit.toLocaleString()}</span><span><b className="block text-[9px] uppercase tracking-wide text-neutral-400">Grace</b>{p.graceDays}d</span>
-              </div>
-            </article>
-          ))}
+        <div className="p-4 sm:p-5">
           {policies.length === 0 && <EmptyState icon={History} title="No versions yet" text="Publish the first policy version to start PAYG billing." />}
-        </div>
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[48rem] border-collapse text-left">
-            <thead><tr className="border-b border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><th className="px-4 py-2.5 sm:px-5">Version</th><th className="px-4 py-2.5">Effective</th><th className="px-4 py-2.5 text-right">Room-night</th><th className="px-4 py-2.5 text-right">Trial</th><th className="px-4 py-2.5 text-right">Reminder</th><th className="px-4 py-2.5 text-right">Warning</th><th className="px-4 py-2.5 text-right">Limit</th><th className="px-4 py-2.5 text-right">Grace</th><th className="px-4 py-2.5 text-right sm:px-5">Accounts</th></tr></thead>
-            <tbody>
-              {policies.map((p) => (
-                <tr key={p.id} className="border-b border-neutral-50 text-xs transition last:border-0 hover:bg-neutral-50/60">
-                  <td className="max-w-[200px] px-4 py-3 sm:px-5"><span className="flex min-w-0 items-center gap-2"><span className="truncate font-bold text-neutral-800" title={p.version}>{p.version}</span>{!p.effectiveTo && <span className="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Live</span>}</span></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{shortDate(p.effectiveFrom)} to {p.effectiveTo ? shortDate(p.effectiveTo) : "open"}</td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums text-neutral-800">{p.roomNightPrice.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-neutral-500">{p.trialDays}d</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-neutral-500">{p.reminderAmount.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-neutral-500">{p.warningAmount.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-neutral-800">{p.unpaidLimit.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-neutral-500">{p.graceDays}d</td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums text-neutral-800 sm:px-5">{p.accountCount}</td>
-                </tr>
-              ))}
-              {policies.length === 0 && <tr><td colSpan={9}><EmptyState icon={History} title="No versions yet" text="Publish the first policy version to start PAYG billing." /></td></tr>}
-            </tbody>
-          </table>
+          {policies.length > 0 && (
+            <div className="relative space-y-3 pl-5">
+              <div className="absolute bottom-2 left-[4.5px] top-2 w-px bg-neutral-200" aria-hidden="true" />
+              {policies.map((p) => {
+                const isLive = !p.effectiveTo;
+                return isLive ? (
+                  <div key={p.id} className="relative">
+                    <span className="absolute -left-5 top-1.5 h-2.5 w-2.5 rounded-full bg-emerald-600 ring-4 ring-emerald-100" aria-hidden="true" />
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-mono text-xs font-bold text-neutral-900" title={p.version}>{p.version}</span>
+                          <span className="shrink-0 rounded-full bg-emerald-700 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Live</span>
+                        </div>
+                        <span className="shrink-0 text-xs text-neutral-500">Since {shortDate(p.effectiveFrom)}</span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Commercial</p>
+                          <p className="mb-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{p.roomNightPrice.toLocaleString()} <span className="text-xs font-medium text-neutral-400">/ room-night</span></p>
+                          <p className="mb-0 mt-0.5 text-xs tabular-nums text-neutral-500">{p.trialDays}d trial</p>
+                        </div>
+                        <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Dunning ladder</p>
+                          <div className="mt-1.5 flex items-center gap-1 text-xs tabular-nums text-neutral-500">
+                            <span>{p.reminderAmount.toLocaleString()}</span>
+                            <ArrowRight className="h-3 w-3 shrink-0 text-neutral-300" aria-hidden="true" />
+                            <span>{p.warningAmount.toLocaleString()}</span>
+                            <ArrowRight className="h-3 w-3 shrink-0 text-neutral-300" aria-hidden="true" />
+                            <span className="font-bold text-red-600">{p.unpaidLimit.toLocaleString()}</span>
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Operational</p>
+                          <p className="mb-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{p.graceDays}d <span className="text-xs font-medium text-neutral-400">grace</span></p>
+                          <p className="mb-0 mt-0.5 text-xs tabular-nums text-neutral-400">{p.accountCount} accounts</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={p.id} className="relative">
+                    <span className="absolute -left-5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-neutral-300 bg-white" aria-hidden="true" />
+                    <div className="rounded-2xl border border-neutral-200 bg-white p-3.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="truncate font-mono text-xs text-neutral-600" title={p.version}>{p.version}</span>
+                        <span className="shrink-0 text-xs text-neutral-400">{shortDate(p.effectiveFrom)} to {shortDate(p.effectiveTo!)}</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 items-center gap-x-4 gap-y-1 text-xs tabular-nums text-neutral-400 sm:grid-cols-[minmax(0,7.5rem)_minmax(0,3.5rem)_minmax(0,11rem)_minmax(0,3.5rem)_minmax(0,6rem)]">
+                        <span>{p.roomNightPrice.toLocaleString()} / room-night</span>
+                        <span>{p.trialDays}d trial</span>
+                        <span className="inline-flex items-center gap-1">
+                          {p.reminderAmount.toLocaleString()}
+                          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-neutral-300" aria-hidden="true" />
+                          {p.warningAmount.toLocaleString()}
+                          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-neutral-300" aria-hidden="true" />
+                          {p.unpaidLimit.toLocaleString()}
+                        </span>
+                        <span>{p.graceDays}d grace</span>
+                        {p.accountCount > 0
+                          ? <span className="w-fit rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">{p.accountCount} accounts</span>
+                          : <span>{p.accountCount} accounts</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
@@ -314,7 +359,7 @@ export default function NrmsPricingPage() {
               const trial = splitDateTime(row.value);
               const valueField = row.kind === "trial"
                 ? <div className="flex min-w-0 items-center gap-2">
-                    <div className="min-w-0 flex-1"><DatePickerField label={`Trial end date for ${a.propertyTitle}`} size="sm" widthClassName="!w-full !rounded-lg" twoMonths={false} value={trial.date} onChangeAction={(next) => setAction({ ...action, [a.id]: { ...row, value: `${next.slice(0, 10)}T${trial.time}` } })} /></div>
+                    <div className="min-w-0 flex-1"><DatePickerField label={`Trial end date for ${a.propertyTitle}`} display="day-month" size="sm" widthClassName="!w-full !rounded-lg" twoMonths={false} value={trial.date} onChangeAction={(next) => setAction({ ...action, [a.id]: { ...row, value: `${next.slice(0, 10)}T${trial.time}` } })} /></div>
                     <input type="time" value={trial.time} disabled={!trial.date} onChange={(e) => setAction({ ...action, [a.id]: { ...row, value: `${trial.date}T${e.target.value || "00:00"}` } })} className={timeInputClass} aria-label={`Trial end time for ${a.propertyTitle}`} />
                   </div>
                 : row.kind === "policy"
@@ -347,6 +392,12 @@ export default function NrmsPricingPage() {
                     <label className="block min-w-0"><span className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Reason</span><input value={row.reason} onChange={(e) => setAction({ ...action, [a.id]: { ...row, reason: e.target.value } })} placeholder="Reason, at least 5 characters" className={`${leverInputClass} mt-1.5`} aria-label={`Reason for ${a.propertyTitle}`} /></label>
                     <button type="button" disabled={saving || !row.kind || !row.value || row.reason.trim().length < 5} onClick={() => void runAction(a)} className="min-h-10 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-[0_10px_24px_-16px_rgba(4,120,87,0.8)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">Apply and notify owner</button>
                   </div>
+                  {actionErrors[a.id] && (
+                    <div className="mx-3 mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs font-medium text-red-700 sm:mx-4 sm:mb-4" role="alert">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>{actionErrors[a.id]}</span>
+                    </div>
+                  )}
                 </details>
               );
             })}

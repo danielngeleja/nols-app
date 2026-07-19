@@ -17,10 +17,10 @@ type Props = {
   allowPast?: boolean;
   twoMonths?: boolean;
   variant?: "light" | "dark";
-  display?: "date" | "month";
+  display?: "date" | "month" | "day-month";
 };
 
-function formatDisplay(iso?: string, display: "date" | "month" = "date") {
+function formatDisplay(iso?: string, display: "date" | "month" | "day-month" = "date") {
   if (!iso) return "";
   // Accept both date-only (YYYY-MM-DD) and full ISO datetime (YYYY-MM-DDThh:mm:ss.sssZ)
   const datePart = String(iso).split("T")[0];
@@ -47,7 +47,9 @@ function formatDisplay(iso?: string, display: "date" | "month" = "date") {
   const monthLabel =
     Number.isFinite(monthIndex) && monthIndex >= 1 && monthIndex <= 12 ? months[monthIndex - 1] : m;
   const day2 = String(d).padStart(2, "0");
-  return display === "month" ? `${monthLabel} ${y}` : `${day2} ${monthLabel} ${y}`;
+  if (display === "month") return `${monthLabel} ${y}`;
+  if (display === "day-month") return `${day2} ${monthLabel}`;
+  return `${day2} ${monthLabel} ${y}`;
 }
 
 function PopoverPositioner({ open, computePos }: { open: boolean; computePos: () => void }) {
@@ -164,7 +166,7 @@ export default function DatePickerField({
                 }
                 aria-hidden
               />
-              <span className={pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400")}>{pretty || (display === "month" ? "Mon YYYY" : "DD Mon YYYY")}</span>
+              <span className={"whitespace-nowrap " + (pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400"))}>{pretty || (display === "month" ? "Mon YYYY" : display === "day-month" ? "DD Mon" : "DD Mon YYYY")}</span>
             </Popover.Button>
 
             {typeof document !== 'undefined' && createPortal(

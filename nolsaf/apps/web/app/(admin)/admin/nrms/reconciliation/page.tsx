@@ -55,6 +55,11 @@ export default function ReconciliationPage() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const handleGranted = () => { void load(); };
+    window.addEventListener("finance-grant-granted", handleGranted);
+    return () => window.removeEventListener("finance-grant-granted", handleGranted);
+  }, [load]);
 
   const act = async (p: Payment, kind: "reconcile" | "void") => {
     const row = inputs[p.id] ?? { reason: "", providerRef: "" };

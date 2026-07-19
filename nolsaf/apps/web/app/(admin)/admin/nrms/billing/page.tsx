@@ -60,6 +60,11 @@ export default function AdminNrmsBillingPage() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const handleGranted = () => { void load(); };
+    window.addEventListener("finance-grant-granted", handleGranted);
+    return () => window.removeEventListener("finance-grant-granted", handleGranted);
+  }, [load]);
 
   const sortedAccounts = useMemo(
     () => [...accounts].sort((a, b) => {
