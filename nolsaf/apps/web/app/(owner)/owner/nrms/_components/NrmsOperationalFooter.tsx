@@ -63,7 +63,7 @@ export default function NrmsOperationalFooter() {
     >
       <div className="flex items-center justify-between gap-3 text-xs font-bold text-neutral-500">
         <Link
-          href="/owner/property-owner-disbursement-policy"
+          href="/owner/nrms/policy"
           className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 no-underline transition-colors hover:text-neutral-900 hover:no-underline"
         >
           <FileText className="h-3.5 w-3.5" aria-hidden />

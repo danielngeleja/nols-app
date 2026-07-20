@@ -8,6 +8,7 @@ import {
   BedDouble,
   CalendarDays,
   CheckCircle2,
+  ClipboardList,
   Clock3,
   DoorOpen,
   FileText,
@@ -15,6 +16,7 @@ import {
   Mail,
   MessageCircle,
   Phone,
+  QrCode,
   ReceiptText,
   ShieldCheck,
   Sparkles,
@@ -34,6 +36,33 @@ const MODULES = [
   { icon: UsersRound, title: "Staff and roles", description: "Invite front desk, housekeeping and outlet staff scoped to their role." },
   { icon: WalletCards, title: "Finance and night audit", description: "Close out each business day with night audit and cashier reconciliation." },
   { icon: ReceiptText, title: "Transparent PAYG billing", description: "Track every chargeable external room-night in a clear ledger." },
+];
+
+const RESERVATION_STEPS = [
+  { step: "01", title: "Create the reservation", description: "Pick a source (walk-in, phone, direct or OTA), attach a guest, and choose room types and dates. It starts as Held or Confirmed." },
+  { step: "02", title: "Confirm and assign rooms", description: "Held reservations move to Confirmed once availability is re-checked. Every room needs a specific unit assigned before check-in." },
+  { step: "03", title: "Check the guest in", description: "Moves the stay to Checked in. Blocked if the assigned room isn't marked clean or inspected, though front desk can override when needed." },
+  { step: "04", title: "Move rooms anytime", description: "Reassign a stay to a different unit without losing its reservation history." },
+  { step: "05", title: "Settle and check out", description: "Only from Checked in. Any unpaid balance, unclassified outlet payments or unverified charges must be cleared first." },
+  { step: "06", title: "Cancel or mark no-show", description: "Releases the rooms and never bills, available from Draft, Held or Confirmed." },
+];
+
+const OUTLET_STEPS = [
+  { step: "01", title: "Create an outlet", description: "Add a restaurant or bar outlet as owner or manager, with its own currency if it differs from the property's." },
+  { step: "02", title: "Add your menu", description: "Set item names, prices, categories and stock status. Outlet supervisors can maintain this too." },
+  { step: "03", title: "Generate QR order points", description: "Create one per room in bulk, or standalone points for shared areas, each with a rotatable code and a printable QR sheet." },
+  { step: "04", title: "Guests scan and order", description: "They see the outlet's live menu and can pay at the counter, or charge it to their room if they're checked in and the name matches." },
+  { step: "05", title: "Turn on auto-accept if you want", description: "Orders confirm automatically instead of waiting for staff to accept each one." },
+];
+
+const ROLES = [
+  { role: "Owner", scope: "Full access to every part of the workspace." },
+  { role: "Manager", scope: "Same operational reach as the owner: outlets, staff, housekeeping, finance and front desk." },
+  { role: "Front desk", scope: "Reservations, check-in, check-out and the night audit. Can view outlet orders but not place or advance them." },
+  { role: "Housekeeper", scope: "Room status and housekeeping tasks only." },
+  { role: "Restaurant", scope: "Orders for restaurant-type outlets." },
+  { role: "Bar", scope: "Orders for bar-type outlets." },
+  { role: "Outlet supervisor", scope: "Orders and menu management, scoped to one assigned outlet." },
 ];
 
 // Trial length and pricing are policy, not product copy. This reads the
@@ -94,6 +123,93 @@ export default function NrmsHelpPage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600"><ClipboardList className="h-4 w-4 text-white" /></div>
+          <div>
+            <h2 className="text-lg font-bold text-neutral-950">Running a reservation</h2>
+            <p className="text-sm text-neutral-500">From creating a stay to settling and checking out.</p>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="divide-y divide-neutral-100">
+            {RESERVATION_STEPS.map(({ step, title, description }) => (
+              <div key={step} className="flex items-start gap-4 px-5 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50"><span className="text-xs font-bold text-blue-700">{step}</span></div>
+                <div>
+                  <p className="text-sm font-semibold text-neutral-900">{title}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-neutral-500">{description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <Link href="/owner/nrms/reservations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
+          Go to reservations <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-600"><QrCode className="h-4 w-4 text-white" /></div>
+          <div>
+            <h2 className="text-lg font-bold text-neutral-950">Restaurant, bar and QR ordering</h2>
+            <p className="text-sm text-neutral-500">Set up outlets and menus, then let guests order by scanning a code.</p>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="divide-y divide-neutral-100">
+            {OUTLET_STEPS.map(({ step, title, description }) => (
+              <div key={step} className="flex items-start gap-4 px-5 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-violet-50"><span className="text-xs font-bold text-violet-700">{step}</span></div>
+                <div>
+                  <p className="text-sm font-semibold text-neutral-900">{title}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-neutral-500">{description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-4">
+          <Link href="/owner/nrms/outlets" className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
+            Go to outlets and menus <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+          <Link href="/owner/nrms/qr-codes" className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
+            Go to QR order points <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-600"><ShieldCheck className="h-4 w-4 text-white" /></div>
+          <div>
+            <h2 className="text-lg font-bold text-neutral-950">Roles and permissions</h2>
+            <p className="text-sm text-neutral-500">What each staff role can see and do once invited.</p>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="divide-y divide-neutral-100">
+            {ROLES.map(({ role, scope }) => (
+              <div key={role} className="flex items-start gap-4 px-5 py-3.5">
+                <span className="mt-0.5 inline-flex shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700">{role}</span>
+                <p className="text-xs leading-5 text-neutral-600">{scope}</p>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-neutral-100 bg-neutral-50 px-5 py-3.5">
+            <p className="text-xs leading-5 text-neutral-500">
+              Invite by email. The person needs an existing NoLSAF account under that email, and gets a confirmation
+              link. The role only takes effect once they accept it. Restaurant, bar and outlet supervisor invites
+              also need an outlet chosen. Revoking access needs a reason and is recorded.
+            </p>
+          </div>
+        </div>
+        <Link href="/owner/nrms/staff" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
+          Go to staff and roles <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </section>
 
       <div className="mt-8 flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-5">
