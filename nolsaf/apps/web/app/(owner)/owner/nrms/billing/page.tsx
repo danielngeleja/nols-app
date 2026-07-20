@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Clock3,
   Copy,
   CreditCard,
   FileText,
@@ -120,6 +121,11 @@ function statementIssuedLabel(value: unknown): string | null {
   return date.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function formatCountdown(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function smokeDate(daysAgo: number): string {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
@@ -178,6 +184,10 @@ function buildSmokeAccount(scenario: SmokeScenario) {
 const LEDGER_PREVIEW_COUNT = 6;
 const COMPLETED_PREVIEW_COUNT = 2;
 const COMPLETED_PAGE_SIZE = 8;
+// If a provider never sends a completion webhook at all (abandoned USSD prompt, dropped
+// network), a token would otherwise sit at PROCESSING forever with no way back for the
+// owner. Matches the 4-minute wait used on the tour payment flow before offering retry.
+const PROCESSING_WAIT_MS = 4 * 60 * 1000;
 
 export default function NrmsBillingPage() {
   const { selectedPropertyId } = useNrms();
@@ -193,6 +203,8 @@ export default function NrmsBillingPage() {
   const [completedPage, setCompletedPage] = useState(1);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [channelChoice, setChannelChoice] = useState<Record<string, PaymentTarget["initialMethod"]>>({});
+  const [processingSince, setProcessingSince] = useState<Record<string, number>>({});
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -247,11 +259,34 @@ export default function NrmsBillingPage() {
     setCompletedPage(1);
   }, [selectedPropertyId, smokeScenario]);
 
+  // Ticks the countdown clock every second, same cadence as the tour payment flow's
+  // own wait timer - the 5s poll below only refreshes account data, it wouldn't move
+  // the displayed "3:59, 3:58..." smoothly on its own.
+  useEffect(() => {
+    if (!hasProcessingToken) return;
+    const interval = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [hasProcessingToken]);
+
   useEffect(() => {
     if (smokeScenario || !hasProcessingToken) return;
     const interval = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(interval);
   }, [hasProcessingToken, load, smokeScenario]);
+
+  // Anchor the wait clock to when a token actually started processing, not to whenever
+  // this component happens to mount - a page refresh must not reset how long we've waited.
+  useEffect(() => {
+    for (const token of allTokens) {
+      if (String(token.status).toUpperCase() !== "PROCESSING") continue;
+      if (processingSince[token.token]) continue;
+      setProcessingSince((current) => (current[token.token] ? current : {
+        ...current,
+        [token.token]: token.createdAt ? new Date(token.createdAt).getTime() : Date.now(),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTokens]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -332,6 +367,7 @@ export default function NrmsBillingPage() {
         : method.method === "MNO"
           ? "Smoke preview: a Mobile Money approval prompt would be sent now."
           : "Smoke preview: the bank payment request would be submitted now.");
+      setProcessingSince((current) => ({ ...current, [target.token]: Date.now() }));
       setBusyToken(null);
       return;
     }
@@ -358,6 +394,7 @@ export default function NrmsBillingPage() {
         return;
       }
       setPaymentNotice(response.data?.message || "Payment initiated. Complete the provider prompt to confirm it.");
+      setProcessingSince((current) => ({ ...current, [target.token]: Date.now() }));
       await load();
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "Failed to initiate payment");
@@ -670,6 +707,12 @@ export default function NrmsBillingPage() {
                     const reference = ownerSettlementReference(statement.id, token.token);
                     const selectedMethod = channelChoice[token.token] ?? "MNO";
                     const isBusy = busyToken === token.token;
+                    const tokenStatus = String(token.status).toUpperCase();
+                    const startedAt = processingSince[token.token] ?? (token.createdAt ? new Date(token.createdAt).getTime() : null);
+                    const elapsedMs = startedAt != null ? nowTick - startedAt : 0;
+                    const stalled = tokenStatus === "PROCESSING" && startedAt != null && elapsedMs > PROCESSING_WAIT_MS;
+                    const waiting = tokenStatus === "PROCESSING" && !stalled;
+                    const remainingSeconds = Math.max(0, Math.ceil((PROCESSING_WAIT_MS - elapsedMs) / 1000));
                     return (
                     <div key={token.id} className="space-y-3 p-3 sm:p-4">
                       <div className="rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2.5">
@@ -696,12 +739,37 @@ export default function NrmsBillingPage() {
                         </div>
                         <p className="mt-2 border-t border-blue-100 pt-2 text-[10px] leading-4 text-neutral-500">Use this reference for support and payment tracking.</p>
                       </div>
-                      {["PENDING", "FAILED"].includes(String(token.status).toUpperCase()) && (
+                      {waiting && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-center">
+                          <div className="mb-1 flex items-center justify-center gap-1.5">
+                            {token.method === "CARD" ? <CreditCard className="h-3.5 w-3.5 text-amber-600" />
+                              : token.method === "BANK" ? <Landmark className="h-3.5 w-3.5 text-amber-600" />
+                              : <Smartphone className="h-3.5 w-3.5 animate-pulse text-amber-600" />}
+                            <p className="text-[11px] font-bold text-amber-800">
+                              {token.method === "CARD" ? "Verifying your card payment..."
+                                : token.method === "BANK" ? "Confirming bank checkout"
+                                : "Check your phone for a payment prompt"}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-center gap-1.5 text-amber-700">
+                            <Clock3 className="h-3.5 w-3.5" />
+                            <span className="font-mono text-sm font-bold">{formatCountdown(remainingSeconds)}</span>
+                            <span className="text-[10px]">remaining</span>
+                          </div>
+                        </div>
+                      )}
+                      {stalled && (
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-4 text-amber-800">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>This payment is taking longer than expected. It may still complete, but you can try again below or choose a different channel.</span>
+                        </div>
+                      )}
+                      {(["PENDING", "FAILED"].includes(tokenStatus) || stalled) && (
                         <div className="rounded-lg border border-neutral-100 bg-neutral-50/70 p-2.5">
                           <div className="mb-2 flex items-center gap-2">
                             <WalletCards className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
                             <p className="text-[10px] font-semibold text-neutral-600">
-                              {String(token.status).toUpperCase() === "FAILED" ? "Try another payment channel" : "Choose a payment channel"}
+                              {tokenStatus === "FAILED" || stalled ? "Try another payment channel" : "Choose a payment channel"}
                             </p>
                           </div>
                           <div className="grid grid-cols-[1.2fr_0.9fr_0.9fr] gap-1.5 sm:gap-2">
