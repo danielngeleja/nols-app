@@ -674,6 +674,8 @@ function CreateReservationModal({
   const [totalManuallyEdited, setTotalManuallyEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unitAvailability, setUnitAvailability] = useState<Record<number, boolean>>({});
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -686,6 +688,36 @@ function CreateReservationModal({
   const activeUnits = type ? type.units.filter((u) => u.status === "ACTIVE") : [];
   const nights = nightsBetween(checkIn, checkOut);
   const calculatedTotal = type?.baseRate != null ? Number(type.baseRate) * nights : null;
+
+  useEffect(() => {
+    if (!roomTypeId || !checkIn || !checkOut || checkOut <= checkIn) {
+      setUnitAvailability({});
+      return;
+    }
+    let cancelled = false;
+    setLoadingAvailability(true);
+    apiClient
+      .get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, { params: { roomTypeId, checkIn, checkOut } })
+      .then((r) => {
+        if (cancelled) return;
+        const map: Record<number, boolean> = {};
+        for (const unit of r.data?.units ?? []) map[unit.id] = unit.available;
+        setUnitAvailability(map);
+      })
+      .catch(() => {
+        if (!cancelled) setUnitAvailability({});
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAvailability(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId, roomTypeId, checkIn, checkOut]);
+
+  useEffect(() => {
+    if (roomUnitId !== "" && unitAvailability[roomUnitId] === false) setRoomUnitId("");
+  }, [roomUnitId, unitAvailability]);
 
   useEffect(() => {
     if (totalManuallyEdited) return;
@@ -833,14 +865,19 @@ function CreateReservationModal({
               </select>
             </label>
             <label className="block min-w-0 text-sm">
-              <span className="mb-1.5 block font-medium text-neutral-700">Room <span className="font-normal text-neutral-400">(optional)</span></span>
+              <span className="mb-1.5 block font-medium text-neutral-700">
+                Room <span className="font-normal text-neutral-400">(optional{loadingAvailability ? ", checking availability..." : ""})</span>
+              </span>
               <select className={inputCls} value={roomUnitId} onChange={(e) => setRoomUnitId(e.target.value ? Number(e.target.value) : "")} disabled={!type}>
                 <option value="">Assign later</option>
-                {activeUnits.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.code}
-                  </option>
-                ))}
+                {activeUnits.map((u) => {
+                  const occupied = unitAvailability[u.id] === false;
+                  return (
+                    <option key={u.id} value={u.id} disabled={occupied}>
+                      {u.code}{occupied ? " (occupied)" : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label className="block min-w-0 text-sm">

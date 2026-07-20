@@ -10,6 +10,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedProperty } from "../lib/nrms.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
+import { findUnitConflicts } from "../lib/nrmsAvailability.js";
 
 export const router = Router();
 
@@ -210,6 +211,47 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   } catch (err) {
     console.error("[owner.nrms.rooms] list failed", err);
     res.status(500).json({ error: "Failed to load rooms" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /:propertyId/availability?roomTypeId=&checkIn=&checkOut=
+ * Per-unit occupancy for one room type over a date range, using the exact same
+ * conflict check the reservation-create transaction enforces at submit time -
+ * so the form can only offer units that will actually be accepted.
+ */
+router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const ownerId = req.user!.id;
+    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId));
+    if (!property) return;
+
+    const query = z.object({
+      roomTypeId: z.coerce.number().int().positive(),
+      checkIn: z.coerce.date(),
+      checkOut: z.coerce.date(),
+    }).safeParse(req.query);
+    if (!query.success) return res.status(400).json({ error: "roomTypeId, checkIn and checkOut are required" });
+    const { roomTypeId, checkIn, checkOut } = query.data;
+    if (checkOut <= checkIn) return res.status(400).json({ error: "checkOut must be after checkIn" });
+
+    const units = await prisma.roomUnit.findMany({
+      where: { propertyId: property.id as number, roomTypeId, status: "ACTIVE" },
+      select: { id: true, code: true },
+      orderBy: { code: "asc" },
+    });
+
+    const results = await Promise.all(
+      units.map(async (unit) => {
+        const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut);
+        return { id: unit.id, code: unit.code, available: conflicts.length === 0 };
+      }),
+    );
+
+    res.json({ units: results });
+  } catch (err) {
+    console.error("[owner.nrms.rooms] availability failed", err);
+    res.status(500).json({ error: "Failed to load room availability" });
   }
 }) as RequestHandler);
 
