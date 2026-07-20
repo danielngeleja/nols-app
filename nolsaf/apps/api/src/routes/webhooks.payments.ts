@@ -893,8 +893,8 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
       : typeof req.body === "string" ? req.body.length
       : JSON.stringify(req.body ?? {}).length;
     // Trace every inbound call up front so a rejection further down (IP, content-type,
-    // missing/invalid signature) still leaves a record of exactly what AzamPay sent —
-    // without this, a silently-rejected callback looks identical to one that never arrived.
+    // missing/invalid signature) still leaves a record of exactly what AzamPay sent.
+    // Without this, a silently-rejected callback looks identical to one that never arrived.
     console.info(
       `[AzamPay Webhook] incoming ip=${diagIp} contentType=${diagCt || "-"} ` +
       `sigHeaderPresent=${diagSigHeader != null} sigHeaderLen=${diagSigHeader?.length ?? 0} ` +

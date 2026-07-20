@@ -35,6 +35,7 @@ import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/Nrms
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 import NrmsPropertyGate from "./_components/NrmsPropertyGate";
+import NrmsOperationalFooter from "./_components/NrmsOperationalFooter";
 
 const PRIMARY_TABS = [
   { href: "/owner/nrms", label: "Front desk", icon: DoorOpen, exact: true },
@@ -188,7 +189,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
   if (!entitled && restriction) {
     return <NrmsFrozenNotice scope="enrollment" referenceCode={restriction.referenceCode} reason={restriction.reason} loading={loading} onRefresh={() => void refresh()} />;
   }
-  // NRMS is part and parcel of the Marketplace — nothing below this point should
+  // NRMS is part and parcel of the Marketplace. Nothing below this point should
   // be reachable without an admin-approved listing, regardless of enrollment state.
   // Rendered as an overlay on the shell further down, not an early return, so the
   // owner still sees the workspace chrome behind it instead of a blank page.
@@ -211,7 +212,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const propertyNeedsActivation = Boolean(selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms"));
+  const propertyNeedsActivation = Boolean(selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help"));
 
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
@@ -301,6 +302,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
           {showPropertyGate ? null : propertyNeedsActivation ? <PropertyActivationGate /> : children}
         </main>
+        <NrmsOperationalFooter />
       </div>
 
       {showPropertyGate && (

@@ -104,7 +104,7 @@ export const requireNrms: RequestHandler = async (req, res, next) => {
 
 /**
  * Loads a property and verifies tenancy. Returns null (after responding) when not owned,
- * or when the property is not an admin-approved Marketplace listing — NRMS is part and
+ * or when the property is not an admin-approved Marketplace listing. NRMS is part and
  * parcel of the Marketplace, not a standalone product, so every NRMS surface funnels
  * through this one gate.
  */
