@@ -10,6 +10,7 @@ import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeepin
 import { startNrmsDunningWorker } from "./nrmsDunning.js";
 import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
+import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -70,6 +71,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireGroupBookingDeposits();
     startGuestSmsCampaignWorker();
     startDailyOccupiedHousekeepingWorker();
+    startNrmsUsageAccrualWorker();
     startNrmsDunningWorker();
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();

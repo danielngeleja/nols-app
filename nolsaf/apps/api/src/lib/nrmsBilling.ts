@@ -18,16 +18,34 @@ export function chargeRequiresCheckoutVerification(charge: {
   );
 }
 
+function billedKey(allocationId: number, day: Date): string {
+  return `${allocationId}:${day.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * One row per elapsed night, capped at `postThroughDate` when given (nightly accrual
+ * only wants nights that have actually happened, not the rest of a future stay) and
+ * skipping any night already present in `alreadyBilled` (checkout re-running this for
+ * a stay that nightly accrual already posted most of must not re-bill those nights -
+ * the DB unique constraint is keyed on policyId too, so it alone can't be trusted if
+ * the account moved to a newer policy mid-stay).
+ */
 export function buildNrmsUsageRows(input: {
   accountId: number; propertyId: number; reservationId: number; policyId: number;
   trialEndsAt: Date; currency: string; roomNightPrice: number; source: string;
   allocations: Array<{ id: number; startDate: Date; endDate: Date }>;
+  postThroughDate?: Date;
+  alreadyBilled?: Set<string>;
 }) {
   const trialEnd = utcDay(input.trialEndsAt);
   const commissionOnly = input.source.trim().toUpperCase() === "NOLSAF";
+  const cutoff = input.postThroughDate ? utcDay(input.postThroughDate) : null;
   const rows: any[] = [];
   for (const allocation of input.allocations) {
-    for (let day = utcDay(allocation.startDate); day < utcDay(allocation.endDate); day = new Date(day.getTime() + DAY_MS)) {
+    const stayEnd = utcDay(allocation.endDate);
+    const end = cutoff && cutoff < stayEnd ? cutoff : stayEnd;
+    for (let day = utcDay(allocation.startDate); day < end; day = new Date(day.getTime() + DAY_MS)) {
+      if (input.alreadyBilled?.has(billedKey(allocation.id, day))) continue;
       const trialFree = day < trialEnd;
       const classification = commissionOnly ? "COMMISSION_ONLY" : trialFree ? "TRIAL_FREE" : "BILLABLE_EXTERNAL";
       rows.push({
@@ -39,6 +57,55 @@ export function buildNrmsUsageRows(input: {
     }
   }
   return rows;
+}
+
+/** Nights already posted for these allocations, regardless of which policy billed them. */
+export async function getAlreadyBilledNights(tx: any, allocationIds: number[]): Promise<Set<string>> {
+  if (!allocationIds.length) return new Set();
+  const existing = await tx.nrmsUsageEvent.findMany({
+    where: { allocationId: { in: allocationIds } },
+    select: { allocationId: true, serviceDate: true },
+  });
+  return new Set(existing.map((row: any) => billedKey(row.allocationId, utcDay(row.serviceDate))));
+}
+
+/**
+ * Shared by checkout and nightly accrual: insert usage rows, roll the balance,
+ * re-evaluate dunning, and open a payable statement the moment PAYMENT_REQUIRED
+ * is reached. Both callers must go through here so a night can never be billed
+ * by one path without the other's dunning/statement side effects applying too.
+ */
+export async function applyNrmsUsageRows(tx: any, account: any, rows: any[]) {
+  if (rows.length) await tx.nrmsUsageEvent.createMany({ data: rows, skipDuplicates: true });
+  const billable = rows.reduce((sum, row) => sum + Number(row.amount), 0);
+  const newBalance = Number(account.unpaidBalance) + billable;
+  const dunning = evaluateNrmsDunning({
+    balance: newBalance,
+    reminderAmount: Number(account.policy.reminderAmount),
+    warningAmount: Number(account.policy.warningAmount),
+    unpaidLimit: Number(account.unpaidLimit),
+    graceDays: account.policy.graceDays,
+    limitReachedAt: account.limitReachedAt,
+    trialEndsAt: account.trialEndsAt,
+    currentStatus: account.status,
+  });
+  const status = dunning.status;
+  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: newBalance, status, limitReachedAt: dunning.limitReachedAt } });
+
+  if (status === "PAYMENT_REQUIRED") {
+    const unstated = await tx.nrmsUsageEvent.findMany({
+      where: { accountId: account.id, amount: { gt: 0 }, statementItem: null }, select: { id: true, amount: true },
+    });
+    if (unstated.length) {
+      const amount = unstated.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
+      const statement = await tx.nrmsBillingStatement.create({ data: { accountId: account.id, amount, currency: account.policy.currency } });
+      await tx.nrmsBillingStatementItem.createMany({ data: unstated.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
+      await tx.nrmsServicePaymentToken.create({
+        data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency: account.policy.currency, expiresAt: new Date(Date.now() + 7 * DAY_MS) },
+      });
+    }
+  }
+  return { usageEvents: rows.length, billableAmount: billable, paygStatus: status, unpaidBalance: newBalance };
 }
 
 export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: number, verifiedChargeIds: number[] = []) {
@@ -104,42 +171,17 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
     roomUnitIds: allocations.map((allocation: any) => allocation.roomUnitId).filter((id: any) => id != null),
     actorId: ownerId,
   });
-  const data = buildNrmsUsageRows({
+  // Nightly accrual may have already posted most of this stay's nights while the
+  // guest was still checked in - only bill whatever it hasn't gotten to yet.
+  const alreadyBilled = await getAlreadyBilledNights(tx, allocations.map((allocation: any) => allocation.id));
+  const rows = buildNrmsUsageRows({
     accountId: account.id, propertyId: reservation.propertyId, reservationId: reservation.id, policyId: account.policyId,
     trialEndsAt: account.trialEndsAt, currency: account.policy.currency, roomNightPrice: Number(account.policy.roomNightPrice),
-    source: reservation.source, allocations,
+    source: reservation.source, allocations, alreadyBilled,
   });
-  if (data.length) await tx.nrmsUsageEvent.createMany({ data, skipDuplicates: true });
-  const billable = data.reduce((sum, row) => sum + Number(row.amount), 0);
-  const newBalance = Number(account.unpaidBalance) + billable;
-  const dunning = evaluateNrmsDunning({
-    balance: newBalance,
-    reminderAmount: Number(account.policy.reminderAmount),
-    warningAmount: Number(account.policy.warningAmount),
-    unpaidLimit: Number(account.unpaidLimit),
-    graceDays: account.policy.graceDays,
-    limitReachedAt: account.limitReachedAt,
-    trialEndsAt: account.trialEndsAt,
-    currentStatus: account.status,
-  });
-  const status = dunning.status;
-  await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: newBalance, status, limitReachedAt: dunning.limitReachedAt } });
-
-  if (status === "PAYMENT_REQUIRED") {
-    const unstated = await tx.nrmsUsageEvent.findMany({
-      where: { accountId: account.id, amount: { gt: 0 }, statementItem: null }, select: { id: true, amount: true },
-    });
-    if (unstated.length) {
-      const amount = unstated.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
-      const statement = await tx.nrmsBillingStatement.create({ data: { accountId: account.id, amount, currency: account.policy.currency } });
-      await tx.nrmsBillingStatementItem.createMany({ data: unstated.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
-      await tx.nrmsServicePaymentToken.create({
-        data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency: account.policy.currency, expiresAt: new Date(Date.now() + 7 * DAY_MS) },
-      });
-    }
-  }
-  await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CHECKED_OUT", actorId: ownerId, data: { usageEvents: data.length, billableAmount: billable } } });
-  return { usageEvents: data.length, billableAmount: billable, paygStatus: status, unpaidBalance: newBalance };
+  const result = await applyNrmsUsageRows(tx, account, rows);
+  await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CHECKED_OUT", actorId: ownerId, data: { usageEvents: result.usageEvents, billableAmount: result.billableAmount } } });
+  return result;
 }
 
 export async function reconcileNrmsPayment(tx: any, input: { token: string; provider: string; providerRef: string; idempotencyKey: string; amount: number }) {
