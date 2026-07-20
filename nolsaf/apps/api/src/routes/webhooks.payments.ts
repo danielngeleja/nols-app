@@ -1007,8 +1007,11 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const sessionHint = eventId ? eventId.toString() : null;
     const existingPayload = existing?.payload && typeof existing.payload === "object" ? existing.payload as any : null;
     const nrmsTokenHint = String(extraProps?.nrmsToken || existingPayload?.nrmsToken || (/^NRMS-/i.test(String(paymentRef || "")) ? paymentRef : "") || "");
-    const nrmsPaymentToken = nrmsTokenHint
-      ? await (prisma as any).nrmsServicePaymentToken.findUnique({ where: { token: nrmsTokenHint }, include: { statement: { include: { account: true } }, payment: true } })
+    const nrmsOr: any[] = [];
+    if (nrmsTokenHint) nrmsOr.push({ token: nrmsTokenHint });
+    if (sessionHint) nrmsOr.push({ checkoutSessionId: sessionHint });
+    const nrmsPaymentToken = nrmsOr.length
+      ? await (prisma as any).nrmsServicePaymentToken.findFirst({ where: { OR: nrmsOr }, include: { statement: { include: { account: true } }, payment: true } })
       : null;
 
     // Find invoice by paymentRef

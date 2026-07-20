@@ -63,9 +63,12 @@ function requiredNrmsCoralConfig() {
   return { username, password, alias, callbackUrl, successUrl, failureUrl };
 }
 
-async function markNrmsTokenProcessing(row: any, method: string) {
+async function markNrmsTokenProcessing(row: any, method: string, checkoutSessionId?: string) {
   await prisma.$transaction([
-    (prisma as any).nrmsServicePaymentToken.update({ where: { id: row.id }, data: { method, status: "PROCESSING" } }),
+    (prisma as any).nrmsServicePaymentToken.update({
+      where: { id: row.id },
+      data: { method, status: "PROCESSING", ...(checkoutSessionId ? { checkoutSessionId } : {}) },
+    }),
     (prisma as any).ownerPaygAccount.update({ where: { id: row.statement.accountId }, data: { status: "PAYMENT_PENDING" } }),
   ]);
 }
@@ -213,7 +216,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       }
       const eventId = String(transactionId || `${row.token}-${Date.now()}`);
       await recordNrmsInitiation({ row, eventId, channel: "MNO", provider: "AZAMPAY", phone: normalizedPhone });
-      await markNrmsTokenProcessing(row, "MOBILE_MONEY");
+      await markNrmsTokenProcessing(row, "MOBILE_MONEY", eventId);
       const result = { status: "PENDING", transactionId: eventId, paymentRef: row.token, message: "Payment prompt sent to your phone" };
       if (idemKey) await idemSet(idemKey, result);
       return res.json({ ok: true, ...result });
@@ -247,7 +250,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       if (providerData.success === false) return res.status(502).json({ error: providerData.message || "Bank payment was rejected" });
       const eventId = String(providerData.transactionId || `${row.token}-${Date.now()}`);
       await recordNrmsInitiation({ row, eventId, channel: "BANK", provider: "AZAMPAY", phone: normalizedPhone });
-      await markNrmsTokenProcessing(row, "BANK");
+      await markNrmsTokenProcessing(row, "BANK", eventId);
       const result = { status: "PENDING", transactionId: eventId, paymentRef: row.token, message: "Bank payment request submitted" };
       if (idemKey) await idemSet(idemKey, result);
       return res.json({ ok: true, ...result });
