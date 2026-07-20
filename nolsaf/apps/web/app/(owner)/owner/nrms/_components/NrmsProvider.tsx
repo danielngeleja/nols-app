@@ -9,6 +9,7 @@ import apiClient from "@/lib/apiClient";
 export type NrmsProperty = {
   id: number;
   title: string;
+  status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
   currency: string | null;
   nrmsActivatedAt: string | null;
   nrmsQrOrderingFrozenAt?: string | null;

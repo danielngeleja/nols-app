@@ -34,6 +34,7 @@ import {
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
+import NrmsPropertyGate from "./_components/NrmsPropertyGate";
 
 const PRIMARY_TABS = [
   { href: "/owner/nrms", label: "Front desk", icon: DoorOpen, exact: true },
@@ -137,7 +138,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
-  const exitHref = accessRole === "OWNER" ? "/owner/bookings" : "/account";
+  const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
 
   useEffect(() => {
     try { setCollapsed(localStorage.getItem("nrms-sidebar-collapsed") === "1"); } catch {}
@@ -187,10 +188,16 @@ function NrmsShell({ children }: { children: ReactNode }) {
   if (!entitled && restriction) {
     return <NrmsFrozenNotice scope="enrollment" referenceCode={restriction.referenceCode} reason={restriction.reason} loading={loading} onRefresh={() => void refresh()} />;
   }
-  if (!entitled) return <NrmsActivationScreen />;
+  // NRMS is part and parcel of the Marketplace — nothing below this point should
+  // be reachable without an admin-approved listing, regardless of enrollment state.
+  // Rendered as an overlay on the shell further down, not an early return, so the
+  // owner still sees the workspace chrome behind it instead of a blank page.
+  const showPropertyGate = !properties.some((p) => p.status === "APPROVED");
+
+  if (!showPropertyGate && !entitled) return <NrmsActivationScreen />;
 
   const selectedPropertyFrozen = selectedProperty?.nrmsPaygAccount?.status === "FROZEN";
-  if (globalFreeze || selectedPropertyFrozen) {
+  if (!showPropertyGate && (globalFreeze || selectedPropertyFrozen)) {
     return (
       <div className="min-h-screen bg-neutral-50">
         <NrmsFrozenNotice
@@ -292,9 +299,15 @@ function NrmsShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
-          {propertyNeedsActivation ? <PropertyActivationGate /> : children}
+          {showPropertyGate ? null : propertyNeedsActivation ? <PropertyActivationGate /> : children}
         </main>
       </div>
+
+      {showPropertyGate && (
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-neutral-950/45 p-4 backdrop-blur-sm">
+          <NrmsPropertyGate loading={loading} onRefresh={() => void refresh()} />
+        </div>
+      )}
     </div>
   );
 }

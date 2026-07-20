@@ -48,7 +48,7 @@ router.get("/", (async (req: AuthedRequest, res: Response) => {
       getActiveNrmsPolicy(),
       prisma.property.findMany({
         where: { ownerId },
-        select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true, nrmsPaygAccount: true },
+        select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true, nrmsPaygAccount: true },
         orderBy: { id: "asc" },
       }),
       (prisma as any).platformRestrictionCase.findMany({

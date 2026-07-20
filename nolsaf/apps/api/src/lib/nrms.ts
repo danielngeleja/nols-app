@@ -102,7 +102,12 @@ export const requireNrms: RequestHandler = async (req, res, next) => {
   }
 };
 
-/** Loads a property and verifies tenancy. Returns null (after responding 404) when not owned. */
+/**
+ * Loads a property and verifies tenancy. Returns null (after responding) when not owned,
+ * or when the property is not an admin-approved Marketplace listing — NRMS is part and
+ * parcel of the Marketplace, not a standalone product, so every NRMS surface funnels
+ * through this one gate.
+ */
 export async function loadOwnedProperty(
   res: Response,
   ownerId: number,
@@ -115,10 +120,18 @@ export async function loadOwnedProperty(
   }
   const property = await prisma.property.findFirst({
     where: { id: propertyId, ownerId },
-    select: select ?? { id: true, title: true, roomsSpec: true, nrmsActivatedAt: true },
+    select: { ...(select ?? { id: true, title: true, roomsSpec: true, nrmsActivatedAt: true }), status: true },
   });
   if (!property) {
     res.status(404).json({ error: "Property not found" });
+    return null;
+  }
+  if (property.status !== "APPROVED") {
+    res.status(403).json({
+      error: "This property must be an approved Marketplace listing before NRMS can be used",
+      code: "NRMS_PROPERTY_NOT_APPROVED",
+      propertyStatus: property.status,
+    });
     return null;
   }
   return property;
