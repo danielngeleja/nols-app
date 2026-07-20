@@ -885,17 +885,34 @@ export function detectPaymentChannel(payload: any): "MNO" | "BANK" | "CARD" | nu
  */
 router.post("/azampay", webhookLimiter, async (req: any, res) => {
   try {
+    const diagIp = String(req.ip || "");
+    const diagCt = req.header("content-type") || "";
+    const diagSigHeader = req.header("X-Azampay-Signature") || req.header("x-azampay-signature") || null;
+    const diagBodyLen =
+      Buffer.isBuffer(req.body) ? req.body.length
+      : typeof req.body === "string" ? req.body.length
+      : JSON.stringify(req.body ?? {}).length;
+    // Trace every inbound call up front so a rejection further down (IP, content-type,
+    // missing/invalid signature) still leaves a record of exactly what AzamPay sent —
+    // without this, a silently-rejected callback looks identical to one that never arrived.
+    console.info(
+      `[AzamPay Webhook] incoming ip=${diagIp} contentType=${diagCt || "-"} ` +
+      `sigHeaderPresent=${diagSigHeader != null} sigHeaderLen=${diagSigHeader?.length ?? 0} ` +
+      `bodyBytes=${diagBodyLen} headerNames=${Object.keys(req.headers || {}).join(",")}`
+    );
+
     // ── Optional IP allowlist check ────
     const allowedIps = (process.env.AZAMPAY_WEBHOOK_ALLOWED_IPS || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    if (!isWebhookIpAllowed(String(req.ip || ""), allowedIps)) {
-      console.warn("[Webhook] Request from non-allowlisted IP rejected");
+    if (!isWebhookIpAllowed(diagIp, allowedIps)) {
+      console.warn(`[AzamPay Webhook] rejected: IP not allowlisted (ip=${diagIp}, allowlistSize=${allowedIps.length})`);
       return res.status(403).json({ ok: false, error: "forbidden" });
     }
 
     // Reject non-JSON content types immediately (before touching body)
-    const ct = req.header("content-type") || "";
+    const ct = diagCt;
     if (!ct.includes("application/json") && !ct.includes("text/plain")) {
+      console.warn(`[AzamPay Webhook] rejected: unsupported content-type "${ct}" (ip=${diagIp})`);
       return res.status(415).json({ ok: false, error: "Unsupported content type" });
     }
 
@@ -905,15 +922,18 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         : typeof req.body === "string"
           ? req.body
           : JSON.stringify(req.body ?? {});
-    const signature = req.header("X-Azampay-Signature") || req.header("x-azampay-signature");
+    const signature = diagSigHeader;
     const secret = process.env.AZAMPAY_WEBHOOK_SECRET;
 
     if (!secret) {
-      console.warn("AZAMPAY_WEBHOOK_SECRET not configured");
+      console.warn(`[AzamPay Webhook] rejected: AZAMPAY_WEBHOOK_SECRET not configured (ip=${diagIp})`);
       return res.status(500).json({ ok: false, error: "Webhook secret not configured" });
     }
 
     if (!signature) {
+      console.warn(
+        `[AzamPay Webhook] rejected: signature header missing (ip=${diagIp}, headerNames=${Object.keys(req.headers || {}).join(",")})`
+      );
       return res.status(400).json({ ok: false, error: "Signature missing" });
     }
 
@@ -921,9 +941,13 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
     const sig = String(signature).trim().toLowerCase();
     if (!safeEq(computed, sig)) {
-      console.warn("Invalid AzamPay webhook signature");
+      console.warn(
+        `[AzamPay Webhook] rejected: signature mismatch (ip=${diagIp}, receivedLen=${sig.length}, receivedPrefix=${sig.slice(0, 8)}, ` +
+        `computedPrefix=${computed.slice(0, 8)}, bodyBytes=${rawBody.length})`
+      );
       return res.status(401).json({ ok: false, error: "Invalid signature" });
     }
+    console.info(`[AzamPay Webhook] signature verified (ip=${diagIp})`);
 
     const payload = JSON.parse(rawBody);
 
