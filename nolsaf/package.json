@@ -10,9 +10,9 @@
     "packages/prisma"
   ],
   "devDependencies": {
-    "@prisma/adapter-mariadb": "^7.3.0",
-    "@prisma/client": "^7.3.0",
-    "@prisma/debug": "^7.0.0",
+    "@prisma/adapter-mariadb": "7.8.0",
+    "@prisma/client": "7.8.0",
+    "@prisma/debug": "7.8.0",
     "@typescript-eslint/eslint-plugin": "8.54.0",
     "@typescript-eslint/parser": "8.54.0",
     "cliui": "^9.0.1",
@@ -52,7 +52,7 @@
     "axios": "^1.16.0",
     "dotenv": "^17.2.3",
     "pdf-parse": "^2.4.5",
-    "prisma": "^7.3.0"
+    "prisma": "7.8.0"
   },
   "pnpm": {
     "overrides": {
