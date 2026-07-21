@@ -3,7 +3,7 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
-import { createNightAuditLedgerTransaction, requireNightAuditLedgerParent } from "../lib/nrmsNightAuditLedger.js";
+import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
 
 export const router = Router();
@@ -366,18 +366,13 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     if (!current || current.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
     await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
     const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "DRAFT", reportNumber, blockers: [], warnings: issues.warnings, startedById: req.user!.id } });
-    const auditParent = await requireNightAuditLedgerParent(tx, {
-      auditId: audit.id,
-      propertyId: active.property.id,
-      businessDayId: day.id,
-    });
     let debitTotal = 0;
     for (const [index, posting] of postings.entries()) {
       debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
       await createNightAuditLedgerTransaction(tx, {
         propertyId: active.property.id,
         businessDayId: day.id,
-        nightAuditRunId: auditParent.id,
+        nightAuditRunId: audit.id,
         transactionNumber: `GL-${parsed.data.businessDate.replace(/-/g, "")}-${String(index + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
         sourceKey: posting.sourceKey,
         sourceType: posting.sourceType,
@@ -392,7 +387,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: new Date(), summary } });
     const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt: new Date() } });
     return { businessDay: closed, audit: { ...audit, status: "CLOSED", summary } };
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
   res.json(result);
 }) as RequestHandler);
 
