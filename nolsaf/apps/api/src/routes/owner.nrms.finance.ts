@@ -3,7 +3,7 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
-import { requireNightAuditLedgerParent } from "../lib/nrmsNightAuditLedger.js";
+import { createNightAuditLedgerTransaction, requireNightAuditLedgerParent } from "../lib/nrmsNightAuditLedger.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
 
 export const router = Router();
@@ -374,9 +374,18 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     let debitTotal = 0;
     for (const [index, posting] of postings.entries()) {
       debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
-      await tx.nrmsLedgerTransaction.upsert({
-        where: { sourceKey: posting.sourceKey }, update: {},
-        create: { property: { connect: { id: active.property.id } }, businessDay: { connect: { id: day.id } }, nightAuditRun: { connect: { id: auditParent.id } }, transactionNumber: `GL-${parsed.data.businessDate.replace(/-/g, "")}-${String(index + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`, sourceKey: posting.sourceKey, sourceType: posting.sourceType, sourceId: posting.sourceId, description: posting.description, currency: posting.currency, occurredAt: posting.occurredAt, entries: { create: posting.entries } },
+      await createNightAuditLedgerTransaction(tx, {
+        propertyId: active.property.id,
+        businessDayId: day.id,
+        nightAuditRunId: auditParent.id,
+        transactionNumber: `GL-${parsed.data.businessDate.replace(/-/g, "")}-${String(index + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+        sourceKey: posting.sourceKey,
+        sourceType: posting.sourceType,
+        sourceId: posting.sourceId,
+        description: posting.description,
+        currency: posting.currency,
+        occurredAt: posting.occurredAt,
+        entries: { create: posting.entries },
       });
     }
     const summary = { transactionCount: postings.length, debitTotal: money(debitTotal), creditTotal: money(debitTotal) };

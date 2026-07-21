@@ -12,6 +12,24 @@ type NightAuditTransactionClient = {
       businessDayId: number;
     } | null>;
   };
+  nrmsLedgerTransaction: {
+    findUnique(args: unknown): Promise<{ id: number } | null>;
+    create(args: unknown): Promise<unknown>;
+  };
+};
+
+type NightAuditLedgerCreateData = {
+  propertyId: number;
+  businessDayId: number;
+  nightAuditRunId: number;
+  transactionNumber: string;
+  sourceKey: string;
+  sourceType: string;
+  sourceId: number | null;
+  description: string;
+  currency: string;
+  occurredAt: Date;
+  entries: { create: unknown[] };
 };
 
 /**
@@ -43,4 +61,30 @@ export async function requireNightAuditLedgerParent(
   }
 
   return parent;
+}
+
+/**
+ * Avoids Prisma's upsert query plan for this parent/child write. The source key
+ * remains idempotent, but a duplicate is treated as an accounting invariant
+ * violation instead of silently attaching an old posting to a new audit.
+ */
+export async function createNightAuditLedgerTransaction(
+  tx: NightAuditTransactionClient,
+  data: NightAuditLedgerCreateData,
+) {
+  const existing = await tx.nrmsLedgerTransaction.findUnique({
+    where: { sourceKey: data.sourceKey },
+    select: { id: true },
+  });
+
+  if (existing) {
+    const error = new Error(
+      `Ledger source was already posted ` +
+      `(sourceKey=${data.sourceKey}, transactionId=${existing.id})`,
+    );
+    error.name = "NightAuditLedgerDuplicateError";
+    throw error;
+  }
+
+  return tx.nrmsLedgerTransaction.create({ data });
 }
