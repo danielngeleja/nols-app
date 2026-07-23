@@ -16,10 +16,12 @@ import {
   DoorOpen,
   FileText,
   LayoutDashboard,
+  LayoutGrid,
   Link2,
   Loader2,
   LogOut,
   Menu,
+  Package,
   QrCode,
   ReceiptText,
   Moon,
@@ -31,10 +33,12 @@ import {
   Users,
   UsersRound,
   UtensilsCrossed,
+  Wallet,
   WalletCards,
   Wine,
   X,
 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
@@ -56,6 +60,7 @@ const NAV_GROUPS = [
       { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
       { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
       { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
+      { href: "/owner/nrms/tables", label: "Tables & tabs", icon: LayoutGrid },
       { href: "/owner/nrms/performance", label: "Performance", icon: TrendingUp },
       { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
       { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
@@ -66,11 +71,18 @@ const NAV_GROUPS = [
     label: "Management",
     items: [
       { href: "/owner/nrms/outlets", label: "Outlets & menus", icon: Store },
+      { href: "/owner/nrms/stock", label: "Stock", icon: Package },
       { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
       { href: "/owner/nrms/staff", label: "Staff & roles", icon: UsersRound },
       { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
       { href: "/owner/nrms/channels", label: "OTA channels", icon: Link2 },
       { href: "/owner/nrms/controls", label: "Hotel controls", icon: SlidersHorizontal },
+    ],
+  },
+  {
+    label: "Shift & cash",
+    items: [
+      { href: "/owner/nrms/shift", label: "Shift & cash", icon: Wallet },
     ],
   },
   {
@@ -99,12 +111,12 @@ function ordersNavPresentation(role: string): { label: string; icon: typeof Shop
 
 function roleCanSee(href: string, role: string) {
   if (role === "OWNER") return true;
-  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
-  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/performance", "/owner/nrms/outlets"].includes(href);
-  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/shift", "/owner/nrms/finance"].includes(href);
+  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/shift"].includes(href);
+  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/shift", "/owner/nrms/finance"].includes(href);
   if (role === "HOUSEKEEPER") return href === "/owner/nrms/housekeeping";
-  // Bar and restaurant staff: their orders plus their own outlet's performance.
-  return ["/owner/nrms/orders", "/owner/nrms/performance"].includes(href);
+  // Bar and restaurant staff: their floor, their outlet's stock, performance and shift.
+  return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/stock", "/owner/nrms/shift"].includes(href);
 }
 
 function PropertyActivationGate() {
@@ -145,6 +157,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
+  const [liveOrders, setLiveOrders] = useState<{ open: number; placed: number } | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
@@ -169,6 +182,22 @@ function NrmsShell({ children }: { children: ReactNode }) {
   // Switching to a different property (via the sidebar/topbar switcher) should
   // drop the frozen overlay so that property's own pages get a fresh chance to load.
   useEffect(() => { setGlobalFreeze(null); }, [selectedPropertyId]);
+
+  // Live-order badge on "Tables & tabs": poll a cheap count so a new guest order
+  // surfaces in the sidebar without opening the page. Only while it's visible.
+  useEffect(() => {
+    if (!selectedPropertyId || !roleCanSee("/owner/nrms/tables", accessRole)) { setLiveOrders(null); return; }
+    let active = true;
+    const fetchCount = async () => {
+      try {
+        const res = await apiClient.get<{ open: number; placed: number }>(`/api/nrms/operations/property/${selectedPropertyId}/orders/live-count`);
+        if (active) setLiveOrders(res.data);
+      } catch { /* transient; keep the last known count */ }
+    };
+    void fetchCount();
+    const id = setInterval(fetchCount, 20000);
+    return () => { active = false; clearInterval(id); };
+  }, [selectedPropertyId, accessRole]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -258,10 +287,13 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 const Icon = override?.icon ?? item.icon;
                 const label = override?.label ?? item.label;
                 const active = isActive(pathname, item);
+                const badge = item.href === "/owner/nrms/tables" && liveOrders && liveOrders.placed > 0 ? liveOrders.placed : null;
                 return (
-                  <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
+                  <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
-                    {!collapsed && <span className="truncate">{label}</span>}
+                    {!collapsed && <span className="flex-1 truncate">{label}</span>}
+                    {!collapsed && badge != null && <span className="shrink-0 rounded-full bg-violet-500 px-1.5 text-center text-[10px] font-bold leading-[18px] text-white" aria-label={`${badge} new orders`}>{badge}</span>}
+                    {collapsed && badge != null && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-violet-400" aria-label={`${badge} new orders`} />}
                   </Link>
                 );
               })}
@@ -273,7 +305,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
 
       <div className="border-t border-white/10 bg-black/5 p-2.5">
         {showCloseShift && (
-          <Link href="/owner/nrms/performance" title={collapsed ? "Close shift" : undefined} className={`mb-1.5 flex min-h-9 items-center rounded-lg border-0 bg-amber-400 text-[12px] font-bold text-amber-950 no-underline transition hover:bg-amber-300 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
+          <Link href="/owner/nrms/shift" title={collapsed ? "Close shift" : undefined} className={`mb-1.5 flex min-h-9 items-center rounded-lg border-0 bg-amber-400 text-[12px] font-bold text-amber-950 no-underline transition hover:bg-amber-300 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
             <Moon className="h-3.5 w-3.5 shrink-0" />{!collapsed && "Close shift"}
           </Link>
         )}

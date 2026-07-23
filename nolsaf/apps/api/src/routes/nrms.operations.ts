@@ -526,6 +526,38 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   res.json({ shift: { id: closed.id, expectedCash: expected, availableForHandover: true } });
 }) as RequestHandler);
 
+// Standalone shift state for the "Shift & cash" workspace: the same open shift,
+// live drawer figure and pending takeover the performance page shows, without the
+// sales analytics payload.
+router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const propertyId = access.property.id;
+  const shift = await db.nrmsCashierShift.findFirst({
+    where: { propertyId, userId: req.user!.id, status: "OPEN" },
+    orderBy: { openedAt: "desc" },
+    select: { id: true, userId: true, propertyId: true, openedAt: true, openingFloat: true, currency: true, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } },
+  });
+  const liveExpected = shift ? await expectedCashForShift(db, shift) : 0;
+  const pendingHandover = !shift && SHIFT_ROLES.has(access.role)
+    ? await db.nrmsCashierShift.findFirst({
+        where: { propertyId, status: "CLOSED", handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
+        orderBy: { closedAt: "desc" },
+        select: { id: true, expectedCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
+      })
+    : null;
+  res.json({
+    currency: access.property.currency,
+    canManageShift: SHIFT_ROLES.has(access.role),
+    shift: shift
+      ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: liveExpected, currency: shift.currency, takenOverFrom: shift.handoverFrom ? attendeeName(shift.handoverFrom.user) : null }
+      : null,
+    handover: pendingHandover
+      ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.expectedCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
+      : null,
+  });
+}) as RequestHandler);
+
 router.get("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
@@ -614,6 +646,48 @@ router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Respons
   if (input.status !== undefined) data.status = input.status;
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "Nothing to update" });
   const updated = await db.nrmsMenuItem.update({ where: { id: item.id }, data });
+  res.json({ item: updated });
+}) as RequestHandler);
+
+// Roles that serve at an outlet and may flip an item's availability. Editing the
+// menu itself (price, name, retiring) stays with managers via PATCH /menu-items.
+const STOCK_ROLES = new Set(["OWNER", "MANAGER", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"]);
+
+/** GET /property/:propertyId/stock - live availability board scoped to the caller's outlets. */
+router.get("/property/:propertyId/stock", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const outlets = await db.nrmsOutlet.findMany({
+    where: { propertyId: access.property.id, status: "ACTIVE", ...(access.outletId != null ? { id: access.outletId } : {}) },
+    select: { id: true, name: true, type: true, menuItems: { where: { status: "ACTIVE" }, select: { id: true, name: true, category: true, price: true, inStock: true }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
+    orderBy: [{ type: "asc" }, { name: "asc" }],
+  });
+  // Only outlets the caller is allowed to serve, so bar staff never see the
+  // kitchen's list (and vice versa) even when unscoped to a single outletId.
+  const visible = outlets.filter((outlet: any) => outletAllowed(access, outlet)).map((outlet: any) => ({
+    id: outlet.id, name: outlet.name, type: outlet.type,
+    items: outlet.menuItems.map((item: any) => ({ id: item.id, name: item.name, category: item.category, price: number(item.price), inStock: item.inStock })),
+    outCount: outlet.menuItems.filter((item: any) => !item.inStock).length,
+  }));
+  res.json({ canManageStock: STOCK_ROLES.has(access.role), outlets: visible });
+}) as RequestHandler);
+
+/**
+ * PATCH /menu-items/:menuItemId/stock - flip a single item in or out of stock.
+ * A narrow capability the serving roles hold for their own outlet: availability
+ * only, never price or content, so a bar attendant can 86 a drink mid-service.
+ */
+router.patch("/menu-items/:menuItemId/stock", (async (req: AuthedRequest, res: Response) => {
+  const menuItemId = Number(req.params.menuItemId);
+  if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
+  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true } });
+  if (!item) return res.status(404).json({ error: "Menu item not found" });
+  const resolved = await accessForOutlet(req, res, item.outletId);
+  if (!resolved) return;
+  if (!STOCK_ROLES.has(resolved.access.role)) return res.status(403).json({ error: "Your role cannot change stock" });
+  const parsed = z.object({ inStock: z.boolean() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid stock state" });
+  const updated = await db.nrmsMenuItem.update({ where: { id: item.id }, data: { inStock: parsed.data.inStock }, select: { id: true, inStock: true } });
   res.json({ item: updated });
 }) as RequestHandler);
 
@@ -877,6 +951,23 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
     skip: offset,
   })]);
   res.json({ total, limit, offset, orders: orders.filter((order: any) => outletAllowed(access, order.outlet)).map(formatOrder) });
+}) as RequestHandler);
+
+// Cheap counts for the sidebar badge: how many orders are still open, and how
+// many are brand-new guest orders (PLACED) awaiting accept. Scoped to the
+// caller's outlet the same way the orders list is.
+router.get("/property/:propertyId/orders/live-count", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const outletTypeScope = access.outletId == null && access.role === "BAR" ? { outlet: { type: "BAR" } }
+    : access.outletId == null && access.role === "RESTAURANT" ? { outlet: { type: "RESTAURANT" } }
+    : {};
+  const base = { propertyId: access.property.id, ...(access.outletId ? { outletId: access.outletId } : {}), ...outletTypeScope };
+  const [open, placed] = await Promise.all([
+    db.nrmsOutletOrder.count({ where: { ...base, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } } }),
+    db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED" } }),
+  ]);
+  res.json({ open, placed });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Response) => {
