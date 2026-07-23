@@ -783,26 +783,54 @@ function ModalFrame({
 function ReturningGuestMatches({
   guests,
   align = "left",
+  loading = false,
+  error = null,
+  query = "",
   onSelect,
 }: {
   guests: GuestSearchResult[];
   align?: "left" | "right";
+  loading?: boolean;
+  error?: string | null;
+  query?: string;
   onSelect: (guest: GuestSearchResult) => void;
 }) {
+  // While a query is in flight the previous query's rows are stale, so they are
+  // replaced by placeholders rather than left on screen looking like results.
+  const showRows = !loading && !error && guests.length > 0;
   return (
     <span className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-20 mt-1 block w-[min(36rem,calc(100vw-3rem))] overflow-hidden rounded-md border border-neutral-300 bg-white shadow-[0_14px_35px_-18px_rgba(15,23,42,0.28)]`}>
       <span className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3">
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-800">Returning guests</span>
-        <span className="rounded-sm border border-neutral-200 bg-neutral-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">{guests.length} match{guests.length === 1 ? "" : "es"}</span>
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-neutral-200 bg-neutral-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">
+          {loading ? <><Loader2 className="h-3 w-3 animate-spin text-emerald-600" />Searching</> : error ? "Unavailable" : `${guests.length} match${guests.length === 1 ? "" : "es"}`}
+        </span>
       </span>
-      <span className="hidden border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:grid sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] sm:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto]">
+      {loading && (
+        <span className="block">
+          {[0, 1, 2].map((row) => (
+            <span key={row} className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3 last:border-b-0">
+              <span className="block h-3 w-2/5 animate-pulse rounded-sm bg-neutral-100" />
+              <span className="block h-3 w-1/4 animate-pulse rounded-sm bg-neutral-100" />
+              <span className="block h-3 w-1/5 animate-pulse rounded-sm bg-neutral-100" />
+            </span>
+          ))}
+        </span>
+      )}
+      {!loading && error && <span className="block px-4 py-4 text-xs text-red-700">{error}</span>}
+      {!loading && !error && guests.length === 0 && (
+        <span className="block px-4 py-4 text-xs text-neutral-500">
+          No returning guest matches {query ? <b className="font-semibold text-neutral-700">{query}</b> : "that search"}. Keep typing to register a new guest.
+        </span>
+      )}
+      {showRows && <span className="hidden border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:grid sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] sm:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto]">
         <span>Guest</span>
         <span>Phone</span>
         <span>Nationality</span>
         <span className="hidden lg:block">Email</span>
         <span className="text-right">Stays</span>
-      </span>
-      {guests.map((guest, index) => (
+      </span>}
+      {showRows && guests.map((guest, index) => (
         <button key={guest.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(guest)} className={`grid w-full cursor-pointer appearance-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 border-b px-4 py-3 text-left transition last:border-b-0 focus-visible:outline-none sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] ${index % 3 === 0 ? "border-sky-100 bg-sky-50/75 hover:bg-sky-100 focus-visible:bg-sky-100" : index % 3 === 1 ? "border-amber-100 bg-amber-50/75 hover:bg-amber-100 focus-visible:bg-amber-100" : "border-violet-100 bg-violet-50/70 hover:bg-violet-100 focus-visible:bg-violet-100"}`}>
           <span className="min-w-0">
             <span className="block truncate text-xs font-bold text-neutral-900">{guest.fullName}</span>
@@ -845,6 +873,7 @@ function CreateReservationModal({
   const [guestMatches, setGuestMatches] = useState<GuestSearchResult[]>([]);
   const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
   const [searchingGuests, setSearchingGuests] = useState(false);
+  const [guestSearchError, setGuestSearchError] = useState<string | null>(null);
   const [showGuestMatches, setShowGuestMatches] = useState(false);
   const [guestSearchField, setGuestSearchField] = useState<"name" | "phone" | null>(null);
   const [source, setSource] = useState("WALK_IN");
@@ -876,11 +905,17 @@ function CreateReservationModal({
     if (selectedGuestId || !guestSearchField || query.length < minimumLength) {
       setGuestMatches([]);
       setSearchingGuests(false);
+      setGuestSearchError(null);
       return;
     }
     let cancelled = false;
+    // Enter the loading state on the keystroke, not when the debounce fires.
+    // Setting it inside the timer left the first 250ms with no feedback at all,
+    // which reads as a dead input on anything slower than a local connection.
+    setSearchingGuests(true);
+    setGuestSearchError(null);
+    setShowGuestMatches(true);
     const timer = window.setTimeout(() => {
-      setSearchingGuests(true);
       apiClient
         .get<any>(`/api/owner/nrms/guests/${propertyId}`, { params: { q: query, pageSize: 6 } })
         .then((response) => {
@@ -889,7 +924,9 @@ function CreateReservationModal({
           setShowGuestMatches(true);
         })
         .catch(() => {
-          if (!cancelled) setGuestMatches([]);
+          if (cancelled) return;
+          setGuestMatches([]);
+          setGuestSearchError("Guest search is unavailable right now. You can still type the name to create a new guest.");
         })
         .finally(() => {
           if (!cancelled) setSearchingGuests(false);
@@ -1090,6 +1127,7 @@ function CreateReservationModal({
                     setGuestSearchField("name");
                     if (guestName.trim().length >= 2) setShowGuestMatches(true);
                   }}
+                  onBlur={() => setShowGuestMatches(false)}
                   onChange={(e) => {
                     clearReturningGuest();
                     setGuestSearchField("name");
@@ -1099,7 +1137,7 @@ function CreateReservationModal({
                 />
                 {searchingGuests && guestSearchField === "name" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
               </span>
-              {showGuestMatches && guestSearchField === "name" && guestMatches.length > 0 && <ReturningGuestMatches guests={guestMatches} onSelect={(guest) => void openGuestPreview(guest)} />}
+              {showGuestMatches && guestSearchField === "name" && !selectedGuestId && guestName.trim().length >= 2 && <ReturningGuestMatches guests={guestMatches} loading={searchingGuests} error={guestSearchError} query={guestName.trim()} onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
             <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Phone number <span className="text-red-500">*</span></span>
@@ -1116,6 +1154,7 @@ function CreateReservationModal({
                     setGuestSearchField("phone");
                     if (guestPhone.trim().length >= 3) setShowGuestMatches(true);
                   }}
+                  onBlur={() => setShowGuestMatches(false)}
                   onChange={(e) => {
                     clearReturningGuest();
                     setGuestSearchField("phone");
@@ -1125,7 +1164,7 @@ function CreateReservationModal({
                 />
                 {searchingGuests && guestSearchField === "phone" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
               </span>
-              {showGuestMatches && guestSearchField === "phone" && guestMatches.length > 0 && <ReturningGuestMatches guests={guestMatches} align="right" onSelect={(guest) => void openGuestPreview(guest)} />}
+              {showGuestMatches && guestSearchField === "phone" && !selectedGuestId && guestPhone.trim().length >= 3 && <ReturningGuestMatches guests={guestMatches} align="right" loading={searchingGuests} error={guestSearchError} query={guestPhone.trim()} onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Nationality <span className="text-red-500">*</span></span>
