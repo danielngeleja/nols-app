@@ -7,6 +7,12 @@ import { limitPublicNrmsDirectHold, limitPublicNrmsDirectQuote, limitPublicNrmsG
 
 export const router = Router();
 
+// The hold transaction takes the property inventory lock, re-reads availability, upserts the
+// guest profile and writes the reservation, its allocation, its event and the payment request.
+// Prisma's 5s interactive-transaction default was tripping P2028 in production before the
+// reservation was written. 15s gives headroom without holding the inventory lock indefinitely.
+const HOLD_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+
 const directQuoteSchema = z.object({ checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), adults: z.coerce.number().int().min(1).max(20).default(1), children: z.coerce.number().int().min(0).max(20).default(0) });
 const directHoldSchema = directQuoteSchema.extend({ roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -81,7 +87,7 @@ router.post("/direct/:propertyId/hold", limitPublicNrmsDirectHold as RequestHand
         : await tx.guestProfile.create({ data: { propertyId, ownerId: quote.property.ownerId, fullName: parsed.data.guest.fullName, phone: parsed.data.guest.phone, email: parsed.data.guest.email, nationality: parsed.data.guest.nationality } });
       const reservation = await tx.reservation.create({ data: { propertyId, ownerId: quote.property.ownerId, guestProfileId: guest.id, source: "DIRECT", attribution: "OWNER_DIRECT", externalRef, status: "HELD", holdExpiresAt, checkIn: quote.checkIn, checkOut: quote.checkOut, adults: parsed.data.adults, children: parsed.data.children, currency: selected.currency, roomRate: selected.nightly[0]?.rate ?? 0, taxAmount: selected.tax, totalAmount: selected.total, depositAmount: selected.depositAmount, notes: `Guest accepted direct booking terms at ${new Date().toISOString()}.`, allocations: { create: { roomTypeId: selected.roomType.id, startDate: quote.checkIn, endDate: quote.checkOut } }, events: { create: { type: "CREATED", data: { source: "DIRECT", ratePlanId: selected.ratePlan?.id ?? null, termsAccepted: true } } } } });
       const paymentRequest = await tx.nrmsGuestPaymentRequest.create({ data: { reservationId: reservation.id, kind: "DEPOSIT", amount: selected.depositAmount || selected.total, currency: selected.currency, publicToken, dueAt: holdExpiresAt, instructions: quote.property.nrmsGuestPayInstructions ?? undefined } }); return { reservation, paymentRequest };
-    });
+    }, HOLD_TX_OPTIONS);
     if (!result) return res.status(409).json({ error: "The selected room was just booked. Please choose another available option." });
     res.status(201).json({ hold: { reference: result.reservation.externalRef, expiresAt: result.reservation.holdExpiresAt, status: result.reservation.status, total: Number(result.reservation.totalAmount), depositAmount: Number(result.reservation.depositAmount), currency: result.reservation.currency, paymentToken: result.paymentRequest.publicToken } });
   } catch (error) { if (error instanceof Error && ["PROPERTY_NOT_FOUND", "INVALID_DATES"].includes(error.message)) return res.status(400).json({ error: "The direct booking request is not valid" }); console.error("[public.nrms.guest] direct hold failed", error); res.status(500).json({ error: "The room could not be held" }); }
