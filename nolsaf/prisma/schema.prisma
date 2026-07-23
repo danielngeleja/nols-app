@@ -4725,13 +4725,21 @@ model NrmsCashierShift {
   variance      Decimal?  @db.Decimal(12, 2)
   closeNote     String?   @db.VarChar(300)
   approvedById  Int?
+  /// Server-computed classification frozen at close: sales by tender, folio
+  /// postings and unpaid orders as the attendee reviewed them before handover.
+  closeSummary  Json?
+  /// Set when this shift was opened by confirming a drawer handover. Unique so a
+  /// closed drawer can be taken over by exactly one successor.
+  handoverFromId Int?     @unique
   openedAt      DateTime  @default(now())
   closedAt      DateTime?
 
-  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  businessDay NrmsBusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
-  user        User            @relation("NrmsCashierShiftUser", fields: [userId], references: [id], onDelete: Restrict)
-  approvedBy  User?           @relation("NrmsCashierShiftApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  property     Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  businessDay  NrmsBusinessDay   @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
+  user         User              @relation("NrmsCashierShiftUser", fields: [userId], references: [id], onDelete: Restrict)
+  approvedBy   User?             @relation("NrmsCashierShiftApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  handoverFrom NrmsCashierShift? @relation("NrmsShiftHandover", fields: [handoverFromId], references: [id], onDelete: SetNull)
+  handoverTo   NrmsCashierShift? @relation("NrmsShiftHandover")
 
   @@index([propertyId, businessDate, status])
   @@index([userId, openedAt])

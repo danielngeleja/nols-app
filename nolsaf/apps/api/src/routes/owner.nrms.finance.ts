@@ -5,7 +5,7 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
-import { ensureBusinessDay, expectedCashForShift } from "../lib/nrmsShifts.js";
+import { ensureBusinessDay, expectedCashForShift, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -231,7 +231,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const selectedDayRange = dayRange(businessDate);
     const [day, shifts, issues, nbs, nightAudits, unclassifiedTenders] = await Promise.all([
       db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } }),
-      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } } }, orderBy: { openedAt: "desc" } }),
+      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
       controlIssues(propertyId, businessDate),
       nbsStatistics(propertyId, month),
       db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
@@ -241,7 +241,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { settledAt: "asc" },
       }),
     ]);
-    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({ ...shift, cashierName: personName(shift.user), approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null, liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash) })));
+    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({ ...shift, cashierName: personName(shift.user), approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null, handoverFromName: shift.handoverFrom ? personName(shift.handoverFrom.user) : null, liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash) })));
     const reportWindow = { gte: dayRange(from).start, lt: dayRange(to).end };
     const transactions = await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] });
     const accountMap = new Map<string, any>();
@@ -298,10 +298,11 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (!parsed.success) return res.status(400).json({ error: "Enter the cash physically counted at shift close" });
   const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
   if (!shift) return res.status(404).json({ error: "Open cashier shift not found" });
-  const expected = await expectedCashForShift(db, shift);
+  const until = new Date();
+  const [expected, summary] = await Promise.all([expectedCashForShift(db, shift, until), shiftHandoverSummary(db, shift, until)]);
   const variance = money(parsed.data.declaredCash - expected);
   if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
-  const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, approvedById: req.user!.id, closedAt: new Date() } });
+  const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
   res.json({ shift: closed });
 }) as RequestHandler);
 

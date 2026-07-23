@@ -22,8 +22,23 @@ type Performance = {
     serving: { accept: number | null; prepare: number | null; serve: number | null; total: number | null; onTimeRate: number | null; servedCount: number };
   };
   series: Array<{ label: string; value: number }>;
-  shift: { id: number; openedAt: string; openingFloat: number; expectedCash: number; currency: string } | null;
+  shift: { id: number; openedAt: string; openingFloat: number; expectedCash: number; currency: string; takenOverFrom: string | null } | null;
+  handover: { shiftId: number; attendeeName: string; amount: number; closedAt: string; currency: string } | null;
 };
+
+type MethodRow = { method: string; count: number; amount: number };
+type HandoverSummary = {
+  computedAt: string;
+  currency: string;
+  mySales: { count: number; amount: number; byMethod: MethodRow[] };
+  myFolioPayments: { count: number; amount: number; byMethod: MethodRow[] };
+  folioPosted: { count: number; amount: number };
+  unpaid: { count: number; amount: number; orders: Array<{ id: number; orderNumber: string; customerLabel: string; outletName: string; status: string; amount: number; createdAt: string }> };
+  daySales: { settled: { count: number; amount: number }; postedToFolio: { count: number; amount: number }; amount: number };
+};
+
+const METHOD_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mobile money", CARD: "Card", BANK: "Bank", OTHER: "Other", UNCLASSIFIED: "Unclassified" };
+const methodLabel = (method: string) => METHOD_LABELS[method] ?? method;
 
 const PERIODS: Array<{ id: Period; label: string; caption: string }> = [
   { id: "day", label: "Day", caption: "by hour" },
@@ -155,7 +170,7 @@ export default function NrmsPerformancePage() {
             </section>
           </div>
 
-          <ShiftPanel shift={data.shift} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} currency={data.currency} money={money} onChanged={load} />
+          <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} onChanged={load} />
         </div>
       )}
     </div>
@@ -172,13 +187,24 @@ function StatCard({ icon: Icon, label, value, hint }: { icon: typeof Coins; labe
   );
 }
 
-function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChanged }: { shift: Performance["shift"]; canManageShift: boolean; propertyId: number; currency: string; money: (value: number) => string; onChanged: () => void | Promise<void>; }) {
-  const [openFloat, setOpenFloat] = useState("");
+function ShiftPanel({ shift, handover, canManageShift, propertyId, money, onChanged }: { shift: Performance["shift"]; handover: Performance["handover"]; canManageShift: boolean; propertyId: number; money: (value: number) => string; onChanged: () => void | Promise<void>; }) {
   const [closing, setClosing] = useState(false);
-  const [counted, setCounted] = useState("");
+  const [summary, setSummary] = useState<HandoverSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Opening the close panel first fetches the classified review, so the attendee
+  // sees every figure the manager will see before anything is sealed.
+  const beginClose = async () => {
+    setClosing(true); setError(null); setSummary(null); setSummaryLoading(true);
+    try {
+      const res = await apiClient.get<{ summary: HandoverSummary }>(`/api/nrms/operations/property/${propertyId}/shifts/current/summary`);
+      setSummary(res.data.summary);
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not load your shift review"); }
+    finally { setSummaryLoading(false); }
+  };
 
   const elapsed = useMemo(() => {
     if (!shift) return "";
@@ -186,13 +212,14 @@ function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChan
     return `${Math.floor(mins / 60)}h ${mins % 60}m`;
   }, [shift]);
 
-  const variance = shift && counted !== "" ? Math.round((Number(counted) - shift.expectedCash) * 100) / 100 : null;
+  const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  const openShift = async () => {
+  // No amounts are ever typed. A fresh shift starts at zero; a takeover inherits
+  // the outgoing attendee's system figure, sealed by this attendee's own account.
+  const openShift = async (handoverFromShiftId?: number) => {
     setBusy(true); setError(null);
     try {
-      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/open`, { openingFloat: Number(openFloat) || 0 });
-      setOpenFloat("");
+      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/open`, handoverFromShiftId ? { handoverFromShiftId } : {});
       await onChanged();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not open the shift"); }
     finally { setBusy(false); }
@@ -200,37 +227,54 @@ function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChan
 
   const closeShift = async () => {
     if (!shift) return;
-    if (variance !== 0 && !note.trim()) { setError("Explain the difference before closing."); return; }
+    if (summary && summary.unpaid.count > 0 && !note.trim()) { setError("Note what is outstanding before closing."); return; }
     setBusy(true); setError(null);
     try {
-      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted) || 0, closeNote: note.trim() || null });
-      setClosing(false); setCounted(""); setNote("");
+      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/${shift.id}/close`, { closeNote: note.trim() || null });
+      setClosing(false); setNote("");
       await onChanged();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not close the shift"); }
     finally { setBusy(false); }
   };
 
   if (!shift) {
+    if (handover && canManageShift) {
+      return (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white"><ArrowLeftRight className="h-5 w-5" /></span>
+              <div>
+                <p className="m-0 text-[13px] font-bold text-amber-950">Drawer handover awaiting confirmation</p>
+                <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">{handover.attendeeName} closed at {time(handover.closedAt)} with {money(handover.amount)} recorded in the system.</p>
+                <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">Confirming records, under your account, that you received this drawer at this amount.</p>
+                {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={busy} onClick={() => void openShift()} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900 disabled:opacity-50">Start fresh instead</button>
+              <button type="button" disabled={busy} onClick={() => void openShift(handover.shiftId)} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900 disabled:opacity-50">
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}Confirm takeover
+              </button>
+            </div>
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-neutral-800">No shift open</p>
-            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Enter your opening cash float to start recording sales." : "Ask a cashier or manager to open a shift."}</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. Every sale is tracked by the system, so there is nothing to count or type." : "Ask a cashier or manager to open a shift."}</p>
             {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
           </div>
         </div>
         {canManageShift && (
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <input inputMode="numeric" value={openFloat} onChange={(event) => setOpenFloat(event.target.value.replace(/[^\d.]/g, ""))} placeholder="Opening float" className="h-10 w-36 rounded-lg border border-neutral-300 bg-white pl-3 pr-12 text-sm outline-none focus:border-emerald-600" />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-neutral-400">{currency}</span>
-            </div>
-            <button type="button" disabled={busy} onClick={() => void openShift()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}Open shift
-            </button>
-          </div>
+          <button type="button" disabled={busy} onClick={() => void openShift()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}Start shift
+          </button>
         )}
       </section>
     );
@@ -243,16 +287,19 @@ function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChan
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-emerald-950">Shift open</p>
-            <p className="mb-0 mt-0.5 text-[11px] text-emerald-800/80">Since {new Date(shift.openedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {elapsed} · float {money(shift.openingFloat)}</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-emerald-800/80">
+              Since {time(shift.openedAt)} · {elapsed}
+              {shift.takenOverFrom ? ` · took over from ${shift.takenOverFrom} at ${money(shift.openingFloat)}` : shift.openingFloat > 0 ? ` · opened at ${money(shift.openingFloat)}` : ""}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="m-0 text-[10px] text-emerald-800/70">Cash expected</p>
+            <p className="m-0 text-[10px] text-emerald-800/70">Drawer (system recorded)</p>
             <p className="mb-0 mt-0.5 text-[15px] font-bold text-emerald-950">{money(shift.expectedCash)}</p>
           </div>
           {canManageShift && !closing && (
-            <button type="button" onClick={() => { setClosing(true); setError(null); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900">
+            <button type="button" onClick={() => void beginClose()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900">
               <ArrowLeftRight className="h-4 w-4" />Close &amp; hand over
             </button>
           )}
@@ -261,32 +308,68 @@ function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChan
 
       {closing && (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3.5">
-          <p className="m-0 text-xs font-bold text-neutral-900">Count your drawer to close</p>
-          <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">The system expects {money(shift.expectedCash)}. Enter the cash you physically counted.</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <label className="grid gap-1 text-[11px] font-bold text-neutral-600">Cash counted
-              <div className="relative">
-                <input inputMode="numeric" value={counted} onChange={(event) => setCounted(event.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="h-10 w-full rounded-lg border border-neutral-300 pl-3 pr-12 text-sm outline-none focus:border-emerald-600" />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-neutral-400">{currency}</span>
+          <p className="m-0 text-xs font-bold text-neutral-900">Review before handover</p>
+          <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">These figures come from the sales recorded in the system. They are sealed under your name at close and shown to the manager exactly as you see them.</p>
+
+          {summaryLoading && <div className="mt-3 flex items-center gap-2 text-[11px] text-neutral-400"><Loader2 className="h-4 w-4 animate-spin" />Preparing your shift review…</div>}
+
+          {summary && (
+            <>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-2.5">
+                  <p className="m-0 text-[10px] font-bold text-emerald-800/80">My sales this shift</p>
+                  <p className="mb-0 mt-1 text-sm font-bold text-emerald-950">{money(summary.mySales.amount)}</p>
+                  <p className="mb-0 mt-0.5 text-[10px] text-emerald-800/70">{summary.mySales.count} order{summary.mySales.count === 1 ? "" : "s"} settled by me</p>
+                  {summary.mySales.byMethod.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {summary.mySales.byMethod.map((row) => <span key={row.method} className="rounded-md bg-white px-1.5 py-0.5 text-[9px] font-bold text-emerald-800">{methodLabel(row.method)} {money(row.amount)}</span>)}
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
+                  <p className="m-0 text-[10px] font-bold text-neutral-500">Charged to room folio</p>
+                  <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">{money(summary.folioPosted.amount)}</p>
+                  <p className="mb-0 mt-0.5 text-[10px] text-neutral-500">{summary.folioPosted.count} order{summary.folioPosted.count === 1 ? "" : "s"} posted during my shift, collected at checkout</p>
+                </div>
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
+                  <p className="m-0 text-[10px] font-bold text-neutral-500">Whole property today</p>
+                  <p className="mb-0 mt-1 text-sm font-bold text-neutral-900">{money(summary.daySales.amount)}</p>
+                  <p className="mb-0 mt-0.5 text-[10px] text-neutral-500">{money(summary.daySales.settled.amount)} paid · {money(summary.daySales.postedToFolio.amount)} on folios</p>
+                </div>
               </div>
-            </label>
-            <div className="grid gap-1 text-[11px] font-bold text-neutral-600">Difference
-              <div className={`flex h-10 items-center rounded-lg border px-3 text-sm font-bold ${variance == null ? "border-neutral-200 text-neutral-400" : variance === 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : variance > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-red-200 bg-red-50 text-red-700"}`}>
-                {variance == null ? "—" : `${variance > 0 ? "+" : ""}${money(variance)}${variance > 0 ? " over" : variance < 0 ? " short" : " exact"}`}
-              </div>
-            </div>
-          </div>
-          {variance != null && variance !== 0 && (
-            <label className="mt-2 grid gap-1 text-[11px] font-bold text-neutral-600">Reason for the difference
-              <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="e.g. change given without a sale recorded" className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-normal outline-none focus:border-emerald-600" />
-            </label>
+
+              {summary.myFolioPayments.count > 0 && (
+                <p className="mb-0 mt-2 text-[10px] text-neutral-500">Guest payments I recorded at the desk: {money(summary.myFolioPayments.amount)} ({summary.myFolioPayments.byMethod.map((row) => `${methodLabel(row.method)} ${money(row.amount)}`).join(" · ")})</p>
+              )}
+
+              {summary.unpaid.count > 0 ? (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                  <p className="m-0 text-[11px] font-bold text-amber-900">{summary.unpaid.count} order{summary.unpaid.count === 1 ? " is" : "s are"} not settled yet · {money(summary.unpaid.amount)}</p>
+                  <p className="mb-0 mt-0.5 text-[10px] text-amber-800/90">Settle them, or leave a note so the next attendee and the manager know exactly what is outstanding. They stay visible until resolved and block the night audit.</p>
+                  <div className="mt-1.5 space-y-1">
+                    {summary.unpaid.orders.map((order) => (
+                      <div key={order.id} className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5 text-[10px]">
+                        <span className="min-w-0 truncate font-bold text-neutral-800">{order.orderNumber} · {order.outletName} · {order.customerLabel}</span>
+                        <span className="shrink-0 text-neutral-500">{order.status.toLowerCase()} · <strong className="text-neutral-800">{money(order.amount)}</strong></span>
+                      </div>
+                    ))}
+                    {summary.unpaid.count > summary.unpaid.orders.length && <p className="mb-0 mt-1 text-[10px] text-amber-800/90">and {summary.unpaid.count - summary.unpaid.orders.length} more in the orders workspace.</p>}
+                  </div>
+                </div>
+              ) : (
+                <p className="mb-0 mt-2 rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-2 text-[10px] font-bold text-emerald-800">Every order is paid or on a room folio. Nothing is outstanding.</p>
+              )}
+            </>
           )}
-          {variance != null && variance !== 0 && <p className="mb-0 mt-2 text-[10px] text-amber-700">A difference is flagged for a manager to review. Your shift still closes.</p>}
+
+          <label className="mt-3 grid gap-1 text-[11px] font-bold text-neutral-600">Note for the next attendee or manager {summary && summary.unpaid.count > 0 ? "" : "(optional)"}
+            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="e.g. table 4 still being served, will pay by mobile money" className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-normal outline-none focus:border-emerald-600" />
+          </label>
           {error && <p className="mb-0 mt-2 text-[11px] text-red-600">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" onClick={() => { setClosing(false); setError(null); }} className="min-h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600">Cancel</button>
-            <button type="button" disabled={busy || counted === ""} onClick={() => void closeShift()} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}Close shift
+            <button type="button" disabled={busy || summaryLoading} onClick={() => void closeShift()} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}Submit &amp; close shift
             </button>
           </div>
         </div>

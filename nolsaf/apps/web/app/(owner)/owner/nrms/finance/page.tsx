@@ -8,7 +8,14 @@ import { useNrms } from "../_components/NrmsProvider";
 
 type Tab = "audit" | "cashiers" | "ledger" | "tax" | "nbs";
 type Blocker = { code: string; count: number; message: string };
-type Shift = { id: number; cashierName: string; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; openedAt: string; closedAt: string | null };
+type ShiftCloseSummary = {
+  mySales: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
+  myFolioPayments: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
+  folioPosted: { count: number; amount: number };
+  unpaid: { count: number; amount: number };
+};
+type Shift = { id: number; cashierName: string; handoverFromName: string | null; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; closeSummary: ShiftCloseSummary | null; openedAt: string; closedAt: string | null };
+const TENDER_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mobile money", CARD: "Card", BANK: "Bank", OTHER: "Other", UNCLASSIFIED: "Unclassified" };
 type LedgerEntry = { id: number; accountCode: string; accountName: string; debit: number; credit: number };
 type LedgerTransaction = { id: number; transactionNumber: string; description: string; sourceType: string; currency: string; occurredAt: string; entries: LedgerEntry[] };
 type FinanceData = {
@@ -93,13 +100,20 @@ export default function FinanceControlPage() {
         <table className="w-full min-w-[920px] border-collapse text-left">
           <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500"><th className="p-2.5 pl-5">Cashier</th><th className="p-2.5">Opened</th><th className="p-2.5 text-right">Opening float</th><th className="p-2.5 text-right">Expected cash</th><th className="p-2.5 text-right">Counted cash</th><th className="p-2.5 text-right">Variance</th><th className="p-2.5 pr-5">Control</th></tr></thead>
           <tbody>{data?.shifts.map((shift) => <tr key={shift.id} className="border-t border-neutral-100 text-xs">
-            <td className="p-2.5 pl-5 font-bold">{shift.cashierName}<small className={`mt-0.5 block font-normal ${shift.status === "OPEN" ? "text-emerald-600" : "text-neutral-400"}`}>{shift.status}</small></td>
+            <td className="p-2.5 pl-5 font-bold">{shift.cashierName}<small className={`mt-0.5 block font-normal ${shift.status === "OPEN" ? "text-emerald-600" : "text-neutral-400"}`}>{shift.status}{shift.handoverFromName ? ` · took over from ${shift.handoverFromName}` : ""}</small></td>
             <td className="p-2.5 text-neutral-500">{time(shift.openedAt)}</td>
             <td className="p-2.5 text-right tabular-nums">{cash(shift.openingFloat, shift.currency)}</td>
             <td className="p-2.5 text-right font-bold tabular-nums">{cash(shift.liveExpectedCash, shift.currency)}</td>
             <td className="p-2.5 text-right">{shift.status === "OPEN" ? <input type="text" inputMode="decimal" value={counted[shift.id] ?? ""} onChange={(event) => setCounted((current) => ({ ...current, [shift.id]: event.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Physical count" className="h-8 w-32 rounded-md border border-neutral-200 bg-white px-2 text-right text-[10px] outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /> : cash(shift.declaredCash || 0, shift.currency)}</td>
             <td className={`p-2.5 text-right font-bold tabular-nums ${Number(shift.variance) ? "text-red-600" : "text-emerald-700"}`}>{shift.status === "OPEN" ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-700">Pending</span> : cash(shift.variance || 0, shift.currency)}</td>
-            <td className="p-2.5 pr-5">{shift.status === "OPEN" ? <div className="flex items-center justify-end gap-1.5"><input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder="Variance note if needed" className="h-8 w-44 rounded-md border border-neutral-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-500" /><button type="button" onClick={() => closeShift(shift)} disabled={busy || counted[shift.id] === undefined} className="h-8 whitespace-nowrap rounded-md border-0 bg-neutral-900 px-3 text-[9px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Close</button></div> : <span className="text-[10px] text-neutral-500">{shift.closeNote || "Matched"}</span>}</td>
+            <td className="p-2.5 pr-5">{shift.status === "OPEN" ? <div className="flex items-center justify-end gap-1.5"><input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder="Variance note if needed" className="h-8 w-44 rounded-md border border-neutral-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-500" /><button type="button" onClick={() => closeShift(shift)} disabled={busy || counted[shift.id] === undefined} className="h-8 whitespace-nowrap rounded-md border-0 bg-neutral-900 px-3 text-[9px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Close</button></div> : <div className="text-[10px] leading-4 text-neutral-500">
+              {shift.closeSummary && <span className="block">
+                Paid {cash(shift.closeSummary.mySales.amount, shift.currency)}{shift.closeSummary.mySales.byMethod.length > 0 && <> ({shift.closeSummary.mySales.byMethod.map((row) => `${TENDER_LABELS[row.method] ?? row.method} ${cash(row.amount, shift.currency)}`).join(" · ")})</>}
+                {shift.closeSummary.folioPosted.count > 0 && <> · Folio {cash(shift.closeSummary.folioPosted.amount, shift.currency)}</>}
+                {shift.closeSummary.unpaid.count > 0 && <strong className="text-amber-700"> · {shift.closeSummary.unpaid.count} unpaid at close ({cash(shift.closeSummary.unpaid.amount, shift.currency)})</strong>}
+              </span>}
+              <span>{shift.closeNote || (shift.closeSummary?.unpaid.count ? "" : "Matched")}</span>
+            </div>}</td>
           </tr>)}{!data?.shifts.length && <tr><td colSpan={7} className="border-t border-neutral-100 p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Enter the cash currently in the drawer, then open your shift before recording cash receipts.</p></div></td></tr>}</tbody>
         </table>
       </div>
