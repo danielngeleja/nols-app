@@ -47,6 +47,7 @@ type Access = {
     id: number;
     ownerId: number;
     title: string;
+    status: string;
     currency: string | null;
     nrmsActivatedAt: Date | null;
     housekeepingDailyServiceEnabled: boolean;
@@ -149,6 +150,7 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
       id: true,
       ownerId: true,
       title: true,
+      status: true,
       currency: true,
       nrmsActivatedAt: true,
       housekeepingDailyServiceEnabled: true,
@@ -174,6 +176,14 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
   }
   if (!access) {
     res.status(403).json({ error: "You do not have access to this NRMS property", code: "NRMS_PROPERTY_FORBIDDEN" });
+    return null;
+  }
+  if (property.status !== "APPROVED") {
+    res.status(403).json({
+      error: "This property must be an approved Marketplace listing before NRMS can be used",
+      code: "NRMS_PROPERTY_NOT_APPROVED",
+      propertyStatus: property.status,
+    });
     return null;
   }
 
@@ -257,7 +267,7 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
   }
   const memberships = await db.nrmsStaffMembership.findMany({
     where: { userId, status: "ACTIVE" },
-    include: { property: { select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true } } },
+    include: { property: { select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true } } },
     orderBy: { id: "asc" },
   });
   const byProperty = new Map<number, any>();

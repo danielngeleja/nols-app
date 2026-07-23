@@ -195,9 +195,11 @@ function NrmsShell({ children }: { children: ReactNode }) {
   }
   // NRMS is part and parcel of the Marketplace. Nothing below this point should
   // be reachable without an admin-approved listing, regardless of enrollment state.
-  // Rendered as an overlay on the shell further down, not an early return, so the
-  // owner still sees the workspace chrome behind it instead of a blank page.
-  const showPropertyGate = !properties.some((p) => p.status === "APPROVED");
+  // This is specifically an ownership gate: assigned staff inherit access from
+  // the approved property behind their active membership and must not be asked
+  // to own a separate approved property themselves. The API still validates the
+  // assigned property's approval and operational state on every request.
+  const showPropertyGate = accessRole === "OWNER" && !properties.some((p) => p.status === "APPROVED");
 
   if (!showPropertyGate && !entitled) return <NrmsActivationScreen />;
 
@@ -216,7 +218,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const propertyNeedsActivation = Boolean(selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help") && !pathname.startsWith("/owner/nrms/policy"));
+  const propertyNeedsActivation = Boolean(accessRole === "OWNER" && selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help") && !pathname.startsWith("/owner/nrms/policy"));
 
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
