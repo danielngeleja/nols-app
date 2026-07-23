@@ -5,6 +5,7 @@ import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { NRMS_REVIEW_CATEGORIES, NRMS_REVIEW_CATEGORY_KEYS, averageCategoryRatings, resolveReviewCategories } from "../lib/nrmsReviewCategories.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -79,11 +80,54 @@ async function owned(req: AuthedRequest, res: Response) {
   return loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
 }
 
+/**
+ * Reputation summary for the owner: overall average, per-category averages and
+ * how departing guests answered the NoLSAF repeat-use question. Category scores
+ * are the actionable part, an overall 3.8 says nothing, "security 2.4" does.
+ */
+function buildReviewInsights(rows: Array<{ rating: number | null; categoryRatings: unknown; platformIntent: string | null }>, storedCategories: unknown) {
+  const rated = rows.filter((row) => typeof row.rating === "number");
+  const overall = rated.length ? Number((rated.reduce((sum, row) => sum + (row.rating ?? 0), 0) / rated.length).toFixed(2)) : null;
+  const intent = { YES: 0, MAYBE: 0, NO: 0 } as Record<string, number>;
+  for (const row of rows) if (row.platformIntent && row.platformIntent in intent) intent[row.platformIntent] += 1;
+  return {
+    responses: rows.length,
+    overall,
+    categories: averageCategoryRatings(rows),
+    selectedCategories: resolveReviewCategories(storedCategories),
+    availableCategories: NRMS_REVIEW_CATEGORIES.map((item) => ({ key: item.key, label: item.label })),
+    platformIntent: intent,
+  };
+}
+
+router.put("/:propertyId/review-categories", (async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ categories: z.array(z.enum(NRMS_REVIEW_CATEGORY_KEYS as [string, ...string[]])).max(NRMS_REVIEW_CATEGORY_KEYS.length) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Choose valid review categories" });
+  try {
+    const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId);
+    const categories = resolveReviewCategories(parsed.data.categories);
+    await prisma.property.update({ where: { id: propertyId }, data: { nrmsReviewCategories: categories as Prisma.InputJsonValue } });
+    res.json({ categories });
+  } catch (error) { console.error("[owner.nrms.market-readiness] review categories failed", error); res.status(500).json({ error: "Failed to save review categories" }); }
+}) as RequestHandler);
+
+/** Close a recovery task once the hotel has actually contacted the unhappy guest. */
+router.post("/:propertyId/reviews/:reviewId/recovered", (async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ note: z.string().trim().max(500).nullable().optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Recovery note is too long" });
+  try {
+    const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId);
+    const changed = await prisma.nrmsReviewRequest.updateMany({ where: { id: Number(req.params.reviewId), propertyId, needsRecovery: true, recoveredAt: null }, data: { recoveredAt: new Date(), recoveryNote: parsed.data.note ?? null } });
+    if (!changed.count) return res.status(404).json({ error: "No open recovery task for this response" });
+    res.json({ recovered: true });
+  } catch (error) { console.error("[owner.nrms.market-readiness] review recovery failed", error); res.status(500).json({ error: "Failed to close the recovery task" }); }
+}) as RequestHandler);
+
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
     const active = await owned(req, res); if (!active) return;
     const propertyId = Number(req.params.propertyId);
-    const [ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties] = await Promise.all([
+    const [ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewResponses, reviewSettings] = await Promise.all([
       prisma.nrmsRatePlan.findMany({ where: { propertyId }, include: { roomType: { select: { id: true, name: true } }, seasons: { orderBy: [{ priority: "desc" }, { startDate: "asc" }] } }, orderBy: [{ isDefault: "desc" }, { name: "asc" }] }),
       prisma.nrmsRateRestriction.findMany({ where: { propertyId, status: "ACTIVE" }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } }, orderBy: { startDate: "asc" } }),
       prisma.nrmsOnboardingRun.findFirst({ where: { propertyId, status: { not: "ROLLED_BACK" } }, include: { checks: { orderBy: { id: "asc" } } }, orderBy: { createdAt: "desc" } }),
@@ -99,8 +143,10 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
       prisma.roomUnit.findMany({ where: { propertyId }, select: { id: true, code: true, status: true, housekeepingStatus: true, roomTypeId: true }, orderBy: { code: "asc" } }),
       prisma.reservation.findMany({ where: { propertyId, status: { in: ["HELD", "CONFIRMED", "CHECKED_IN"] } }, select: { id: true, receiptNumber: true, status: true, currency: true, totalAmount: true, amountPaid: true, chargesTotal: true, guestProfile: { select: { fullName: true, phone: true } } }, orderBy: { checkIn: "asc" }, take: 100 }),
       prisma.property.findMany({ where: { ownerId: req.user!.id, nrmsActivatedAt: { not: null } }, select: { id: true, title: true, status: true }, orderBy: { title: "asc" } }),
+      prisma.nrmsReviewRequest.findMany({ where: { propertyId, respondedAt: { not: null } }, select: { rating: true, categoryRatings: true, platformIntent: true }, orderBy: { respondedAt: "desc" }, take: 500 }),
+      prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsReviewCategories: true } }),
     ]);
-    res.json({ property: active.property, ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties });
+    res.json({ property: active.property, ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewInsights: buildReviewInsights(reviewResponses, reviewSettings?.nrmsReviewCategories) });
   } catch (error) { console.error("[owner.nrms.market-readiness] dashboard failed", error); res.status(500).json({ error: "Failed to load hotel controls" }); }
 }) as RequestHandler);
 

@@ -535,22 +535,14 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         .pdf-table .num { text-align: right; font-weight: 700; }
         .pdf-table .muted { color: #59635f; }
         .pdf-source-row td:first-child { border-left: 3px solid transparent; }
-        .pdf-source-nolsaf td { background: #eaf8f3; }
-        .pdf-source-nolsaf td:first-child { border-left-color: #00785a; color: #00664c; }
-        .pdf-source-booking td { background: #edf4ff; }
-        .pdf-source-booking td:first-child { border-left-color: #003580; color: #003580; }
-        .pdf-source-airbnb td { background: #fff0f1; }
-        .pdf-source-airbnb td:first-child { border-left-color: #ff5a5f; color: #c9363b; }
-        .pdf-source-expedia td { background: #fff8dc; }
-        .pdf-source-expedia td:first-child { border-left-color: #f2c94c; color: #243b64; }
-        .pdf-source-walkin td { background: #eef9f4; }
-        .pdf-source-walkin td:first-child { border-left-color: #288a68; color: #176249; }
-        .pdf-source-direct td { background: #f3f1fb; }
-        .pdf-source-direct td:first-child { border-left-color: #6756a5; color: #55448f; }
-        .pdf-source-phone td { background: #fff4e8; }
-        .pdf-source-phone td:first-child { border-left-color: #d98126; color: #9b5413; }
-        .pdf-source-other td { background: #f4f5f5; }
-        .pdf-source-other td:first-child { border-left-color: #777f7c; color: #4d5552; }
+        .pdf-source-nolsaf td:first-child { background: #eaf8f3; border-left-color: #00785a; color: #00664c; }
+        .pdf-source-booking td:first-child { background: #edf4ff; border-left-color: #003580; color: #003580; }
+        .pdf-source-airbnb td:first-child { background: #fff0f1; border-left-color: #ff5a5f; color: #c9363b; }
+        .pdf-source-expedia td:first-child { background: #fff8dc; border-left-color: #f2c94c; color: #243b64; }
+        .pdf-source-walkin td:first-child { background: #eef9f4; border-left-color: #288a68; color: #176249; }
+        .pdf-source-direct td:first-child { background: #f3f1fb; border-left-color: #6756a5; color: #55448f; }
+        .pdf-source-phone td:first-child { background: #fff4e8; border-left-color: #d98126; color: #9b5413; }
+        .pdf-source-other td:first-child { background: #f4f5f5; border-left-color: #777f7c; color: #4d5552; }
         .pdf-outlet-row td:first-child { border-left: 3px solid transparent; }
         .pdf-outlet-bar td:first-child { border-left-color: #7653b8; background: #f4f0ff; color: #55378f; }
         .pdf-outlet-restaurant td:first-child { border-left-color: #dc762c; background: #fff2e8; color: #974414; }

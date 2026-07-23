@@ -3,6 +3,8 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
+import { REVIEW_RECOVERY_THRESHOLD, resolveReviewCategories, reviewCategoryOptions, sanitiseCategoryRatings } from "../lib/nrmsReviewCategories.js";
+import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { limitPublicNrmsDirectHold, limitPublicNrmsDirectQuote, limitPublicNrmsGuestCapability } from "../middleware/rateLimit.js";
 
 export const router = Router();
@@ -12,6 +14,14 @@ export const router = Router();
 // Prisma's 5s interactive-transaction default was tripping P2028 in production before the
 // reservation was written. 15s gives headroom without holding the inventory lock indefinitely.
 const HOLD_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+
+const guestWebOrigin = () => String(process.env.WEB_ORIGIN || process.env.NEXT_PUBLIC_APP_URL || "https://nolsaf.com").replace(/\/$/, "");
+/** Where a happy guest can send the property to someone else. Public listing, no token in it. */
+const shareLinks = (propertyId: number, title: string) => {
+  const url = `${guestWebOrigin()}/public/properties/${buildPropertySlug(title, propertyId)}`;
+  const message = `I stayed at ${title} and it was worth it. You can see the rooms and book it here: ${url}`;
+  return { url, message, whatsapp: `https://wa.me/?text=${encodeURIComponent(message)}` };
+};
 
 const directQuoteSchema = z.object({ checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), adults: z.coerce.number().int().min(1).max(20).default(1), children: z.coerce.number().int().min(0).max(20).default(0) });
 const directHoldSchema = directQuoteSchema.extend({ roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
@@ -106,23 +116,45 @@ router.get("/payment-requests/:token", limitPublicNrmsGuestCapability as Request
 
 router.get("/reviews/:token", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
   try {
-    const review = await prisma.nrmsReviewRequest.findUnique({ where: { publicToken: req.params.token }, include: { property: { select: { title: true } }, guestProfile: { select: { fullName: true } } } });
+    const review = await prisma.nrmsReviewRequest.findUnique({ where: { publicToken: req.params.token }, include: { property: { select: { id: true, title: true, nrmsReviewCategories: true } }, guestProfile: { select: { fullName: true } } } });
     if (!review) return res.status(404).json({ error: "Review request not found" });
     if (!review.openedAt) await prisma.nrmsReviewRequest.update({ where: { id: review.id }, data: { openedAt: new Date(), status: review.status === "SCHEDULED" ? "OPENED" : review.status } });
-    res.json({ review: { property: review.property.title, guest: review.guestProfile?.fullName ?? "Guest", status: review.status, rating: review.rating, feedback: review.feedback, respondedAt: review.respondedAt } });
+    res.json({ review: { property: review.property.title, guest: review.guestProfile?.fullName ?? "Guest", status: review.status, rating: review.rating, feedback: review.feedback, categoryRatings: review.categoryRatings ?? null, platformIntent: review.platformIntent, respondedAt: review.respondedAt, categories: reviewCategoryOptions(review.property.nrmsReviewCategories), share: review.respondedAt && !review.needsRecovery ? shareLinks(review.property.id, review.property.title) : null } });
   } catch (error) { console.error("[public.nrms.guest] review request failed", error); res.status(500).json({ error: "Review request could not be loaded" }); }
 }) as RequestHandler);
 
 router.post("/reviews/:token", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
-  const parsed = z.object({ rating: z.number().int().min(1).max(5), feedback: z.string().trim().max(1000).nullable().optional() }).safeParse(req.body);
+  const parsed = z.object({ rating: z.number().int().min(1).max(5), feedback: z.string().trim().max(1000).nullable().optional(), categoryRatings: z.record(z.number()).nullable().optional(), platformIntent: z.enum(["YES", "MAYBE", "NO"]).nullable().optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a rating from 1 to 5" });
   try {
-    const review = await prisma.nrmsReviewRequest.findUnique({ where: { publicToken: req.params.token } });
+    const review = await prisma.nrmsReviewRequest.findUnique({ where: { publicToken: req.params.token }, include: { property: { select: { id: true, title: true, nrmsReviewCategories: true } } } });
     if (!review) return res.status(404).json({ error: "Review request not found" });
     if (review.respondedAt) return res.status(409).json({ error: "This review has already been submitted" });
-    const saved = await prisma.nrmsReviewRequest.update({ where: { id: review.id }, data: { rating: parsed.data.rating, feedback: parsed.data.feedback, respondedAt: new Date(), status: "RESPONDED", openedAt: review.openedAt ?? new Date() } });
-    res.json({ review: { rating: saved.rating, feedback: saved.feedback, respondedAt: saved.respondedAt } });
+    // Only categories this property opted into are stored, so a later settings
+    // change can never leave scores for a question the guest was not shown.
+    const categoryRatings = sanitiseCategoryRatings(parsed.data.categoryRatings, resolveReviewCategories(review.property.nrmsReviewCategories));
+    const needsRecovery = parsed.data.rating <= REVIEW_RECOVERY_THRESHOLD;
+    const saved = await prisma.nrmsReviewRequest.update({ where: { id: review.id }, data: { rating: parsed.data.rating, feedback: parsed.data.feedback, categoryRatings: categoryRatings ?? undefined, platformIntent: parsed.data.platformIntent ?? undefined, needsRecovery, respondedAt: new Date(), status: "RESPONDED", openedAt: review.openedAt ?? new Date() } });
+    // An unhappy guest is never asked to recommend the property. They get the
+    // private follow-up path instead, and the owner gets a recovery task.
+    res.json({ review: { rating: saved.rating, feedback: saved.feedback, categoryRatings: saved.categoryRatings ?? null, platformIntent: saved.platformIntent, respondedAt: saved.respondedAt, needsRecovery }, share: needsRecovery ? null : shareLinks(review.property.id, review.property.title) });
   } catch (error) { console.error("[public.nrms.guest] review response failed", error); res.status(500).json({ error: "Review could not be submitted" }); }
+}) as RequestHandler);
+
+/**
+ * "Would you book through NoLSAF again?" is asked on the thank-you screen, after
+ * the review is already saved, so it gets its own write. Keeping it off the main
+ * form protects the review completion rate, and a guest who closes the tab here
+ * still leaves a complete review behind.
+ */
+router.post("/reviews/:token/intent", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
+  const parsed = z.object({ platformIntent: z.enum(["YES", "MAYBE", "NO"]) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Choose one of the available answers" });
+  try {
+    const changed = await prisma.nrmsReviewRequest.updateMany({ where: { publicToken: req.params.token, respondedAt: { not: null } }, data: { platformIntent: parsed.data.platformIntent } });
+    if (!changed.count) return res.status(404).json({ error: "Review request not found" });
+    res.json({ platformIntent: parsed.data.platformIntent });
+  } catch (error) { console.error("[public.nrms.guest] review intent failed", error); res.status(500).json({ error: "Your answer could not be saved" }); }
 }) as RequestHandler);
 
 export default router;

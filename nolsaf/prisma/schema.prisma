@@ -403,6 +403,12 @@ model Property {
   /// touches NoLSAF rails. Array of { label, value, name? }.
   nrmsGuestPayInstructions Json?
 
+  /// Which verified-stay review categories this property asks departing guests
+  /// about. Array of keys from NRMS_REVIEW_CATEGORIES, chosen by the owner so a
+  /// property without a restaurant is never asked to rate one. Null means the
+  /// safe default set. See apps/api/src/lib/nrmsReviewCategories.ts.
+  nrmsReviewCategories Json?
+
   /// Admin enforcement (NRMS_ADMIN_OVERSIGHT.md phase 2): when set, the public
   /// QR menu and ordering surface is refused for this property while staff
   /// ordering continues unaffected.
@@ -5395,6 +5401,16 @@ model NrmsReviewRequest {
   respondedAt    DateTime?
   rating         Int?
   feedback       String?   @db.VarChar(1000)
+  /// Per-category scores, same JSON shape as PropertyReview.categoryRatings.
+  /// Only the categories the property opted into are stored. e.g. { "security": 5, "customerCare": 4 }
+  categoryRatings Json?
+  /// Guest answer to "would you book through NoLSAF again": YES, MAYBE or NO.
+  platformIntent  String?  @db.VarChar(10)
+  /// Set when the overall rating is low enough to need a private follow-up
+  /// instead of a public recommendation prompt. Drives the owner recovery queue.
+  needsRecovery   Boolean  @default(false)
+  recoveredAt     DateTime?
+  recoveryNote    String?  @db.VarChar(500)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -5403,6 +5419,7 @@ model NrmsReviewRequest {
   guestProfile GuestProfile? @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
 
   @@index([propertyId, status, sendAfter])
+  @@index([propertyId, needsRecovery, recoveredAt])
   @@map("nrms_review_request")
 }
 
