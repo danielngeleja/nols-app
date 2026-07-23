@@ -13,7 +13,7 @@ import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
-import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding } from "../lib/nrmsFolio.js";
+import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 
 export const router = Router();
@@ -99,6 +99,15 @@ const reasonSchema = z.object({ reason: z.string().trim().max(300).optional().nu
 const checkoutVerificationSchema = z.object({
   verifiedChargeIds: z.array(z.number().int().positive()).max(500).default([]),
 });
+const createGroupSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  reservationIds: z.array(z.number().int().positive()).min(2).max(100),
+});
+const groupActionSchema = z.object({
+  overrideRoomReadiness: z.boolean().optional().default(false),
+  verifyCharges: z.boolean().optional().default(false),
+});
 
 const paymentSchema = z.object({
   amount: z.number().positive(),
@@ -163,6 +172,9 @@ function formatReservation(r: any) {
     cancelReason: r.cancelReason,
     noShowAt: r.noShowAt,
     notes: r.notes,
+    group: r.group
+      ? { id: r.group.id, reference: r.group.reference, name: r.group.name, status: r.group.status }
+      : null,
     guestProfile: r.guestProfile
       ? {
           id: r.guestProfile.id,
@@ -262,6 +274,7 @@ function formatReservation(r: any) {
 
 const detailInclude = {
   guestProfile: true,
+  group: { select: { id: true, reference: true, name: true, status: true } },
   allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
   charges: {
@@ -331,6 +344,7 @@ async function recomputeAmountPaid(tx: any, reservationId: number) {
   });
   const amountPaid = agg._sum.amount ?? 0;
   await tx.reservation.update({ where: { id: reservationId }, data: { amountPaid } });
+  return amountPaid;
 }
 
 /** Sum of non-voided charges, used to keep Reservation.chargesTotal honest. */
@@ -389,6 +403,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         where,
         include: {
           guestProfile: true,
+          group: { select: { id: true, reference: true, name: true, status: true } },
           allocations: {
             where: { status: "ACTIVE" },
             include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } },
@@ -412,6 +427,312 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     res.status(500).json({ error: "Failed to load reservations" });
   }
 }) as RequestHandler);
+
+const groupMemberInclude = {
+  guestProfile: { select: { id: true, fullName: true, phone: true } },
+  allocations: {
+    where: { status: "ACTIVE" },
+    include: { roomType: { select: { name: true } }, roomUnit: { select: { id: true, code: true, housekeepingStatus: true } } },
+  },
+  payments: { where: { voidedAt: null }, select: { amount: true } },
+  charges: {
+    where: { voidedAt: null },
+    select: { id: true, amount: true, outletOrder: { select: { status: true, settlementMode: true } } },
+  },
+  outletOrders: {
+    where: { voidedAt: null },
+    select: { id: true, status: true, settlementMode: true, settlementMethod: true },
+  },
+};
+
+function deriveGroupStatus(statuses: string[]): string {
+  if (statuses.length > 0 && statuses.every((status) => status === "CHECKED_OUT")) return "CHECKED_OUT";
+  if (statuses.some((status) => status === "CHECKED_OUT")) return "PARTIALLY_CHECKED_OUT";
+  if (statuses.length > 0 && statuses.every((status) => status === "CHECKED_IN")) return "CHECKED_IN";
+  if (statuses.some((status) => status === "CHECKED_IN")) return "PARTIALLY_CHECKED_IN";
+  return "ACTIVE";
+}
+
+async function refreshGroupStatus(db: any, groupId: number): Promise<string> {
+  const members = await db.reservation.findMany({ where: { groupId }, select: { status: true } });
+  const status = deriveGroupStatus(members.map((member: any) => member.status));
+  await db.nrmsReservationGroup.update({ where: { id: groupId }, data: { status } });
+  return status;
+}
+
+function groupMemberSummary(member: any) {
+  return {
+    id: member.id,
+    status: member.status,
+    checkIn: member.checkIn,
+    checkOut: member.checkOut,
+    currency: member.currency,
+    totalAmount: decimal(member.totalAmount),
+    amountPaid: decimal(member.amountPaid),
+    guestProfile: member.guestProfile,
+    rooms: (member.allocations ?? []).map((allocation: any) => ({
+      id: allocation.id,
+      roomTypeName: allocation.roomType?.name ?? null,
+      roomUnitId: allocation.roomUnitId,
+      roomUnitCode: allocation.roomUnit?.code ?? null,
+    })),
+  };
+}
+
+function formatGroup(group: any) {
+  return {
+    id: group.id,
+    reference: group.reference,
+    name: group.name,
+    notes: group.notes,
+    status: group.status,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    memberCount: group._count?.reservations ?? group.reservations?.length ?? 0,
+    members: Array.isArray(group.reservations) ? group.reservations.map(groupMemberSummary) : undefined,
+  };
+}
+
+type GroupBlocker = { code: string; message: string };
+
+function inspectGroupMember(
+  member: any,
+  action: "CHECK_IN" | "CHECK_OUT",
+  options: { overrideRoomReadiness: boolean; verifyCharges: boolean },
+) {
+  const blockers: GroupBlocker[] = [];
+  const requiredChargeIds: number[] = [];
+  if (action === "CHECK_IN") {
+    if (member.status !== "CONFIRMED") {
+      blockers.push({ code: "INVALID_TRANSITION", message: "Only confirmed reservations can be checked in." });
+    }
+    if (!member.allocations?.length || member.allocations.some((allocation: any) => allocation.roomUnitId == null)) {
+      blockers.push({ code: "ROOM_ASSIGNMENT_REQUIRED", message: "Assign a specific room before check-in." });
+    }
+    if (!options.overrideRoomReadiness) {
+      const notReady = (member.allocations ?? []).filter(
+        (allocation: any) => allocation.roomUnit && !["CLEAN", "INSPECTED"].includes(allocation.roomUnit.housekeepingStatus),
+      );
+      if (notReady.length) {
+        blockers.push({
+          code: "ROOM_NOT_READY",
+          message: `${notReady.map((allocation: any) => allocation.roomUnit.code).join(", ")} ${notReady.length === 1 ? "is" : "are"} not ready.`,
+        });
+      }
+    }
+  } else {
+    if (member.status !== "CHECKED_IN") {
+      blockers.push({ code: "INVALID_TRANSITION", message: "Only checked-in stays can be checked out." });
+    }
+    const openOrders = (member.outletOrders ?? []).filter((order: any) => ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status));
+    if (openOrders.length) blockers.push({ code: "OPEN_OUTLET_ORDERS", message: `${openOrders.length} restaurant or bar order(s) remain open.` });
+    const unclassified = (member.outletOrders ?? []).filter(
+      (order: any) => order.status === "SETTLED" && order.settlementMode === "OUTLET_PAYMENT" && !order.settlementMethod,
+    );
+    if (unclassified.length) blockers.push({ code: "UNCLASSIFIED_OUTLET_PAYMENTS", message: `${unclassified.length} outlet payment(s) need a payment method.` });
+    const amountPaid = (member.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
+    const chargesTotal = (member.charges ?? []).reduce((sum: number, charge: any) => sum + Number(charge.amount ?? 0), 0);
+    const settlement = getCheckoutSettlement(member.totalAmount, chargesTotal, amountPaid);
+    if (!settlement.settled) {
+      blockers.push({
+        code: settlement.code ?? "FOLIO_NOT_SETTLED",
+        message: settlement.balance > 0
+          ? `Record the remaining payment of ${settlement.balance.toLocaleString()}.`
+          : `Resolve the guest credit of ${Math.abs(settlement.balance).toLocaleString()}.`,
+      });
+    }
+    for (const charge of member.charges ?? []) {
+      const systemVerified = charge.outletOrder?.status === "POSTED_TO_FOLIO" && charge.outletOrder?.settlementMode === "ROOM_FOLIO";
+      if (!systemVerified) requiredChargeIds.push(charge.id);
+    }
+    if (requiredChargeIds.length && !options.verifyCharges) {
+      blockers.push({ code: "CHARGES_NOT_VERIFIED", message: `Verify ${requiredChargeIds.length} active extra charge(s).` });
+    }
+  }
+  return { eligible: blockers.length === 0, blockers, requiredChargeIds };
+}
+
+async function loadOwnedGroup(res: Response, ownerId: number, groupId: number) {
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    res.status(400).json({ error: "Invalid reservation group id" });
+    return null;
+  }
+  const group = await prisma.nrmsReservationGroup.findFirst({
+    where: { id: groupId, ownerId },
+    include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+  });
+  if (!group) {
+    res.status(404).json({ error: "Reservation group not found" });
+    return null;
+  }
+  const active = await loadOwnedActiveNrmsProperty(res, ownerId, group.propertyId);
+  if (!active) return null;
+  return group;
+}
+
+/** List operational reservation groups for one property. */
+router.get("/property/:propertyId/groups", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const ownerId = req.user!.id;
+    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
+    if (!active) return;
+    const groups = await prisma.nrmsReservationGroup.findMany({
+      where: { propertyId: active.property.id as number, ownerId },
+      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 100,
+    });
+    res.json({ groups: groups.map(formatGroup) });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] group list failed", err);
+    res.status(500).json({ error: "Failed to load reservation groups" });
+  }
+}) as RequestHandler);
+
+/** Create a group from existing property reservations. */
+router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = createGroupSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Enter a group name and select at least two reservations", details: parsed.error.flatten() });
+    const ownerId = req.user!.id;
+    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
+    if (!active) return;
+    const propertyId = active.property.id as number;
+    const reservationIds = [...new Set(parsed.data.reservationIds)];
+    if (reservationIds.length < 2) return res.status(400).json({ error: "Select at least two different reservations" });
+    const reference = `GRP-${Date.now().toString(36).toUpperCase()}-${generateNrmsRandomCode()}`.slice(0, 32);
+    const created = await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, propertyId);
+      const members = await tx.reservation.findMany({
+        where: { id: { in: reservationIds }, propertyId, ownerId, bookingId: null },
+        select: { id: true, status: true, groupId: true },
+      });
+      if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
+      if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
+      if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      const group = await tx.nrmsReservationGroup.create({
+        data: {
+          propertyId,
+          ownerId,
+          reference,
+          name: sanitizeText(parsed.data.name),
+          notes: parsed.data.notes ? sanitizeText(parsed.data.notes) : null,
+          status: deriveGroupStatus(members.map((member: any) => member.status)),
+          createdById: ownerId,
+        },
+      });
+      const assigned = await tx.reservation.updateMany({ where: { id: { in: reservationIds }, propertyId, ownerId, groupId: null }, data: { groupId: group.id } });
+      if (assigned.count !== reservationIds.length) throw new Error("NRMS_GROUP_ASSIGNMENT_RACE");
+      await tx.reservationEvent.createMany({
+        data: reservationIds.map((reservationId) => ({ reservationId, type: "GROUP_ASSIGNED", actorId: ownerId, data: { groupId: group.id, groupReference: reference, groupName: parsed.data.name } })),
+      });
+      return group.id;
+    }, EXTENDED_TX_OPTIONS);
+    const group = await prisma.nrmsReservationGroup.findUnique({
+      where: { id: created },
+      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+    });
+    res.status(201).json({ group: formatGroup(group) });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while the group was being created" });
+    console.error("[owner.nrms.reservations] group create failed", err);
+    res.status(500).json({ error: "Failed to create reservation group" });
+  }
+}) as RequestHandler);
+
+router.get("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const group = await loadOwnedGroup(res, req.user!.id, Number(req.params.groupId));
+    if (!group) return;
+    res.json({ group: formatGroup(group) });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] group detail failed", err);
+    res.status(500).json({ error: "Failed to load reservation group" });
+  }
+}) as RequestHandler);
+
+router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const action = req.body?.action === "CHECK_OUT" ? "CHECK_OUT" : req.body?.action === "CHECK_IN" ? "CHECK_IN" : null;
+    if (!action) return res.status(400).json({ error: "Choose CHECK_IN or CHECK_OUT" });
+    const parsed = groupActionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Invalid group action options" });
+    const group = await loadOwnedGroup(res, req.user!.id, Number(req.params.groupId));
+    if (!group) return;
+    const members = group.reservations.map((member: any) => ({
+      reservation: groupMemberSummary(member),
+      ...inspectGroupMember(member, action, parsed.data),
+    }));
+    res.json({ group: formatGroup(group), action, eligibleCount: members.filter((member: any) => member.eligible).length, blockedCount: members.filter((member: any) => !member.eligible).length, members });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] group preview failed", err);
+    res.status(500).json({ error: "Failed to review the group action" });
+  }
+}) as RequestHandler);
+
+function groupActionFailure(err: unknown): GroupBlocker {
+  const message = err instanceof Error ? err.message : "";
+  if (message.startsWith("NRMS_GUEST_BALANCE_DUE:")) return { code: "GUEST_BALANCE_DUE", message: "The guest folio still has an amount due." };
+  if (message.startsWith("NRMS_GUEST_CREDIT_REMAINS:")) return { code: "GUEST_CREDIT_REMAINS", message: "The guest folio has an unresolved credit." };
+  if (message.startsWith("NRMS_OPEN_OUTLET_ORDERS:")) return { code: "OPEN_OUTLET_ORDERS", message: "Restaurant or bar orders remain open." };
+  if (message.startsWith("NRMS_UNCLASSIFIED_OUTLET_PAYMENTS:")) return { code: "UNCLASSIFIED_OUTLET_PAYMENTS", message: "An outlet payment still needs a payment method." };
+  if (message.startsWith("NRMS_CHARGES_NOT_VERIFIED:")) return { code: "CHARGES_NOT_VERIFIED", message: "Active extra charges were not verified." };
+  return { code: "ACTION_FAILED", message: "The reservation changed before the operation completed." };
+}
+
+function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
+  return (async (req: AuthedRequest, res: Response) => {
+    try {
+      const parsed = groupActionSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ error: "Invalid group action options" });
+      const ownerId = req.user!.id;
+      const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
+      if (!group) return;
+      const results: any[] = [];
+      for (const existing of group.reservations) {
+        try {
+          const outcome = await prisma.$transaction(async (tx: any) => {
+            await lockPropertyInventory(tx, group.propertyId);
+            const member = await tx.reservation.findFirst({
+              where: { id: existing.id, groupId: group.id, propertyId: group.propertyId, ownerId, bookingId: null },
+              include: groupMemberInclude,
+            });
+            if (!member) return { changed: false, blockers: [{ code: "MEMBER_NOT_FOUND", message: "Reservation is no longer in this group." }] };
+            const inspection = inspectGroupMember(member, action, parsed.data);
+            if (!inspection.eligible) return { changed: false, blockers: inspection.blockers };
+            if (action === "CHECK_IN") {
+              const changed = await tx.reservation.updateMany({
+                where: { id: member.id, ownerId, groupId: group.id, status: "CONFIRMED" },
+                data: { status: "CHECKED_IN", checkedInAt: new Date() },
+              });
+              if (changed.count !== 1) throw new Error("NRMS_INVALID_TRANSITION_RACE");
+              await tx.reservationEvent.create({
+                data: { reservationId: member.id, type: "CHECKED_IN", actorId: ownerId, data: { groupId: group.id, groupReference: group.reference, ...(parsed.data.overrideRoomReadiness ? { overrideRoomReadiness: true } : {}) } },
+              });
+              return { changed: true };
+            }
+            const billing = await finalizeNrmsCheckout(tx, member, ownerId, inspection.requiredChargeIds);
+            return { changed: true, billing };
+          }, EXTENDED_TX_OPTIONS);
+          results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", ...outcome });
+        } catch (err) {
+          results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", changed: false, blockers: [groupActionFailure(err)] });
+        }
+      }
+      const status = await refreshGroupStatus(prisma, group.id);
+      res.json({ action, groupId: group.id, groupStatus: status, changedCount: results.filter((result) => result.changed).length, blockedCount: results.filter((result) => !result.changed).length, results });
+    } catch (err) {
+      console.error(`[owner.nrms.reservations] group ${action.toLowerCase()} failed`, err);
+      res.status(500).json({ error: `Failed to run group ${action === "CHECK_IN" ? "check-in" : "checkout"}` });
+    }
+  }) as RequestHandler;
+}
+
+router.post("/groups/:groupId/check-in", executeGroupAction("CHECK_IN"));
+router.post("/groups/:groupId/check-out", executeGroupAction("CHECK_OUT"));
 
 /**
  * GET /api/owner/nrms/reservations/property/:propertyId/analytics
@@ -1267,7 +1588,19 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           recordedById: ownerId,
         },
       });
-      await recomputeAmountPaid(tx, reservation.id);
+      const amountPaid = await recomputeAmountPaid(tx, reservation.id);
+      const pendingRequests = await tx.nrmsGuestPaymentRequest.findMany({ where: { reservationId: reservation.id, status: "PENDING" } });
+      let directDepositSettled = false;
+      for (const request of pendingRequests) {
+        if (Number(amountPaid) >= Number(request.amount)) {
+          await tx.nrmsGuestPaymentRequest.update({ where: { id: request.id }, data: { status: "SETTLED", settledAt: new Date() } });
+          if (request.kind === "DEPOSIT") directDepositSettled = true;
+        }
+      }
+      if (directDepositSettled && reservation.status === "HELD") {
+        await tx.reservation.update({ where: { id: reservation.id }, data: { status: "CONFIRMED", confirmedAt: new Date(), holdExpiresAt: null } });
+        await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CONFIRMED", actorId: ownerId, data: { reason: "DIRECT_DEPOSIT_RECORDED" } } });
+      }
       await tx.reservationEvent.create({
         data: {
           reservationId: reservation.id,
@@ -1315,7 +1648,11 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
         where: { id: paymentId },
         data: { voidedAt: new Date(), voidReason: reason },
       });
-      await recomputeAmountPaid(tx, reservation.id);
+      const amountPaid = await recomputeAmountPaid(tx, reservation.id);
+      const settledRequests = await tx.nrmsGuestPaymentRequest.findMany({ where: { reservationId: reservation.id, status: "SETTLED" } });
+      for (const request of settledRequests) {
+        if (Number(amountPaid) < Number(request.amount)) await tx.nrmsGuestPaymentRequest.update({ where: { id: request.id }, data: { status: "PENDING", settledAt: null } });
+      }
       await tx.reservationEvent.create({
         data: {
           reservationId: reservation.id,

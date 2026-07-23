@@ -161,6 +161,7 @@ const cancellationsDetails: Item[] = [
 
 const nrmsDetails: Item[] = [
   { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/channels", label: "OTA Control", Icon: KeyRound },
   { href: "/admin/nrms/billing", label: "PAYG Billing", Icon: Wallet },
   { href: "/admin/nrms/pricing", label: "Pricing & Levers", Icon: Coins },
   { href: "/admin/nrms/reconciliation", label: "Reconciliation", Icon: Receipt },

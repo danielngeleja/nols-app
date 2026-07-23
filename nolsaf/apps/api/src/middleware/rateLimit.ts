@@ -512,3 +512,28 @@ export const limitPublicQrOrderFeedback = rateLimit({
   handler: publicQrLimitHandler("QR_RATE_LIMIT_FEEDBACK", "Too many feedback attempts. Please wait a moment."),
   keyGenerator: (req) => `qr-feedback:${req.ip || req.socket.remoteAddress || "unknown"}`,
 });
+
+export const limitPublicNrmsDirectQuote = rateLimit({
+  windowMs: 5 * 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many live-rate searches. Please wait a moment." },
+});
+
+export const limitPublicNrmsDirectHold = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many room hold requests. Please wait before trying again." },
+  keyGenerator: (req) => `nrms-direct:${String(req.body?.guest?.phone || req.ip || req.socket.remoteAddress || "unknown").trim()}`,
+});
+
+export const limitPublicNrmsGuestCapability = rateLimit({
+  windowMs: 5 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many guest-link requests. Please wait a moment." },
+});

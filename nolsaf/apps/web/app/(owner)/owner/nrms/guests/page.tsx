@@ -564,7 +564,6 @@ export default function NrmsGuestsPage() {
         <div className="fixed inset-0 z-[9999] flex min-h-dvh items-center justify-center overflow-hidden p-0 sm:p-5">
           <button type="button" aria-label="Close campaign dialog" className="absolute inset-0 bg-neutral-950/55 backdrop-blur-[2px]" onClick={() => setCampaignOpen(false)} />
           <div role="dialog" aria-modal="true" aria-labelledby="sms-campaign-title" className="relative flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[22px] border border-neutral-200 bg-[#f7f9f8] shadow-[0_28px_90px_-28px_rgba(0,0,0,0.55)] sm:max-h-[calc(100vh-2.5rem)]">
-            <div className="h-1 w-full shrink-0 bg-gradient-to-r from-emerald-800 via-emerald-500 to-teal-400" />
             <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-white px-4 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3.5">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-[0_8px_22px_-10px_rgba(4,120,87,0.8)]">
@@ -573,13 +572,13 @@ export default function NrmsGuestsPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 id="sms-campaign-title" className="truncate text-base font-bold text-neutral-950">Create SMS campaign</h3>
-                    <span className="hidden rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-700 sm:inline-flex">Draft</span>
+                    <span className="hidden rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 sm:inline-flex">Draft</span>
                   </div>
-                  <p className="mt-0.5 truncate text-[10px] text-neutral-500">Guest engagement · Delivered securely through Africa&apos;s Talking</p>
+                  <p className="mt-0.5 truncate text-xs text-neutral-500">Guest engagement · Delivered securely through Africa&apos;s Talking</p>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <span className="hidden items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-700 sm:inline-flex"><ShieldCheck className="h-3 w-3" /> Consent protected</span>
+                <span className="hidden items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex"><ShieldCheck className="h-3 w-3" /> Consent protected</span>
                 <button type="button" onClick={() => setCampaignOpen(false)} aria-label="Close dialog" className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900">
                   <X className="h-4 w-4" />
                 </button>
@@ -590,9 +589,9 @@ export default function NrmsGuestsPage() {
               <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Megaphone className="h-4 w-4" /></span>
-                  <div><h4 className="text-sm font-bold text-neutral-900">Campaign details</h4><p className="text-[10px] text-neutral-400">Give this campaign a clear internal name and purpose.</p></div>
+                  <div><h4 className="text-base font-bold text-neutral-900">Campaign details</h4><p className="text-xs text-neutral-400">Give this campaign a clear internal name and purpose.</p></div>
                 </div>
-                <label className="block min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">
+                <label className="block min-w-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">
                   Campaign name
                   <input
                     value={campaignName}
@@ -603,16 +602,16 @@ export default function NrmsGuestsPage() {
                   />
                 </label>
                 <div className="mt-4">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Message purpose</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">Message purpose</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <button type="button" onClick={() => setCampaignKind("RETURN_INVITATION")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition ${campaignKind === "RETURN_INVITATION" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${campaignKind === "RETURN_INVITATION" ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Repeat2 className="h-4 w-4" /></span>
-                      <span><strong className="block text-xs text-neutral-900">Invite guests to return</strong><small className="mt-0.5 block text-[10px] text-neutral-400">Reconnect with past guests</small></span>
+                      <span><strong className="block text-sm text-neutral-900">Invite guests to return</strong><small className="mt-0.5 block text-xs text-neutral-400">Reconnect with past guests</small></span>
                       {campaignKind === "RETURN_INVITATION" && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-emerald-700" />}
                     </button>
                     <button type="button" onClick={() => setCampaignKind("OFFER")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition ${campaignKind === "OFFER" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${campaignKind === "OFFER" ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Megaphone className="h-4 w-4" /></span>
-                      <span><strong className="block text-xs text-neutral-900">Share an offer</strong><small className="mt-0.5 block text-[10px] text-neutral-400">Promote a limited guest deal</small></span>
+                      <span><strong className="block text-sm text-neutral-900">Share an offer</strong><small className="mt-0.5 block text-xs text-neutral-400">Promote a limited guest deal</small></span>
                       {campaignKind === "OFFER" && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-emerald-700" />}
                     </button>
                   </div>
@@ -622,7 +621,7 @@ export default function NrmsGuestsPage() {
               <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><Users className="h-4 w-4" /></span>
-                  <div><h4 className="text-sm font-bold text-neutral-900">Choose audience</h4><p className="text-[10px] text-neutral-400">Eligibility and the 3-per-year limit are enforced automatically.</p></div>
+                  <div><h4 className="text-base font-bold text-neutral-900">Choose audience</h4><p className="text-xs text-neutral-400">Eligibility and the 3-per-year limit are enforced automatically.</p></div>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {AUDIENCE_OPTIONS.map((option) => {
@@ -639,7 +638,7 @@ export default function NrmsGuestsPage() {
                       >
                         <div className="flex items-start gap-2.5">
                           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Icon className="h-3.5 w-3.5" /></span>
-                          <span className="min-w-0"><strong className="block text-[11px] text-neutral-900">{option.label}{option.value === "SELECTED" ? ` (${selectedGuestIds.size})` : ""}</strong><small className="mt-1 block text-[9px] leading-snug text-neutral-400">{option.description}</small></span>
+                          <span className="min-w-0"><strong className="block text-sm text-neutral-900">{option.label}{option.value === "SELECTED" ? ` (${selectedGuestIds.size})` : ""}</strong><small className="mt-1 block text-xs leading-snug text-neutral-400">{option.description}</small></span>
                         </div>
                         {selected && <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-700" />}
                       </button>
@@ -651,14 +650,14 @@ export default function NrmsGuestsPage() {
               <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-8">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><MessageSquareText className="h-4 w-4" /></span>
-                  <div><h4 className="text-sm font-bold text-neutral-900">Write the message</h4><p className="text-[10px] text-neutral-400">Keep it useful, recognizable, and easy to understand.</p></div>
+                  <div><h4 className="text-base font-bold text-neutral-900">Write the message</h4><p className="text-xs text-neutral-400">Keep it useful, recognizable, and easy to understand.</p></div>
                 </div>
-                <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-neutral-50 transition focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-emerald-50">
-                  <div className="flex items-center justify-between border-b border-neutral-200 bg-white px-3.5 py-2.5">
-                    <span className="flex items-center gap-2 text-[10px] font-bold text-neutral-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /> SMS via Africa&apos;s Talking</span>
+                <div className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-neutral-50 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] transition focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-emerald-50">
+                  <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-300 bg-white px-3.5 py-2.5">
+                    <span className="flex items-center gap-2 text-xs font-bold text-neutral-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /> SMS via Africa&apos;s Talking</span>
                     <div className="flex items-center gap-3">
-                      <span className="text-[9px] font-medium text-neutral-400">Up to 4 SMS segments</span>
-                      {campaignMessage && <button type="button" onClick={() => setCampaignMessage("")} className="text-[9px] font-bold text-neutral-500 transition hover:text-rose-600">Clear</button>}
+                      <span className="text-[11px] font-medium text-neutral-400">Up to 4 SMS segments</span>
+                      {campaignMessage && <button type="button" onClick={() => setCampaignMessage("")} className="text-[11px] font-bold text-neutral-500 transition hover:text-rose-600">Clear</button>}
                     </div>
                   </div>
                   <textarea
@@ -670,27 +669,27 @@ export default function NrmsGuestsPage() {
                     placeholder="Write your message here..."
                     className="block min-h-64 w-full min-w-0 max-w-full box-border resize-y border-0 bg-transparent px-4 py-4 font-sans text-sm font-normal leading-6 text-neutral-800 outline-none placeholder:font-sans placeholder:text-neutral-400 focus:ring-0"
                   />
-                  <div className="flex items-center justify-between border-t border-neutral-200 bg-white px-3.5 py-2.5">
-                    <span className="text-[9px] text-neutral-400">Estimated {campaignMessage.length <= 160 ? 1 : Math.ceil(campaignMessage.length / 153)} SMS segment{(campaignMessage.length <= 160 ? 1 : Math.ceil(campaignMessage.length / 153)) === 1 ? "" : "s"}</span>
-                    <span className={`text-[10px] font-bold ${campaignMessage.length > 560 ? "text-amber-600" : "text-neutral-400"}`}>{campaignMessage.length}/612</span>
+                  <div className="flex items-center justify-between border-0 border-t border-solid border-neutral-300 bg-white px-3.5 py-2.5">
+                    <span className="text-[11px] text-neutral-400">Estimated {campaignMessage.length <= 160 ? 1 : Math.ceil(campaignMessage.length / 153)} SMS segment{(campaignMessage.length <= 160 ? 1 : Math.ceil(campaignMessage.length / 153)) === 1 ? "" : "s"}</span>
+                    <span className={`text-xs font-bold ${campaignMessage.length > 560 ? "text-amber-600" : "text-neutral-400"}`}>{campaignMessage.length}/612</span>
                   </div>
                 </div>
               </section>
 
               <section className="isolate h-fit min-w-0 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 lg:col-span-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><ShieldCheck className="h-4 w-4" /></span><div><h4 className="text-sm font-bold text-blue-950">Audience preview</h4><p className="text-[10px] text-blue-700/60">A final safety check before queueing.</p></div></div>
+                  <div className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><ShieldCheck className="h-4 w-4" /></span><div><h4 className="text-base font-bold text-blue-950">Audience preview</h4><p className="text-xs text-blue-700/60">A final safety check before queueing.</p></div></div>
                   {previewLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
                 </div>
                 {audiencePreview && !previewLoading ? (
                   <>
                     <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><strong className="block text-lg text-neutral-900">{audiencePreview.totalCount}</strong><span className="text-[8px] font-bold uppercase tracking-[0.12em] text-neutral-400">Matched</span></div>
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-3"><strong className="block text-lg text-emerald-700">{audiencePreview.eligibleCount}</strong><span className="text-[8px] font-bold uppercase tracking-[0.12em] text-emerald-700/60">Will receive</span></div>
-                      <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3"><strong className="block text-lg text-amber-700">{audiencePreview.skippedCount}</strong><span className="text-[8px] font-bold uppercase tracking-[0.12em] text-amber-700/60">Protected</span></div>
+                      <div className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><strong className="block text-xl text-neutral-900">{audiencePreview.totalCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Matched</span></div>
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-3"><strong className="block text-xl text-emerald-700">{audiencePreview.eligibleCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700/60">Will receive</span></div>
+                      <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3"><strong className="block text-xl text-amber-700">{audiencePreview.skippedCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700/60">Protected</span></div>
                     </div>
                     {audiencePreview.skippedCount > 0 && (
-                      <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-[10px] leading-relaxed text-blue-800">
+                      <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-xs leading-relaxed text-blue-800">
                         <strong>Excluded:</strong> {[
                           ["No phone", audiencePreview.reasons.NO_PHONE],
                           ["no consent", audiencePreview.reasons.NO_CONSENT],
@@ -701,21 +700,21 @@ export default function NrmsGuestsPage() {
                       </p>
                     )}
                   </>
-                ) : !previewLoading ? <p className="mt-3 text-[10px] text-blue-700">Choose an audience to calculate who can safely receive this message.</p> : null}
+                ) : !previewLoading ? <p className="mt-3 text-xs text-blue-700">Choose an audience to calculate who can safely receive this message.</p> : null}
               </section>
 
               {campaignError && <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700 lg:col-span-12">{campaignError}</div>}
             </div>
 
             <div className="flex flex-col-reverse gap-2 border-t border-neutral-200 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <p className="hidden max-w-xs text-[9px] leading-relaxed text-neutral-400 sm:block">Only opted-in guests with annual quota remaining will be queued.</p>
+              <p className="hidden max-w-xs text-[11px] leading-relaxed text-neutral-400 sm:block">Only opted-in guests with annual quota remaining will be queued.</p>
               <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row">
-                <button type="button" onClick={() => setCampaignOpen(false)} className="min-h-10 rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
+                <button type="button" onClick={() => setCampaignOpen(false)} className="min-h-10 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
                 <button
                   type="button"
                   disabled={campaignSubmitting || previewLoading || !audiencePreview || audiencePreview.eligibleCount === 0 || campaignName.trim().length < 3 || campaignMessage.trim().length < 5}
                   onClick={() => void queueCampaign()}
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
                 >
                   {campaignSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Queue {audiencePreview?.eligibleCount ?? 0} SMS message{audiencePreview?.eligibleCount === 1 ? "" : "s"}

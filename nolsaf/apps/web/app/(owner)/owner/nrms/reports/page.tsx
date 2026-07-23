@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import { buildReportWorkbook, renderReportCharts, type WorkbookIdentity, type WorkbookInput } from "@/lib/nrmsReportWorkbook";
 import {
   AlertCircle,
   ArrowDown,
@@ -27,6 +29,7 @@ import {
   Clock3,
   Download,
   FileSearch,
+  FileSpreadsheet,
   FileText,
   History,
   Loader2,
@@ -50,6 +53,8 @@ type IconType = ComponentType<{ className?: string }>;
 type PdfSectionKey = "operations" | "reconciliation" | "channels" | "occupancy" | "balances" | "outlets" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
 type PdfPackKey = "current" | "full" | "executive" | "finance" | "operations" | "custom";
 type PdfPackSelection = { key: PdfPackKey; label: string; sections: PdfSectionKey[] };
+// "download" rasterises through html2pdf; "print" hands the same markup to the browser's PDF writer.
+type PdfOutputMode = "download" | "print";
 
 type CurrencyReport = {
   currency: string;
@@ -400,11 +405,6 @@ function dateTime(value: string): string {
     timeZone: "Africa/Dar_es_Salaam",
   }).format(new Date(value));
   return `${formatted} EAT`;
-}
-
-function csvEscape(value: unknown): string {
-  const text = value == null ? "" : String(value);
-  return `"${text.replaceAll('"', '""')}"`;
 }
 
 function reportTimeKey(value: Date): string {
@@ -761,7 +761,7 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         <header className="pdf-certification-head"><p>{sectionNumber("certification")} · NRMS report control</p><h2>Certification, disclaimer and sign-off</h2></header>
         <div className="pdf-certification-body">
           <div className="pdf-disclaimer-row">
-            <div className="pdf-disclaimer"><h3>Important disclaimer</h3>This document is an operational management report generated from transactions recorded in NRMS for the stated property, period and currency. It is not, by itself, a tax invoice, audited financial statement, bank confirmation or statutory filing. Accuracy depends on the completeness and correctness of reservations, folio charges, outlet orders, payments, void reasons and room records entered by authorized users. The verification QR confirms the digitally sealed report identity and headline snapshot when marked “Verify report”; it does not independently validate external receipts, cash held, banking records or source documents. Any correction must be made in the originating NRMS transaction and a new report must then be generated.</div>
+            <div className="pdf-disclaimer"><h3>Important disclaimer</h3>This is an operational management report, not a tax invoice, audited financial statement or statutory filing. Its accuracy depends on the transactions recorded in NRMS by authorized users. Corrections must be made in the originating transaction, then the report generated again.</div>
             <aside className="pdf-verification-card"><Image className="pdf-qr" src={identity.qrDataUrl} alt="Report verification QR code" width={84} height={84} unoptimized /><strong>{identity.verificationMode === "SEALED" ? "Verify report" : "Reference QR"}</strong><p>{identity.verificationMode === "SEALED" ? "Scan to confirm the signed report snapshot." : "Scan to read the report identity."}</p><p className="pdf-verification-ref">{identity.reportNumber}</p></aside>
           </div>
 
@@ -800,6 +800,11 @@ export default function NrmsReportsPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [activePdfSelection, setActivePdfSelection] = useState<PdfPackSelection | null>(null);
+  // Browser print renders the same markup as vector text instead of a bitmap. When set, the report
+  // is portalled to document.body so the print stylesheet can isolate it from the rest of the page.
+  const [printMode, setPrintMode] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const pdfRef = useRef<HTMLDivElement | null>(null);
 
   const loadReports = useCallback(async () => {
@@ -851,25 +856,95 @@ export default function NrmsReportsPage() {
     setRange(next);
   };
 
-  const exportCsv = () => {
-    if (!data) return;
-    const rows = csvRows(activeReport, data, currency);
-    if (!rows.length) return;
-    const headers = Object.keys(rows[0]);
-    const content = [headers.map(csvEscape).join(","), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))].join("\r\n");
-    const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const saveBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `nrms-${activeReport}-${data.range.from}-to-${data.range.to}.csv`;
+    anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
   };
 
-  const generatePdf = async (selection: PdfPackSelection) => {
+  /**
+   * Exports carry the same sealed reference as the PDF so a spreadsheet can be tied back to the
+   * document it came from. If sealing is unavailable the export still proceeds, marked REFERENCE.
+   */
+  const buildExportIdentity = async (): Promise<WorkbookIdentity> => {
+    const generatedAt = new Date();
+    const fallback: WorkbookIdentity = {
+      reportNumber: data ? buildReportNumber(data, generatedAt) : "NRMS-R",
+      generatedAt: generatedAt.toISOString(),
+      generatedBy: "Authenticated NRMS user",
+      generatedByRole: "PROPERTY USER",
+      verificationMode: "REFERENCE",
+    };
+    if (!data || !currencyReport) return fallback;
+    try {
+      const response = await fetch("/api/reports/seal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          kind: "NRMS_PROPERTY",
+          title: "NRMS Property Performance Report",
+          ref: fallback.reportNumber,
+          from: data.range.from,
+          to: data.range.to,
+          figures: [
+            { label: "Property", value: data.property.title },
+            { label: "Currency", value: currencyReport.currency },
+            { label: "Total revenue", value: money(currencyReport.summary.totalRevenue) },
+            { label: "Total collected", value: money(currencyReport.summary.totalCollected) },
+            { label: "Amount due", value: money(currencyReport.summary.amountDue) },
+            { label: "Occupancy", value: `${data.occupancy.occupancyRate.toFixed(1)}%` },
+          ],
+        }),
+      });
+      if (!response.ok) return fallback;
+      const sealed = await response.json() as { ref?: string; generatedAt?: string; generatedBy?: string; role?: string; token?: string };
+      if (!sealed.token) return fallback;
+      return {
+        reportNumber: String(sealed.ref || fallback.reportNumber),
+        generatedAt: String(sealed.generatedAt || fallback.generatedAt),
+        generatedBy: String(sealed.generatedBy || fallback.generatedBy),
+        generatedByRole: String(sealed.role || fallback.generatedByRole),
+        verificationMode: "SEALED",
+      };
+    } catch {
+      return fallback;
+    }
+  };
+
+  const workbookInput = (identity: WorkbookIdentity): WorkbookInput | null => {
+    if (!data || !financeData || !currencyReport) return null;
+    return { data, finance: financeData, currencyReport, identity, label };
+  };
+
+  const exportWorkbook = async () => {
+    if (!data || !financeData || !currencyReport || exportBusy) return;
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      const identity = await buildExportIdentity();
+      const input = workbookInput(identity);
+      if (!input) throw new Error("The report data is not ready yet.");
+      const charts = await renderReportCharts(input);
+      const blob = await buildReportWorkbook(input, charts);
+      const propertyName = data.property.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "property";
+      saveBlob(blob, `NRMS-${propertyName}-${data.range.from}-to-${data.range.to}-${identity.reportNumber}.xlsx`);
+    } catch (workbookError) {
+      console.error("NRMS workbook export failed", workbookError);
+      setExportError(workbookError instanceof Error ? workbookError.message : "The Excel export could not be created.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const generatePdf = async (selection: PdfPackSelection, mode: PdfOutputMode = "download") => {
     if (!data || !financeData || !currencyReport || pdfBusy) return;
     setPrintDialogOpen(false);
     setActivePdfSelection(selection);
+    setPrintMode(mode === "print");
     setPdfBusy(true);
     setPdfError(null);
     try {
@@ -956,27 +1031,52 @@ export default function NrmsReportsPage() {
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       if (!pdfRef.current) throw new Error("The printable report could not be prepared.");
       await Promise.all(Array.from(pdfRef.current.querySelectorAll("img")).map((image) => image.complete ? Promise.resolve() : image.decode()));
+
+      if (mode === "print") {
+        // Hand the live DOM to the browser's own PDF writer. Text stays as font outlines, so the
+        // output is resolution-independent and searchable, at a fraction of the rasterised size.
+        document.body.classList.add("nrms-printing");
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            window.removeEventListener("afterprint", finish);
+            window.clearTimeout(fallback);
+            resolve();
+          };
+          // Most browsers block on print() and then fire afterprint, but neither is guaranteed,
+          // so the timeout makes sure the print class is always cleaned up.
+          const fallback = window.setTimeout(finish, 60_000);
+          window.addEventListener("afterprint", finish);
+          window.print();
+        });
+        document.body.classList.remove("nrms-printing");
+        return;
+      }
+
       const html2pdfModule = await import("html2pdf.js");
       const html2pdf = html2pdfModule && (html2pdfModule.default || html2pdfModule);
       if (!html2pdf) throw new Error("The PDF generator could not be loaded.");
       const propertyName = data.property.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "property";
-      const reportRowCount = (selection.sections.includes("balances") ? data.guestBalances.length : 0)
-        + (selection.sections.includes("payments") ? data.payments.rows.length : 0)
-        + (selection.sections.includes("outlets") ? data.outlets.rows.length : 0)
-        + (selection.sections.includes("audit") ? data.audit.rows.length : 0)
-        + (selection.sections.includes("channels") ? data.reservationSources.length : 0)
-        + (selection.sections.includes("occupancy") ? data.occupancy.byRoomType.length : 0)
-        + (selection.sections.includes("cashiers") ? financeData.shifts.length : 0)
-        + (selection.sections.includes("ledger") ? financeData.ledger.transactions.length : 0)
-        + (selection.sections.includes("tax") ? financeData.tax.rows.length : 0)
-        + (selection.sections.includes("nightAudit") ? financeData.nightAudits.length : 0);
-      const canvasScale = reportRowCount > 500 ? 1.7 : reportRowCount > 250 ? 1.95 : 2.25;
-      const imageQuality = reportRowCount > 500 ? 0.84 : reportRowCount > 250 ? 0.88 : 0.92;
+      // html2pdf rasterises the whole report into one canvas before slicing it into pages, so the
+      // usable scale is bounded by the browser canvas limits (32767px per side, ~268Mpx of area)
+      // rather than by row count. Measuring the rendered element keeps ordinary reports at full
+      // sharpness and only steps down when a report is genuinely long enough to need it.
+      const pdfWidthPx = pdfRef.current.scrollWidth || 718;
+      const pdfHeightPx = pdfRef.current.scrollHeight || 1;
+      const scaleBySide = 32000 / pdfHeightPx;
+      const scaleByArea = Math.sqrt(240_000_000 / (pdfWidthPx * pdfHeightPx));
+      // No lower floor: these are hard browser limits, not preferences. Exceeding them yields a
+      // failed or blank canvas, which is worse than a long report rendering at a reduced scale.
+      const canvasScale = Math.min(2.75, scaleBySide, scaleByArea);
       const pdfOptions = {
         filename: `NRMS-${propertyName}-${selection.key}-${reportNumber}.pdf`,
         margin: [8, 10, 10, 10] as [number, number, number, number],
-        image: { type: "jpeg" as const, quality: imageQuality },
-        html2canvas: { scale: canvasScale, useCORS: true, logging: false, letterRendering: true, backgroundColor: "#ffffff" },
+        // PNG is lossless. JPEG's chroma subsampling and DCT ringing are what smeared the small
+        // text; on a flat, mostly-white document PNG also compresses better than high-quality JPEG.
+        image: { type: "png" as const, quality: 1 },
+        html2canvas: { scale: canvasScale, useCORS: true, logging: false, backgroundColor: "#ffffff", windowWidth: pdfWidthPx, imageTimeout: 0, removeContainer: true },
         jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const, compress: true },
         pagebreak: { mode: ["css", "legacy"], avoid: [".pdf-metric", ".pdf-panel", ".pdf-grid-2", ".pdf-section-title", ".pdf-certification-head", "tr"] },
       };
@@ -1009,8 +1109,10 @@ export default function NrmsReportsPage() {
       console.error("NRMS PDF generation failed", pdfGenerationError);
       setPdfError(pdfGenerationError instanceof Error ? pdfGenerationError.message : "Unable to generate the PDF report. Please try again.");
     } finally {
+      document.body.classList.remove("nrms-printing");
       setPdfIdentity(null);
       setActivePdfSelection(null);
+      setPrintMode(false);
       setPdfBusy(false);
     }
   };
@@ -1027,16 +1129,47 @@ export default function NrmsReportsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 print:hidden">
-          <button type="button" onClick={exportCsv} disabled={!data || loading} className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-40"><Download className="h-3.5 w-3.5" />Export CSV</button>
+          <button type="button" onClick={() => void exportWorkbook()} disabled={!data || !financeData || loading || exportBusy} title="Multi-sheet Excel workbook arranged on USALI lines, with STR performance statistics and charts" className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-40">{exportBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}{exportBusy ? "Building" : "Export Excel"}</button>
           <button type="button" onClick={() => setPrintDialogOpen(true)} disabled={!data || loading || pdfBusy} className="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-40">{pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}{pdfBusy ? "Preparing PDF" : "Print / PDF"}</button>
         </div>
       </header>
 
       {pdfError && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{pdfError}</span><button type="button" onClick={() => setPdfError(null)} aria-label="Dismiss PDF error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
 
-      {pdfIdentity && activePdfSelection && data && financeData && currencyReport && <div className="pointer-events-none fixed left-[-12000px] top-0 z-[-1]" aria-hidden="true"><div ref={pdfRef}><ConsolidatedPdfReport data={data} finance={financeData} currencyReport={currencyReport} identity={pdfIdentity} money={money} selection={activePdfSelection} /></div></div>}
+      {exportError && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{exportError}</span><button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
 
-      <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection) => void generatePdf(selection)} />
+      {/* Mounted only while a print is in flight, so the existing plain Ctrl+P behaviour of this
+          page and its `print:` utility classes are left completely untouched. */}
+      {printMode && <style>{`
+        /* The report body is 718px, which is exactly the printable width of A4 at 96dpi with 10mm
+           side margins, so the print layout maps 1:1 with no browser scaling. */
+        @page { size: A4 portrait; margin: 8mm 10mm 10mm 10mm; }
+        @media print {
+          body.nrms-printing > *:not(#nrms-print-root) { display: none !important; }
+          body.nrms-printing #nrms-print-root { display: block !important; }
+          body.nrms-printing { background: #fff !important; }
+          #nrms-print-root .pdf-metric,
+          #nrms-print-root .pdf-panel,
+          #nrms-print-root .pdf-grid-2,
+          #nrms-print-root .pdf-section-title,
+          #nrms-print-root .pdf-certification-head,
+          #nrms-print-root tr { break-inside: avoid; page-break-inside: avoid; }
+          #nrms-print-root thead { display: table-header-group; }
+        }
+        /* Keeps the report off the screen in the moment between mounting it and the dialog opening. */
+        #nrms-print-root { display: none; }
+      `}</style>}
+
+      {pdfIdentity && activePdfSelection && data && financeData && currencyReport && (() => {
+        const reportNode = <div ref={pdfRef}><ConsolidatedPdfReport data={data} finance={financeData} currencyReport={currencyReport} identity={pdfIdentity} money={money} selection={activePdfSelection} /></div>;
+        // Printing needs the report as a direct child of body so the stylesheet above can hide its
+        // siblings; the download path keeps rendering it offscreen exactly as before.
+        return printMode && typeof document !== "undefined"
+          ? createPortal(<div id="nrms-print-root">{reportNode}</div>, document.body)
+          : <div className="pointer-events-none fixed left-[-12000px] top-0 z-[-1]" aria-hidden="true">{reportNode}</div>;
+      })()}
+
+      <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection, mode) => void generatePdf(selection, mode)} />
 
       <section className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 shadow-sm print:hidden" aria-label="Report controls">
         <div className="mx-auto flex w-max min-w-max items-center justify-center gap-2">
@@ -1133,7 +1266,7 @@ export default function NrmsReportsPage() {
   );
 }
 
-function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { open: boolean; busy: boolean; currentReport: ReportKey; onClose: () => void; onGenerate: (selection: PdfPackSelection) => void }) {
+function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { open: boolean; busy: boolean; currentReport: ReportKey; onClose: () => void; onGenerate: (selection: PdfPackSelection, mode: PdfOutputMode) => void }) {
   const fullPack = PDF_PACKS[0];
   const [packKey, setPackKey] = useState<PdfPackKey>(fullPack.key);
   const [sections, setSections] = useState<PdfSectionKey[]>(fullPack.sections);
@@ -1200,7 +1333,7 @@ function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { o
               </section>
             </div>
 
-            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 bg-white px-5 py-3.5"><div><p className="m-0 text-[11px] font-bold text-neutral-900">{selection.label}</p><p className="mb-0 mt-0.5 text-[9px] text-neutral-500">Identity, assurance and certification cannot be removed from a verified NRMS PDF.</p></div><div className="flex items-center gap-2"><button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">Cancel</button><button type="button" onClick={() => onGenerate(selection)} disabled={busy} className="inline-flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:bg-neutral-300">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}{busy ? "Preparing" : "Generate PDF"}</button></div></footer>
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 bg-white px-5 py-3.5"><div><p className="m-0 text-[11px] font-bold text-neutral-900">{selection.label}</p><p className="mb-0 mt-0.5 text-[9px] text-neutral-500">Identity, assurance and certification cannot be removed from a verified NRMS PDF.</p></div><div className="flex items-center gap-2"><button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">Cancel</button><button type="button" onClick={() => onGenerate(selection, "print")} disabled={busy} title="Uses the browser's own PDF writer. Sharpest text and smallest file, but the filename and page footer come from the browser." className="inline-flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-lg border border-[#073c35] bg-white px-4 text-[10px] font-bold text-[#073c35] hover:bg-emerald-50 disabled:border-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}Print as PDF</button><button type="button" onClick={() => onGenerate(selection, "download")} disabled={busy} title="Downloads a ready-named PDF with the report number and page footer on every page." className="inline-flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:bg-neutral-300">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}{busy ? "Preparing" : "Download PDF"}</button></div></footer>
           </DialogPanel>
         </div>
       </div>
@@ -1749,28 +1882,4 @@ function TableEmpty({ text }: { text: string }) {
 
 function EmptyReport({ title, text }: { title: string; text: string }) {
   return <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-20 text-center"><FileText className="mx-auto h-8 w-8 text-neutral-300" /><h3 className="mb-0 mt-3 text-base font-bold text-neutral-800">{title}</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{text}</p></div>;
-}
-
-function csvRows(report: ReportKey, data: ReportsResponse, currency: string): Array<Record<string, unknown>> {
-  const currencyReport = data.currencies.find((item) => item.currency === currency);
-  if (report === "manager" && currencyReport) return [{ Property: data.property.title, From: data.range.from, To: data.range.to, Arrivals: data.manager.arrivals, Departures: data.manager.departures, "In house": data.manager.inHouse, "Open orders": data.manager.openOrders, "Total revenue": currencyReport.summary.totalRevenue, "Total collected": currencyReport.summary.totalCollected, "Current-period collections": currencyReport.collectionTiming.currentPeriodCollections, "Older balances collected": currencyReport.collectionTiming.priorStayCollections, "Advance deposits": currencyReport.collectionTiming.advanceDeposits, "Collection timing difference": currencyReport.collectionTiming.revenueToCollectionDifference, "Amount due": currencyReport.summary.amountDue, Currency: currency }];
-  if (report === "revenue") {
-    const timingRows = [
-      ["Current-period collections", currencyReport?.collectionTiming.currentPeriodCollections ?? 0],
-      ["Older balances collected", currencyReport?.collectionTiming.priorStayCollections ?? 0],
-      ["Advance deposits", currencyReport?.collectionTiming.advanceDeposits ?? 0],
-      ["Unclassified collection timing", currencyReport?.collectionTiming.unclassifiedCollections ?? 0],
-      ["Collections versus revenue", currencyReport?.collectionTiming.revenueToCollectionDifference ?? 0],
-    ] as Array<[string, number]>;
-    return [
-      ...timingRows.map(([name, amount]) => ({ Section: "Collection timing", Name: name, Transactions: "", Reservations: "", "Reservation share %": "", "Room nights": "", "Average reservation value": "", Amount: amount, "Revenue share %": "", "Folio collected": "", Cancellations: "", "No shows": "", Currency: currency })),
-      ...(currencyReport?.departments ?? []).map((row) => ({ Section: "Revenue department", Name: label(row.department), Transactions: row.transactions, Reservations: "", "Reservation share %": "", "Room nights": "", "Average reservation value": "", Amount: row.amount, "Revenue share %": currencyReport?.summary.totalRevenue ? Number((row.amount / currencyReport.summary.totalRevenue * 100).toFixed(2)) : 0, "Folio collected": "", Cancellations: "", "No shows": "", Currency: currency })),
-      ...data.reservationSources.filter((row) => row.currency === currency).map((row) => ({ Section: "Reservation channel", Name: label(row.source), Transactions: "", Reservations: row.reservations, "Reservation share %": row.reservationShare, "Room nights": row.roomNights, "Average reservation value": row.averageReservationValue, Amount: row.roomRevenue, "Revenue share %": row.revenueShare, "Folio collected": row.folioCollected, Cancellations: row.cancellations, "No shows": row.noShows, Currency: row.currency })),
-    ];
-  }
-  if (report === "payments") return data.payments.rows.filter((row) => row.currency === currency).map((row) => ({ Date: row.occurredAt, Guest: row.guest, Room: row.room, Method: label(row.method), "Recorded by": row.recordedBy, Reference: row.reference || row.referenceNumber, Amount: row.amount, Currency: row.currency, Status: row.voidedAt ? "Voided" : "Active", "Void reason": row.voidReason }));
-  if (report === "balances") return data.guestBalances.filter((row) => row.currency === currency).map((row) => ({ Reservation: row.receiptNumber || row.reservationId, Guest: row.guest, Room: row.room, "Check in": row.checkIn, "Check out": row.checkOut, "Room amount": row.roomAmount, "Folio extras": row.folioExtras, "Outlet paid": row.outletPaid, "Total spend": row.totalSpend, Collected: row.totalCollected, "Amount due": row.amountDue, Currency: row.currency, Status: row.settlementStatus }));
-  if (report === "occupancy") return data.occupancy.byRoomType.map((row) => ({ "Room type": row.roomType, Rooms: row.units, "Available room nights": row.roomNightsAvailable, "Sold room nights": row.roomNightsSold, "Occupancy %": row.occupancyRate }));
-  if (report === "outlets") return data.outlets.rows.filter((row) => row.currency === currency).map((row) => ({ Order: row.orderNumber, Outlet: row.outlet, Guest: row.guest, Room: row.room, Items: row.items, Settlement: label(row.settlementMode), "Payment method": row.settlementMode === "OUTLET_PAYMENT" ? label(row.settlementMethod || "UNCLASSIFIED") : "Not applicable", Ordered: row.orderedAt, Completed: row.completedAt, Amount: row.total, Currency: row.currency, Status: label(row.status), "Created by": row.createdBy, "Void reason": row.voidReason }));
-  return data.audit.rows.map((row) => ({ Date: row.occurredAt, Action: label(row.type), Guest: row.guest, Room: row.room, Reference: row.referenceNumber || row.reservationId, "Performed by": row.actor, Reason: row.reason }));
 }

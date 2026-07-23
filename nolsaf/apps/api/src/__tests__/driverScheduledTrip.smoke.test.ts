@@ -39,7 +39,7 @@ vi.mock("@nolsaf/prisma", async (importOriginal) => {
       return Reflect.get(target, prop, target);
     },
   });
-  return { ...actual, prisma };
+  return { ...actual, prisma, typedPrisma: prisma };
 });
 
 let app: any;

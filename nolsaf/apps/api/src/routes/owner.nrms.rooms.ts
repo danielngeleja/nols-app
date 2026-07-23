@@ -11,6 +11,7 @@ import { requireNrms, loadOwnedProperty } from "../lib/nrms.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { findUnitConflicts } from "../lib/nrmsAvailability.js";
+import { queuePropertyChannelAriUpdates } from "../lib/channels/channelDelivery.js";
 
 export const router = Router();
 
@@ -440,21 +441,27 @@ router.patch("/types/:roomTypeId", (async (req: AuthedRequest, res: Response) =>
       return res.status(400).json({ error: "Invalid room type update", details: parsed.error.flatten() });
     }
     const data = parsed.data;
-    const updated = await prisma.roomType.update({
-      where: { id: type.id },
-      data: {
-        ...(data.name !== undefined ? { name: sanitizeText(data.name) } : {}),
-        ...(data.description !== undefined ? { description: data.description ? sanitizeText(data.description) : null } : {}),
-        ...(data.capacityAdults !== undefined ? { capacityAdults: data.capacityAdults } : {}),
-        ...(data.capacityChildren !== undefined ? { capacityChildren: data.capacityChildren } : {}),
-        ...(data.bedSetup !== undefined ? { bedSetup: data.bedSetup ? sanitizeText(data.bedSetup) : null } : {}),
-        ...(data.baseRate !== undefined ? { baseRate: data.baseRate } : {}),
-        ...(data.currency !== undefined ? { currency: data.currency?.toUpperCase() } : {}),
-        ...(data.images !== undefined ? { images: data.images } : {}),
-        ...(data.amenities !== undefined ? { amenities: data.amenities } : {}),
-        ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
-        ...(data.status !== undefined ? { status: data.status } : {}),
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.roomType.update({
+        where: { id: type.id },
+        data: {
+          ...(data.name !== undefined ? { name: sanitizeText(data.name) } : {}),
+          ...(data.description !== undefined ? { description: data.description ? sanitizeText(data.description) : null } : {}),
+          ...(data.capacityAdults !== undefined ? { capacityAdults: data.capacityAdults } : {}),
+          ...(data.capacityChildren !== undefined ? { capacityChildren: data.capacityChildren } : {}),
+          ...(data.bedSetup !== undefined ? { bedSetup: data.bedSetup ? sanitizeText(data.bedSetup) : null } : {}),
+          ...(data.baseRate !== undefined ? { baseRate: data.baseRate } : {}),
+          ...(data.currency !== undefined ? { currency: data.currency?.toUpperCase() } : {}),
+          ...(data.images !== undefined ? { images: data.images } : {}),
+          ...(data.amenities !== undefined ? { amenities: data.amenities } : {}),
+          ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
+        },
+      });
+      if (data.baseRate !== undefined || data.currency !== undefined || data.status !== undefined) {
+        await queuePropertyChannelAriUpdates(tx, type.propertyId, "room-type-change");
+      }
+      return next;
     });
     res.json({ roomType: formatRoomType(updated) });
   } catch (err: any) {
@@ -512,15 +519,19 @@ router.post("/:propertyId/units", (async (req: AuthedRequest, res: Response) => 
     }
     const roomQuota = await checkNrmsQuota(prisma as any, property.id as number, "rooms");
     if (!roomQuota.allowed) return res.status(409).json({ error: "NRMS room quota reached", quota: roomQuota });
-    const created = await prisma.roomUnit.create({
-      data: {
-        propertyId: property.id as number,
-        roomTypeId: type.id,
-        code: sanitizeText(data.code),
-        floor: data.floor ?? null,
-        notes: data.notes ? sanitizeText(data.notes) : null,
-        bedCount: data.bedCount,
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const next = await tx.roomUnit.create({
+        data: {
+          propertyId: property.id as number,
+          roomTypeId: type.id,
+          code: sanitizeText(data.code),
+          floor: data.floor ?? null,
+          notes: data.notes ? sanitizeText(data.notes) : null,
+          bedCount: data.bedCount,
+        },
+      });
+      await queuePropertyChannelAriUpdates(tx, property.id as number, "room-unit-created");
+      return next;
     });
     res.status(201).json({ roomUnit: formatRoomUnit(created) });
   } catch (err: any) {
@@ -581,6 +592,9 @@ router.patch("/units/:roomUnitId", (async (req: AuthedRequest, res: Response) =>
           },
         });
       }
+      if (statusChanged || (data.roomTypeId !== undefined && data.roomTypeId !== unit.roomTypeId)) {
+        await queuePropertyChannelAriUpdates(tx, unit.propertyId, "room-unit-change");
+      }
       return next;
     });
     res.json({ roomUnit: formatRoomUnit(updated) });
@@ -609,7 +623,10 @@ router.delete("/units/:roomUnitId", (async (req: AuthedRequest, res: Response) =
         code: "ROOM_UNIT_IN_USE",
       });
     }
-    await prisma.roomUnit.delete({ where: { id: unit.id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.roomUnit.delete({ where: { id: unit.id } });
+      await queuePropertyChannelAriUpdates(tx, unit.propertyId, "room-unit-deleted");
+    });
     res.json({ deleted: true });
   } catch (err) {
     console.error("[owner.nrms.rooms] delete unit failed", err);

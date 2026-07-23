@@ -16,12 +16,14 @@ import {
   DoorOpen,
   FileText,
   LayoutDashboard,
+  Link2,
   Loader2,
   LogOut,
   Menu,
   QrCode,
   ReceiptText,
   ShoppingBasket,
+  SlidersHorizontal,
   Sparkles,
   Store,
   Users,
@@ -64,6 +66,8 @@ const NAV_GROUPS = [
       { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
       { href: "/owner/nrms/staff", label: "Staff & roles", icon: UsersRound },
       { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
+      { href: "/owner/nrms/channels", label: "OTA channels", icon: Link2 },
+      { href: "/owner/nrms/controls", label: "Hotel controls", icon: SlidersHorizontal },
     ],
   },
   {
@@ -218,13 +222,13 @@ function NrmsShell({ children }: { children: ReactNode }) {
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
       <div className={`flex min-h-[5rem] items-center border-b border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm"><Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority /></span>
-        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-[15px] font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[9px] text-emerald-100/50">Property management system</p></div></>}
+        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">Property management system</p></div></>}
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="NRMS workspace navigation">
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="mb-3.5 last:mb-0">
-            {!collapsed && <p className="mb-1.5 px-2.5 text-[8px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">{group.label}</p>}
+            {!collapsed && <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">{group.label}</p>}
             <div className="space-y-0.5">
               {group.items.filter((item) => roleCanSee(item.href, accessRole)).map((item) => {
                 const override = item.href === "/owner/nrms/orders" ? ordersNavPresentation(accessRole) : null;
@@ -232,7 +236,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 const label = override?.label ?? item.label;
                 const active = isActive(pathname, item);
                 return (
-                  <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group flex min-h-9 items-center rounded-lg border text-[12px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
+                  <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                     {!collapsed && <span className="truncate">{label}</span>}
                   </Link>
@@ -244,10 +248,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="border-t border-white/10 bg-black/5 p-2.5">
-        <Link href={exitHref} title={collapsed ? "Exit NRMS" : undefined} className={`flex min-h-9 items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[11px] font-semibold text-amber-100 no-underline transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
+        <Link href={exitHref} title={collapsed ? "Exit NRMS" : undefined} className={`flex min-h-9 items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[12px] font-semibold text-amber-100 no-underline transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
           <LogOut className="h-3.5 w-3.5 shrink-0" />{!collapsed && (accessRole === "OWNER" ? "Exit to marketplace" : "Exit NRMS")}
         </Link>
-        <button type="button" onClick={toggleCollapsed} className={`mt-1.5 hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[10px] font-semibold text-emerald-100/60 hover:bg-white/10 hover:text-white lg:flex ${collapsed ? "justify-center" : "justify-between px-2.5"}`} aria-label={collapsed ? "Expand NRMS sidebar" : "Collapse NRMS sidebar"}>
+        <button type="button" onClick={toggleCollapsed} className={`mt-1.5 hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[11px] font-semibold text-emerald-100/60 hover:bg-white/10 hover:text-white lg:flex ${collapsed ? "justify-center" : "justify-between px-2.5"}`} aria-label={collapsed ? "Expand NRMS sidebar" : "Collapse NRMS sidebar"}>
           {!collapsed && "Collapse sidebar"}{collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
       </div>

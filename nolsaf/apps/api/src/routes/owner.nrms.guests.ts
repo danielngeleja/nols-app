@@ -15,7 +15,7 @@ router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler
 
 /**
  * GET /api/owner/nrms/guests/:propertyId?q=&page=&pageSize=&sortOrder=
- * Search guests by name or phone for one owned property.
+ * Search guests by name, phone or email for one owned property.
  */
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
@@ -29,7 +29,7 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     const sortOrder = req.query.sortOrder === "desc" ? "desc" : "asc";
     const where = {
       propertyId: property.id as number,
-      ...(q ? { OR: [{ fullName: { contains: q } }, { phone: { contains: q } }] } : {}),
+      ...(q ? { OR: [{ fullName: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }] } : {}),
     };
 
     const [total, guests] = await prisma.$transaction([

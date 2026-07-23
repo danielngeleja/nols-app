@@ -11,6 +11,12 @@ import { startNrmsDunningWorker } from "./nrmsDunning.js";
 import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
+import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
+import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
+import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
+import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
+import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
+import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -75,6 +81,20 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startNrmsDunningWorker();
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();
+    startNrmsGuestAutomationWorker();
+    startChannelOperationsWorker();
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
+      startBookingComReservationSyncWorker();
+      startBookingComOutboundDeliveryWorker();
+    } else {
+      console.log("[booking-com-reservations] worker disabled (set RUN_BOOKING_COM_WORKER=true to enable)");
+    }
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_EXPEDIA_WORKER || "").trim().toLowerCase())) {
+      startExpediaReservationSyncWorker();
+      startExpediaOutboundDeliveryWorker();
+    } else {
+      console.log("[expedia-reservations] worker disabled (set RUN_EXPEDIA_WORKER=true to enable)");
+    }
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
       startLifecycleHealthWorker();
     } else {

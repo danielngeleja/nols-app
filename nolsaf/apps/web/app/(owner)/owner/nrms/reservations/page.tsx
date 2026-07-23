@@ -2,12 +2,12 @@
 
 // NRMS reservations (doc 7.3, 7.4): list, create external/walk-in
 // reservations, and run the stay lifecycle with payments and balances.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowUpDown, Check, ChevronDown, ChevronUp, Clock3, FileClock, Loader2, LockKeyhole, Plus, Printer, ReceiptText, Store, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards, X } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { useNrms } from "../_components/NrmsProvider";
 
@@ -89,6 +89,40 @@ type Reservation = {
   payments?: Payment[];
   charges?: Charge[];
   outletOrders?: OutletOrder[];
+  group: { id: number; reference: string; name: string; status: string } | null;
+};
+
+type GuestSearchResult = {
+  id: number;
+  fullName: string;
+  phone: string | null;
+  email: string | null;
+  nationality: string | null;
+  reservationCount: number;
+  lastStay: { checkIn: string; checkOut: string; status: string } | null;
+};
+
+type GuestHistory = GuestSearchResult & {
+  notes?: string | null;
+  createdAt?: string | null;
+  reservations: Array<{ id: number; status: string; source: string; checkIn: string; checkOut: string; currency: string; totalAmount: number | null; amountPaid?: number | null }>;
+};
+
+type ReservationGroup = {
+  id: number;
+  reference: string;
+  name: string;
+  notes: string | null;
+  status: string;
+  memberCount: number;
+  members: Array<{
+    id: number;
+    status: string;
+    checkIn: string;
+    checkOut: string;
+    guestProfile: { id: number; fullName: string; phone: string | null } | null;
+    rooms: Array<{ roomUnitCode: string | null; roomTypeName: string | null }>;
+  }>;
 };
 
 type RoomType = {
@@ -262,24 +296,33 @@ export default function NrmsReservationsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults>({});
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
+  const [groups, setGroups] = useState<ReservationGroup[]>([]);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}`, {
-        params: {
-          ...(statusFilter ? { status: statusFilter } : {}),
-          ...(sourceFilter ? { source: sourceFilter } : {}),
-          limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
-          sortBy,
-          sortOrder,
-        },
-      });
-      setReservations(r.data?.reservations ?? []);
-      setTotalReservations(Number(r.data?.total ?? 0));
+      const [reservationResponse, groupResponse] = await Promise.all([
+        apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}`, {
+          params: {
+            ...(statusFilter ? { status: statusFilter } : {}),
+            ...(sourceFilter ? { source: sourceFilter } : {}),
+            limit: PAGE_SIZE,
+            offset: (page - 1) * PAGE_SIZE,
+            sortBy,
+            sortOrder,
+          },
+        }),
+        apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/groups`),
+      ]);
+      setReservations(reservationResponse.data?.reservations ?? []);
+      setTotalReservations(Number(reservationResponse.data?.total ?? 0));
+      setGroups(groupResponse.data?.groups ?? []);
+      setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id)));
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load reservations");
     } finally {
@@ -293,6 +336,8 @@ export default function NrmsReservationsPage() {
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds([]);
+    setSelectedGroupId(null);
   }, [selectedPropertyId]);
 
   const changeSort = (field: SortField) => {
@@ -392,6 +437,38 @@ export default function NrmsReservationsPage() {
         </button>
       </div>
 
+      {(selectedIds.length > 0 || groups.length > 0) && (
+        <section className="mb-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Users className="h-4 w-4" /></span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-neutral-900">Group operations</p>
+                <p className="text-xs text-neutral-500">Coordinate party arrivals and departures while each room keeps its own checks.</p>
+              </div>
+            </div>
+            {selectedIds.length >= 2 && (
+              <button type="button" onClick={() => setShowCreateGroup(true)} className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800">
+                <Plus className="h-3.5 w-3.5" /> Create group from {selectedIds.length}
+              </button>
+            )}
+          </div>
+          {groups.length > 0 && (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {groups.map((group) => (
+                <button key={group.id} type="button" onClick={() => setSelectedGroupId(group.id)} className="min-w-[210px] rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-bold text-neutral-900">{group.name}</span>
+                    <span className="shrink-0 text-[10px] font-bold text-emerald-700">{group.memberCount} rooms</span>
+                  </span>
+                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-400">{group.reference} · {group.status.replace(/_/g, " ")}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16 text-neutral-400">
           <Loader2 className="w-6 h-6 animate-spin" />
@@ -431,6 +508,15 @@ export default function NrmsReservationsPage() {
             <table className="w-full min-w-[1500px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                  <th className="w-11 px-3 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all ungrouped reservations on this page"
+                      checked={reservations.some((reservation) => !reservation.group) && reservations.filter((reservation) => !reservation.group).every((reservation) => selectedIds.includes(reservation.id))}
+                      onChange={(event) => setSelectedIds(event.target.checked ? reservations.filter((reservation) => !reservation.group).map((reservation) => reservation.id) : [])}
+                      className="h-4 w-4 accent-emerald-700"
+                    />
+                  </th>
                   <SortableHeader label="Guest" field="guest" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Phone" field="phone" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Nationality" field="nationality" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
@@ -456,8 +542,20 @@ export default function NrmsReservationsPage() {
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   return (
                     <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
+                      <td className="px-3 py-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
+                          checked={selectedIds.includes(reservation.id)}
+                          disabled={Boolean(reservation.group)}
+                          title={reservation.group ? `Already in ${reservation.group.name}` : "Select for a group"}
+                          onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
+                          className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
+                        />
+                      </td>
                       <td className="px-4 py-3.5">
                         <div className="font-bold text-neutral-900">{reservation.guestProfile?.fullName ?? "Guest"}</div>
+                        {reservation.group && <button type="button" onClick={() => setSelectedGroupId(reservation.group!.id)} className="mt-1 cursor-pointer appearance-none border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 hover:underline">{reservation.group.name}</button>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-600">
                         {reservation.guestProfile?.phone ?? "—"}
@@ -540,6 +638,27 @@ export default function NrmsReservationsPage() {
           onChanged={load}
         />
       )}
+      {showCreateGroup && (
+        <CreateReservationGroupModal
+          propertyId={selectedPropertyId}
+          reservationIds={selectedIds}
+          reservations={reservations.filter((reservation) => selectedIds.includes(reservation.id))}
+          onClose={() => setShowCreateGroup(false)}
+          onSaved={async (groupId) => {
+            setShowCreateGroup(false);
+            setSelectedIds([]);
+            await load();
+            setSelectedGroupId(groupId);
+          }}
+        />
+      )}
+      {selectedGroupId && (
+        <ReservationGroupModal
+          groupId={selectedGroupId}
+          onClose={() => setSelectedGroupId(null)}
+          onChanged={load}
+        />
+      )}
     </div>
   );
 }
@@ -584,6 +703,9 @@ function SortableHeader({
 
 function ModalFrame({
   title,
+  subtitle,
+  icon,
+  footer,
   onClose,
   children,
   wide,
@@ -593,6 +715,9 @@ function ModalFrame({
   compact = false,
 }: {
   title: string;
+  subtitle?: string;
+  icon?: React.ReactNode;
+  footer?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
   wide?: boolean;
@@ -626,20 +751,72 @@ function ModalFrame({
         aria-label={title}
         className={`relative flex w-full min-w-0 flex-col rounded-2xl border border-white/70 bg-white shadow-2xl ${compact ? "max-w-2xl overflow-hidden" : `max-h-[calc(100dvh-1.5rem)] overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : "max-w-md"}`}`}
       >
-        <div className={`flex shrink-0 items-center justify-between border-b border-neutral-100 ${compact ? "px-4 py-2.5" : "px-5 py-4 sm:px-6"}`}>
-          <div className={compact ? "flex items-center gap-2.5" : ""}>
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
-            {compact && <span className="h-4 w-px bg-neutral-200" aria-hidden="true" />}
-            <h3 className={`mb-0 font-bold tracking-tight text-neutral-950 ${compact ? "text-sm" : "mt-1 text-lg"}`}>{title}</h3>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close dialog" className={`flex items-center justify-center rounded-full border-0 bg-transparent text-neutral-500 shadow-none transition hover:bg-neutral-100 hover:text-neutral-900 ${compact ? "h-7 w-7" : "h-9 w-9"}`}>
+        <div className={`flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 ${compact ? "px-4 py-2.5" : "px-5 py-4 sm:px-6"}`}>
+          {compact ? (
+            <div className="flex items-center gap-2.5">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
+              <span className="h-4 w-px bg-neutral-200" aria-hidden="true" />
+              <h3 className="mb-0 text-sm font-bold tracking-tight text-neutral-950">{title}</h3>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-3">
+              {icon && <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">{icon}</span>}
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
+                <h3 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h3>
+                {subtitle && <p className="mb-0 mt-0.5 text-xs text-neutral-500">{subtitle}</p>}
+              </div>
+            </div>
+          )}
+          <button type="button" onClick={onClose} aria-label="Close dialog" className={`flex shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-neutral-500 shadow-none transition hover:bg-neutral-100 hover:text-neutral-900 ${compact ? "h-7 w-7" : "h-9 w-9"}`}>
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className={compact ? "overflow-visible p-3" : "min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6"}>{children}</div>
+        {footer && <div className="shrink-0 border-t border-neutral-100 bg-white px-5 py-4 sm:px-6">{footer}</div>}
       </div>
     </div>,
     document.body,
+  );
+}
+
+function ReturningGuestMatches({
+  guests,
+  align = "left",
+  onSelect,
+}: {
+  guests: GuestSearchResult[];
+  align?: "left" | "right";
+  onSelect: (guest: GuestSearchResult) => void;
+}) {
+  return (
+    <span className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-20 mt-1 block w-[min(36rem,calc(100vw-3rem))] overflow-hidden rounded-md border border-neutral-300 bg-white shadow-[0_14px_35px_-18px_rgba(15,23,42,0.28)]`}>
+      <span className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3">
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-800">Returning guests</span>
+        <span className="rounded-sm border border-neutral-200 bg-neutral-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">{guests.length} match{guests.length === 1 ? "" : "es"}</span>
+      </span>
+      <span className="hidden border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:grid sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] sm:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto]">
+        <span>Guest</span>
+        <span>Phone</span>
+        <span>Nationality</span>
+        <span className="hidden lg:block">Email</span>
+        <span className="text-right">Stays</span>
+      </span>
+      {guests.map((guest, index) => (
+        <button key={guest.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(guest)} className={`grid w-full cursor-pointer appearance-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-0 border-b px-4 py-3 text-left transition last:border-b-0 focus-visible:outline-none sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto] ${index % 3 === 0 ? "border-sky-100 bg-sky-50/75 hover:bg-sky-100 focus-visible:bg-sky-100" : index % 3 === 1 ? "border-amber-100 bg-amber-50/75 hover:bg-amber-100 focus-visible:bg-amber-100" : "border-violet-100 bg-violet-50/70 hover:bg-violet-100 focus-visible:bg-violet-100"}`}>
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-bold text-neutral-900">{guest.fullName}</span>
+            <span className="block truncate text-[10px] text-neutral-400 sm:hidden">{guest.phone || "No contact recorded"}</span>
+            <span className="hidden truncate font-mono text-[10px] text-neutral-400 sm:block">G-{String(guest.id).padStart(4, "0")}</span>
+          </span>
+          <span className="hidden min-w-0 truncate text-[11px] text-neutral-600 sm:block">{guest.phone || "Not recorded"}</span>
+          <span className="hidden min-w-0 truncate text-[11px] text-neutral-600 sm:block">{guest.nationality || "Not recorded"}</span>
+          <span className="hidden min-w-0 truncate text-[11px] text-neutral-600 lg:block">{guest.email || "Not recorded"}</span>
+          <span className="shrink-0 text-right text-[10px] font-bold text-neutral-500">{guest.reservationCount} stay{guest.reservationCount === 1 ? "" : "s"}</span>
+        </button>
+      ))}
+      <span className="block border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">Select a guest to review the full profile</span>
+    </span>
   );
 }
 
@@ -664,6 +841,12 @@ function CreateReservationModal({
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [nationality, setNationality] = useState("");
+  const [selectedGuestId, setSelectedGuestId] = useState<number | null>(null);
+  const [guestMatches, setGuestMatches] = useState<GuestSearchResult[]>([]);
+  const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
+  const [searchingGuests, setSearchingGuests] = useState(false);
+  const [showGuestMatches, setShowGuestMatches] = useState(false);
+  const [guestSearchField, setGuestSearchField] = useState<"name" | "phone" | null>(null);
   const [source, setSource] = useState("WALK_IN");
   const [checkIn, setCheckIn] = useState(defaultCheckIn);
   const [checkOut, setCheckOut] = useState(() => shiftDate(defaultCheckIn, 1));
@@ -676,6 +859,9 @@ function CreateReservationModal({
   const [error, setError] = useState<string | null>(null);
   const [unitAvailability, setUnitAvailability] = useState<Record<number, boolean>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [previewGuest, setPreviewGuest] = useState<GuestSearchResult | null>(null);
+  const [previewDetail, setPreviewDetail] = useState<GuestHistory | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -684,10 +870,82 @@ function CreateReservationModal({
       .catch(() => setRoomTypes([]));
   }, [propertyId]);
 
+  useEffect(() => {
+    const query = guestSearchField === "phone" ? guestPhone.trim() : guestSearchField === "name" ? guestName.trim() : "";
+    const minimumLength = guestSearchField === "phone" ? 3 : 2;
+    if (selectedGuestId || !guestSearchField || query.length < minimumLength) {
+      setGuestMatches([]);
+      setSearchingGuests(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearchingGuests(true);
+      apiClient
+        .get<any>(`/api/owner/nrms/guests/${propertyId}`, { params: { q: query, pageSize: 6 } })
+        .then((response) => {
+          if (cancelled) return;
+          setGuestMatches(response.data?.guests ?? []);
+          setShowGuestMatches(true);
+        })
+        .catch(() => {
+          if (!cancelled) setGuestMatches([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingGuests(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [guestName, guestPhone, guestSearchField, propertyId, selectedGuestId]);
+
+  const openGuestPreview = async (guest: GuestSearchResult) => {
+    setShowGuestMatches(false);
+    setPreviewGuest(guest);
+    setPreviewDetail(null);
+    setPreviewLoading(true);
+    try {
+      const response = await apiClient.get<any>(`/api/owner/nrms/guests/${propertyId}/${guest.id}`);
+      setPreviewDetail(response.data?.guest ?? { ...guest, reservations: [] });
+    } catch {
+      setPreviewDetail({ ...guest, reservations: [] });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const confirmPreviewGuest = () => {
+    if (!previewGuest) return;
+    const detail = previewDetail;
+    setSelectedGuestId(previewGuest.id);
+    setGuestName(detail?.fullName ?? previewGuest.fullName);
+    setGuestPhone(detail?.phone ?? previewGuest.phone ?? "");
+    setNationality(detail?.nationality ?? previewGuest.nationality ?? "");
+    setGuestMatches([]);
+    setShowGuestMatches(false);
+    setGuestSearchField(null);
+    setGuestHistory(detail ?? { ...previewGuest, reservations: [] });
+    setPreviewGuest(null);
+    setPreviewDetail(null);
+  };
+
+  const clearReturningGuest = () => {
+    setSelectedGuestId(null);
+    setGuestHistory(null);
+  };
+
   const type = roomTypes.find((t) => t.id === roomTypeId) || null;
   const activeUnits = type ? type.units.filter((u) => u.status === "ACTIVE") : [];
   const nights = nightsBetween(checkIn, checkOut);
   const calculatedTotal = type?.baseRate != null ? Number(type.baseRate) * nights : null;
+  const previewStats = useMemo(() => {
+    const rows = previewDetail?.reservations ?? [];
+    const spend = rows.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0);
+    const paid = rows.reduce((sum, row) => sum + (row.amountPaid ?? 0), 0);
+    return { rows, spend, paid, balance: spend - paid, currency: rows[0]?.currency || "TZS", stays: rows.length };
+  }, [previewDetail]);
 
   useEffect(() => {
     if (!roomTypeId || !checkIn || !checkOut || checkOut <= checkIn) {
@@ -774,6 +1032,7 @@ function CreateReservationModal({
         checkOut,
         adults,
         guest: {
+          ...(selectedGuestId ? { guestProfileId: selectedGuestId } : {}),
           fullName: guestName.trim(),
           phone: guestPhone.trim(),
           nationality: nationality.trim(),
@@ -789,18 +1048,84 @@ function CreateReservationModal({
   };
 
   return (
-    <ModalFrame title="New reservation" onClose={onClose} wide>
+    <ModalFrame
+      title="New reservation"
+      subtitle="Add a guest stay and assign a room"
+      icon={<CalendarPlus className="h-5 w-5" />}
+      onClose={onClose}
+      wide
+      footer={
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="m-0 text-xs text-neutral-500">{nights} {nights === 1 ? "night" : "nights"}{type ? ` · ${type.name}` : ""}</p>
+            <p className="mb-0 mt-0.5 text-base font-bold text-neutral-950">{total.trim() ? `${type?.currency || "TZS"} ${Number(total).toLocaleString()}` : "Total pending"}</p>
+          </div>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy || !guestName.trim() || guestPhone.trim().length < 7 || !nationality.trim() || !checkIn || !checkOut || !roomTypeId || !total.trim()}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {busy ? "Saving reservation..." : "Create reservation"}
+          </button>
+        </div>
+      }
+    >
       <div className="space-y-5">
         <section>
-          <h4 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Guest details</h4>
+          <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500"><UserRound className="h-3.5 w-3.5" />Guest details</h4>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-            <label className="block min-w-0 text-sm">
+            <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Guest name <span className="text-red-500">*</span></span>
-              <input required autoComplete="name" className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Asha Kimaro" />
+              <span className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                  required
+                  autoComplete="off"
+                  className={`${inputCls} pl-9 pr-9`}
+                  value={guestName}
+                  onFocus={() => {
+                    if (guestSearchField !== "name") setGuestMatches([]);
+                    setGuestSearchField("name");
+                    if (guestName.trim().length >= 2) setShowGuestMatches(true);
+                  }}
+                  onChange={(e) => {
+                    clearReturningGuest();
+                    setGuestSearchField("name");
+                    setGuestName(e.target.value);
+                  }}
+                  placeholder="Search returning guest or enter a new name"
+                />
+                {searchingGuests && guestSearchField === "name" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
+              </span>
+              {showGuestMatches && guestSearchField === "name" && guestMatches.length > 0 && <ReturningGuestMatches guests={guestMatches} onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
-            <label className="block min-w-0 text-sm">
+            <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Phone number <span className="text-red-500">*</span></span>
-              <input required type="tel" autoComplete="tel" className={inputCls} value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} placeholder="+255 700 000 000" />
+              <span className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                  required
+                  type="tel"
+                  autoComplete="off"
+                  className={`${inputCls} pl-9 pr-9`}
+                  value={guestPhone}
+                  onFocus={() => {
+                    if (guestSearchField !== "phone") setGuestMatches([]);
+                    setGuestSearchField("phone");
+                    if (guestPhone.trim().length >= 3) setShowGuestMatches(true);
+                  }}
+                  onChange={(e) => {
+                    clearReturningGuest();
+                    setGuestSearchField("phone");
+                    setGuestPhone(e.target.value);
+                  }}
+                  placeholder="Search by phone or enter a new number"
+                />
+                {searchingGuests && guestSearchField === "phone" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
+              </span>
+              {showGuestMatches && guestSearchField === "phone" && guestMatches.length > 0 && <ReturningGuestMatches guests={guestMatches} align="right" onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Nationality <span className="text-red-500">*</span></span>
@@ -817,10 +1142,35 @@ function CreateReservationModal({
               </select>
             </label>
           </div>
+          {selectedGuestId && guestHistory && (
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <History className="mt-0.5 h-4 w-4 text-emerald-700" />
+                  <div>
+                    <p className="text-xs font-bold text-emerald-950">Returning guest profile selected</p>
+                    <p className="mt-0.5 text-[11px] text-emerald-800">{guestHistory.reservations.length} previous reservation{guestHistory.reservations.length === 1 ? "" : "s"} at this property.</p>
+                  </div>
+                </div>
+                <button type="button" onClick={clearReturningGuest} className="inline-flex shrink-0 cursor-pointer appearance-none items-center rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900">Use a new guest</button>
+              </div>
+              {guestHistory.reservations.length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {guestHistory.reservations.slice(0, 3).map((stay) => (
+                    <div key={stay.id} className="rounded-lg border border-white bg-white/80 px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">{stay.status.replace(/_/g, " ")}</p>
+                      <p className="mt-1 text-xs font-semibold text-neutral-800">{fmtDate(stay.checkIn)} – {fmtDate(stay.checkOut)}</p>
+                      <p className="mt-0.5 text-[10px] text-neutral-500">{SOURCE_LABEL[stay.source] ?? stay.source}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="border-t border-neutral-100 pt-5">
-          <h4 className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Stay details</h4>
+          <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500"><CalendarDays className="h-3.5 w-3.5" />Stay details</h4>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
             <div className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Check-in <span className="text-red-500">*</span></span>
@@ -880,24 +1230,31 @@ function CreateReservationModal({
                 })}
               </select>
             </label>
-            <label className="block min-w-0 text-sm">
+            <div className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Adults</span>
-              <input type="number" min={1} className={inputCls} value={adults} onChange={(e) => setAdults(Math.max(1, Number(e.target.value) || 1))} />
-            </label>
+              <div className="flex h-11 items-center justify-between rounded-xl border border-neutral-300 bg-white px-1.5">
+                <button type="button" aria-label="Fewer adults" onClick={() => setAdults(Math.max(1, adults - 1))} disabled={adults <= 1} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-neutral-100 text-neutral-700 transition hover:bg-neutral-200 disabled:opacity-40"><Minus className="h-4 w-4" /></button>
+                <span className="min-w-8 text-center text-sm font-bold text-neutral-900">{adults}</span>
+                <button type="button" aria-label="More adults" onClick={() => setAdults(adults + 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-neutral-100 text-neutral-700 transition hover:bg-neutral-200"><Plus className="h-4 w-4" /></button>
+              </div>
+            </div>
             <label className="block min-w-0 text-sm">
-              <span className="mb-1.5 block font-medium text-neutral-700">Total amount <span className="font-normal text-neutral-500">({type?.currency || "select a room type"})</span> <span className="text-red-500">*</span></span>
-              <input
-                required
-                type="number"
-                min={0}
-                className={inputCls}
-                value={total}
-                onChange={(e) => {
-                  setTotal(e.target.value);
-                  setTotalManuallyEdited(true);
-                }}
-                placeholder="90000"
-              />
+              <span className="mb-1.5 block font-medium text-neutral-700">Total amount <span className="text-red-500">*</span></span>
+              <span className="flex h-11 items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 transition focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/15">
+                <span className="shrink-0 text-sm font-bold text-neutral-500">{type?.currency || "TZS"}</span>
+                <input
+                  required
+                  type="text"
+                  inputMode="numeric"
+                  className="h-full w-full min-w-0 border-0 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
+                  value={total}
+                  onChange={(e) => {
+                    setTotal(e.target.value.replace(/[^\d.]/g, ""));
+                    setTotalManuallyEdited(true);
+                  }}
+                  placeholder="90,000"
+                />
+              </span>
               {type?.baseRate != null && (
                 <span className="mt-1.5 block text-[11px] text-neutral-400">
                   {nights} {nights === 1 ? "night" : "nights"} × {type.currency} {Number(type.baseRate).toLocaleString()}. You can edit this total.
@@ -909,18 +1266,299 @@ function CreateReservationModal({
 
         {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
 
-        <div className="sticky bottom-0 -mx-5 -mb-5 border-t border-neutral-100 bg-white/95 px-5 pb-5 pt-4 backdrop-blur sm:-mx-6 sm:-mb-6 sm:px-6 sm:pb-6">
-          <button
-            type="button"
-            onClick={submit}
-            disabled={busy || !guestName.trim() || guestPhone.trim().length < 7 || !nationality.trim() || !checkIn || !checkOut || !roomTypeId || !total.trim()}
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+        {previewGuest && (
+          <ModalFrame
+            title="Guest profile"
+            subtitle="Review the guest identity and stay relationship before continuing"
+            icon={<UserRound className="h-5 w-5" />}
+            onClose={() => { setPreviewGuest(null); setPreviewDetail(null); }}
+            elevated
+            wide
+            footer={
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-2 text-xs text-neutral-500">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                  <span>Using this profile keeps the new stay attached to the guest&apos;s existing history.</span>
+                </div>
+                <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row">
+                  <button type="button" onClick={() => { setPreviewGuest(null); setPreviewDetail(null); }} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-neutral-300 bg-white px-5 text-sm font-bold text-neutral-700 transition hover:bg-neutral-50">Cancel</button>
+                  <button type="button" onClick={confirmPreviewGuest} disabled={previewLoading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50"><Check className="h-4 w-4" />Use this guest</button>
+                </div>
+              </div>
+            }
           >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            {busy ? "Saving reservation..." : "Create reservation"}
+            {previewLoading ? (
+              <div className="flex min-h-72 flex-col items-center justify-center gap-3 text-neutral-400"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /><span className="text-xs">Loading guest relationship…</span></div>
+            ) : (
+              <div className="space-y-5">
+                <section className="overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white">
+                  <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-xl font-black text-white shadow-sm">
+                        {(previewDetail?.fullName ?? previewGuest.fullName).split(/\s+/).slice(0, 2).map((name) => name[0]).join("").toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700"><History className="h-3 w-3" />Returning guest</span>
+                        <h4 className="m-0 truncate text-xl font-black tracking-tight text-neutral-950 sm:text-2xl">{previewDetail?.fullName ?? previewGuest.fullName}</h4>
+                        <p className="mb-0 mt-1 text-xs text-neutral-500">{previewDetail?.createdAt ? `Guest relationship since ${fmtDate(previewDetail.createdAt)}` : "Existing property guest profile"}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-emerald-100 bg-white/90 px-3 py-2 text-left sm:text-right">
+                      <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Profile status</p>
+                      <p className="mb-0 mt-1 flex items-center gap-1.5 text-xs font-bold text-emerald-700 sm:justify-end"><Check className="h-3.5 w-3.5" />Recognised guest</p>
+                    </div>
+                  </div>
+                  <div className="grid border-t border-emerald-100 bg-white/70 sm:grid-cols-3">
+                    <div className="flex items-center gap-3 border-b border-emerald-100 px-5 py-4 sm:border-b-0 sm:border-r"><BedDouble className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Recorded stays</p><p className="mb-0 mt-1 text-base font-black text-neutral-950">{previewStats.stays}</p></div></div>
+                    <div className="flex items-center gap-3 border-b border-emerald-100 px-5 py-4 sm:border-b-0 sm:border-r"><CircleDollarSign className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Lifetime value</p><p className="mb-0 mt-1 text-base font-black text-neutral-950">{previewStats.currency} {previewStats.spend.toLocaleString()}</p></div></div>
+                    <div className="flex items-center gap-3 px-5 py-4"><WalletCards className={`h-5 w-5 ${previewStats.balance > 0 ? "text-amber-600" : "text-emerald-700"}`} /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Open balance</p><p className={`mb-0 mt-1 text-base font-black ${previewStats.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{previewStats.currency} {Math.max(0, previewStats.balance).toLocaleString()}</p></div></div>
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-2 flex items-center justify-between gap-3"><h4 className="m-0 text-xs font-bold uppercase tracking-[0.13em] text-neutral-500">Guest details</h4><span className="text-[10px] text-neutral-400">Property record</span></div>
+                  <div className="grid overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 sm:grid-cols-3">
+                    <div className="flex min-w-0 items-start gap-3 border-b border-neutral-200 p-4 sm:border-b-0 sm:border-r"><Phone className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Phone</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900">{previewDetail?.phone || previewGuest.phone || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-start gap-3 border-b border-neutral-200 p-4 sm:border-b-0 sm:border-r"><Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900" title={previewDetail?.email || previewGuest.email || "Not recorded"}>{previewDetail?.email || previewGuest.email || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-start gap-3 p-4"><Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Nationality</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900">{previewDetail?.nationality || previewGuest.nationality || "Not recorded"}</p></div></div>
+                  </div>
+                </section>
+
+                {previewDetail?.notes && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950"><p className="m-0 font-bold">Front-desk note</p><p className="mb-0 mt-1 leading-5 text-amber-900">{previewDetail.notes}</p></div>}
+
+                <section>
+                  <div className="mb-2 flex items-end justify-between gap-3"><div><h4 className="m-0 text-xs font-bold uppercase tracking-[0.13em] text-neutral-500">Stay records</h4><p className="mb-0 mt-1 text-[11px] text-neutral-400">Most recent property reservations</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">{previewStats.rows.length} total</span></div>
+                  {previewStats.rows.length ? (
+                    <div className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+                      {previewStats.rows.slice(0, 8).map((row) => {
+                        const rowBalance = Math.max(0, (row.totalAmount ?? 0) - (row.amountPaid ?? 0));
+                        return (
+                        <div key={row.id} className="grid gap-3 px-4 py-3.5 transition hover:bg-neutral-50 sm:grid-cols-[1fr_auto] sm:items-center">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500"><BedDouble className="h-4 w-4" /></span>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">{fmtDate(row.checkIn)} – {fmtDate(row.checkOut)}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${STATUS_CLS[row.status] ?? "bg-neutral-100 text-neutral-600"}`}>{row.status.replace(/_/g, " ")}</span></div>
+                              <p className="mb-0 mt-1 text-[10px] text-neutral-500">{SOURCE_LABEL[row.source] ?? row.source}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-5 text-right sm:min-w-52">
+                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Stay total</p><p className="mb-0 mt-1 text-xs font-black text-neutral-900">{row.currency} {(row.totalAmount ?? 0).toLocaleString()}</p></div>
+                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{rowBalance > 0 ? "Balance" : "Payment"}</p><p className={`mb-0 mt-1 text-xs font-black ${rowBalance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{rowBalance > 0 ? `${row.currency} ${rowBalance.toLocaleString()}` : "Settled"}</p></div>
+                          </div>
+                        </div>
+                      )})}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center"><BedDouble className="mb-2 h-5 w-5 text-neutral-300" /><p className="m-0 text-xs font-bold text-neutral-600">No stay records yet</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">This guest has no reservations recorded at this property.</p></div>
+                  )}
+                </section>
+              </div>
+            )}
+          </ModalFrame>
+        )}
+      </div>
+    </ModalFrame>
+  );
+}
+
+function CreateReservationGroupModal({
+  propertyId,
+  reservationIds,
+  reservations,
+  onClose,
+  onSaved,
+}: {
+  propertyId: number;
+  reservationIds: number[];
+  reservations: Reservation[];
+  onClose: () => void;
+  onSaved: (groupId: number) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (name.trim().length < 2) return setError("Enter a clear group name");
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/property/${propertyId}/groups`, {
+        name: name.trim(),
+        notes: notes.trim() || null,
+        reservationIds,
+      });
+      await onSaved(Number(response.data?.group?.id));
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to create reservation group");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalFrame title="Create reservation group" onClose={onClose} wide>
+      <div className="space-y-5">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-start gap-3">
+            <Users className="mt-0.5 h-5 w-5 text-emerald-700" />
+            <div>
+              <p className="text-sm font-bold text-emerald-950">{reservationIds.length} reservations selected</p>
+              <p className="mt-1 text-xs leading-5 text-emerald-800">The group coordinates arrival and departure. Each reservation keeps its own room, folio, payment checks and audit history.</p>
+            </div>
+          </div>
+        </div>
+        <label className="block text-sm">
+          <span className="mb-1.5 block font-semibold text-neutral-700">Group name</span>
+          <input className={inputCls} value={name} onChange={(event) => setName(event.target.value)} placeholder="Kilimanjaro delegation" autoFocus />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1.5 block font-semibold text-neutral-700">Front-desk note <span className="font-normal text-neutral-400">(optional)</span></span>
+          <textarea className="min-h-24 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tour leader, arrival transport, shared preferences…" />
+        </label>
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Members</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {reservations.map((reservation) => (
+              <div key={reservation.id} className="rounded-lg bg-white px-3 py-2 text-xs">
+                <p className="font-bold text-neutral-900">{reservation.guestProfile?.fullName ?? "Guest"}</p>
+                <p className="mt-0.5 text-neutral-500">{reservation.allocations?.map((allocation) => allocation.roomUnitCode || allocation.roomTypeName).filter(Boolean).join(", ") || "Room not assigned"} · {reservation.status.replace(/_/g, " ")}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <div className="flex justify-end gap-2 border-t border-neutral-100 pt-4">
+          <button type="button" onClick={onClose} className="cursor-pointer appearance-none rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-sm font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
+          <button type="button" onClick={() => void save()} disabled={busy || name.trim().length < 2} className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Create group
           </button>
         </div>
       </div>
+    </ModalFrame>
+  );
+}
+
+type GroupPreviewMember = {
+  reservation: ReservationGroup["members"][number];
+  eligible: boolean;
+  blockers: Array<{ code: string; message: string }>;
+  requiredChargeIds: number[];
+};
+
+function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId: number; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [group, setGroup] = useState<ReservationGroup | null>(null);
+  const [action, setAction] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
+  const [preview, setPreview] = useState<GroupPreviewMember[] | null>(null);
+  const [verifyCharges, setVerifyCharges] = useState(false);
+  const [overrideRoomReadiness, setOverrideRoomReadiness] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultMessage, setResultMessage] = useState<string | null>(null);
+
+  const loadGroup = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await apiClient.get<any>(`/api/owner/nrms/reservations/groups/${groupId}`);
+      setGroup(response.data?.group ?? null);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to load reservation group");
+    } finally {
+      setLoading(false);
+    }
+  }, [groupId]);
+
+  useEffect(() => { void loadGroup(); }, [loadGroup]);
+  useEffect(() => { setPreview(null); setResultMessage(null); }, [action, verifyCharges, overrideRoomReadiness]);
+
+  const review = async () => {
+    setBusy(true);
+    setError(null);
+    setResultMessage(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/preview`, {
+        action,
+        verifyCharges,
+        overrideRoomReadiness,
+      });
+      setPreview(response.data?.members ?? []);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to review group readiness");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const execute = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const path = action === "CHECK_IN" ? "check-in" : "check-out";
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/${path}`, { verifyCharges, overrideRoomReadiness });
+      const changed = Number(response.data?.changedCount ?? 0);
+      const blocked = Number(response.data?.blockedCount ?? 0);
+      setResultMessage(`${changed} reservation${changed === 1 ? "" : "s"} updated${blocked ? `; ${blocked} remained blocked` : ""}.`);
+      setPreview(null);
+      await loadGroup();
+      await onChanged();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to run the group operation");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const eligibleCount = preview?.filter((member) => member.eligible).length ?? 0;
+  return (
+    <ModalFrame title={group?.name || "Reservation group"} onClose={onClose} extraWide>
+      {loading ? <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div> : !group ? <p className="py-10 text-center text-sm text-neutral-500">Group not found.</p> : (
+        <div className="space-y-5">
+          <div className="grid gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-[1fr_auto]">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">{group.reference}</p>
+              <p className="mt-1 text-sm font-bold text-neutral-900">{group.memberCount} reservations · {group.status.replace(/_/g, " ")}</p>
+              {group.notes && <p className="mt-1 text-xs text-neutral-500">{group.notes}</p>}
+            </div>
+            <div className="flex rounded-lg border border-neutral-200 bg-white p-1">
+              <button type="button" onClick={() => setAction("CHECK_IN")} className={`rounded-md px-3 py-2 text-xs font-bold ${action === "CHECK_IN" ? "bg-emerald-700 text-white" : "text-neutral-500"}`}>Group check-in</button>
+              <button type="button" onClick={() => setAction("CHECK_OUT")} className={`rounded-md px-3 py-2 text-xs font-bold ${action === "CHECK_OUT" ? "bg-emerald-700 text-white" : "text-neutral-500"}`}>Group checkout</button>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-neutral-200">
+            <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><span>Guest and room</span><span>Status</span></div>
+            <div className="divide-y divide-neutral-100">
+              {group.members.map((member) => {
+                const inspected = preview?.find((item) => item.reservation.id === member.id);
+                return (
+                  <div key={member.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-bold text-neutral-900">{member.guestProfile?.fullName ?? "Guest"}</p>
+                      <p className="mt-0.5 text-xs text-neutral-500">{member.rooms.map((room) => room.roomUnitCode || room.roomTypeName).filter(Boolean).join(", ") || "Room not assigned"} · {fmtDate(member.checkIn)} – {fmtDate(member.checkOut)}</p>
+                      {inspected && !inspected.eligible && <div className="mt-2 space-y-1">{inspected.blockers.map((blocker) => <p key={blocker.code} className="text-[11px] font-medium text-red-700">{blocker.message}</p>)}</div>}
+                    </div>
+                    <span className={`h-fit rounded-full px-2.5 py-1 text-[10px] font-bold ${inspected ? inspected.eligible ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700" : STATUS_CLS[member.status] ?? "bg-neutral-100 text-neutral-600"}`}>
+                      {inspected ? inspected.eligible ? "Ready" : "Blocked" : member.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {action === "CHECK_IN" && <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><input type="checkbox" checked={overrideRoomReadiness} onChange={(event) => setOverrideRoomReadiness(event.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-700" /><span><strong>Override housekeeping readiness</strong><br />Use only after staff physically confirm every blocked room.</span></label>}
+            {action === "CHECK_OUT" && <label className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><input type="checkbox" checked={verifyCharges} onChange={(event) => setVerifyCharges(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" /><span><strong>I verified every active extra charge</strong><br />Required before group checkout can close charged folios.</span></label>}
+          </div>
+          {resultMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
+          {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-neutral-100 pt-4">
+            <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-bold text-neutral-700 disabled:opacity-50">{busy && <Loader2 className="h-4 w-4 animate-spin" />} Review readiness</button>
+            <button type="button" onClick={() => void execute()} disabled={busy || !preview || eligibleCount === 0} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">Confirm {action === "CHECK_IN" ? "group check-in" : "group checkout"}{preview ? ` (${eligibleCount})` : ""}</button>
+          </div>
+        </div>
+      )}
     </ModalFrame>
   );
 }

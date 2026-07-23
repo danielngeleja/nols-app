@@ -294,6 +294,32 @@ const OPTIONAL_SECRETS: SecretConfig[] = [
     required: false,
     description: "AWS secret key for S3",
   },
+  // Expedia Group lodging-supply connectivity. These remain optional until
+  // Expedia assigns NRMS enrollment, sandbox and callback configuration.
+  {
+    key: "EXPEDIA_ARI_URL",
+    required: false,
+    description: "Expedia Availability and Rates endpoint assigned during enrollment",
+    validate: (v) => v.startsWith("https://"),
+  },
+  {
+    key: "EXPEDIA_NOTIFICATION_API_KEY",
+    required: false,
+    description: "API key configured on the Expedia notification callback",
+    validate: (v) => v.length >= 16,
+  },
+  {
+    key: "EXPEDIA_NOTIFICATION_SECRET",
+    required: false,
+    description: "Current Expedia notification HMAC secret",
+    validate: (v) => v.length >= 24,
+  },
+  {
+    key: "EXPEDIA_NOTIFICATION_PREVIOUS_SECRET",
+    required: false,
+    description: "Previous Expedia notification HMAC secret during rotation overlap",
+    validate: (v) => v.length >= 24,
+  },
 ];
 
 /**

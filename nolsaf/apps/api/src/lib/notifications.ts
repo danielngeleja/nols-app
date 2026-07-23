@@ -46,6 +46,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "New Booking Created",
         body: `A new booking${data.bookingId ? ` #${data.bookingId}` : ""} has been created${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}.`
       },
+      nrms_channel_health_alert: {
+        title: `${data.severity === "CRITICAL" ? "Critical" : "Channel"} OTA Sync Alert`,
+        body: `${data.provider || "OTA"} synchronization for "${data.propertyTitle || "a property"}" needs attention.${Array.isArray(data.reasons) && data.reasons.length ? ` ${data.reasons.join("; ")}.` : ""} Open OTA Control to investigate.`
+      },
+      nrms_stop_sell_approval_requested: {
+        title: "Emergency Stop-sell Approval Required",
+        body: `${data.requestedBy || "An administrator"} requested ${data.action === "RELEASE" ? "release of" : "an"} emergency stop-sell for "${data.propertyTitle || "a property"}" on ${data.provider || "its OTA"}. A different administrator must review the request.`
+      },
 
       group_stay_message: {
         title: "Group Stay Follow-up",
@@ -283,6 +291,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       nrms_signal_reviewed: {
         title: "NRMS Activity Review",
         body: `NoLSAF reviewed ${String(data.kind || 'an activity signal').replace(/_/g, ' ').toLowerCase()} for "${data.propertyTitle || 'your property'}". ${data.reason ? `Note: ${data.reason}.` : ""} This review did not automatically restrict your account.`
+      },
+      nrms_channel_health_alert: {
+        title: `${data.severity === "CRITICAL" ? "Critical" : "Channel"} OTA Sync Alert`,
+        body: `${data.provider || "OTA"} synchronization for "${data.propertyTitle || "your property"}" needs attention.${Array.isArray(data.reasons) && data.reasons.length ? ` ${data.reasons.join("; ")}.` : ""} NRMS operations has been alerted.`
+      },
+      nrms_stop_sell_confirmed: {
+        title: data.action === "RELEASE" ? "OTA Inventory Reopened" : "Emergency OTA Stop-sell Confirmed",
+        body: `${data.provider || "The OTA"} confirmed ${data.action === "RELEASE" ? "inventory restoration" : "the emergency stop-sell"} for "${data.propertyTitle || "your property"}" from ${data.from || "the selected date"} through ${data.to || "the selected date"}. ${data.reason ? `Reason: ${data.reason}.` : ""}`
       },
       nrms_dispute_exported: {
         title: "NRMS Support Export Created",

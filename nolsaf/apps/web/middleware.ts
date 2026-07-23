@@ -34,6 +34,10 @@ export function middleware(req: NextRequest) {
   const tokenRole = decodeRoleFromToken(token);
   const cookieRole = req.cookies.get("role")?.value || "";
   const role = tokenRole || cookieRole;
+  const isPublicNrmsGuestRoute =
+    path.startsWith("/nrms/book/") ||
+    path.startsWith("/nrms/guest/payment/") ||
+    path.startsWith("/nrms/guest/review/");
 
   if (path.startsWith("/admin")) {
     if (role !== "ADMIN") {
@@ -42,7 +46,7 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  if (path.startsWith("/nrms") && !token) {
+  if (path.startsWith("/nrms") && !isPublicNrmsGuestRoute && !token) {
     // Preserve the destination (e.g. the emailed /nrms/confirm?token=... link)
     // so the user lands back on it after signing in.
     const next = path + (req.nextUrl.search || "");

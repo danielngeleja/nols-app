@@ -205,6 +205,15 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           raise the dispute through NoLSAF support with supporting detail. NoLSAF may reconcile a disputed
           payment manually where the evidence supports it.
         </p>
+        <p>
+          <strong>7.5 How PAYG terms change.</strong> A Property's trial length, per-night rate, reminder and
+          warning thresholds, and unpaid limit are fixed to the specific policy version in effect when NRMS was
+          activated for that Property. Publishing a new policy version for future activations does not change
+          the terms already applied to an existing Property. NoLSAF may move a specific Property to a newer
+          policy version, but only forward to a later version, never back to an earlier one, and only with a
+          stated reason recorded against that account. When this happens, the Owner is notified of the change
+          through the channel described in section 13.
+        </p>
       </div>
     ),
   },
@@ -301,7 +310,42 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
     ),
   },
   {
-    title: "13. Amendments to this Policy",
+    title: "13. Notifications and Communication Channels",
+    content: (
+      <div className="space-y-4">
+        <p>
+          <strong>13.1 Primary channel: the in-app notification inbox.</strong> Events affecting a Property's
+          NRMS access or billing, including a dunning reminder or warning, a payment token reconciled or voided,
+          an unpaid limit or trial change, a policy migration under section 7.5, a property or QR ordering
+          freeze or unfreeze, or a staff member's access being disabled, are delivered to the Owner through the
+          in-app notification inbox, with a best-effort real-time alert while the Owner is connected to NoLSAF.
+          This is the authoritative channel for these events. The Owner is responsible for checking the
+          notification inbox regularly, and NoLSAF is not liable for a consequence of an Owner failing to review
+          a notification that was correctly delivered to that inbox.
+        </p>
+        <p>
+          <strong>13.2 Staff invitations are emailed.</strong> Inviting a Staff Member sends a confirmation link
+          to the email address on that person's existing NoLSAF account. Access only takes effect once that
+          link is accepted. The Owner should ask the invited Staff Member to check their spam or junk folder if
+          the invitation does not appear promptly.
+        </p>
+        <p>
+          <strong>13.3 No SMS for NRMS platform events.</strong> Unless NoLSAF states otherwise for a specific
+          feature, NRMS platform events described in section 13.1 are not sent by SMS. SMS features made
+          available to guests, such as consent-based campaigns, are governed separately and do not substitute
+          for the Owner's own notification inbox.
+        </p>
+        <p>
+          <strong>13.4 Owner-initiated contact.</strong> An Owner may reach NoLSAF through the channels shown in
+          the NRMS help guide inside the workspace, currently WhatsApp, phone, and email. Response times for
+          owner-initiated contact are not a substitute for the automated notifications described in section
+          13.1.
+        </p>
+      </div>
+    ),
+  },
+  {
+    title: "14. Amendments to this Policy",
     content: (
       <div className="space-y-4">
         <p>
@@ -314,7 +358,7 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
     ),
   },
   {
-    title: "14. Contact",
+    title: "15. Contact",
     content: (
       <div className="space-y-4">
         <p>

@@ -6,6 +6,7 @@ import { Home, Building2, PlusSquare, User, Car, Calendar, Users, ClipboardList,
 import { usePathname, useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession, type AccountSession } from "@/lib/accountSession";
+import { hidesPublicMobileNavigation } from "@/lib/publicMobileNavigation";
 
 type Slot = "home" | "stays" | "list" | "rides" | "account";
 
@@ -51,17 +52,8 @@ export default function MobilePublicNav() {
   const isRides      = mounted && pathname.startsWith("/account/rides");
   const isAccount    = mounted && pathname.startsWith("/account") && !isRides;
 
-  // Hide on portals that have their own navigation
-  const isHidden =
-    pathname.startsWith("/admin")         ||
-    pathname.startsWith("/owner")         ||
-    pathname.startsWith("/driver")        ||
-    pathname.startsWith("/agent")         ||
-    pathname.startsWith("/menu/")         ||
-    pathname === "/account/agent"         ||
-    pathname.startsWith("/account/agent/");
-
-  if (isHidden) return null;
+  // Dedicated portals and focused guest flows provide their own navigation.
+  if (hidesPublicMobileNavigation(pathname)) return null;
 
   /* Touch-spring helpers */
   const touch = (s: Slot) => ({

@@ -1,6 +1,7 @@
 // @prisma/client is CommonJS; in an ESM package (`type: "module"`) we import via default/namespace.
 import prismaPkg from '@prisma/client'
 import { PrismaMariaDb } from '@prisma/adapter-mariadb'
+import type { PrismaClient as PrismaClientType } from '@prisma/client'
 
 const { PrismaClient } = prismaPkg as unknown as { PrismaClient: new (config?: any) => any }
 
@@ -98,4 +99,7 @@ const prisma = new Proxy(
 ) as any
 
 export { prisma, getOrCreatePrisma }
+// Opt-in strongly typed view for new and hardened code paths. The legacy
+// `prisma` export remains unchanged while callers migrate incrementally.
+export const typedPrisma = prisma as PrismaClientType
 export default prisma

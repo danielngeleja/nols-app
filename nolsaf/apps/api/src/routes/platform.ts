@@ -18,6 +18,7 @@ import { handoffRouter as agentReportHandoffRouter } from "./agent.reports";
 import { router as upCld } from "./uploads.cloudinary";
 import { router as upS3 } from "./uploads.s3";
 import paymentWebhooksRouter from "./webhooks.payments";
+import expediaWebhooksRouter from "./webhooks.expedia.js";
 
 export function registerUploadRoutes(app: Express): void {
   app.use("/uploads/cloudinary", upCld);
@@ -39,6 +40,7 @@ export function registerConversationBookingRoutes(app: Express): void {
 }
 
 export function registerPaymentRoutes(app: Express): void {
+  app.use("/webhooks/expedia", expediaWebhooksRouter);
   app.use("/webhooks/coralcommerce/card", coralCommerceCardRouter); // Coral callback/postback aliases
   app.use("/webhooks", paymentWebhooksRouter);
   app.use("/api/payments/azampay", azampayPaymentsRouter);       // MNO: Airtel, M-Pesa, Mixx, HaloPesa
