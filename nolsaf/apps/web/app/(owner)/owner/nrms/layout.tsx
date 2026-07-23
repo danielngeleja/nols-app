@@ -22,6 +22,7 @@ import {
   Menu,
   QrCode,
   ReceiptText,
+  Moon,
   ShoppingBasket,
   TrendingUp,
   SlidersHorizontal,
@@ -223,19 +224,36 @@ function NrmsShell({ children }: { children: ReactNode }) {
 
   const propertyNeedsActivation = Boolean(accessRole === "OWNER" && selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help") && !pathname.startsWith("/owner/nrms/policy"));
 
+  // The workspace introduces itself by what the person does, not by the product.
+  const roleSubtitle = accessRole === "BAR" ? "Bar service"
+    : accessRole === "RESTAURANT" ? "Restaurant service"
+    : accessRole === "HOUSEKEEPER" ? "Housekeeping"
+    : accessRole === "FRONT_DESK" ? "Front desk"
+    : accessRole === "OUTLET_SUPERVISOR" ? "Outlet operations"
+    : accessRole === "MANAGER" ? "Hotel management"
+    : "Property management system";
+  // Drawer-holding staff get a one-tap route to end their shift; the actual
+  // count-and-close flow lives on the Performance page.
+  const showCloseShift = ["MANAGER", "FRONT_DESK", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"].includes(accessRole);
+
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
       <div className={`flex min-h-[5rem] items-center border-b border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm"><Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority /></span>
-        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">Property management system</p></div></>}
+        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="NRMS workspace navigation">
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.map((group) => {
+          // A role that can see nothing in a group must not see the group label
+          // either: bar staff were getting empty MANAGEMENT and FINANCE headers.
+          const visibleItems = group.items.filter((item) => roleCanSee(item.href, accessRole));
+          if (!visibleItems.length) return null;
+          return (
           <div key={group.label} className="mb-3.5 last:mb-0">
             {!collapsed && <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">{group.label}</p>}
             <div className="space-y-0.5">
-              {group.items.filter((item) => roleCanSee(item.href, accessRole)).map((item) => {
+              {visibleItems.map((item) => {
                 const override = item.href === "/owner/nrms/orders" ? ordersNavPresentation(accessRole) : null;
                 const Icon = override?.icon ?? item.icon;
                 const label = override?.label ?? item.label;
@@ -249,10 +267,16 @@ function NrmsShell({ children }: { children: ReactNode }) {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="border-t border-white/10 bg-black/5 p-2.5">
+        {showCloseShift && (
+          <Link href="/owner/nrms/performance" title={collapsed ? "Close shift" : undefined} className={`mb-1.5 flex min-h-9 items-center rounded-lg border-0 bg-amber-400 text-[12px] font-bold text-amber-950 no-underline transition hover:bg-amber-300 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
+            <Moon className="h-3.5 w-3.5 shrink-0" />{!collapsed && "Close shift"}
+          </Link>
+        )}
         <Link href={exitHref} title={collapsed ? "Exit NRMS" : undefined} className={`flex min-h-9 items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[12px] font-semibold text-amber-100 no-underline transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
           <LogOut className="h-3.5 w-3.5 shrink-0" />{!collapsed && (accessRole === "OWNER" ? "Exit to marketplace" : "Exit NRMS")}
         </Link>

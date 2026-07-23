@@ -13,7 +13,7 @@ export type NrmsProperty = {
   currency: string | null;
   nrmsActivatedAt: string | null;
   nrmsQrOrderingFrozenAt?: string | null;
-  nrmsAccessRole?: "OWNER" | "MANAGER" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
+  nrmsAccessRole?: "OWNER" | "MANAGER" | "FRONT_DESK" | "HOUSEKEEPER" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
   nrmsOutletId?: number | null;
   nrmsPaygAccount?: { status: string; trialStartsAt: string; trialEndsAt: string; unpaidBalance: string | number; unpaidLimit: string | number } | null;
   restriction?: { referenceCode: string; reason?: string | null } | null;
