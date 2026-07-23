@@ -37,6 +37,12 @@ export const router = Router();
 router.use(requireAuth as RequestHandler);
 
 const db = prisma as any;
+// These order transactions take the property inventory lock and then do several
+// dependent writes. Prisma's 5s interactive-transaction default was tripping
+// P2028 in production because the Render-to-database round trips are slow; the
+// work itself is small. 15s gives headroom without holding the lock indefinitely.
+// Same values as owner.nrms.reservations EXTENDED_TX_OPTIONS.
+const ORDER_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
 const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "HOUSEKEEPER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
 const OUTLET_TYPES = ["RESTAURANT", "BAR", "OTHER"] as const;
 const ORDER_SETTLEMENTS = ["ROOM_FOLIO", "OUTLET_PAYMENT"] as const;
@@ -745,7 +751,7 @@ router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Respons
     await db.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, seed.propertyId);
       await advanceNrmsOutletOrder(tx, { orderId, actorId: req.user!.id, settlementMethod: parsed.data.settlementMethod });
-    });
+    }, ORDER_TX_OPTIONS);
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (code === "NRMS_ORDER_NOT_FOUND") return res.status(404).json({ error: "Order not found" });
@@ -856,7 +862,7 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
     await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });
     await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
     await tx.reservationEvent.create({ data: { reservationId: order.reservationId, type: "CHARGE_VOIDED", actorId: req.user!.id, data: { chargeId: order.folioChargeId, orderId: order.id, reason: sanitizeText(parsed.data.reason) } } });
-  });
+  }, ORDER_TX_OPTIONS);
   res.json({ ok: true });
 }) as RequestHandler);
 
