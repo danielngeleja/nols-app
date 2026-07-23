@@ -25,6 +25,13 @@
 **/*.sql.gz
 **/backups/
 
+# 4b) ...except Prisma's own migration files. The blanket `**/*.sql` above strips
+# every prisma/migrations/<name>/migration.sql from the image, which leaves the
+# migration folders present but empty and makes `prisma migrate deploy` / `status`
+# fail inside the container with P3015. Re-include migration.sql by exact name so
+# dumps, backups and one-off recovery scripts living in the same tree stay out.
+!nolsaf/prisma/migrations/**/migration.sql
+
 # 5) Never ship VCS metadata or CI config.
 .git
 .github
