@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   membershipFindMany: vi.fn(),
   membershipFindFirst: vi.fn(),
   propertyFindUnique: vi.fn(),
+  userFindUnique: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -16,6 +17,9 @@ vi.mock("@nolsaf/prisma", () => ({
     },
     property: {
       findUnique: mocks.propertyFindUnique,
+    },
+    user: {
+      findUnique: mocks.userFindUnique,
     },
   },
 }));
@@ -36,6 +40,7 @@ app.use("/api/nrms/operations", nrmsOperationsRouter);
 describe("NRMS assigned staff workspace access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.userFindUnique.mockResolvedValue({ fullName: "Domiano Salamba", name: null });
   });
 
   it("returns the assigned property's approval status with the active staff role", async () => {

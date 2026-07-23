@@ -55,26 +55,42 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
   // A folio posting is impossible without a stay to post to.
   if (order.reservationId == null) throw new Error("NRMS_ORDER_INVALID_TRANSITION");
 
-  const charge = await tx.reservationCharge.create({
+  // Create the folio charge and set the order's folioChargeId in ONE nested
+  // write, so the database links them atomically. The previous version created
+  // the charge, trusted the driver's returned insert id, then wrote it back in a
+  // second update; under the MariaDB adapter that round-tripped id could point at
+  // no row and fail the foreign key (P2003). A nested create removes the id
+  // round-trip entirely — the FK is set by the same statement that inserts.
+  const posted = await tx.nrmsOutletOrder.update({
+    where: { id: order.id },
     data: {
-      reservationId: order.reservationId,
-      category: nrmsOrderChargeCategory(order.outlet.type),
-      description: nrmsOrderDescription(order),
-      amount: order.total,
-      currency: order.currency,
-      postedById: input.actorId,
+      status: "POSTED_TO_FOLIO",
+      servedAt: now,
+      postedAt: now,
+      folioCharge: {
+        create: {
+          reservationId: order.reservationId,
+          category: nrmsOrderChargeCategory(order.outlet.type),
+          description: nrmsOrderDescription(order),
+          amount: order.total,
+          currency: order.currency,
+          postedById: input.actorId,
+        },
+      },
     },
+    include: { folioCharge: { select: { id: true } } },
   });
+  const chargeId = posted.folioCharge!.id;
+  // Aggregate after the charge exists so the new posting is included.
   const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
   await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });
-  await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "POSTED_TO_FOLIO", servedAt: now, postedAt: now, folioChargeId: charge.id } });
   await tx.reservationEvent.create({
     data: {
       reservationId: order.reservationId,
       type: "CHARGE_POSTED",
       actorId: input.actorId,
-      data: { chargeId: charge.id, orderId: order.id, orderNumber: order.orderNumber, amount: amount(order.total) },
+      data: { chargeId, orderId: order.id, orderNumber: order.orderNumber, amount: amount(order.total) },
     },
   });
-  return { status: "POSTED_TO_FOLIO", folioChargeId: charge.id };
+  return { status: "POSTED_TO_FOLIO", folioChargeId: chargeId };
 }

@@ -38,16 +38,26 @@ describe("NRMS physical service transition", () => {
 });
 
 describe("NRMS outlet order folio transition", () => {
-  it("posts one itemised charge and refreshes the reservation folio", async () => {
+  it("posts the charge and links the folio in one atomic nested write", async () => {
+    const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44 } });
     const tx = {
-      nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder()), update: vi.fn().mockResolvedValue({}) },
-      reservationCharge: { create: vi.fn().mockResolvedValue({ id: 44 }), aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 25_000 } }) },
+      nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder()), update: orderUpdate },
+      reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 25_000 } }) },
       reservation: { update: vi.fn().mockResolvedValue({}) },
       reservationEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     const result = await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12 });
     expect(result).toEqual({ status: "POSTED_TO_FOLIO", folioChargeId: 44 });
-    expect(tx.reservationCharge.create).toHaveBeenCalledTimes(1);
+    // The charge is created via the order update's nested write, not a separate
+    // create-then-link, so there is no round-tripped id that could fail the FK.
+    expect(orderUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 5 },
+      data: expect.objectContaining({
+        status: "POSTED_TO_FOLIO",
+        folioCharge: { create: expect.objectContaining({ reservationId: 9, postedById: 12, amount: 25_000 }) },
+      }),
+      include: { folioCharge: { select: { id: true } } },
+    }));
     expect(tx.reservation.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { chargesTotal: 25_000 } });
   });
 
