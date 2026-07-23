@@ -92,7 +92,7 @@ const BILLING_BLOCK_COPY: Record<string, { error: string; title: string; detail:
   PAYMENT_PENDING: {
     error: "An NRMS payment for this balance is already in progress",
     title: "A payment is already in progress",
-    detail: "A payment for this balance has been started and is waiting for the provider to confirm it. External stays re-open as soon as it clears. If it fails or was never completed, the account returns to payment required and you can pay again from the billing page.",
+    detail: "If you entered your PIN, confirmation is on the way and NoLSAF is watching it. If you did not complete the prompt, this clears back to payment required in a few minutes and you can pay again.",
     action: "STATUS",
   },
   CLOSED: {

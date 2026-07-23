@@ -285,6 +285,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "NRMS Payment Required",
         body: `The grace period for "${data.propertyTitle || 'your property'}" has ended. Settle the NRMS statement to restore normal operations.`
       },
+      nrms_payment_unconfirmed: {
+        title: "Your NRMS Payment Is Being Verified",
+        body: `Your payment of ${Number(data.amount || 0).toLocaleString("en-TZ")} ${data.currency || "TZS"} for "${data.propertyTitle || 'your property'}" has no provider confirmation yet. If you completed it, do not pay again. NoLSAF is verifying it and your account will update shortly.`
+      },
       nrms_payment_reconciled: {
         title: "NRMS Payment Reconciled",
         body: `NoLSAF reconciled the NRMS payment for "${data.propertyTitle || 'your property'}". ${data.reason ? `Reason: ${data.reason}.` : ""}`

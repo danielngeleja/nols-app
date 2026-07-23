@@ -1375,7 +1375,17 @@ function CreateReservationModal({
           </div>
         </section>
 
-        {billingBlock && <NrmsBillingBlockCard block={billingBlock} />}
+        {billingBlock && (
+          <ModalFrame
+            title="External stay paused"
+            subtitle="The reservation was not created"
+            icon={<WalletCards className="h-5 w-5" />}
+            elevated
+            onClose={() => setBillingBlock(null)}
+          >
+            <NrmsBillingBlockCard block={billingBlock} />
+          </ModalFrame>
+        )}
         {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
 
         {previewGuest && (
