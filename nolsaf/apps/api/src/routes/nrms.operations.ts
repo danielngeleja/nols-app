@@ -256,6 +256,10 @@ const orderInclude = {
 
 router.get("/me", (async (req: AuthedRequest, res: Response) => {
   const userId = req.user!.id;
+  // First name for the workspace greeting. The JWT does not reliably carry the
+  // full name, so read it once; a failure just yields a nameless greeting.
+  const viewerRecord = await db.user.findUnique({ where: { id: userId }, select: { fullName: true, name: true } });
+  const firstName = String(viewerRecord?.fullName || viewerRecord?.name || "").trim().split(/\s+/)[0] || null;
   if (req.user!.role === "OWNER") {
     const enrollment = await getNrmsEnrollment(userId);
     const properties = await db.property.findMany({
@@ -263,7 +267,7 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
       select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true },
       orderBy: { id: "asc" },
     });
-    return res.json({ entitled: isNrmsEntitled(enrollment), workspaceMode: isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties: properties.map((property: any) => ({ ...property, nrmsAccessRole: "OWNER", nrmsOutletId: null })) });
+    return res.json({ viewer: { firstName }, entitled: isNrmsEntitled(enrollment), workspaceMode: isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties: properties.map((property: any) => ({ ...property, nrmsAccessRole: "OWNER", nrmsOutletId: null })) });
   }
   const memberships = await db.nrmsStaffMembership.findMany({
     where: { userId, status: "ACTIVE" },
@@ -275,7 +279,7 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
     if (!byProperty.has(membership.propertyId)) byProperty.set(membership.propertyId, { ...membership.property, nrmsAccessRole: membership.role, nrmsOutletId: membership.outletId });
   }
   const properties = [...byProperty.values()];
-  res.json({ entitled: properties.length > 0, workspaceMode: properties.length > 0 ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties });
+  res.json({ viewer: { firstName }, entitled: properties.length > 0, workspaceMode: properties.length > 0 ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/context", (async (req: AuthedRequest, res: Response) => {

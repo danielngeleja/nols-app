@@ -279,14 +279,23 @@ function NrmsShell({ children }: { children: ReactNode }) {
               <div className="flex items-center gap-2"><p className="m-0 truncate text-sm font-bold text-neutral-950">{selectedProperty?.title ?? "NRMS property"}</p>{daysLeft != null && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">{daysLeft} days trial</span>}</div>
               <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Live property operations</p>
             </div>
-            {properties.length > 0 && (
+            {/* Only an owner with more than one property may switch. Staff are
+                scoped to the property behind their assignment and must never be
+                offered a way to change or see another one, so they get a static
+                label, not a select. The API enforces this too; this is the UI half. */}
+            {accessRole === "OWNER" && properties.length > 1 ? (
               <label className="hidden min-w-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 sm:flex">
                 <Building2 className="h-4 w-4 shrink-0 text-emerald-700" />
                 <select value={selectedPropertyId ?? ""} onChange={(event) => setSelectedPropertyId(Number(event.target.value))} className="max-w-52 border-0 bg-transparent p-0 text-xs font-bold text-neutral-800 outline-none" aria-label="Select NRMS property">
                   {properties.map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}
                 </select>
               </label>
-            )}
+            ) : selectedProperty ? (
+              <span className="hidden min-w-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 sm:flex">
+                <Building2 className="h-4 w-4 shrink-0 text-emerald-700" />
+                <span className="max-w-52 truncate text-xs font-bold text-neutral-800">{selectedProperty.title}</span>
+              </span>
+            ) : null}
             <span className="hidden rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-700 md:inline">{accessRole.replaceAll("_", " ")}</span>
             <Link href={exitHref} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 no-underline hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline">
               <LogOut className="h-4 w-4" /><span className="hidden sm:inline">{accessRole === "OWNER" ? "Marketplace" : "Exit NRMS"}</span>
