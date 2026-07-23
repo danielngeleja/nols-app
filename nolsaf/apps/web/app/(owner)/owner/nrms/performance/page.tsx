@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Banknote, BedDouble, Calculator, Clock, Coins, Loader2, Lock, Receipt, Store, Timer } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Banknote, BedDouble, Calculator, CalendarRange, Clock, Coins, Loader2, Lock, Receipt, Store, Timer } from "lucide-react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
 
 type Period = "day" | "week" | "month" | "year";
 
 type Performance = {
-  period: Period;
+  period: Period | "custom";
+  granularity: "hour" | "day" | "month";
+  range: { from: string; to: string } | null;
   currency: string;
   outletId: number | null;
   outlets: Array<{ id: number; name: string; type: string }>;
@@ -53,9 +56,14 @@ const STAGES: Array<{ key: "accept" | "prepare" | "serve"; label: string; target
   { key: "serve", label: "Served", target: 6 },
 ];
 
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
 export default function NrmsPerformancePage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
   const [period, setPeriod] = useState<Period>("day");
+  const [rangeMode, setRangeMode] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState(todayKey());
+  const [rangeTo, setRangeTo] = useState(todayKey());
   const [outletId, setOutletId] = useState<number | "">("");
   const [data, setData] = useState<Performance | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,11 +71,16 @@ export default function NrmsPerformancePage() {
 
   const money = useCallback((value: number) => `${Math.round(value).toLocaleString()} ${data?.currency ?? selectedProperty?.currency ?? "TZS"}`, [data, selectedProperty]);
 
+  const rangeValid = rangeFrom <= rangeTo;
+
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
+    if (rangeMode && !rangeValid) { setError("The start date must be on or before the end date."); return; }
     setLoading(true); setError(null);
     try {
-      const params = new URLSearchParams({ period });
+      const params = new URLSearchParams();
+      if (rangeMode) { params.set("from", rangeFrom); params.set("to", rangeTo); }
+      else params.set("period", period);
       if (outletId !== "") params.set("outletId", String(outletId));
       const res = await apiClient.get<Performance>(`/api/nrms/operations/property/${selectedPropertyId}/performance?${params.toString()}`);
       setData(res.data);
@@ -76,12 +89,13 @@ export default function NrmsPerformancePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedPropertyId, period, outletId]);
+  }, [selectedPropertyId, period, outletId, rangeMode, rangeFrom, rangeTo, rangeValid]);
 
   useEffect(() => { void load(); }, [load]);
 
   const peak = useMemo(() => Math.max(1, ...(data?.series ?? []).map((point) => point.value)), [data]);
-  const activeCaption = PERIODS.find((item) => item.id === period)?.caption ?? "";
+  const granularityCaption = { hour: "by hour", day: "by day", month: "by month" } as const;
+  const activeCaption = rangeMode ? (data ? granularityCaption[data.granularity] : "") : (PERIODS.find((item) => item.id === period)?.caption ?? "");
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-4 pb-10">
@@ -100,11 +114,20 @@ export default function NrmsPerformancePage() {
           )}
           <div className="inline-flex rounded-lg border border-neutral-200 bg-white p-0.5">
             {PERIODS.map((item) => (
-              <button key={item.id} type="button" onClick={() => setPeriod(item.id)} className={`min-h-8 rounded-md px-3 text-xs font-bold transition ${period === item.id ? "bg-emerald-800 text-white" : "text-neutral-500 hover:text-neutral-800"}`}>{item.label}</button>
+              <button key={item.id} type="button" onClick={() => { setPeriod(item.id); setRangeMode(false); }} className={`min-h-8 rounded-md px-3 text-xs font-bold transition ${!rangeMode && period === item.id ? "bg-emerald-800 text-white" : "text-neutral-500 hover:text-neutral-800"}`}>{item.label}</button>
             ))}
+            <button type="button" onClick={() => setRangeMode(true)} className={`inline-flex min-h-8 items-center gap-1 rounded-md px-3 text-xs font-bold transition ${rangeMode ? "bg-emerald-800 text-white" : "text-neutral-500 hover:text-neutral-800"}`}><CalendarRange className="h-3.5 w-3.5" />Range</button>
           </div>
         </div>
       </header>
+
+      {rangeMode && (
+        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <div className="w-[150px]"><DatePickerField label="From" value={rangeFrom} onChangeAction={(next) => setRangeFrom(next.slice(0, 10))} max={rangeTo} allowPast widthClassName="!w-full" size="sm" twoMonths={false} /></div>
+          <div className="w-[150px]"><DatePickerField label="To" value={rangeTo} onChangeAction={(next) => setRangeTo(next.slice(0, 10))} min={rangeFrom} max={todayKey()} allowPast widthClassName="!w-full" size="sm" twoMonths={false} /></div>
+          <p className="mb-1.5 text-[11px] text-neutral-400">Pick any period. The trend groups by hour, day or month to fit the span.</p>
+        </div>
+      )}
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 

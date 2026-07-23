@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { fillSeries, performanceWindow, shapePerformanceSummary } from "./nrmsPerformance.js";
+import { customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "./nrmsPerformance.js";
 
 const NOW = new Date("2026-07-24T14:30:00Z");
 
 describe("performanceWindow", () => {
   it("day buckets one per hour from midnight through the current hour", () => {
-    const { start, format, buckets } = performanceWindow("day", NOW);
+    const { start, end, format, buckets } = performanceWindow("day", NOW);
     expect(start.toISOString()).toBe("2026-07-24T00:00:00.000Z");
+    expect(end.toISOString()).toBe("2026-07-24T15:00:00.000Z");
     expect(format).toBe("%Y-%m-%d %H");
     expect(buckets).toHaveLength(15);
     expect(buckets[0]).toEqual({ key: "2026-07-24 00", label: "00" });
@@ -31,6 +32,36 @@ describe("performanceWindow", () => {
   it("year is one bucket per month from January through the current month", () => {
     const { start, format, buckets } = performanceWindow("year", NOW);
     expect(start.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+    expect(format).toBe("%Y-%m");
+    expect(buckets).toHaveLength(7);
+    expect(buckets[0]).toEqual({ key: "2026-01", label: "J" });
+    expect(buckets[6]).toEqual({ key: "2026-07", label: "J" });
+  });
+});
+
+describe("customPerformanceWindow", () => {
+  it("a single day is bucketed hour by hour with an exclusive next-midnight end", () => {
+    const { start, end, format, buckets, granularity } = customPerformanceWindow("2026-07-20", "2026-07-20");
+    expect(start.toISOString()).toBe("2026-07-20T00:00:00.000Z");
+    expect(end.toISOString()).toBe("2026-07-21T00:00:00.000Z");
+    expect(format).toBe("%Y-%m-%d %H");
+    expect(granularity).toBe("hour");
+    expect(buckets).toHaveLength(24);
+    expect(buckets[0]).toEqual({ key: "2026-07-20 00", label: "00" });
+  });
+
+  it("a multi-day span within a quarter is bucketed day by day", () => {
+    const { format, buckets, granularity } = customPerformanceWindow("2026-07-01", "2026-07-10");
+    expect(granularity).toBe("day");
+    expect(format).toBe("%Y-%m-%d");
+    expect(buckets).toHaveLength(10);
+    expect(buckets[0]).toEqual({ key: "2026-07-01", label: "1" });
+    expect(buckets[9]).toEqual({ key: "2026-07-10", label: "10" });
+  });
+
+  it("a span wider than a quarter is bucketed month by month", () => {
+    const { format, buckets, granularity } = customPerformanceWindow("2026-01-15", "2026-07-20");
+    expect(granularity).toBe("month");
     expect(format).toBe("%Y-%m");
     expect(buckets).toHaveLength(7);
     expect(buckets[0]).toEqual({ key: "2026-01", label: "J" });

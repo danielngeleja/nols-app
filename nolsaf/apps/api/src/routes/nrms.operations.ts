@@ -6,7 +6,7 @@ import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
-import { type PerformancePeriod, ON_TIME_MINUTES, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
+import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
 import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 import {
   HOUSEKEEPING_STATUSES,
@@ -343,7 +343,15 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
   const requestedOutlet = req.query.outletId ? Number(req.query.outletId) : null;
   const outletId = access.outletId != null ? access.outletId : (Number.isInteger(requestedOutlet) && requestedOutlet! > 0 ? requestedOutlet : null);
 
-  const { start, format, buckets } = performanceWindow(period, new Date());
+  // An explicit from/to range (both YYYY-MM-DD, from <= to) overrides the preset.
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/;
+  const fromKey = String(req.query.from ?? "");
+  const toKey = String(req.query.to ?? "");
+  const isCustom = dateKey.test(fromKey) && dateKey.test(toKey) && fromKey <= toKey;
+  const window = isCustom ? customPerformanceWindow(fromKey, toKey) : performanceWindow(period, new Date());
+  const { start, end, format, buckets } = window;
+  const activePeriod = isCustom ? "custom" : period;
+  const granularity = isCustom ? (window as ReturnType<typeof customPerformanceWindow>).granularity : (period === "day" ? "hour" : period === "year" ? "month" : "day");
   try {
     const [summaryRows, bucketRows, shift, outlets] = await Promise.all([
       db.$queryRaw<any[]>`
@@ -359,6 +367,7 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
         WHERE propertyId = ${propertyId}
           AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+          AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
           AND (${outletId} IS NULL OR outletId = ${outletId})`,
       db.$queryRaw<any[]>`
         SELECT DATE_FORMAT(COALESCE(settledAt, postedAt, servedAt, createdAt), ${format}) AS bucket,
@@ -367,6 +376,7 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
         WHERE propertyId = ${propertyId}
           AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+          AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
           AND (${outletId} IS NULL OR outletId = ${outletId})
         GROUP BY bucket
         ORDER BY bucket`,
@@ -393,7 +403,9 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
         })
       : null;
     res.json({
-      period,
+      period: activePeriod,
+      granularity,
+      range: isCustom ? { from: fromKey, to: toKey } : null,
       currency: access.property.currency,
       outletId,
       outlets,
@@ -971,9 +983,9 @@ router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) =
     if (amountReceived == null || amountReceived < orderTotal) return res.status(400).json({ error: `Amount received must cover the ${seed.currency} ${orderTotal.toLocaleString()} bill.` });
     const overpayment = Number((amountReceived - orderTotal).toFixed(2));
     if (tipAmount > overpayment) return res.status(400).json({ error: "Confirmed tip cannot be greater than the amount received above the bill." });
-  } else if (tipAmount <= 0) {
-    return res.status(400).json({ error: "Enter the separate tip amount received for this room-bill order." });
   }
+  // A room-folio order needs no tip. Zero is a valid, complete answer; it records
+  // no tip (or clears any prior one) rather than blocking the attendant.
 
   if (tipAmount > 0 && (!parsed.data.tipRecipientId || !parsed.data.tipMethod)) {
     return res.status(400).json({ error: "Select the serving team member and how the tip was received." });
