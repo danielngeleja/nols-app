@@ -318,10 +318,10 @@ function ShiftPanel({ shift, handover, canManageShift, propertyId, money, onChan
         </div>
 
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="m-0 text-[11px] text-neutral-500">Drawer to hand over</p>
-            <p className="mb-0 mt-1 text-[30px] font-bold leading-none tracking-tight text-neutral-950">{money(shift.expectedCash)}</p>
-            <p className="mb-0 mt-1.5 text-[10px] text-neutral-400">Counted by the system from every sale you recorded. Nothing typed by hand.</p>
+          <div className="min-w-0">
+            <p className="m-0 text-[11px] text-neutral-500">Cash drawer to hand over</p>
+            <p className="mb-0 mt-1 break-words text-[30px] font-bold leading-none tracking-tight text-neutral-950">{money(shift.expectedCash)}</p>
+            <p className="mb-0 mt-1.5 text-[10px] text-neutral-400">Physical cash only, counted by the system. Mobile money, card and room folio settle to their own records, not the drawer.</p>
           </div>
           {canManageShift && !closing && (
             <button type="button" onClick={() => void beginClose()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900">
