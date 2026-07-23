@@ -3,6 +3,7 @@
 // Elastic Beanstalk where file:../../packages/prisma is not available.
 import prismaPkg from '@prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import type { PrismaClient as PrismaClientType } from '@prisma/client';
 
 const { PrismaClient } = prismaPkg as unknown as { PrismaClient: new (config?: any) => any };
 
@@ -92,4 +93,9 @@ const prisma = new Proxy(
 ) as any;
 
 export { prisma, getOrCreatePrisma };
+// Mirrors the @nolsaf/prisma export surface. The build rewrites every
+// `@nolsaf/prisma` import to this file (see scripts/fix-esm-imports.mjs), so any
+// name exported there must also be exported here or it resolves to `undefined`
+// at runtime while still typechecking against the real package.
+export const typedPrisma = prisma as PrismaClientType;
 export default prisma;

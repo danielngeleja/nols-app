@@ -24,9 +24,9 @@ ALTER TABLE `nrms_reservation_group`
   ADD CONSTRAINT `nrms_reservation_group_propertyId_fkey`
     FOREIGN KEY (`propertyId`) REFERENCES `property`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `nrms_reservation_group_ownerId_fkey`
-    FOREIGN KEY (`ownerId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY (`ownerId`) REFERENCES `user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `nrms_reservation_group_createdById_fkey`
-    FOREIGN KEY (`createdById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY (`createdById`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE `reservation`
   ADD CONSTRAINT `reservation_groupId_fkey`
