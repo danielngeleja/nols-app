@@ -23,6 +23,7 @@ import {
   QrCode,
   ReceiptText,
   ShoppingBasket,
+  TrendingUp,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -54,6 +55,7 @@ const NAV_GROUPS = [
       { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
       { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
       { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
+      { href: "/owner/nrms/performance", label: "Performance", icon: TrendingUp },
       { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
       { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
       { href: "/owner/nrms/guests", label: "Guests", icon: Users },
@@ -96,11 +98,12 @@ function ordersNavPresentation(role: string): { label: string; icon: typeof Shop
 
 function roleCanSee(href: string, role: string) {
   if (role === "OWNER") return true;
-  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
-  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/outlets"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
+  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/performance", "/owner/nrms/outlets"].includes(href);
   if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
   if (role === "HOUSEKEEPER") return href === "/owner/nrms/housekeeping";
-  return href === "/owner/nrms/orders";
+  // Bar and restaurant staff: their orders plus their own outlet's performance.
+  return ["/owner/nrms/orders", "/owner/nrms/performance"].includes(href);
 }
 
 function PropertyActivationGate() {

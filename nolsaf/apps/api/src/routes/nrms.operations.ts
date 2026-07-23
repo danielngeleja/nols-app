@@ -6,6 +6,7 @@ import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
+import { type PerformancePeriod, ON_TIME_MINUTES, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -329,6 +330,70 @@ router.get("/property/:propertyId/in-house", (async (req: AuthedRequest, res: Re
     orderBy: { checkedInAt: "desc" },
   });
   res.json({ reservations });
+}) as RequestHandler);
+
+router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const propertyId = access.property.id;
+  const period = (["day", "week", "month", "year"].includes(String(req.query.period)) ? req.query.period : "day") as PerformancePeriod;
+  // Staff assigned to one outlet only ever see that outlet. A manager/owner may
+  // narrow to a chosen outlet via ?outletId, or leave it off for the whole property.
+  const requestedOutlet = req.query.outletId ? Number(req.query.outletId) : null;
+  const outletId = access.outletId != null ? access.outletId : (Number.isInteger(requestedOutlet) && requestedOutlet! > 0 ? requestedOutlet : null);
+
+  const { start, format, buckets } = performanceWindow(period, new Date());
+  try {
+    const [summaryRows, bucketRows, shift, outlets] = await Promise.all([
+      db.$queryRaw<any[]>`
+        SELECT COUNT(*) AS orders,
+               COALESCE(SUM(total), 0) AS sales,
+               AVG(TIMESTAMPDIFF(SECOND, COALESCE(placedAt, createdAt), confirmedAt)) AS acceptSec,
+               AVG(TIMESTAMPDIFF(SECOND, confirmedAt, servingAt)) AS prepSec,
+               AVG(TIMESTAMPDIFF(SECOND, servingAt, servedAt)) AS serveSec,
+               AVG(TIMESTAMPDIFF(SECOND, COALESCE(placedAt, createdAt), servedAt)) AS totalSec,
+               SUM(servedAt IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(placedAt, createdAt), servedAt) <= ${ON_TIME_MINUTES}) AS onTime,
+               SUM(servedAt IS NOT NULL) AS served
+        FROM nrms_outlet_order
+        WHERE propertyId = ${propertyId}
+          AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
+          AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+          AND (${outletId} IS NULL OR outletId = ${outletId})`,
+      db.$queryRaw<any[]>`
+        SELECT DATE_FORMAT(COALESCE(settledAt, postedAt, servedAt, createdAt), ${format}) AS bucket,
+               COALESCE(SUM(total), 0) AS sales
+        FROM nrms_outlet_order
+        WHERE propertyId = ${propertyId}
+          AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
+          AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+          AND (${outletId} IS NULL OR outletId = ${outletId})
+        GROUP BY bucket
+        ORDER BY bucket`,
+      db.nrmsCashierShift.findFirst({
+        where: { propertyId, userId: req.user!.id, status: "OPEN" },
+        orderBy: { openedAt: "desc" },
+        select: { id: true, openedAt: true, openingFloat: true, expectedCash: true, currency: true },
+      }),
+      db.nrmsOutlet.findMany({ where: { propertyId, ...(access.outletId != null ? { id: access.outletId } : {}) }, select: { id: true, name: true, type: true }, orderBy: { name: "asc" } }),
+    ]);
+
+    const summary = shapePerformanceSummary(summaryRows[0] ?? {});
+    res.json({
+      period,
+      currency: access.property.currency,
+      outletId,
+      outlets,
+      canFilterOutlet: access.outletId == null,
+      summary,
+      series: fillSeries(bucketRows, buckets),
+      shift: shift
+        ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: Number(shift.expectedCash), currency: shift.currency }
+        : null,
+    });
+  } catch (error) {
+    console.error("[nrms.operations] performance failed", error);
+    res.status(500).json({ error: "Unable to load performance" });
+  }
 }) as RequestHandler);
 
 router.get("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Response) => {
