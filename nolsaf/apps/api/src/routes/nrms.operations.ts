@@ -7,6 +7,7 @@ import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
+import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftMoney } from "../lib/nrmsShifts.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -372,28 +373,88 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
       db.nrmsCashierShift.findFirst({
         where: { propertyId, userId: req.user!.id, status: "OPEN" },
         orderBy: { openedAt: "desc" },
-        select: { id: true, openedAt: true, openingFloat: true, expectedCash: true, currency: true },
+        select: { id: true, userId: true, propertyId: true, openedAt: true, openingFloat: true, currency: true },
       }),
       db.nrmsOutlet.findMany({ where: { propertyId, ...(access.outletId != null ? { id: access.outletId } : {}) }, select: { id: true, name: true, type: true }, orderBy: { name: "asc" } }),
     ]);
 
     const summary = shapePerformanceSummary(summaryRows[0] ?? {});
+    // The stored expectedCash is only written at close time; recompute it live so
+    // an open shift shows the true drawer figure.
+    const liveExpected = shift ? await expectedCashForShift(db, shift) : 0;
     res.json({
       period,
       currency: access.property.currency,
       outletId,
       outlets,
       canFilterOutlet: access.outletId == null,
+      canManageShift: SHIFT_ROLES.has(access.role),
       summary,
       series: fillSeries(bucketRows, buckets),
       shift: shift
-        ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: Number(shift.expectedCash), currency: shift.currency }
+        ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: liveExpected, currency: shift.currency }
         : null,
     });
   } catch (error) {
     console.error("[nrms.operations] performance failed", error);
     res.status(500).json({ error: "Unable to load performance" });
   }
+}) as RequestHandler);
+
+// Roles that hold a cash drawer and may open/close their own shift. Housekeepers
+// never handle outlet cash, so they are excluded.
+const SHIFT_ROLES = new Set(["OWNER", "MANAGER", "FRONT_DESK", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"]);
+const openShiftSchema = z.object({ openingFloat: z.number().min(0).max(100_000_000) });
+const closeShiftSchema = z.object({ declaredCash: z.number().min(0).max(100_000_000), closeNote: z.string().trim().max(300).nullable().optional() });
+
+// A staff member sees and controls only their own shift. The business date is set
+// from the server clock in the property timezone, never chosen by the attendant.
+router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!SHIFT_ROLES.has(access.role)) return res.status(403).json({ error: "Your role does not run a cash shift" });
+  const parsed = openShiftSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Enter the opening cash float" });
+  const currency = access.property.currency?.toUpperCase();
+  if (!currency) return res.status(409).json({ error: "Set the property currency before opening a shift" });
+  try {
+    const shift = await db.$transaction(async (tx: any) => {
+      const existing = await tx.nrmsCashierShift.findFirst({ where: { propertyId: access.property.id, userId: req.user!.id, status: "OPEN" } });
+      if (existing) throw new Error("SHIFT_ALREADY_OPEN");
+      const day = await ensureBusinessDay(tx, access.property.id, shiftDayKey(new Date()), req.user!.id);
+      if (day.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
+      return tx.nrmsCashierShift.create({ data: { propertyId: access.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat: parsed.data.openingFloat } });
+    }, ORDER_TX_OPTIONS);
+    res.status(201).json({ shift: { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), currency: shift.currency } });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_ALREADY_OPEN") return res.status(409).json({ error: "You already have an open shift. Close it before opening another." });
+    if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "Today is already closed by the night audit and cannot accept a new shift." });
+    console.error("[nrms.operations] shift open failed", error);
+    res.status(500).json({ error: "Unable to open the shift" });
+  }
+}) as RequestHandler);
+
+router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!SHIFT_ROLES.has(access.role)) return res.status(403).json({ error: "Your role does not run a cash shift" });
+  const parsed = closeShiftSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Enter the cash you counted before closing" });
+  // Staff may only close their OWN shift. Managers close others through Finance.
+  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: access.property.id, userId: req.user!.id, status: "OPEN" } });
+  if (!shift) return res.status(404).json({ error: "You have no open shift to close" });
+  const expected = await expectedCashForShift(db, shift);
+  const variance = shiftMoney(parsed.data.declaredCash - expected);
+  if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the difference between counted and expected cash before closing." });
+  // A clean count needs no oversight and self-approves. Any variance is left
+  // unapproved (approvedById null) so a manager reviews it in Finance, rather
+  // than the attendant signing off on their own discrepancy.
+  const closed = await db.nrmsCashierShift.update({
+    where: { id: shift.id },
+    data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, approvedById: variance === 0 ? req.user!.id : null, closedAt: new Date() },
+  });
+  res.json({ shift: { id: closed.id, expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, needsReview: variance !== 0 } });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Response) => {

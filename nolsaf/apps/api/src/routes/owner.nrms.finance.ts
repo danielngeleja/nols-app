@@ -5,6 +5,7 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
+import { ensureBusinessDay, expectedCashForShift } from "../lib/nrmsShifts.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -85,28 +86,6 @@ function personName(user: any): string {
   return user?.fullName || user?.name || user?.email || "System";
 }
 
-async function ensureBusinessDay(tx: any, propertyId: number, key: string, userId: number) {
-  const date = dateOnly(key);
-  return tx.nrmsBusinessDay.upsert({
-    where: { propertyId_businessDate: { propertyId, businessDate: date } },
-    create: { propertyId, businessDate: date, openedById: userId },
-    update: {},
-  });
-}
-
-async function expectedCashForShift(shift: any, until = new Date()): Promise<number> {
-  const [payments, outletOrders] = await Promise.all([
-    db.externalPaymentRecord.aggregate({
-      where: { recordedById: shift.userId, method: "CASH", voidedAt: null, reservation: { propertyId: shift.propertyId }, createdAt: { gte: shift.openedAt, lte: until } },
-      _sum: { amount: true },
-    }),
-    db.nrmsOutletOrder.aggregate({
-      where: { propertyId: shift.propertyId, settledById: shift.userId, settlementMode: "OUTLET_PAYMENT", settlementMethod: "CASH", status: "SETTLED", voidedAt: null, settledAt: { gte: shift.openedAt, lte: until } },
-      _sum: { total: true },
-    }),
-  ]);
-  return money(money(shift.openingFloat) + money(payments._sum.amount) + money(outletOrders._sum.total));
-}
 
 async function controlIssues(propertyId: number, key: string) {
   const { end, start } = dayRange(key);
@@ -262,7 +241,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { settledAt: "asc" },
       }),
     ]);
-    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({ ...shift, cashierName: personName(shift.user), approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null, liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(shift) : money(shift.expectedCash) })));
+    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({ ...shift, cashierName: personName(shift.user), approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null, liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash) })));
     const reportWindow = { gte: dayRange(from).start, lt: dayRange(to).end };
     const transactions = await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] });
     const accountMap = new Map<string, any>();
@@ -319,7 +298,7 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (!parsed.success) return res.status(400).json({ error: "Enter the cash physically counted at shift close" });
   const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
   if (!shift) return res.status(404).json({ error: "Open cashier shift not found" });
-  const expected = await expectedCashForShift(shift);
+  const expected = await expectedCashForShift(db, shift);
   const variance = money(parsed.data.declaredCash - expected);
   if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
   const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, approvedById: req.user!.id, closedAt: new Date() } });

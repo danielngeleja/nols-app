@@ -14,6 +14,7 @@ type Performance = {
   outletId: number | null;
   outlets: Array<{ id: number; name: string; type: string }>;
   canFilterOutlet: boolean;
+  canManageShift: boolean;
   summary: {
     orders: number;
     sales: number;
@@ -154,7 +155,7 @@ export default function NrmsPerformancePage() {
             </section>
           </div>
 
-          <ShiftPanel shift={data.shift} money={money} />
+          <ShiftPanel shift={data.shift} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} currency={data.currency} money={money} onChanged={load} />
         </div>
       )}
     </div>
@@ -171,12 +172,43 @@ function StatCard({ icon: Icon, label, value, hint }: { icon: typeof Coins; labe
   );
 }
 
-function ShiftPanel({ shift, money }: { shift: Performance["shift"]; money: (value: number) => string }) {
+function ShiftPanel({ shift, canManageShift, propertyId, currency, money, onChanged }: { shift: Performance["shift"]; canManageShift: boolean; propertyId: number; currency: string; money: (value: number) => string; onChanged: () => void | Promise<void>; }) {
+  const [openFloat, setOpenFloat] = useState("");
+  const [closing, setClosing] = useState(false);
+  const [counted, setCounted] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const elapsed = useMemo(() => {
     if (!shift) return "";
     const mins = Math.max(0, Math.floor((Date.now() - new Date(shift.openedAt).getTime()) / 60000));
     return `${Math.floor(mins / 60)}h ${mins % 60}m`;
   }, [shift]);
+
+  const variance = shift && counted !== "" ? Math.round((Number(counted) - shift.expectedCash) * 100) / 100 : null;
+
+  const openShift = async () => {
+    setBusy(true); setError(null);
+    try {
+      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/open`, { openingFloat: Number(openFloat) || 0 });
+      setOpenFloat("");
+      await onChanged();
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not open the shift"); }
+    finally { setBusy(false); }
+  };
+
+  const closeShift = async () => {
+    if (!shift) return;
+    if (variance !== 0 && !note.trim()) { setError("Explain the difference before closing."); return; }
+    setBusy(true); setError(null);
+    try {
+      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted) || 0, closeNote: note.trim() || null });
+      setClosing(false); setCounted(""); setNote("");
+      await onChanged();
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not close the shift"); }
+    finally { setBusy(false); }
+  };
 
   if (!shift) {
     return (
@@ -185,32 +217,80 @@ function ShiftPanel({ shift, money }: { shift: Performance["shift"]; money: (val
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-neutral-800">No shift open</p>
-            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Open a shift from Finance to start recording cash.</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Enter your opening cash float to start recording sales." : "Ask a cashier or manager to open a shift."}</p>
+            {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
           </div>
         </div>
-        <Link href="/owner/nrms/finance" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 no-underline hover:bg-neutral-50">Open shift</Link>
+        {canManageShift && (
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input inputMode="numeric" value={openFloat} onChange={(event) => setOpenFloat(event.target.value.replace(/[^\d.]/g, ""))} placeholder="Opening float" className="h-10 w-36 rounded-lg border border-neutral-300 bg-white pl-3 pr-12 text-sm outline-none focus:border-emerald-600" />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-neutral-400">{currency}</span>
+            </div>
+            <button type="button" disabled={busy} onClick={() => void openShift()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}Open shift
+            </button>
+          </div>
+        )}
       </section>
     );
   }
 
   return (
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-      <div className="flex items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Clock className="h-5 w-5" /></span>
-        <div>
-          <p className="m-0 text-[13px] font-bold text-emerald-950">Shift open</p>
-          <p className="mb-0 mt-0.5 text-[11px] text-emerald-800/80">Since {new Date(shift.openedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {elapsed} · float {money(shift.openingFloat)}</p>
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Clock className="h-5 w-5" /></span>
+          <div>
+            <p className="m-0 text-[13px] font-bold text-emerald-950">Shift open</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-emerald-800/80">Since {new Date(shift.openedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {elapsed} · float {money(shift.openingFloat)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="m-0 text-[10px] text-emerald-800/70">Cash expected</p>
+            <p className="mb-0 mt-0.5 text-[15px] font-bold text-emerald-950">{money(shift.expectedCash)}</p>
+          </div>
+          {canManageShift && !closing && (
+            <button type="button" onClick={() => { setClosing(true); setError(null); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900">
+              <ArrowLeftRight className="h-4 w-4" />Close &amp; hand over
+            </button>
+          )}
         </div>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="text-right">
-          <p className="m-0 text-[10px] text-emerald-800/70">Cash expected</p>
-          <p className="mb-0 mt-0.5 text-[15px] font-bold text-emerald-950">{money(shift.expectedCash)}</p>
+
+      {closing && (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3.5">
+          <p className="m-0 text-xs font-bold text-neutral-900">Count your drawer to close</p>
+          <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">The system expects {money(shift.expectedCash)}. Enter the cash you physically counted.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className="grid gap-1 text-[11px] font-bold text-neutral-600">Cash counted
+              <div className="relative">
+                <input inputMode="numeric" value={counted} onChange={(event) => setCounted(event.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="h-10 w-full rounded-lg border border-neutral-300 pl-3 pr-12 text-sm outline-none focus:border-emerald-600" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-neutral-400">{currency}</span>
+              </div>
+            </label>
+            <div className="grid gap-1 text-[11px] font-bold text-neutral-600">Difference
+              <div className={`flex h-10 items-center rounded-lg border px-3 text-sm font-bold ${variance == null ? "border-neutral-200 text-neutral-400" : variance === 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : variance > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                {variance == null ? "—" : `${variance > 0 ? "+" : ""}${money(variance)}${variance > 0 ? " over" : variance < 0 ? " short" : " exact"}`}
+              </div>
+            </div>
+          </div>
+          {variance != null && variance !== 0 && (
+            <label className="mt-2 grid gap-1 text-[11px] font-bold text-neutral-600">Reason for the difference
+              <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="e.g. change given without a sale recorded" className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-normal outline-none focus:border-emerald-600" />
+            </label>
+          )}
+          {variance != null && variance !== 0 && <p className="mb-0 mt-2 text-[10px] text-amber-700">A difference is flagged for a manager to review. Your shift still closes.</p>}
+          {error && <p className="mb-0 mt-2 text-[11px] text-red-600">{error}</p>}
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={() => { setClosing(false); setError(null); }} className="min-h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600">Cancel</button>
+            <button type="button" disabled={busy || counted === ""} onClick={() => void closeShift()} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50">
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}Close shift
+            </button>
+          </div>
         </div>
-        <Link href="/owner/nrms/finance" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white no-underline hover:bg-emerald-900">
-          <ArrowLeftRight className="h-4 w-4" />Close &amp; hand over
-        </Link>
-      </div>
+      )}
     </section>
   );
 }
