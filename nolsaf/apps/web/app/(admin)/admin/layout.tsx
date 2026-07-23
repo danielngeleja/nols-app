@@ -7,6 +7,7 @@ import SiteHeader from "@/components/SiteHeader";
 import AdminNav from "@/components/AdminSidebar";
 import LayoutFrame from "@/components/LayoutFrame";
 import AdminNotificationListener from "@/components/AdminNotificationListener";
+import AdminReconcileAlertCard from "@/components/AdminReconcileAlertCard";
 import AdminOperationalFooter from "@/components/AdminOperationalFooter";
 import AdminNotificationDrawer from "@/components/AdminNotificationDrawer";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
@@ -55,6 +56,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="admin-soft-ui min-h-screen flex flex-col bg-slate-50">
       <AdminNotificationListener />
+      <AdminReconcileAlertCard />
       <AdminNotificationDrawer />
       {/* Full-width header */}
       <SiteHeader role="ADMIN" />

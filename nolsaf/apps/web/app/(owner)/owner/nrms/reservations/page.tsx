@@ -780,6 +780,75 @@ function ModalFrame({
   );
 }
 
+type BillingBlock = {
+  status: string;
+  title: string;
+  detail: string;
+  action: "PAY" | "STATUS" | "SUPPORT";
+  outstanding: number;
+  limit: number;
+  currency: string;
+};
+
+/**
+ * Shown in place of the plain error toast when the API refuses a new external
+ * stay on billing grounds. The three blocking states need different copy and a
+ * different destination, so the server sends both and this only renders them.
+ */
+function NrmsBillingBlockCard({ block }: { block: BillingBlock }) {
+  const tone = block.status === "PAYMENT_REQUIRED"
+    ? { border: "border-red-200", bg: "bg-red-50", chipBg: "bg-red-100", text: "text-red-700", Icon: AlertTriangle }
+    : block.status === "PAYMENT_PENDING"
+      ? { border: "border-amber-200", bg: "bg-amber-50", chipBg: "bg-amber-100", text: "text-amber-700", Icon: Clock3 }
+      : { border: "border-neutral-200", bg: "bg-neutral-50", chipBg: "bg-neutral-100", text: "text-neutral-700", Icon: LockKeyhole };
+  const chipLabel = block.status === "PAYMENT_REQUIRED" ? "Payment required" : block.status === "PAYMENT_PENDING" ? "Payment pending" : "Account closed";
+  const amount = (value: number) => `${block.currency} ${Math.round(value).toLocaleString()}`;
+  const overLimit = block.limit > 0 && block.outstanding > block.limit;
+  const actionHref = block.action === "SUPPORT" ? "/owner/nrms/help" : "/owner/nrms/billing";
+  const actionLabel = block.action === "PAY" ? `Pay ${amount(block.outstanding)} now` : block.action === "STATUS" ? "Check payment status" : "Contact support";
+  return (
+    <div role="alert" className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      <div className={`border-b ${tone.border} ${tone.bg} px-4 py-3.5`}>
+        <span className={`inline-flex items-center gap-1.5 rounded-full ${tone.chipBg} px-2.5 py-1 text-[11px] font-semibold ${tone.text}`}>
+          <tone.Icon className="h-3.5 w-3.5" />{chipLabel}
+        </span>
+        <p className="mb-0 mt-2.5 text-sm font-semibold text-neutral-900">{block.title}</p>
+        <p className="mb-0 mt-1 text-[13px] leading-relaxed text-neutral-600">{block.detail}</p>
+      </div>
+      <div className="px-4 py-3.5">
+        {block.action === "PAY" && (
+          <>
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <p className="mb-0 text-[11px] text-neutral-500">Outstanding balance</p>
+                <p className="mb-0 mt-0.5 text-2xl font-semibold text-neutral-900">{amount(block.outstanding)}</p>
+              </div>
+              {block.limit > 0 && <p className="mb-0 text-[11px] text-neutral-500">Limit {amount(block.limit)}</p>}
+            </div>
+            {block.limit > 0 && (
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                <div className={`h-1.5 rounded-full ${overLimit ? "bg-red-600" : "bg-amber-500"}`} style={{ width: `${Math.min(100, (block.outstanding / block.limit) * 100)}%` }} />
+              </div>
+            )}
+          </>
+        )}
+        <div className="mt-3.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+          <p className="mb-0 text-xs font-semibold text-emerald-800">Still working normally</p>
+          <p className="mb-0 mt-1 text-[11px] leading-relaxed text-emerald-700">Check-ins, checkouts, folio postings, outlet orders and every existing reservation are unaffected. Only opening a new external stay is paused.</p>
+        </div>
+        <div className="mt-3.5 flex flex-wrap gap-2">
+          <a href={actionHref} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-800 px-4 text-[13px] font-semibold text-white no-underline">
+            <WalletCards className="h-4 w-4" />{actionLabel}
+          </a>
+          <a href="/owner/nrms/billing" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-[13px] font-semibold text-neutral-700 no-underline">
+            <ReceiptText className="h-4 w-4" />View statement
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReturningGuestMatches({
   guests,
   align = "left",
@@ -874,6 +943,7 @@ function CreateReservationModal({
   const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
   const [searchingGuests, setSearchingGuests] = useState(false);
   const [guestSearchError, setGuestSearchError] = useState<string | null>(null);
+  const [billingBlock, setBillingBlock] = useState<BillingBlock | null>(null);
   const [showGuestMatches, setShowGuestMatches] = useState(false);
   const [guestSearchField, setGuestSearchField] = useState<"name" | "phone" | null>(null);
   const [source, setSource] = useState("WALK_IN");
@@ -1079,7 +1149,9 @@ function CreateReservationModal({
       });
       await onSaved();
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to create reservation");
+      const billing = e?.response?.status === 402 ? e?.response?.data?.billing : null;
+      if (billing) { setBillingBlock(billing as BillingBlock); setError(null); }
+      else setError(e?.response?.data?.error || "Failed to create reservation");
       setBusy(false);
     }
   };
@@ -1303,6 +1375,7 @@ function CreateReservationModal({
           </div>
         </section>
 
+        {billingBlock && <NrmsBillingBlockCard block={billingBlock} />}
         {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
 
         {previewGuest && (

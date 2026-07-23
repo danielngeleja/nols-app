@@ -9,7 +9,7 @@ import type { RequestHandler } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
-import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { requireNrms, loadOwnedActiveNrmsProperty, NRMS_BILLING_BLOCKING_STATUSES, nrmsBillingBlockPayload } from "../lib/nrms.js";
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
@@ -975,8 +975,8 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
     const ownerId = req.user!.id;
     const activeProperty = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
     if (!activeProperty) return;
-    if (["PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"].includes(activeProperty.account.status)) {
-      return res.status(402).json({ error: "Settle the NRMS balance before opening a new external stay", code: "NRMS_PAYMENT_REQUIRED" });
+    if (NRMS_BILLING_BLOCKING_STATUSES.includes(activeProperty.account.status)) {
+      return res.status(402).json(await nrmsBillingBlockPayload(activeProperty.account));
     }
     const property = activeProperty.property;
     const propertyId = property.id as number;

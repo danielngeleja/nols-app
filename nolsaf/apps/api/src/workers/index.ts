@@ -8,6 +8,7 @@ import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
 import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
 import { startNrmsDunningWorker } from "./nrmsDunning.js";
+import { startNrmsPaymentReconcileAlertWorker } from "./nrmsPaymentReconcileAlert.js";
 import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
@@ -79,6 +80,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startDailyOccupiedHousekeepingWorker();
     startNrmsUsageAccrualWorker();
     startNrmsDunningWorker();
+    startNrmsPaymentReconcileAlertWorker();
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();
     startNrmsGuestAutomationWorker();

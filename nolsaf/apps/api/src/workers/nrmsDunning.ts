@@ -13,7 +13,26 @@ export async function runNrmsDunning(now = new Date()) {
   });
   let changed = 0;
   for (const account of accounts) {
-    const dunning = evaluateNrmsDunning({ balance: Number(account.unpaidBalance), reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, limitReachedAt: account.limitReachedAt, trialEndsAt: account.trialEndsAt, currentStatus: account.status, now });
+    // PAYMENT_PENDING is sticky in the evaluator because a decided payment must
+    // not be re-dunned while the provider confirms it. But if the provider never
+    // calls back at all, the pending attempt eventually expires and nothing else
+    // resolves the account: it would block new external stays forever. When no
+    // live attempt remains, expire the stale tokens and let the balance decide.
+    let currentStatus: string | null = account.status;
+    if (currentStatus === "PAYMENT_PENDING") {
+      const liveAttempt = await db.nrmsServicePaymentToken.findFirst({
+        where: { statement: { accountId: account.id, status: "PAYABLE" }, status: { in: ["PENDING", "PROCESSING"] }, expiresAt: { gt: now }, payment: null },
+        select: { id: true },
+      });
+      if (!liveAttempt) {
+        await db.nrmsServicePaymentToken.updateMany({
+          where: { statement: { accountId: account.id }, status: { in: ["PENDING", "PROCESSING"] }, expiresAt: { lte: now } },
+          data: { status: "EXPIRED" },
+        });
+        currentStatus = null;
+      }
+    }
+    const dunning = evaluateNrmsDunning({ balance: Number(account.unpaidBalance), reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, limitReachedAt: account.limitReachedAt, trialEndsAt: account.trialEndsAt, currentStatus, now });
     const data: Record<string, unknown> = { status: dunning.status, limitReachedAt: dunning.limitReachedAt };
     let template: string | null = null;
     if (dunning.stage === "REMINDER" && !account.reminderNotifiedAt) { data.reminderNotifiedAt = now; template = "nrms_balance_reminder"; }

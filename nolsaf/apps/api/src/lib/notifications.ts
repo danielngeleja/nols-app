@@ -50,6 +50,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: `${data.severity === "CRITICAL" ? "Critical" : "Channel"} OTA Sync Alert`,
         body: `${data.provider || "OTA"} synchronization for "${data.propertyTitle || "a property"}" needs attention.${Array.isArray(data.reasons) && data.reasons.length ? ` ${data.reasons.join("; ")}.` : ""} Open OTA Control to investigate.`
       },
+      nrms_payment_reconcile_needed: {
+        title: "NRMS Payment Needs Reconciliation",
+        body: `A ${data.method || "payment"} attempt of ${Number(data.amount || 0).toLocaleString()} ${data.currency || "TZS"} for "${data.propertyTitle || "an NRMS property"}" has had no provider verdict for ${data.waitedMinutes || 10}+ minutes. Verify with the provider before acting: reconcile it if the money arrived, void it if the owner never completed the prompt. Open NRMS reconciliation to review.`
+      },
       nrms_stop_sell_approval_requested: {
         title: "Emergency Stop-sell Approval Required",
         body: `${data.requestedBy || "An administrator"} requested ${data.action === "RELEASE" ? "release of" : "an"} emergency stop-sell for "${data.propertyTitle || "a property"}" on ${data.provider || "its OTA"}. A different administrator must review the request.`
@@ -126,7 +130,8 @@ export async function notifyAdmins(template: string, data: any) {
         const io = (global as any).io;
         if (io && typeof io.to === "function") {
           const urgent = template === "transport_auto_dispatch_warning"
-            || template === "transport_auto_dispatch_takeover";
+            || template === "transport_auto_dispatch_takeover"
+            || template === "nrms_payment_reconcile_needed";
 
           io.to("admin").emit("admin:notification:new", {
             id: created.id,

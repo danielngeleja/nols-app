@@ -73,6 +73,68 @@ export async function loadOwnedActiveNrmsProperty(res: Response, ownerId: number
   return { property, account };
 }
 
+/** Account states that stop new billable activity from being opened. */
+export const NRMS_BILLING_BLOCKING_STATUSES = ["PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"] as const;
+
+/**
+ * One message per state, because these three are not the same problem:
+ * PAYMENT_REQUIRED owes money, PAYMENT_PENDING has already paid and is waiting
+ * on the provider, and CLOSED cannot be fixed by paying at all. Sending the
+ * "settle the balance" line to a PAYMENT_PENDING account invites a second payment.
+ */
+const BILLING_BLOCK_COPY: Record<string, { error: string; title: string; detail: string; action: "PAY" | "STATUS" | "SUPPORT" }> = {
+  PAYMENT_REQUIRED: {
+    error: "Settle the NRMS balance before opening a new external stay",
+    title: "Settle the NRMS balance to open new external stays",
+    detail: "Unpaid room-night usage has passed the account limit. Clearing it re-opens external reservations immediately.",
+    action: "PAY",
+  },
+  PAYMENT_PENDING: {
+    error: "An NRMS payment for this balance is already in progress",
+    title: "A payment is already in progress",
+    detail: "A payment for this balance has been started and is waiting for the provider to confirm it. External stays re-open as soon as it clears. If it fails or was never completed, the account returns to payment required and you can pay again from the billing page.",
+    action: "STATUS",
+  },
+  CLOSED: {
+    error: "This NRMS account is closed",
+    title: "This NRMS account is closed",
+    detail: "External reservations cannot be opened on a closed account. Contact NoLSAF support to reopen it.",
+    action: "SUPPORT",
+  },
+};
+
+/**
+ * Payload for a 402 on a billing-blocked account. The balance figures come from
+ * the already-loaded account row, so the only extra read is the policy currency,
+ * and that happens exclusively on the blocked path.
+ */
+export async function nrmsBillingBlockPayload(account: any) {
+  const status = String(account?.status ?? "").toUpperCase();
+  const copy = BILLING_BLOCK_COPY[status] ?? BILLING_BLOCK_COPY.PAYMENT_REQUIRED;
+  let currency = "TZS";
+  try {
+    const policy = account?.policyId
+      ? await (prisma as any).nrmsUsageChargePolicy.findUnique({ where: { id: account.policyId }, select: { currency: true } })
+      : null;
+    if (policy?.currency) currency = String(policy.currency);
+  } catch {
+    // Currency is presentational only. A lookup failure must not swallow the block.
+  }
+  return {
+    error: copy.error,
+    code: "NRMS_PAYMENT_REQUIRED",
+    billing: {
+      status,
+      title: copy.title,
+      detail: copy.detail,
+      action: copy.action,
+      outstanding: Number(account?.unpaidBalance ?? 0),
+      limit: Number(account?.unpaidLimit ?? 0),
+      currency,
+    },
+  };
+}
+
 export function workspaceMode(enrollment: NrmsEnrollment | null): WorkspaceMode {
   return isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY";
 }
