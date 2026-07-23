@@ -16,7 +16,7 @@ type Dashboard = {
   ratePlans: any[]; restrictions: any[]; onboarding: any | null; serviceCases: any[]; paymentRequests: any[];
   journeys: any[]; forecast: any | null; recommendations: any[]; loyalty: any[]; reviews: any[]; portfolios: any[];
   roomTypes: any[]; roomUnits: any[]; eligibleReservations: any[]; ownerProperties: any[];
-  reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }>; platformIntent: Record<string, number> } | null;
+  reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }> } | null;
 };
 type OfflineMutation = { clientMutationId: string; action: "SERVICE_CASE_CREATE" | "SERVICE_CASE_STATUS" | "ROOM_HOUSEKEEPING_STATUS"; targetId?: number; baseVersion?: number; payload: Record<string, unknown> };
 
@@ -163,29 +163,78 @@ export default function NrmsControlsPage() {
       <Section title="What guests actually rate" copy="Category scores from verified stays. Choose which questions departing guests are asked, so a property without a restaurant is never asked to rate one.">
         <div className="space-y-4">
           <div>
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Questions asked at checkout</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            {/* An even grid, not wrapped pills: the labels differ in length, so a
+                flex-wrap row leaves ragged gaps and no column to scan down. */}
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Questions asked at checkout</p>
+              <p className="m-0 text-[10px] text-neutral-400">{(data?.reviewInsights?.selectedCategories ?? []).length} of {(data?.reviewInsights?.availableCategories ?? []).length} on</p>
+            </div>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
               {(data?.reviewInsights?.availableCategories ?? []).map((category) => {
                 const on = (data?.reviewInsights?.selectedCategories ?? []).includes(category.key);
-                return <button key={category.key} type="button" disabled={busy === `review-category-${category.key}`} onClick={() => void toggleReviewCategory(category.key)}
-                  className={`min-h-8 rounded-full border px-3 text-[10px] font-bold ${on ? "border-emerald-700 bg-emerald-700 text-white" : "border-neutral-300 bg-white text-neutral-600"}`}>{category.label}</button>;
+                const pending = busy === `review-category-${category.key}`;
+                return (
+                  <button
+                    key={category.key}
+                    type="button"
+                    role="switch"
+                    aria-checked={on}
+                    disabled={pending}
+                    onClick={() => void toggleReviewCategory(category.key)}
+                    className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg border px-3 text-left text-[11px] font-semibold transition disabled:opacity-60 ${on ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-300"}`}
+                  >
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border ${on ? "border-emerald-700 bg-emerald-700 text-white" : "border-neutral-300 bg-white"}`}>
+                      {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin text-neutral-500" /> : on ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <span className="truncate">{category.label}</span>
+                  </button>
+                );
               })}
             </div>
           </div>
           {data?.reviewInsights?.categories.length ? <div>
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Averages from {data.reviewInsights.responses} {data.reviewInsights.responses === 1 ? "response" : "responses"}{data.reviewInsights.overall ? ` · overall ${data.reviewInsights.overall.toFixed(2)}` : ""}</p>
-            <div className="mt-2 space-y-1.5">
-              {data.reviewInsights.categories.map((category) => <div key={category.key} className="flex items-center gap-3">
-                <span className="w-40 shrink-0 truncate text-[11px] text-neutral-600">{category.label}</span>
-                <span className="h-1.5 flex-1 rounded-full bg-neutral-100"><span className={`block h-1.5 rounded-full ${category.average < 3 ? "bg-red-500" : category.average < 4 ? "bg-amber-500" : "bg-emerald-600"}`} style={{ width: `${(category.average / 5) * 100}%` }} /></span>
-                <span className="w-8 shrink-0 text-right text-[11px] font-bold text-neutral-900">{category.average.toFixed(1)}</span>
-              </div>)}
+            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Category scores</p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-2xl font-bold leading-none text-neutral-950">{(data.reviewInsights.overall ?? 0).toFixed(1)}</span>
+              <span className="flex gap-px">
+                {[1, 2, 3, 4, 5].map((value) => <Star key={value} className={`h-3.5 w-3.5 ${value <= Math.round(data.reviewInsights?.overall ?? 0) ? "fill-amber-400 text-amber-400" : "text-neutral-200"}`} />)}
+              </span>
             </div>
+            <p className="mb-0 mt-1 text-[11px] text-neutral-500">overall, from {data.reviewInsights.responses} verified {data.reviewInsights.responses === 1 ? "stay" : "stays"}</p>
+            {/* Below five responses one guest moves the average by a whole point.
+                Presenting that as performance would invite a decision the data
+                cannot support, so it is labelled provisional. */}
+            {data.reviewInsights.responses < 5 && (
+              <p className="mb-0 mt-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">Provisional. Below five responses one guest moves the average by a whole point, so treat these as early signal, not performance.</p>
+            )}
+            <div className="mt-3">
+              {data.reviewInsights.categories.map((category) => {
+                const colour = category.average < 3 ? "bg-red-600" : category.average < 4 ? "bg-amber-500" : "bg-emerald-600";
+                const text = category.average < 3 ? "text-red-700" : category.average < 4 ? "text-amber-700" : "text-emerald-700";
+                return (
+                  <div key={category.key} className="grid grid-cols-[minmax(88px,1.25fr)_minmax(70px,2fr)_auto] items-center gap-3 border-t border-neutral-100 py-1.5 first:border-t-0">
+                    <span className="truncate text-[11px] text-neutral-600">{category.label}</span>
+                    {/* Ticks make a full bar read as "5 out of 5" instead of just "full". */}
+                    <span className="relative block h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                      <span className={`block h-1.5 rounded-full ${colour}`} style={{ width: `${(category.average / 5) * 100}%` }} />
+                      {[20, 40, 60, 80].map((tick) => <span key={tick} className="absolute top-0 h-1.5 w-px bg-white" style={{ left: `${tick}%` }} />)}
+                    </span>
+                    <span className="flex min-w-[54px] items-center justify-end gap-1.5">
+                      <span className={`text-[11px] font-bold ${text}`}>{category.average.toFixed(1)}</span>
+                      <span className="text-[10px] text-neutral-400">{category.responses}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mb-0 mt-2 text-[10px] text-neutral-400">Weakest first. The right number is how many guests answered that question.</p>
+            {data.reviewInsights.responses >= 5 && data.reviewInsights.categories[0] && data.reviewInsights.categories[0].average < 4 && (
+              <div className="mt-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                <p className="m-0 text-[11px] font-bold text-red-900">{data.reviewInsights.categories[0].label} is your weakest score</p>
+                <p className="mb-0 mt-0.5 text-[10px] leading-4 text-red-800">{data.reviewInsights.categories[0].responses} guests rated it {data.reviewInsights.categories[0].average.toFixed(1)} of 5. Open the responses that mention it.</p>
+              </div>
+            )}
           </div> : <Empty>No category scores yet.</Empty>}
-          {data?.reviewInsights && (data.reviewInsights.platformIntent.YES || data.reviewInsights.platformIntent.MAYBE || data.reviewInsights.platformIntent.NO) ? <div>
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Would book through NoLSAF again</p>
-            <p className="mb-0 mt-1 text-xs text-neutral-700">Yes {data.reviewInsights.platformIntent.YES} · Maybe {data.reviewInsights.platformIntent.MAYBE} · No {data.reviewInsights.platformIntent.NO}</p>
-          </div> : null}
           {recoveryQueue.length ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
             <p className="m-0 text-[11px] font-bold text-amber-950">{recoveryQueue.length} {recoveryQueue.length === 1 ? "guest needs" : "guests need"} a personal follow-up</p>
             <p className="mb-0 mt-0.5 text-[10px] leading-4 text-amber-900/80">These guests rated the stay 3 or below. They were not asked to recommend the property.</p>

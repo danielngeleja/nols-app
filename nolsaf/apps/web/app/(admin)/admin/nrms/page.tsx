@@ -73,6 +73,9 @@ const ENROLLMENT_PAGE_SIZE = 10;
 export default function AdminNrmsDirectoryPage() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [properties, setProperties] = useState<DirectoryProperty[]>([]);
+  // Platform channel loyalty from verified-stay reviews. Reported to admins only:
+  // it measures NoLSAF, not the hotel, so it is never shown in the owner console.
+  const [reviewIntent, setReviewIntent] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -89,6 +92,7 @@ export default function AdminNrmsDirectoryPage() {
       const res = await apiClient.get("/api/admin/nrms/directory");
       setEnrollments(res.data?.enrollments ?? []);
       setProperties(res.data?.properties ?? []);
+      setReviewIntent(res.data?.reviewIntent ?? null);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load the NRMS directory");
     } finally {
@@ -187,6 +191,37 @@ export default function AdminNrmsDirectoryPage() {
         <SummaryCard icon={AlertTriangle} label="Owing" value={String(stats.owing)} detail="Properties with a balance" tone={stats.owing > 0 ? "amber" : "slate"} />
         <SummaryCard icon={Wallet} label="Total owed" value={money(stats.owed)} detail="Across all accounts" tone={stats.owed > 0 ? "amber" : "slate"} />
       </div>
+
+      {reviewIntent && (reviewIntent.YES || reviewIntent.MAYBE || reviewIntent.NO) ? (() => {
+        const total = (reviewIntent.YES || 0) + (reviewIntent.MAYBE || 0) + (reviewIntent.NO || 0);
+        const share = (value: number) => (total ? Math.round((value / total) * 100) : 0);
+        const bars: Array<{ label: string; value: number; bar: string; text: string }> = [
+          { label: "Yes", value: reviewIntent.YES || 0, bar: "bg-emerald-600", text: "text-emerald-700" },
+          { label: "Maybe", value: reviewIntent.MAYBE || 0, bar: "bg-amber-500", text: "text-amber-700" },
+          { label: "No", value: reviewIntent.NO || 0, bar: "bg-red-600", text: "text-red-700" },
+        ];
+        return (
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Would book through NoLSAF again</p>
+              <p className="m-0 text-[10px] text-neutral-400">{total} verified {total === 1 ? "guest" : "guests"}</p>
+            </div>
+            <p className="mb-0 mt-1 text-[11px] text-neutral-500">Asked after a verified stay. Platform metric, not shown to owners.</p>
+            <div className="mt-3 space-y-1.5">
+              {bars.map((row) => (
+                <div key={row.label} className="grid grid-cols-[54px_minmax(70px,1fr)_auto] items-center gap-3">
+                  <span className="text-[11px] text-neutral-600">{row.label}</span>
+                  <span className="block h-1.5 overflow-hidden rounded-full bg-neutral-100"><span className={`block h-1.5 rounded-full ${row.bar}`} style={{ width: `${share(row.value)}%` }} /></span>
+                  <span className="flex min-w-[64px] items-center justify-end gap-1.5">
+                    <span className={`text-[11px] font-bold ${row.text}`}>{share(row.value)}%</span>
+                    <span className="text-[10px] text-neutral-400">{row.value}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })() : null}
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={ShieldCheck} title="Enrollments" subtitle="Owners who have activated NRMS billing" right={<CountPill count={filteredEnrollments.length} singular="owner" plural="owners" />} />

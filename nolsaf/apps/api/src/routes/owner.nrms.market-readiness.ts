@@ -85,18 +85,19 @@ async function owned(req: AuthedRequest, res: Response) {
  * how departing guests answered the NoLSAF repeat-use question. Category scores
  * are the actionable part, an overall 3.8 says nothing, "security 2.4" does.
  */
-function buildReviewInsights(rows: Array<{ rating: number | null; categoryRatings: unknown; platformIntent: string | null }>, storedCategories: unknown) {
+function buildReviewInsights(rows: Array<{ rating: number | null; categoryRatings: unknown }>, storedCategories: unknown) {
   const rated = rows.filter((row) => typeof row.rating === "number");
-  const overall = rated.length ? Number((rated.reduce((sum, row) => sum + (row.rating ?? 0), 0) / rated.length).toFixed(2)) : null;
-  const intent = { YES: 0, MAYBE: 0, NO: 0 } as Record<string, number>;
-  for (const row of rows) if (row.platformIntent && row.platformIntent in intent) intent[row.platformIntent] += 1;
+  const overall = rated.length ? Number((rated.reduce((sum, row) => sum + (row.rating ?? 0), 0) / rated.length).toFixed(1)) : null;
+  // Weakest first: a fixed category order buries the one score an owner should
+  // act on. The NoLSAF repeat-booking answer is deliberately not returned here,
+  // it is platform telemetry and belongs in the admin view, not the owner's.
+  const categories = averageCategoryRatings(rows).sort((a, b) => a.average - b.average);
   return {
     responses: rows.length,
     overall,
-    categories: averageCategoryRatings(rows),
+    categories,
     selectedCategories: resolveReviewCategories(storedCategories),
     availableCategories: NRMS_REVIEW_CATEGORIES.map((item) => ({ key: item.key, label: item.label })),
-    platformIntent: intent,
   };
 }
 
@@ -143,7 +144,7 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
       prisma.roomUnit.findMany({ where: { propertyId }, select: { id: true, code: true, status: true, housekeepingStatus: true, roomTypeId: true }, orderBy: { code: "asc" } }),
       prisma.reservation.findMany({ where: { propertyId, status: { in: ["HELD", "CONFIRMED", "CHECKED_IN"] } }, select: { id: true, receiptNumber: true, status: true, currency: true, totalAmount: true, amountPaid: true, chargesTotal: true, guestProfile: { select: { fullName: true, phone: true } } }, orderBy: { checkIn: "asc" }, take: 100 }),
       prisma.property.findMany({ where: { ownerId: req.user!.id, nrmsActivatedAt: { not: null } }, select: { id: true, title: true, status: true }, orderBy: { title: "asc" } }),
-      prisma.nrmsReviewRequest.findMany({ where: { propertyId, respondedAt: { not: null } }, select: { rating: true, categoryRatings: true, platformIntent: true }, orderBy: { respondedAt: "desc" }, take: 500 }),
+      prisma.nrmsReviewRequest.findMany({ where: { propertyId, respondedAt: { not: null } }, select: { rating: true, categoryRatings: true }, orderBy: { respondedAt: "desc" }, take: 500 }),
       prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsReviewCategories: true } }),
     ]);
     res.json({ property: active.property, ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewInsights: buildReviewInsights(reviewResponses, reviewSettings?.nrmsReviewCategories) });

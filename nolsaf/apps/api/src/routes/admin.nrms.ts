@@ -80,6 +80,20 @@ router.get("/directory", (async (req, res: Response) => {
     db.nrmsNightAuditRun.groupBy({ by: ["propertyId"], where: { propertyId: { in: propertyIds }, status: "CLOSED" }, _max: { completedAt: true } }),
   ]);
 
+  // Platform-wide "would you book through NoLSAF again". This is NoLSAF's own
+  // channel-loyalty signal, not a hotel's performance, so it is reported here
+  // and deliberately never returned to owners.
+  const intentRows = await db.nrmsReviewRequest.groupBy({
+    by: ["platformIntent"],
+    where: { platformIntent: { not: null } },
+    _count: { _all: true },
+  });
+  const reviewIntent = { YES: 0, MAYBE: 0, NO: 0 } as Record<string, number>;
+  for (const row of intentRows) {
+    const key = String(row.platformIntent ?? "").toUpperCase();
+    if (key in reviewIntent) reviewIntent[key] = row._count._all;
+  }
+
   const staffMap = countBy(staffCounts);
   const outletMap = countBy(outletCounts);
   const pointMap = countBy(pointCounts);
@@ -120,6 +134,7 @@ router.get("/directory", (async (req, res: Response) => {
       lastNightAuditAt: lastAuditMap.get(a.propertyId) ?? null,
     })),
     pagination: { limit, nextCursor: hasMore ? pageAccounts[pageAccounts.length - 1].id : null },
+    reviewIntent,
   });
 }) as RequestHandler);
 
