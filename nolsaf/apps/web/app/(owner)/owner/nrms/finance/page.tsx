@@ -88,6 +88,16 @@ export default function FinanceControlPage() {
   const closeAudit = () => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, { businessDate }), "Night Audit completed. The business date and its balanced ledger are locked.");
   const classifyTender = (orderId: number) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/outlet-orders/${orderId}/classify`, { method: tenderCorrections[orderId] }), "Outlet payment method classified for reconciliation.");
   const canManage = data?.accessRole === "OWNER" || data?.accessRole === "MANAGER";
+  const profitAndLoss = useMemo(() => {
+    const byCurrency = new Map<string, { revenue: number; expense: number }>();
+    for (const account of data?.ledger.accounts ?? []) {
+      const row = byCurrency.get(account.currency) ?? { revenue: 0, expense: 0 };
+      if (account.accountType === "REVENUE") row.revenue += account.credit - account.debit;
+      if (account.accountType === "EXPENSE") row.expense += account.debit - account.credit;
+      byCurrency.set(account.currency, row);
+    }
+    return [...byCurrency.entries()].map(([currency, row]) => ({ currency, revenue: row.revenue, expense: row.expense, net: row.revenue - row.expense }));
+  }, [data]);
 
   if (loading && !data) return <div className="flex min-h-72 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading financial controls…</div>;
   return <div className="mx-auto max-w-[1500px] space-y-4 pb-10">
@@ -147,7 +157,41 @@ export default function FinanceControlPage() {
       </div>
     </section>}
 
-    {tab === "ledger" && <section className="space-y-4"><div className="grid gap-3 md:grid-cols-3">{data?.ledger.accounts.slice(0, 6).map((account) => <Metric key={`${account.accountCode}-${account.currency}`} label={`${account.accountCode} · ${account.accountName}`} value={cash(Math.abs(account.balance), account.currency)} note={`${cash(account.debit, account.currency)} debit · ${cash(account.credit, account.currency)} credit`} />)}</div><div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"><div className="border-b border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[900px] border-collapse text-left text-xs"><thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500"><th className="p-3">Transaction</th><th className="p-3">Source</th><th className="p-3">Description</th><th className="p-3">Accounts</th><th className="p-3 text-right">Debit</th><th className="p-3 text-right">Credit</th></tr></thead><tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="border-t border-neutral-100 align-top"><td className="p-3 font-bold">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td><td className="p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td><td className="p-3">{transaction.description}</td><td className="p-3">{transaction.entries.map((entry) => <div key={entry.id} className="mb-1">{entry.accountCode} · {entry.accountName}</div>)}</td><td className="p-3 text-right tabular-nums">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.debit), 0), transaction.currency)}</td><td className="p-3 text-right tabular-nums">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.credit), 0), transaction.currency)}</td></tr>)}{!data?.ledger.transactions.length && <tr><td colSpan={6} className="p-10 text-center text-neutral-400">The ledger is posted when Night Audit closes this business date.</td></tr>}</tbody></table></div></div></section>}
+    {tab === "ledger" && <section className="space-y-4">
+      {profitAndLoss.length > 0 && <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+        <h3 className="m-0 text-sm font-bold">Profit and loss</h3>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range. Payroll, stock cost and depreciation are not tracked yet, so this is not a complete P&amp;L.</p>
+        <div className="mt-3 space-y-3">{profitAndLoss.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-3">
+          <Metric label={`Revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Room, restaurant, bar and other service revenue" tone="green" />
+          <Metric label={`Expenses (${row.currency})`} value={cash(row.expense, row.currency)} note="Platform fees and other posted costs" tone="amber" />
+          <Metric label={`Net (${row.currency})`} value={cash(row.net, row.currency)} note={row.net >= 0 ? "Profit for the range" : "Loss for the range"} tone={row.net >= 0 ? "green" : "amber"} />
+        </div>)}</div>
+      </div>}
+      <div className="grid gap-3 md:grid-cols-3">{data?.ledger.accounts.slice(0, 6).map((account) => <Metric key={`${account.accountCode}-${account.currency}`} label={`${account.accountCode} · ${account.accountName}`} value={cash(Math.abs(account.balance), account.currency)} note={`${cash(account.debit, account.currency)} debit · ${cash(account.credit, account.currency)} credit`} />)}</div>
+      <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="border-b border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction &mdash; that balance is what makes the ledger correct.</p></div>
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[900px] border-collapse text-left text-xs">
+            <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500">
+              <th className="sticky left-0 z-10 border-r border-neutral-200 bg-neutral-50 p-3">Transaction</th>
+              <th className="p-3">Source</th>
+              <th className="p-3">Description</th>
+              <th className="p-3">Accounts</th>
+              <th className="border-l border-blue-100 bg-blue-50/70 p-3 text-right text-blue-800">Debit</th>
+              <th className="border-l border-violet-100 bg-violet-50/70 p-3 text-right text-violet-800">Credit</th>
+            </tr></thead>
+            <tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="border-t border-neutral-100 align-top">
+              <td className="sticky left-0 z-10 border-r border-neutral-200 bg-white p-3 font-bold">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td>
+              <td className="p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td>
+              <td className="p-3">{transaction.description}</td>
+              <td className="p-3">{transaction.entries.map((entry) => <div key={entry.id} className="mb-1">{entry.accountCode} · {entry.accountName}</div>)}</td>
+              <td className="border-l border-blue-100 bg-blue-50/40 p-3 text-right font-bold tabular-nums text-blue-800">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.debit), 0), transaction.currency)}</td>
+              <td className="border-l border-violet-100 bg-violet-50/40 p-3 text-right font-bold tabular-nums text-violet-800">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.credit), 0), transaction.currency)}</td>
+            </tr>)}{!data?.ledger.transactions.length && <tr><td colSpan={6} className="p-10 text-center text-neutral-400">The ledger is posted when Night Audit closes this business date.</td></tr>}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>}
 
     {tab === "tax" && <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"><div className="grid gap-4 md:grid-cols-[260px_1fr]"><Metric label="Captured tax payable" value={cash(data?.tax.total || 0, propertyCurrency)} note="Credit less debit in account 2200 for the selected date" tone="green" /><div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><strong>Tax data quality rule</strong><p className="mb-0 mt-1">{data?.tax.note}</p></div></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[720px] border-collapse text-left text-xs"><thead><tr className="border-y border-neutral-200 bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500"><th className="p-3">Transaction</th><th className="p-3">Date and time</th><th className="p-3">Tax basis</th><th className="p-3 text-right">Tax payable</th></tr></thead><tbody>{data?.tax.rows.map((row) => <tr key={row.transactionNumber} className="border-b border-neutral-100"><td className="p-3 font-bold">{row.transactionNumber}</td><td className="p-3 text-neutral-500">{time(row.occurredAt)}</td><td className="p-3">{row.description}</td><td className="p-3 text-right font-bold tabular-nums">{cash(row.tax, row.currency)}</td></tr>)}{!data?.tax.rows.length && <tr><td colSpan={4} className="p-8 text-center text-neutral-400">No separately captured tax has been posted for this business date.</td></tr>}</tbody></table></div></section>}
 

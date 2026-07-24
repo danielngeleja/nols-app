@@ -113,14 +113,22 @@ type Posting = {
 
 async function buildPostings(propertyId: number, key: string): Promise<Posting[]> {
   const { start, end } = dayRange(key);
-  const [reservations, payments, charges, outlets] = await Promise.all([
+  const [reservations, payments, charges, outlets, tippedOrders, usageEvents] = await Promise.all([
     db.reservation.findMany({
       where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: end }, checkOut: { gt: start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
     }),
     db.externalPaymentRecord.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
     db.reservationCharge.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
-    db.nrmsOutletOrder.findMany({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", voidedAt: null, settledAt: { gte: start, lt: end } }, include: { outlet: { select: { type: true } } } }),
+    // Direct outlet-payment sales are matched by settlement OR by void, independent
+    // of the order's current status, so a same-day settle-then-void posts both the
+    // original sale and its reversal instead of silently cancelling each other out.
+    db.nrmsOutletOrder.findMany({
+      where: { propertyId, settlementMode: "OUTLET_PAYMENT", OR: [{ settledAt: { gte: start, lt: end } }, { status: "VOIDED", voidedAt: { gte: start, lt: end } }] },
+      include: { outlet: { select: { type: true } } },
+    }),
+    db.nrmsOutletOrder.findMany({ where: { propertyId, tipAmount: { gt: 0 }, tipConfirmedAt: { gte: start, lt: end } }, select: { id: true, orderNumber: true, tipAmount: true, tipMethod: true, currency: true, tipConfirmedAt: true } }),
+    db.nrmsUsageEvent.findMany({ where: { propertyId, serviceDate: dateOnly(key), amount: { gt: 0 } } }),
   ]);
   const postings: Posting[] = [];
   for (const stay of reservations) {
@@ -162,9 +170,32 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     const tender = accountForPayment(order.settlementMethod || "OTHER");
     const revenue = accountForCharge(order.outlet.type);
     const amount = money(order.total);
-    postings.push({ sourceKey: `OUTLET:${propertyId}:${order.id}`, sourceType: "OUTLET_SALE", sourceId: order.id, description: `Outlet sale ${order.orderNumber}`, currency: order.currency, occurredAt: order.settledAt, entries: [
+    if (order.settledAt && new Date(order.settledAt) >= start && new Date(order.settledAt) < end) postings.push({ sourceKey: `OUTLET:${propertyId}:${order.id}`, sourceType: "OUTLET_SALE", sourceId: order.id, description: `Outlet sale ${order.orderNumber}`, currency: order.currency, occurredAt: order.settledAt, entries: [
       { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: amount, credit: 0 },
       { accountCode: revenue.code, accountName: revenue.name, accountType: "REVENUE", debit: 0, credit: amount },
+    ] });
+    if (order.status === "VOIDED" && order.voidedAt && new Date(order.voidedAt) >= start && new Date(order.voidedAt) < end) postings.push({ sourceKey: `OUTLET_VOID:${propertyId}:${order.id}`, sourceType: "OUTLET_SALE_REVERSAL", sourceId: order.id, description: `Reversal: Outlet sale ${order.orderNumber}`, currency: order.currency, occurredAt: order.voidedAt, entries: [
+      { accountCode: revenue.code, accountName: revenue.name, accountType: "REVENUE", debit: amount, credit: 0 },
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+  }
+  for (const order of tippedOrders) {
+    const tipTender = accountForPayment(order.tipMethod || "OTHER");
+    const amount = money(order.tipAmount);
+    if (amount <= 0) continue;
+    // Tips are held on behalf of staff, not business revenue: cash goes up, but the
+    // offsetting entry is a liability (owed out), never the revenue accounts above.
+    postings.push({ sourceKey: `TIP:${propertyId}:${order.id}`, sourceType: "OUTLET_TIP", sourceId: order.id, description: `Tip collected, order ${order.orderNumber}`, currency: order.currency, occurredAt: order.tipConfirmedAt, entries: [
+      { accountCode: tipTender.code, accountName: tipTender.name, accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "2300", accountName: "Tips payable", accountType: "LIABILITY", debit: 0, credit: amount },
+    ] });
+  }
+  for (const event of usageEvents) {
+    const amount = money(event.amount);
+    if (amount <= 0) continue;
+    postings.push({ sourceKey: `PAYG:${propertyId}:${event.id}`, sourceType: "PLATFORM_FEE", sourceId: event.id, description: `NoLSAF platform fee, ${event.classification.replace(/_/g, " ").toLowerCase()}`, currency: event.currency, occurredAt: start, entries: [
+      { accountCode: "5000", accountName: "Platform fees (NoLSAF)", accountType: "EXPENSE", debit: amount, credit: 0 },
+      { accountCode: "2100", accountName: "NoLSAF fees payable", accountType: "LIABILITY", debit: 0, credit: amount },
     ] });
   }
   return postings;
