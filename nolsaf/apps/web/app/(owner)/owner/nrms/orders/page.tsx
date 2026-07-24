@@ -321,7 +321,7 @@ export default function NrmsOrdersPage() {
             return (
               <article key={order.id} className="min-w-0 rounded-xl border border-neutral-200 p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p><p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{order.orderPoint ? `${order.orderPoint.type === "ROOM" ? "Room" : "Table"} ${order.orderPoint.label} · Guest QR order` : `${orderRoomLabel(order)} · ${orderGuestLabel(order)}`}</p></div>
+                  <div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p><p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{order.reservation ? `${orderRoomLabel(order)} · ${orderGuestLabel(order)}` : order.orderPoint ? `${order.orderPoint.type === "ROOM" ? "Room" : "Table"} ${order.orderPoint.label} · Guest QR order` : `${orderRoomLabel(order)} · ${orderGuestLabel(order)}`}</p></div>
                   <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status === "PLACED" ? "NEW · QR" : order.status.replaceAll("_", " ")}</span>
                 </div>
                 <div className="mt-3 space-y-1">{order.items.map((item) => <div key={item.id} className="flex justify-between gap-3 text-[11px] text-neutral-600"><span className="truncate">{item.quantity}× {item.nameSnapshot}</span><span className="shrink-0 tabular-nums">{money(item.lineTotal, order.currency)}</span></div>)}</div>
