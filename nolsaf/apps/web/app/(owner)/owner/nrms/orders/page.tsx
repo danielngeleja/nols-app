@@ -90,7 +90,7 @@ export default function NrmsOrdersPage() {
       const [contextResponse, guestResponse, orderResponse, historyResponse] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/context`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/in-house`),
-        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live`),
+        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=room`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders?${historyQuery.toString()}`),
       ]);
       const nextOutlets: Outlet[] = contextResponse.data?.outlets ?? [];
@@ -312,7 +312,7 @@ export default function NrmsOrdersPage() {
       )}
 
       <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Serve &amp; post adds a folio charge. Serve &amp; settle records outlet-paid revenue.</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
+        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · in-room</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Room and in-house guest orders. Table and walk-in orders live in Tables &amp; tabs.</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
         <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {orders.map((order) => {
             const tenderRequired = order.status === "SERVING" && order.settlementMode === "OUTLET_PAYMENT";

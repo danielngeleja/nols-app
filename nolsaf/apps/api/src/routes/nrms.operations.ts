@@ -46,6 +46,13 @@ const db = prisma as any;
 // work itself is small. 15s gives headroom without holding the lock indefinitely.
 // Same values as owner.nrms.reservations EXTENDED_TX_OPTIONS.
 const ORDER_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+const LIVE_ORDER_STATUSES = ["PLACED", "CONFIRMED", "PREPARING", "SERVING"];
+// Two disjoint order worlds that must never be mixed on the same board: anything
+// tied to a checked-in guest or a room QR point is "room" service (handled in the
+// Live order queue); a table QR point or a walk-in with no reservation is "table"
+// service (handled in Tables & tabs). Every live order falls in exactly one.
+const ROOM_ORDER_FILTER = { OR: [{ reservationId: { not: null } }, { orderPoint: { is: { type: "ROOM" } } }] };
+const TABLE_ORDER_FILTER = { reservationId: null, OR: [{ orderPointId: null }, { orderPoint: { is: { type: "TABLE" } } }] };
 const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "HOUSEKEEPER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
 const OUTLET_TYPES = ["RESTAURANT", "BAR", "OTHER"] as const;
 const ORDER_SETTLEMENTS = ["ROOM_FOLIO", "OUTLET_PAYMENT"] as const;
@@ -981,12 +988,15 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
     : view === "all" ? null : { in: allowedStatuses };
   const limit = Math.min(Math.max(Number(req.query.limit) || (view === "history" ? 12 : 150), 1), 150);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  // A page asks for only its world so room and table boards never overlap.
+  const scope = req.query.scope === "room" ? ROOM_ORDER_FILTER : req.query.scope === "table" ? TABLE_ORDER_FILTER : {};
   const where: any = {
     propertyId: access.property.id,
     ...(outletId ? { outletId } : {}),
     ...(status ? { status } : {}),
     ...(access.role === "RESTAURANT" && !outletId ? { outlet: { type: "RESTAURANT" } } : {}),
     ...(access.role === "BAR" && !outletId ? { outlet: { type: "BAR" } } : {}),
+    ...scope,
   };
   const [total, orders] = await Promise.all([db.nrmsOutletOrder.count({ where }), db.nrmsOutletOrder.findMany({
     where,
@@ -1008,11 +1018,15 @@ router.get("/property/:propertyId/orders/live-count", (async (req: AuthedRequest
     : access.outletId == null && access.role === "RESTAURANT" ? { outlet: { type: "RESTAURANT" } }
     : {};
   const base = { propertyId: access.property.id, ...(access.outletId ? { outletId: access.outletId } : {}), ...outletTypeScope };
-  const [open, placed] = await Promise.all([
-    db.nrmsOutletOrder.count({ where: { ...base, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } } }),
-    db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED" } }),
+  // Split so each nav item shows its own arrivals: room orders badge the Live
+  // order queue ("Bar orders"), table orders badge "Tables & tabs".
+  const [openRoom, openTable, placedRoom, placedTable] = await Promise.all([
+    db.nrmsOutletOrder.count({ where: { ...base, status: { in: LIVE_ORDER_STATUSES }, ...ROOM_ORDER_FILTER } }),
+    db.nrmsOutletOrder.count({ where: { ...base, status: { in: LIVE_ORDER_STATUSES }, ...TABLE_ORDER_FILTER } }),
+    db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED", ...ROOM_ORDER_FILTER } }),
+    db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED", ...TABLE_ORDER_FILTER } }),
   ]);
-  res.json({ open, placed });
+  res.json({ openRoom, openTable, placedRoom, placedTable });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Response) => {

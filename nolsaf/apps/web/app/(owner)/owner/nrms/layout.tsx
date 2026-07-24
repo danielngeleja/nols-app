@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -156,7 +156,9 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
-  const [liveOrders, setLiveOrders] = useState<{ open: number; placed: number } | null>(null);
+  const [liveOrders, setLiveOrders] = useState<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number } | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+  const prevPlacedRef = useRef<number | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
@@ -182,21 +184,59 @@ function NrmsShell({ children }: { children: ReactNode }) {
   // drop the frozen overlay so that property's own pages get a fresh chance to load.
   useEffect(() => { setGlobalFreeze(null); }, [selectedPropertyId]);
 
-  // Live-order badge on "Tables & tabs": poll a cheap count so a new guest order
-  // surfaces in the sidebar without opening the page. Only while it's visible.
+  // Browsers block audio until the user interacts, so build/resume the context on
+  // the first pointer gesture. Until then arrivals still pulse the badge silently.
   useEffect(() => {
-    if (!selectedPropertyId || !roleCanSee("/owner/nrms/tables", accessRole)) { setLiveOrders(null); return; }
+    const unlock = () => {
+      try {
+        if (!audioRef.current) audioRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        void audioRef.current?.resume?.();
+      } catch { /* audio unavailable; the visual badge still rings */ }
+    };
+    window.addEventListener("pointerdown", unlock, { once: false });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
+
+  const chime = useCallback(() => {
+    const ctx = audioRef.current;
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      [880, 1320].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const at = now + i * 0.16;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.14, at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.15);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(at); osc.stop(at + 0.16);
+      });
+    } catch { /* ignore playback errors */ }
+  }, []);
+
+  // Split live-order badges: room arrivals badge "Bar orders", table arrivals
+  // badge "Tables & tabs". A rise in total new orders rings the arrival chime.
+  useEffect(() => {
+    const canSee = roleCanSee("/owner/nrms/tables", accessRole) || roleCanSee("/owner/nrms/orders", accessRole);
+    if (!selectedPropertyId || !canSee) { setLiveOrders(null); prevPlacedRef.current = null; return; }
     let active = true;
     const fetchCount = async () => {
       try {
-        const res = await apiClient.get<{ open: number; placed: number }>(`/api/nrms/operations/property/${selectedPropertyId}/orders/live-count`);
-        if (active) setLiveOrders(res.data);
+        const res = await apiClient.get<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number }>(`/api/nrms/operations/property/${selectedPropertyId}/orders/live-count`);
+        if (!active) return;
+        setLiveOrders(res.data);
+        const totalPlaced = res.data.placedRoom + res.data.placedTable;
+        if (prevPlacedRef.current !== null && totalPlaced > prevPlacedRef.current) chime();
+        prevPlacedRef.current = totalPlaced;
       } catch { /* transient; keep the last known count */ }
     };
     void fetchCount();
     const id = setInterval(fetchCount, 20000);
     return () => { active = false; clearInterval(id); };
-  }, [selectedPropertyId, accessRole]);
+  }, [selectedPropertyId, accessRole, chime]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -283,13 +323,19 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 const Icon = override?.icon ?? item.icon;
                 const label = override?.label ?? item.label;
                 const active = isActive(pathname, item);
-                const badge = item.href === "/owner/nrms/tables" && liveOrders && liveOrders.placed > 0 ? liveOrders.placed : null;
+                // A page's own badge clears while you are on it: being on the
+                // page is reading its new orders. It reappears when you leave.
+                const badge = item.href === "/owner/nrms/tables"
+                  ? (!active && liveOrders?.placedTable ? liveOrders.placedTable : null)
+                  : item.href === "/owner/nrms/orders"
+                  ? (!active && liveOrders?.placedRoom ? liveOrders.placedRoom : null)
+                  : null;
                 return (
                   <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                     {!collapsed && <span className="flex-1 truncate">{label}</span>}
-                    {!collapsed && badge != null && <span className="shrink-0 rounded-full bg-violet-500 px-1.5 text-center text-[10px] font-bold leading-[18px] text-white" aria-label={`${badge} new orders`}>{badge}</span>}
-                    {collapsed && badge != null && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-violet-400" aria-label={`${badge} new orders`} />}
+                    {!collapsed && badge != null && <span className="shrink-0 animate-pulse rounded-full bg-violet-500 px-1.5 text-center text-[10px] font-bold leading-[18px] text-white" aria-label={`${badge} new orders`}>{badge}</span>}
+                    {collapsed && badge != null && <span className="absolute right-1 top-1 h-2 w-2 animate-pulse rounded-full bg-violet-400" aria-label={`${badge} new orders`} />}
                   </Link>
                 );
               })}
