@@ -221,7 +221,6 @@ export default function GuestMenuPage() {
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [chargeToRoom, setChargeToRoom] = useState(false);
-  const [guestLastName, setGuestLastName] = useState("");
   const [guestPaymentMethod, setGuestPaymentMethod] = useState("");
   const [payInstructions, setPayInstructions] = useState<PayInstruction[]>([]);
 
@@ -419,10 +418,6 @@ export default function GuestMenuPage() {
       setPlaceError("Choose how you intend to pay before sending the order.");
       return;
     }
-    if (chargeToRoom && guestLastName.trim().length < 2) {
-      setPlaceError("Enter the name the room was booked under to charge to the room.");
-      return;
-    }
     setPlacing(true);
     setPlaceError(null);
     try {
@@ -433,19 +428,13 @@ export default function GuestMenuPage() {
           outletId: activeOutlet.id,
           note: note.trim() || null,
           chargeToRoom: chargeToRoom || undefined,
-          guestLastName: chargeToRoom ? guestLastName.trim() : undefined,
           paymentMethod: chargeToRoom ? null : guestPaymentMethod,
           items: cartLines.map((line) => ({ menuItemId: line.item.id, quantity: line.quantity })),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data?.code === "NAME_MISMATCH" || data?.code === "ROOM_CHARGE_UNAVAILABLE") {
-          const message = data?.error || "Room charging is not available. You can pay at the counter instead.";
-          setPlaceError(activeOutlet.type === "BAR" ? String(message).replace(/counter/gi, "bar") : message);
-        } else {
-          setPlaceError(data?.error || "Could not place the order. Please try again.");
-        }
+        setPlaceError(data?.error || "Could not place the order. Please try again.");
         return;
       }
       const code = data?.publicCode as string;
@@ -453,7 +442,6 @@ export default function GuestMenuPage() {
       setNote("");
       setCartOpen(false);
       setChargeToRoom(false);
-      setGuestLastName("");
       setGuestPaymentMethod("");
       setOrder(data.order);
       setTrackedCode(code);
@@ -1001,14 +989,14 @@ export default function GuestMenuPage() {
                     onClick={() => setChargeToRoom(false)}
                     className={`min-w-0 rounded-lg border px-3 py-3 text-sm font-bold transition ${!chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
                   >
-                    Pay directly
+                    Pay Now
                   </button>
                   <button
                     type="button"
                     onClick={() => { setChargeToRoom(true); setGuestPaymentMethod(""); }}
                     className={`min-w-0 rounded-lg border px-3 py-3 text-sm font-bold transition ${chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
                   >
-                    Charge to my room
+                    Add to my bill
                   </button>
                 </div>
               )}
@@ -1034,19 +1022,9 @@ export default function GuestMenuPage() {
               )}
 
               {chargeToRoom && (
-                <div className="mt-2.5">
-                  <input
-                    type="text"
-                    value={guestLastName}
-                    onChange={(event) => setGuestLastName(event.target.value.slice(0, 80))}
-                    placeholder="Name the room was booked under"
-                    className="box-border h-12 w-full max-w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-base text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10"
-                    style={{ fontFamily: "inherit" }}
-                  />
-                  <p className="mb-0 mt-1.5 text-xs leading-relaxed text-neutral-400">
-                    The order is added to the room bill and appears on the folio at checkout.
-                  </p>
-                </div>
+                <p className="mb-0 mt-2.5 text-xs leading-relaxed text-neutral-400">
+                  The order is added to your room bill and appears on the folio at checkout.
+                </p>
               )}
             </div>
 

@@ -11,7 +11,6 @@ import { Router, type Request, type RequestHandler, type Response } from "expres
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
-import { guestNameMatches } from "../lib/nrmsOrderPoints.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
 import {
   limitPublicQrMenu,
@@ -33,7 +32,6 @@ const publicOrderSchema = z.object({
   note: z.string().trim().max(200).optional().nullable(),
   /// m5: charge to the room's folio instead of paying at the counter.
   chargeToRoom: z.boolean().optional(),
-  guestLastName: z.string().trim().max(80).optional().nullable(),
   /// Guest intent only. Staff separately confirm the tender actually received.
   paymentMethod: z.enum(PAYMENT_METHODS).optional().nullable(),
   items: z
@@ -282,21 +280,17 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
   });
   if (!outlet) return res.status(400).json({ error: "This outlet is not taking orders right now" });
 
-  // m5: "charge to my room" needs a checked-in stay on this exact room plus
-  // the name on the booking. Failure falls back to pay-at-counter client-side.
+  // m5: "charge to my room" needs a checked-in stay on this exact room. The
+  // point->stay link is the capability (room QR + an active CHECKED_IN
+  // allocation on it); no guest-typed name is required. Failure falls back
+  // to pay-at-counter client-side.
   let stay: { id: number; currency: string | null } | null = null;
   if (parsed.data.chargeToRoom) {
     const found = await findStayForPoint(point);
     if (!found) {
       return res.status(409).json({
-        error: "Room charging is not available for this room right now. You can pay at the counter instead.",
+        error: "Adding to the room bill is not available for this room right now. You can pay now instead.",
         code: "ROOM_CHARGE_UNAVAILABLE",
-      });
-    }
-    if (!guestNameMatches(found.guestProfile?.fullName, parsed.data.guestLastName)) {
-      return res.status(403).json({
-        error: "That name does not match the booking for this room. Please use the name the stay was booked under, or pay at the counter.",
-        code: "NAME_MISMATCH",
       });
     }
     stay = { id: found.id, currency: found.currency };

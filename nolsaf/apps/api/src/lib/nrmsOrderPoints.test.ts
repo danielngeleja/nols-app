@@ -2,7 +2,6 @@ import { afterEach, describe, it, expect } from "vitest";
 import {
   generateOrderPointToken,
   buildMenuUrl,
-  guestNameMatches,
   isValidOrderPointType,
 } from "./nrmsOrderPoints.js";
 
@@ -51,27 +50,6 @@ describe("nrmsOrderPoints", () => {
       clearConfiguredOrigins();
       process.env.NODE_ENV = "production";
       expect(() => buildMenuUrl("abc123")).toThrow("WEB_ORIGIN must be configured");
-    });
-  });
-
-  describe("guestNameMatches (charge-to-room verification)", () => {
-    it("accepts any single name part, case-insensitive", () => {
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "ngeleja")).toBe(true);
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "DANIEL")).toBe(true);
-      expect(guestNameMatches("Daniel Mussa Ngeleja", " Mussa ")).toBe(true);
-    });
-
-    it("rejects partial, fuzzy and unrelated names", () => {
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "Ngele")).toBe(false);
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "John")).toBe(false);
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "")).toBe(false);
-      expect(guestNameMatches("Daniel Mussa Ngeleja", "d")).toBe(false);
-    });
-
-    it("handles punctuation and missing stay names safely", () => {
-      expect(guestNameMatches("O'Brien, Mary-Anne", "brien")).toBe(true);
-      expect(guestNameMatches(null, "anything")).toBe(false);
-      expect(guestNameMatches("", "anything")).toBe(false);
     });
   });
 

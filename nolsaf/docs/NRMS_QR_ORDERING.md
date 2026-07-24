@@ -1,6 +1,6 @@
 # NRMS QR Ordering: Guest Self-Service for Restaurant and Bar
 
-Status: ALL 6 MILESTONES BUILT (2026-07-18). Migrations prepared, pending approval: 20260718113000_nrms_menu_polish, 20260718140000_nrms_order_points, 20260718170000_nrms_qr_guest_orders, 20260718200000_nrms_guest_pay_instructions. Milestone 1 and earlier migrations are applied locally. Decisions applied: out-of-stock shows greyed "Not available today", auto-accept defaults off with a per-outlet toggle, 200-char guest note included. Milestone 5: charge-to-room requires the name on the booking (any full name part, exact, case-insensitive). Milestone 6 (decision 2026-07-18): NO NoLSAF checkout for guest orders. Money goes directly to the property's own receiving channels (their Lipa Namba, bank, card machine, cash), avoiding collection, disbursement delay and reconciliation cost. The owner configures payment details once (QR order points page); the guest order page displays them; staff record the tender at settle exactly as for any outlet sale.
+Status: ALL 6 MILESTONES BUILT (2026-07-18). Migrations prepared, pending approval: 20260718113000_nrms_menu_polish, 20260718140000_nrms_order_points, 20260718170000_nrms_qr_guest_orders, 20260718200000_nrms_guest_pay_instructions. Milestone 1 and earlier migrations are applied locally. Decisions applied: out-of-stock shows greyed "Not available today", auto-accept defaults off with a per-outlet toggle, 200-char guest note included. Milestone 5: charge-to-room verified purely by the point->stay link (room QR resolving to an ACTIVE allocation on a CHECKED_IN reservation); no guest name entry (decision 2026-07-24, superseding the earlier last-name check). Milestone 6 (decision 2026-07-18): NO NoLSAF checkout for guest orders. Money goes directly to the property's own receiving channels (their Lipa Namba, bank, card machine, cash), avoiding collection, disbursement delay and reconciliation cost. The owner configures payment details once (QR order points page); the guest order page displays them; staff record the tender at settle exactly as for any outlet sale.
 Owner: Daniel
 Written: 2026-07-17
 Rule: no implementation begins until this document is reviewed and approved. Any scope change is edited here first.
@@ -50,8 +50,8 @@ The QR page is a shop window. The shop must be presentable first.
 4. Order enters status PLACED with the room label. Staff see it instantly on the live queue and tap Accept (moves to CONFIRMED and the kitchen/bar starts). A per-outlet auto-accept toggle exists for owners who want zero friction.
 5. Guest phone shows live status: received, being prepared, served.
 6. Settlement:
-   - In-house guest (QR is a room with a checked-in stay): may choose "charge to my room" after confirming the guest last name. Posts to the folio through the existing pipeline; checkout verification rules apply unchanged.
-   - Anyone else: pays at the counter/waiter exactly like today's outlet payment (cash, mobile money, bank, card), tender required before settle.
+   - In-house guest (QR is a room with a checked-in stay): may choose "Add to my bill", posted straight to the folio through the existing pipeline. No name entry: the room's QR resolving to an ACTIVE allocation on a CHECKED_IN reservation is the verification (decision 2026-07-24, replacing the earlier last-name check). The link needs no rotation at check-in/checkout: the lookup is scoped to the currently active stay on that room, so it tracks whichever guest is actually checked in and goes quiet automatically once they check out.
+   - Anyone else: chooses "Pay Now" and pays at the counter/waiter exactly like today's outlet payment (cash, mobile money, bank, card), tender required before settle.
 7. Later phase: pay from the phone via mobile money using the payment rails already used for booking deposits.
 
 ## 5. Build milestones (dependency order, each independently shippable)
@@ -72,7 +72,7 @@ Definition of done for each milestone: a real outlet runs a full day on it witho
 - QR tokens are high-entropy random bearer tokens (144 bits from a CSPRNG, unique per order point), property-scoped, and revocable per room/table (one click rotate makes the old code dead instantly; reprint). They are not signed JWTs: possession of the token is the capability, and the database row is the source of truth for validity, which is what makes instant revocation possible.
 - Public endpoints are rate-limited per IP (as built: menu fetch 120 per 5 min, order placement 8 per 10 min, status polling 30 per min), inputs sanitized, order size capped (20 lines, quantity 20 each), and each room/table can hold at most 5 unfinished orders at a time.
 - PLACED orders cost the kitchen nothing until staff Accept; auto-accept is opt-in per outlet.
-- Room charging requires the name on the booking and an actually checked-in stay on that exact room; failure falls back to pay-at-counter. No guest personal data is shown on the public page.
+- Room charging requires an actually checked-in stay on that exact room (the point->stay lookup, scoped to ACTIVE allocations on CHECKED_IN reservations); failure falls back to pay-at-counter. No guest personal data is shown on the public page.
 - NoLSAF never handles the guest's money for outlet orders: payment goes directly to the property's own channels (their Lipa Namba, bank, card machine, cash) and staff record the tender at settle.
 
 ### 6.1 Fair use (the promise and its boundary)

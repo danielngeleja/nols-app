@@ -36,21 +36,6 @@ export async function makeOrderPointQR(token: string): Promise<Buffer> {
   return QRCode.toBuffer(buildMenuUrl(token), { type: "png", margin: 1, scale: 8 });
 }
 
-/**
- * Charge-to-room verification (doc NRMS_QR_ORDERING.md m5): the guest must
- * type the name on the booking. Any single name part is accepted (surname
- * order differs across cultures) but partial or fuzzy matches are not.
- */
-export function guestNameMatches(fullNameOnStay: string | null | undefined, typedName: string | null | undefined): boolean {
-  const typed = String(typedName ?? "").trim().toLowerCase();
-  if (typed.length < 2) return false;
-  const parts = String(fullNameOnStay ?? "")
-    .toLowerCase()
-    .split(/[\s,.'-]+/)
-    .filter((part) => part.length >= 2);
-  return parts.includes(typed);
-}
-
 export type OrderPointForSheet = {
   label: string;
   type: OrderPointType;
