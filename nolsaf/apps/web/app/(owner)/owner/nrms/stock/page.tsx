@@ -15,11 +15,32 @@ function itemTone(item: StockItem): Tone {
   if (item.stockQuantity != null && item.stockQuantity <= item.lowStockThreshold) return "low";
   return "ok";
 }
-const TONE_STYLE: Record<Tone, { pill: string; dot: string; rail: string; label: (item: StockItem) => string }> = {
-  ok: { pill: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500", rail: "bg-emerald-400", label: (item) => (item.stockQuantity != null ? `In stock · ${item.stockQuantity} left` : "In stock") },
-  low: { pill: "bg-amber-50 text-amber-700", dot: "bg-amber-500", rail: "bg-amber-400", label: (item) => `Running low · ${item.stockQuantity} left` },
-  out: { pill: "bg-red-50 text-red-700", dot: "bg-red-500", rail: "bg-red-400", label: () => "Out of stock" },
+const TONE_STYLE: Record<Tone, { pill: string; dot: string; label: (item: StockItem) => string }> = {
+  ok: { pill: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500", label: (item) => (item.stockQuantity != null ? `In stock · ${item.stockQuantity} left` : "In stock") },
+  low: { pill: "bg-amber-50 text-amber-700", dot: "bg-amber-500", label: (item) => `Running low · ${item.stockQuantity} left` },
+  out: { pill: "bg-red-50 text-red-700", dot: "bg-red-500", label: () => "Out of stock" },
 };
+
+// The left rail identifies the category so a screen of in-stock items is still
+// readable at a glance (status lives in the pill, not the rail). Common drink
+// groups get a fixed colour; anything else is hashed to a stable one.
+const CATEGORY_PALETTE = ["bg-violet-500", "bg-teal-500", "bg-rose-500", "bg-sky-500", "bg-lime-500", "bg-fuchsia-500", "bg-indigo-500", "bg-orange-500"];
+const CATEGORY_KEYWORDS: Array<[RegExp, string]> = [
+  [/alco|spirit|liquor|whisk|vodka|gin|\brum\b|brandy|tequila|cocktail/, "bg-blue-500"],
+  [/wine|champagne/, "bg-rose-500"],
+  [/beer|lager|cider|ale/, "bg-amber-500"],
+  [/water/, "bg-cyan-500"],
+  [/soft|soda|juice|drink|mineral|mocktail|smoothie/, "bg-emerald-500"],
+  [/coffee|tea|\bhot\b/, "bg-orange-500"],
+  [/food|snack|kitchen|meal|grill|bite|starter|main|dessert/, "bg-red-500"],
+];
+function categoryColor(name: string | null): string {
+  const key = (name || "uncategorised").toLowerCase();
+  for (const [pattern, cls] of CATEGORY_KEYWORDS) if (pattern.test(key)) return cls;
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return CATEGORY_PALETTE[hash % CATEGORY_PALETTE.length];
+}
 
 export default function NrmsStockPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
@@ -166,7 +187,7 @@ export default function NrmsStockPage() {
                     <p className="m-0 px-4 py-8 text-center text-xs text-neutral-400">No items match.</p>
                   ) : outlet.groups.map(([category, items]) => (
                     <div key={category}>
-                      <p className="m-0 bg-neutral-50/50 px-4 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">{category}</p>
+                      <p className="m-0 flex items-center gap-1.5 bg-neutral-50/50 px-4 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400"><span className={`h-1.5 w-1.5 rounded-full ${categoryColor(category)}`} aria-hidden />{category}</p>
                       {items.map((item) => {
                         const tone = itemTone(item);
                         const style = TONE_STYLE[tone];
@@ -175,7 +196,7 @@ export default function NrmsStockPage() {
                         return (
                           <div key={item.id} className="group grid grid-cols-[minmax(0,1fr)_120px_150px_150px_60px] items-center gap-3 border-b border-neutral-100 px-4 py-2.5 transition last:border-b-0 hover:bg-neutral-50/70">
                             <div className="flex min-w-0 items-center gap-2.5">
-                              <span className={`h-7 w-1 shrink-0 rounded-full ${style.rail}`} aria-hidden />
+                              <span className={`h-7 w-1 shrink-0 rounded-full ${categoryColor(item.category)}`} aria-hidden />
                               <span className={`truncate text-[13px] font-bold ${item.inStock ? "text-neutral-900" : "text-neutral-400 line-through"}`}>{item.name}</span>
                             </div>
                             <span className="text-right text-xs tabular-nums text-neutral-600">{money(item.price)}</span>
