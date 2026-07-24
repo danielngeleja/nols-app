@@ -1609,7 +1609,7 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           data: { amount: data.amount, method: data.method },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.status(201).json({ reservation: formatReservation(updated) });

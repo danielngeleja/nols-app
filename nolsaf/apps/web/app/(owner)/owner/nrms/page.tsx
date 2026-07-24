@@ -1071,7 +1071,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
         </div>
         <span className="rounded-md border border-amber-200 bg-white px-2.5 py-1 text-[10px] font-bold text-amber-800">{items.length} {items.length === 1 ? "reservation" : "reservations"}</span>
       </div>
-      <div className="hidden grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(11rem,1.1fr)_9rem] items-center gap-4 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
+      <div className="hidden grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] items-center gap-3 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
         <span>Guest</span>
         <span>Room</span>
         <span>Schedule</span>
@@ -1081,7 +1081,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
       <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">
         {items.map((item) => (
           <li key={item.id} className="m-0 list-none px-5 py-3.5 transition hover:bg-neutral-50/70">
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(11rem,1.1fr)_9rem] lg:items-center lg:gap-4">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] lg:items-center lg:gap-3">
               <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-[10px] font-bold text-white">{initials(item.guest)}</span>
                 <p className="m-0 min-w-0 truncate text-sm font-bold text-neutral-950">{item.guest}</p>
