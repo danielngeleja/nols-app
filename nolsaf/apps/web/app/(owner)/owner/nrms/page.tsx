@@ -1071,15 +1071,26 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
         </div>
         <span className="rounded-md border border-amber-200 bg-white px-2.5 py-1 text-[10px] font-bold text-amber-800">{items.length} {items.length === 1 ? "reservation" : "reservations"}</span>
       </div>
-      <ul className="m-0 grid list-none gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="hidden grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(11rem,1.1fr)_9rem] items-center gap-4 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
+        <span>Guest</span>
+        <span>Room</span>
+        <span>Schedule</span>
+        <span>Issues</span>
+        <span className="text-right">Action</span>
+      </div>
+      <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">
         {items.map((item) => (
-          <li key={item.id} className="min-w-0 rounded-lg border border-neutral-200 bg-neutral-50/60 p-3">
-            <div className="flex items-start gap-2.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-[10px] font-bold text-white">{initials(item.guest)}</span>
-              <div className="min-w-0 flex-1"><p className="m-0 truncate text-[13px] font-bold text-neutral-900">{item.guest}</p><p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-500">{item.room} · check-out {shortDate(item.checkOut)} · {item.source}</p></div>
+          <li key={item.id} className="m-0 list-none px-5 py-3.5 transition hover:bg-neutral-50/70">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(11rem,1.1fr)_9rem] lg:items-center lg:gap-4">
+              <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-[10px] font-bold text-white">{initials(item.guest)}</span>
+                <p className="m-0 min-w-0 truncate text-sm font-bold text-neutral-950">{item.guest}</p>
+              </div>
+              <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-semibold text-neutral-700">{item.room}</p></div>
+              <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-medium text-neutral-500">check-out {shortDate(item.checkOut)} · {item.source}</p></div>
+              <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><div className="flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div></div>
+              <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="col-start-2 row-start-1 inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
             </div>
-            <div className="mt-2.5 flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div>
-            <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 text-[11px] font-bold text-neutral-700 no-underline transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline">Review reservation <ArrowRight className="h-3 w-3" /></Link>
           </li>
         ))}
       </ul>
