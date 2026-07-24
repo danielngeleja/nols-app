@@ -9,6 +9,7 @@ import OrderHistoryPanel from "../_components/OrderHistoryPanel";
 type MenuItem = { id: number; name: string; category: string | null; price: number; status: string; inStock?: boolean; description?: string | null };
 type Outlet = { id: number; name: string; code: string; type: string; currency: string; menuItems: MenuItem[] };
 type InHouse = { id: number; currency: string; guestProfile: { fullName: string } | null; allocations: Array<{ roomUnit: { code: string } | null; roomType: { name: string } | null }> };
+type TablePoint = { id: number; type: "ROOM" | "TABLE"; label: string; active: boolean };
 type Order = {
   id: number; orderNumber: string; status: string; settlementMode: string; currency: string; total: number; createdAt: string;
   note?: string | null; settlementMethod?: string | null; guestPaymentMethod?: string | null;
@@ -41,9 +42,11 @@ export default function NrmsOrdersPage() {
   const [role, setRole] = useState("OWNER");
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [guests, setGuests] = useState<InHouse[]>([]);
+  const [tablePoints, setTablePoints] = useState<TablePoint[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [outletId, setOutletId] = useState<number | "">("");
-  const [reservationId, setReservationId] = useState<number | "" | typeof WALK_IN>("");
+  // Single dropdown, three kinds of value: "walk-in", "res-{reservationId}", "table-{orderPointId}".
+  const [selection, setSelection] = useState<string>("");
   const [customerLabel, setCustomerLabel] = useState("");
   const [settlementMode, setSettlementMode] = useState("ROOM_FOLIO");
   const [note, setNote] = useState("");
@@ -58,15 +61,17 @@ export default function NrmsOrdersPage() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const [contextResponse, guestResponse, orderResponse] = await Promise.all([
+      const [contextResponse, guestResponse, orderResponse, pointsResponse] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/context`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/in-house`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=room`),
+        apiClient.get<{ orderPoints: TablePoint[] }>(`/api/nrms/operations/property/${selectedPropertyId}/order-points`),
       ]);
       const nextOutlets: Outlet[] = contextResponse.data?.outlets ?? [];
       setRole(contextResponse.data?.access?.role ?? "OWNER");
       setOutlets(nextOutlets);
       setGuests(guestResponse.data?.reservations ?? []);
+      setTablePoints((pointsResponse.data.orderPoints ?? []).filter((point) => point.type === "TABLE" && point.active));
       const nextOrders: Order[] = orderResponse.data?.orders ?? [];
       setOrders(nextOrders);
       setSettlementTender((current) => {
@@ -104,21 +109,25 @@ export default function NrmsOrdersPage() {
     return next;
   });
 
-  const isWalkIn = reservationId === WALK_IN;
+  const isWalkIn = selection === WALK_IN;
+  const selectedReservationId = selection.startsWith("res-") ? Number(selection.slice(4)) : null;
+  const selectedTableId = selection.startsWith("table-") ? Number(selection.slice(6)) : null;
+  const isGenericWalkIn = isWalkIn && !selectedTableId;
 
   const createOrder = async () => {
-    if (!selectedPropertyId || !outletId || !reservationId || selectedLines.length === 0) return;
+    if (!selectedPropertyId || !outletId || !selection || selectedLines.length === 0) return;
     setBusy("create"); setError(null);
     try {
       await apiClient.post(`/api/nrms/operations/property/${selectedPropertyId}/orders`, {
         outletId,
-        reservationId: isWalkIn ? null : reservationId,
-        customerLabel: isWalkIn ? (customerLabel.trim() || undefined) : undefined,
-        settlementMode: isWalkIn ? "OUTLET_PAYMENT" : settlementMode,
+        reservationId: selectedReservationId,
+        orderPointId: selectedTableId,
+        customerLabel: isGenericWalkIn ? (customerLabel.trim() || undefined) : undefined,
+        settlementMode: selectedReservationId ? settlementMode : "OUTLET_PAYMENT",
         note: note.trim() || undefined,
         items: selectedLines.map((line) => ({ menuItemId: line.item.id, quantity: line.quantity })),
       });
-      setCart({}); setNote(""); setReservationId(""); setCustomerLabel("");
+      setCart({}); setNote(""); setSelection(""); setCustomerLabel("");
       await load();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Failed to confirm order"); }
     finally { setBusy(null); }
@@ -167,9 +176,14 @@ export default function NrmsOrdersPage() {
                 <p className="m-0 text-sm font-bold text-neutral-900">Outlet ledger</p>
                 <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Open an outlet to view and select its entered items.</p>
               </div>
-              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer<span className="text-red-500"> *</span><select value={reservationId} onChange={(event) => setReservationId(event.target.value === WALK_IN ? WALK_IN : event.target.value ? Number(event.target.value) : "")} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-blue-300 bg-blue-50/40 px-3 py-0 text-sm font-medium normal-case tracking-normal text-blue-800 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10"><option value="">Room guest or walk-in?</option><option value={WALK_IN}>Walk-in customer (not staying here)</option>{guests.map((guest) => <option key={guest.id} value={guest.id}>{roomLabel(guest)} · {guest.guestProfile?.fullName ?? "Guest"}</option>)}</select></label>
+              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer<span className="text-red-500"> *</span><select value={selection} onChange={(event) => setSelection(event.target.value)} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-blue-300 bg-blue-50/40 px-3 py-0 text-sm font-medium normal-case tracking-normal text-blue-800 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10">
+                <option value="">Room guest, walk-in or table?</option>
+                <option value={WALK_IN}>Walk-in customer (not staying here)</option>
+                {tablePoints.length > 0 && <optgroup label="Tables">{tablePoints.map((point) => <option key={point.id} value={`table-${point.id}`}>{point.label}</option>)}</optgroup>}
+                {guests.length > 0 && <optgroup label="Room guests">{guests.map((guest) => <option key={guest.id} value={`res-${guest.id}`}>{roomLabel(guest)} · {guest.guestProfile?.fullName ?? "Guest"}</option>)}</optgroup>}
+              </select></label>
             </div>
-            {isWalkIn && (
+            {isGenericWalkIn && (
               <label className="mt-3 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer label<input value={customerLabel} onChange={(event) => setCustomerLabel(event.target.value)} maxLength={120} placeholder="e.g. Table 4, a name (optional)" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
             )}
 
@@ -215,17 +229,19 @@ export default function NrmsOrdersPage() {
               ))}
             </div>
             <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
-              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Payment handling<span className="text-red-500"> *</span><select value={isWalkIn ? "OUTLET_PAYMENT" : settlementMode} disabled={isWalkIn} onChange={(event) => setSettlementMode(event.target.value)} className={`mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border px-3 py-0 text-sm font-medium normal-case tracking-normal outline-none focus:bg-white focus:ring-2 disabled:cursor-not-allowed disabled:opacity-80 ${(isWalkIn ? "OUTLET_PAYMENT" : settlementMode) === "OUTLET_PAYMENT" ? "border-emerald-300 bg-emerald-50/40 text-emerald-800 focus:border-emerald-500 focus:ring-emerald-500/10" : "border-blue-300 bg-blue-50/40 text-blue-800 focus:border-blue-500 focus:ring-blue-500/10"}`}>{!isWalkIn && <option value="ROOM_FOLIO">Charge to room folio</option>}<option value="OUTLET_PAYMENT">Collect at outlet</option></select></label>
+              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Payment handling<span className="text-red-500"> *</span><select value={!selectedReservationId ? "OUTLET_PAYMENT" : settlementMode} disabled={!selectedReservationId} onChange={(event) => setSettlementMode(event.target.value)} className={`mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border px-3 py-0 text-sm font-medium normal-case tracking-normal outline-none focus:bg-white focus:ring-2 disabled:cursor-not-allowed disabled:opacity-80 ${(!selectedReservationId ? "OUTLET_PAYMENT" : settlementMode) === "OUTLET_PAYMENT" ? "border-emerald-300 bg-emerald-50/40 text-emerald-800 focus:border-emerald-500 focus:ring-emerald-500/10" : "border-blue-300 bg-blue-50/40 text-blue-800 focus:border-blue-500 focus:ring-blue-500/10"}`}>{Boolean(selectedReservationId) && <option value="ROOM_FOLIO">Charge to room folio</option>}<option value="OUTLET_PAYMENT">Collect at outlet</option></select></label>
               <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Order note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder="Optional" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
             </div>
-            <div className={`mt-2 rounded-lg border px-3 py-2 text-[10px] leading-4 ${(isWalkIn || settlementMode === "OUTLET_PAYMENT") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>
-              {isWalkIn
+            <div className={`mt-2 rounded-lg border px-3 py-2 text-[10px] leading-4 ${(!selectedReservationId || settlementMode === "OUTLET_PAYMENT") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>
+              {isGenericWalkIn
                 ? <><strong>Walk-in sale:</strong> non-resident customers always pay at the outlet. The order becomes paid revenue after outlet staff select Serve &amp; settle.</>
+                : selectedTableId
+                ? <><strong>Table order:</strong> pays at the outlet, attributed to this table. The order becomes paid revenue after outlet staff select Serve &amp; settle.</>
                 : settlementMode === "OUTLET_PAYMENT"
                 ? <><strong>Collect at outlet:</strong> confirming records the order as awaiting service. It becomes paid revenue only after outlet staff select Serve &amp; settle.</>
                 : <><strong>Charge to room:</strong> confirming records the order as awaiting service. It is added to the guest folio only after outlet staff select Serve &amp; post.</>}
             </div>
-            <div className="mt-4 flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Order total</p><p className="mb-0 mt-0.5 text-lg font-bold tabular-nums text-neutral-950">{money(cartTotal, outlet?.currency ?? "Currency not set")}</p></div><button type="button" onClick={() => void createOrder()} disabled={!canCreate || busy === "create" || !reservationId || selectedLines.length === 0} className="box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:w-auto">{busy === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Confirm order</button></div>
+            <div className="mt-4 flex flex-col gap-3 border-t border-neutral-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Order total</p><p className="mb-0 mt-0.5 text-lg font-bold tabular-nums text-neutral-950">{money(cartTotal, outlet?.currency ?? "Currency not set")}</p></div><button type="button" onClick={() => void createOrder()} disabled={!canCreate || busy === "create" || !selection || selectedLines.length === 0} className="box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:w-auto">{busy === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Confirm order</button></div>
           </section>
         </div>
       )}

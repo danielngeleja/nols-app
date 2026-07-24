@@ -22,6 +22,7 @@ type FinanceData = {
   property: { id: number; title: string; currency: string | null }; accessRole: "OWNER" | "MANAGER" | "FRONT_DESK"; businessDate: string; month: string;
   businessDay: { id: number | null; status: string; openedAt?: string; closedAt?: string | null; audits: Array<{ id: number; reportNumber: string; status: string; startedAt: string; completedAt: string | null; summary: any }> };
   blockers: Blocker[]; warnings: Blocker[]; shifts: Shift[];
+  unassignedSales: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
   unclassifiedTenders: Array<{ id: number; orderNumber: string; currency: string; total: number; settledAt: string; outlet: { name: string; type: string }; guest: string; room: string }>;
   ledger: { balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: number; credit: number; balance: number }>; transactions: LedgerTransaction[] };
   tax: { total: number; note: string; rows: Array<{ transactionNumber: string; occurredAt: string; description: string; currency: string; tax: number }> };
@@ -45,6 +46,14 @@ function shiftRowTone(shift: Shift): string {
   if (shift.assignment?.role === "RESTAURANT") return "bg-sky-50/50 border-l-2 border-l-sky-400";
   return "border-l-2 border-l-transparent";
 }
+
+const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "REVENUE", "EXPENSE"];
+const ACCOUNT_TYPE_STYLE: Record<string, { label: string; dot: string; border: string }> = {
+  ASSET: { label: "Assets", dot: "bg-blue-500", border: "border-l-blue-400" },
+  LIABILITY: { label: "Liabilities", dot: "bg-amber-500", border: "border-l-amber-400" },
+  REVENUE: { label: "Revenue", dot: "bg-emerald-500", border: "border-l-emerald-400" },
+  EXPENSE: { label: "Expenses", dot: "bg-violet-500", border: "border-l-violet-400" },
+};
 
 function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "green" | "amber" }) {
   return <div className={`min-w-0 rounded-xl border p-4 ${tone === "green" ? "border-emerald-200 bg-emerald-50" : tone === "amber" ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
@@ -97,6 +106,18 @@ export default function FinanceControlPage() {
       byCurrency.set(account.currency, row);
     }
     return [...byCurrency.entries()].map(([currency, row]) => ({ currency, revenue: row.revenue, expense: row.expense, net: row.revenue - row.expense }));
+  }, [data]);
+  const accountGroups = useMemo(() => {
+    const groups = new Map<string, FinanceData["ledger"]["accounts"]>();
+    for (const account of data?.ledger.accounts ?? []) {
+      const list = groups.get(account.accountType) ?? [];
+      list.push(account);
+      groups.set(account.accountType, list);
+    }
+    for (const list of groups.values()) list.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
+    const known = ACCOUNT_TYPE_ORDER.filter((type) => groups.has(type));
+    const rest = [...groups.keys()].filter((type) => !ACCOUNT_TYPE_ORDER.includes(type));
+    return [...known, ...rest].map((type) => ({ type, accounts: groups.get(type)! }));
   }, [data]);
 
   if (loading && !data) return <div className="flex min-h-72 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading financial controls…</div>;
@@ -152,7 +173,20 @@ export default function FinanceControlPage() {
               <span>{shift.closeNote || (shift.closeSummary?.unpaid.count ? "" : "Matched")}</span>
               <div className="mt-1.5">{shift.ownerSignedOffAt ? <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" />Signed off by {shift.ownerSignedOffByName} · {time(shift.ownerSignedOffAt)}</span> : canManage ? <button type="button" onClick={() => signOffShift(shift)} disabled={busy} className="h-7 whitespace-nowrap rounded-md border border-emerald-200 bg-white px-2 text-[9px] font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Acknowledge and sign off</button> : <span className="text-[9px] text-neutral-400">Not yet signed off</span>}</div>
             </div>}</td>
-          </tr>)}{!data?.shifts.length && <tr><td colSpan={12} className="border-t border-neutral-100 p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Attendants open their shift from their own Shift &amp; cash page before recording cash receipts.</p></div></td></tr>}</tbody>
+          </tr>)}{Boolean(data?.unassignedSales.count) && <tr className="border-t border-neutral-100 bg-amber-50/40 text-xs">
+            <td className="p-2.5 pl-5 font-bold">Other sales<small className="mt-0.5 block font-normal text-amber-700">Settled outside any shift</small></td>
+            <td className="p-2.5 text-neutral-400">—</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-400">—</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-400">—</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-400">—</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-400">—</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "CASH")?.amount ?? 0, data!.property.currency || "TZS")}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "MOBILE_MONEY")?.amount ?? 0, data!.property.currency || "TZS")}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "BANK")?.amount ?? 0, data!.property.currency || "TZS")}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "CARD")?.amount ?? 0, data!.property.currency || "TZS")}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-400">—</td>
+            <td className="p-2.5 pr-5 text-[10px] leading-4 text-amber-800">{data!.unassignedSales.count} sale{data!.unassignedSales.count === 1 ? "" : "s"} · {cash(data!.unassignedSales.amount, data!.property.currency || "TZS")} total, settled by an owner or manager with no open shift. No cashier is accountable for this cash.</td>
+          </tr>}{!data?.shifts.length && !data?.unassignedSales.count && <tr><td colSpan={12} className="border-t border-neutral-100 p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Attendants open their shift from their own Shift &amp; cash page before recording cash receipts.</p></div></td></tr>}</tbody>
         </table>
       </div>
     </section>}
@@ -167,7 +201,25 @@ export default function FinanceControlPage() {
           <Metric label={`Net (${row.currency})`} value={cash(row.net, row.currency)} note={row.net >= 0 ? "Profit for the range" : "Loss for the range"} tone={row.net >= 0 ? "green" : "amber"} />
         </div>)}</div>
       </div>}
-      <div className="grid gap-3 md:grid-cols-3">{data?.ledger.accounts.slice(0, 6).map((account) => <Metric key={`${account.accountCode}-${account.currency}`} label={`${account.accountCode} · ${account.accountName}`} value={cash(Math.abs(account.balance), account.currency)} note={`${cash(account.debit, account.currency)} debit · ${cash(account.credit, account.currency)} credit`} />)}</div>
+      <div className="space-y-5">
+        {accountGroups.map((group) => {
+          const style = ACCOUNT_TYPE_STYLE[group.type] ?? { label: group.type, dot: "bg-neutral-400", border: "border-l-neutral-300" };
+          return (
+            <div key={group.type}>
+              <div className="mb-2.5 flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${style.dot}`} /><p className="m-0 text-[13px] font-bold text-neutral-900">{style.label}</p><span className="text-[11px] text-neutral-400">{group.accounts.length} account{group.accounts.length === 1 ? "" : "s"}</span></div>
+              <div className="grid gap-3 md:grid-cols-3">
+                {group.accounts.map((account) => (
+                  <div key={`${account.accountCode}-${account.currency}`} className={`min-w-0 rounded-xl border border-l-4 bg-white p-4 ${style.border}`}>
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{account.accountCode} · {account.accountName}</p>
+                    <p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{cash(Math.abs(account.balance), account.currency)}</p>
+                    <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{cash(account.debit, account.currency)} debit · {cash(account.credit, account.currency)} credit</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
       <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
         <div className="border-b border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction &mdash; that balance is what makes the ledger correct.</p></div>
         <div className="overflow-x-auto overscroll-x-contain">

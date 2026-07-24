@@ -9,6 +9,14 @@ import { useNrms } from "../_components/NrmsProvider";
 
 type Period = "day" | "week" | "month" | "year";
 
+type PerformanceBreakdownRow = {
+  id: number;
+  name: string;
+  orders: number;
+  sales: number;
+  avgTicket: number;
+  serving: { onTimeRate: number | null; servedCount: number };
+};
 type Performance = {
   period: Period | "custom";
   granularity: "hour" | "day" | "month";
@@ -17,6 +25,10 @@ type Performance = {
   outletId: number | null;
   outlets: Array<{ id: number; name: string; type: string }>;
   canFilterOutlet: boolean;
+  attendantId: number | null;
+  staff: Array<{ id: number; name: string; role: string; outletId: number | null }>;
+  canFilterAttendant: boolean;
+  breakdown: { byOutlet: PerformanceBreakdownRow[] | null; byStaff: PerformanceBreakdownRow[] | null };
   canManageShift: boolean;
   summary: {
     orders: number;
@@ -51,6 +63,7 @@ export default function NrmsPerformancePage() {
   const [rangeFrom, setRangeFrom] = useState(todayKey());
   const [rangeTo, setRangeTo] = useState(todayKey());
   const [outletId, setOutletId] = useState<number | "">("");
+  const [attendantId, setAttendantId] = useState<number | "">("");
   const [data, setData] = useState<Performance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +81,7 @@ export default function NrmsPerformancePage() {
       if (rangeMode) { params.set("from", rangeFrom); params.set("to", rangeTo); }
       else params.set("period", period);
       if (outletId !== "") params.set("outletId", String(outletId));
+      if (attendantId !== "") params.set("attendantId", String(attendantId));
       const res = await apiClient.get<Performance>(`/api/nrms/operations/property/${selectedPropertyId}/performance?${params.toString()}`);
       setData(res.data);
     } catch (cause: any) {
@@ -75,7 +89,7 @@ export default function NrmsPerformancePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedPropertyId, period, outletId, rangeMode, rangeFrom, rangeTo, rangeValid]);
+  }, [selectedPropertyId, period, outletId, attendantId, rangeMode, rangeFrom, rangeTo, rangeValid]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -96,6 +110,12 @@ export default function NrmsPerformancePage() {
             <select value={outletId} onChange={(event) => setOutletId(event.target.value === "" ? "" : Number(event.target.value))} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none">
               <option value="">All outlets</option>
               {data.outlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}
+            </select>
+          )}
+          {data?.canFilterAttendant && data.staff.length > 0 && (
+            <select value={attendantId} onChange={(event) => setAttendantId(event.target.value === "" ? "" : Number(event.target.value))} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none">
+              <option value="">All staff</option>
+              {data.staff.filter((member) => outletId === "" || member.outletId == null || member.outletId === outletId).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
             </select>
           )}
           <div className="inline-flex rounded-lg border border-neutral-200 bg-white p-0.5">
@@ -134,7 +154,7 @@ export default function NrmsPerformancePage() {
                 <p className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-900"><BarChart3 className="h-4 w-4 text-emerald-700" />Sales trend</p>
                 <p className="m-0 text-[10px] text-neutral-400">{activeCaption}</p>
               </div>
-              <div className="mt-3 flex h-44 items-end gap-1">
+              <div className="mt-3 flex h-44 items-stretch gap-1">
                 {data.series.length === 0 ? (
                   <div className="flex h-full w-full items-center justify-center text-xs text-neutral-400">No sales in this period yet.</div>
                 ) : data.series.map((point, index) => {
@@ -179,10 +199,45 @@ export default function NrmsPerformancePage() {
             </section>
           </div>
 
-          <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} serviceLabel={serviceLabelForRole(selectedProperty?.nrmsAccessRole)} onChanged={load} />
+          {(data.breakdown.byOutlet || data.breakdown.byStaff) && (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {data.breakdown.byOutlet && <BreakdownTable title="Outlet performance" caption="Ranked by sales for the selected period" rows={data.breakdown.byOutlet} money={money} onSelect={(id) => setOutletId(id)} />}
+              {data.breakdown.byStaff && <BreakdownTable title="Staff performance" caption="Ranked by sales for the selected period" rows={data.breakdown.byStaff} money={money} onSelect={(id) => setAttendantId(id)} />}
+            </div>
+          )}
+
+          {data.canManageShift && <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} serviceLabel={serviceLabelForRole(selectedProperty?.nrmsAccessRole)} onChanged={load} />}
         </div>
       )}
     </div>
+  );
+}
+
+function BreakdownTable({ title, caption, rows, money, onSelect }: { title: string; caption: string; rows: PerformanceBreakdownRow[]; money: (value: number) => string; onSelect: (id: number) => void }) {
+  const peak = Math.max(1, ...rows.map((row) => row.sales));
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-4">
+      <p className="m-0 text-sm font-bold text-neutral-900">{title}</p>
+      <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{caption}</p>
+      {rows.length === 0 ? (
+        <p className="mb-0 mt-3 text-xs text-neutral-400">No sales in this period yet.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {rows.map((row, index) => (
+            <button key={row.id} type="button" onClick={() => onSelect(row.id)} className="block w-full min-w-0 rounded-lg border-0 bg-transparent p-0 text-left">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate font-bold text-neutral-800">{index + 1}. {row.name}</span>
+                <span className="shrink-0 font-bold tabular-nums text-neutral-900">{money(row.sales)}</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                <div className={`h-1.5 rounded-full ${index === 0 ? "bg-emerald-600" : "bg-emerald-200"}`} style={{ width: `${Math.max(2, (row.sales / peak) * 100)}%` }} />
+              </div>
+              <p className="mb-0 mt-1 text-[10px] text-neutral-400">{row.orders} order{row.orders === 1 ? "" : "s"} · avg {money(row.avgTicket)}{row.serving.onTimeRate != null ? ` · ${row.serving.onTimeRate}% on time` : ""}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

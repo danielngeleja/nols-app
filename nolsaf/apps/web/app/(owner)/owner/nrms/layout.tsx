@@ -48,6 +48,7 @@ const PRIMARY_TABS = [
   { href: "/owner/nrms", label: "Front desk", icon: DoorOpen, exact: true },
   { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
   { href: "/owner/nrms/orders", label: "Orders", icon: ShoppingBasket },
+  { href: "/owner/nrms/performance", label: "Performance", icon: TrendingUp },
   { href: "/owner/nrms/analytics", label: "Revenue", icon: BarChart3 },
   { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
 ];
@@ -57,10 +58,8 @@ const NAV_GROUPS = [
     label: "Operations",
     items: [
       { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
-      { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
       { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
       { href: "/owner/nrms/tables", label: "Tables & tabs", icon: LayoutGrid },
-      { href: "/owner/nrms/performance", label: "Performance", icon: TrendingUp },
       { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
       { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
       { href: "/owner/nrms/guests", label: "Guests", icon: Users },

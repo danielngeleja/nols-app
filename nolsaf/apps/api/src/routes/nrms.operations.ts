@@ -119,6 +119,8 @@ const orderSchema = z.object({
   outletId: z.number().int().positive(),
   /// Absent for walk-in / non-resident sales (doc NRMS_QR_ORDERING.md m1).
   reservationId: z.number().int().positive().optional().nullable(),
+  /// Staff picking a configured dining table, e.g. from the Tables & tabs board.
+  orderPointId: z.number().int().positive().optional().nullable(),
   /// Who the walk-in order is for: "Table 4", a name, defaults to "Walk-in".
   customerLabel: z.string().trim().min(1).max(120).optional().nullable(),
   settlementMode: z.enum(ORDER_SETTLEMENTS).default("ROOM_FOLIO"),
@@ -352,6 +354,10 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
   // narrow to a chosen outlet via ?outletId, or leave it off for the whole property.
   const requestedOutlet = req.query.outletId ? Number(req.query.outletId) : null;
   const outletId = access.outletId != null ? access.outletId : (Number.isInteger(requestedOutlet) && requestedOutlet! > 0 ? requestedOutlet : null);
+  // Only someone who oversees others can single out one attendant's own figures.
+  const canFilterAttendant = ["OWNER", "MANAGER", "OUTLET_SUPERVISOR"].includes(access.role);
+  const requestedAttendant = req.query.attendantId ? Number(req.query.attendantId) : null;
+  const attendantId = canFilterAttendant && Number.isInteger(requestedAttendant) && requestedAttendant! > 0 ? requestedAttendant : null;
 
   // An explicit from/to range (both YYYY-MM-DD, from <= to) overrides the preset.
   const dateKey = /^\d{4}-\d{2}-\d{2}$/;
@@ -362,8 +368,13 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
   const { start, end, format, buckets } = window;
   const activePeriod = isCustom ? "custom" : period;
   const granularity = isCustom ? (window as ReturnType<typeof customPerformanceWindow>).granularity : (period === "day" ? "hour" : period === "year" ? "month" : "day");
+  // Comparison tables only make sense on the dimension not already pinned down:
+  // no single outlet chosen -> compare outlets; no single attendant chosen ->
+  // compare staff (scoped to whichever outlet is selected, if any).
+  const wantsOutletBreakdown = outletId == null;
+  const wantsStaffBreakdown = canFilterAttendant && attendantId == null;
   try {
-    const [summaryRows, bucketRows, shift, outlets] = await Promise.all([
+    const [summaryRows, bucketRows, shift, outlets, staff, outletBreakdownRows, staffBreakdownRows] = await Promise.all([
       db.$queryRaw<any[]>`
         SELECT COUNT(*) AS orders,
                COALESCE(SUM(total), 0) AS sales,
@@ -378,7 +389,8 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
           AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
-          AND (${outletId} IS NULL OR outletId = ${outletId})`,
+          AND (${outletId} IS NULL OR outletId = ${outletId})
+          AND (${attendantId} IS NULL OR settledById = ${attendantId})`,
       db.$queryRaw<any[]>`
         SELECT DATE_FORMAT(COALESCE(settledAt, postedAt, servedAt, createdAt), ${format}) AS bucket,
                COALESCE(SUM(total), 0) AS sales
@@ -388,6 +400,7 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
           AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
           AND (${outletId} IS NULL OR outletId = ${outletId})
+          AND (${attendantId} IS NULL OR settledById = ${attendantId})
         GROUP BY bucket
         ORDER BY bucket`,
       db.nrmsCashierShift.findFirst({
@@ -396,9 +409,56 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
         select: { id: true, userId: true, propertyId: true, openedAt: true, openingFloat: true, currency: true, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } },
       }),
       db.nrmsOutlet.findMany({ where: { propertyId, ...(access.outletId != null ? { id: access.outletId } : {}) }, select: { id: true, name: true, type: true }, orderBy: { name: "asc" } }),
+      canFilterAttendant
+        ? db.nrmsStaffMembership.findMany({
+            where: { propertyId, status: "ACTIVE", role: { in: ["RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] }, ...(outletId != null ? { OR: [{ outletId }, { outletId: null }] } : {}) },
+            select: { role: true, outletId: true, user: { select: { id: true, fullName: true, name: true } } },
+            orderBy: { id: "asc" },
+          })
+        : Promise.resolve([]),
+      wantsOutletBreakdown
+        ? db.$queryRaw<any[]>`
+            SELECT outletId,
+                   COUNT(*) AS orders,
+                   COALESCE(SUM(total), 0) AS sales,
+                   SUM(servedAt IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(placedAt, createdAt), servedAt) <= ${ON_TIME_MINUTES}) AS onTime,
+                   SUM(servedAt IS NOT NULL) AS served
+            FROM nrms_outlet_order
+            WHERE propertyId = ${propertyId}
+              AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
+              AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+              AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
+              AND (${attendantId} IS NULL OR settledById = ${attendantId})
+            GROUP BY outletId`
+        : Promise.resolve([]),
+      wantsStaffBreakdown
+        ? db.$queryRaw<any[]>`
+            SELECT settledById,
+                   COUNT(*) AS orders,
+                   COALESCE(SUM(total), 0) AS sales,
+                   SUM(servedAt IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(placedAt, createdAt), servedAt) <= ${ON_TIME_MINUTES}) AS onTime,
+                   SUM(servedAt IS NOT NULL) AS served
+            FROM nrms_outlet_order
+            WHERE propertyId = ${propertyId}
+              AND status IN ('SETTLED', 'POSTED_TO_FOLIO')
+              AND COALESCE(settledAt, postedAt, servedAt, createdAt) >= ${start}
+              AND COALESCE(settledAt, postedAt, servedAt, createdAt) < ${end}
+              AND (${outletId} IS NULL OR outletId = ${outletId})
+              AND settledById IS NOT NULL
+            GROUP BY settledById`
+        : Promise.resolve([]),
     ]);
 
     const summary = shapePerformanceSummary(summaryRows[0] ?? {});
+    const outletNameById = new Map(outlets.map((item: any) => [item.id, item.name]));
+    const staffNameById = new Map(staff.map((member: any) => [member.user.id, attendeeName(member.user)]));
+    const breakdownRow = (row: any) => shapePerformanceSummary(row);
+    const byOutlet = outletBreakdownRows
+      .map((row: any) => ({ id: row.outletId, name: outletNameById.get(row.outletId) ?? "Outlet", ...breakdownRow(row) }))
+      .sort((a: any, b: any) => b.sales - a.sales);
+    const byStaff = staffBreakdownRows
+      .map((row: any) => ({ id: row.settledById, name: staffNameById.get(row.settledById) ?? "Team member", ...breakdownRow(row) }))
+      .sort((a: any, b: any) => b.sales - a.sales);
     // The stored expectedCash is only written at close time; recompute it live so
     // an open shift shows the true drawer figure.
     const liveExpected = shift ? await expectedCashForShift(db, shift) : 0;
@@ -420,6 +480,10 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
       outletId,
       outlets,
       canFilterOutlet: access.outletId == null,
+      attendantId,
+      staff: staff.map((member: any) => ({ id: member.user.id, name: attendeeName(member.user), role: member.role, outletId: member.outletId })),
+      canFilterAttendant,
+      breakdown: { byOutlet: wantsOutletBreakdown ? byOutlet : null, byStaff: wantsStaffBreakdown ? byStaff : null },
       canManageShift: SHIFT_ROLES.has(access.role),
       summary,
       series: fillSeries(bucketRows, buckets),
@@ -1043,9 +1107,14 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
     reservation = await db.reservation.findFirst({ where: { id: parsed.data.reservationId, propertyId: access.property.id, status: "CHECKED_IN" } });
     if (!reservation) return res.status(409).json({ error: "Select an actively checked-in guest before confirming the order", code: "GUEST_NOT_IN_HOUSE" });
   }
+  let orderPoint: any = null;
+  if (parsed.data.orderPointId != null) {
+    orderPoint = await db.nrmsOrderPoint.findFirst({ where: { id: parsed.data.orderPointId, propertyId: access.property.id, type: "TABLE", active: true } });
+    if (!orderPoint) return res.status(409).json({ error: "Select an active table before confirming the order" });
+  }
   // Walk-in sales can never post to a room folio; they settle at the outlet.
   const settlementMode = reservation ? parsed.data.settlementMode : "OUTLET_PAYMENT";
-  const customerLabel = reservation ? null : sanitizeText(parsed.data.customerLabel || "Walk-in");
+  const customerLabel = reservation ? null : sanitizeText(parsed.data.customerLabel || orderPoint?.label || "Walk-in");
 
   const requested = new Map<number, number>();
   for (const item of parsed.data.items) requested.set(item.menuItemId, (requested.get(item.menuItemId) ?? 0) + item.quantity);
@@ -1070,6 +1139,7 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
           propertyId: access.property.id,
           outletId: outlet.id,
           reservationId: reservation?.id ?? null,
+          orderPointId: orderPoint?.id ?? null,
           customerLabel,
           orderNumber,
           status: "CONFIRMED",

@@ -279,6 +279,20 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       ? await db.nrmsStaffMembership.findMany({ where: { propertyId, userId: { in: shiftUserIds }, status: "ACTIVE" }, select: { userId: true, role: true, outlet: { select: { name: true } } } })
       : [];
     const assignmentByUserId = new Map(assignments.map((row: any) => [row.userId, { role: row.role, outletName: row.outlet?.name ?? null }]));
+    // Sales settled by someone with no cashier shift (an owner or manager
+    // stepping behind the bar) never belong to a shift's own reconciliation.
+    // Surface them separately instead of letting them vanish silently.
+    const unassignedByMethod = await db.nrmsOutletOrder.groupBy({
+      by: ["settlementMethod"],
+      where: { propertyId, settlementMode: "OUTLET_PAYMENT", status: "SETTLED", voidedAt: null, settledById: { notIn: shiftUserIds }, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
+      _sum: { total: true }, _count: { _all: true },
+    });
+    const unassignedTenderRows = unassignedByMethod.map((row: any) => ({ method: row.settlementMethod ?? "UNCLASSIFIED", count: row._count._all, amount: money(row._sum.total) }));
+    const unassignedSales = {
+      count: unassignedTenderRows.reduce((sum: number, row: any) => sum + row.count, 0),
+      amount: money(unassignedTenderRows.reduce((sum: number, row: any) => sum + row.amount, 0)),
+      byMethod: unassignedTenderRows,
+    };
     const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({
       ...shift,
       cashierName: personName(shift.user),
@@ -300,7 +314,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
       businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits } : { id: null, status: "NOT_OPENED", audits: [] },
-      blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts,
+      blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts, unassignedSales,
       unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
       ledger: { accounts: [...accountMap.values()], transactions, balanced: transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },

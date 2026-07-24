@@ -16,6 +16,7 @@ type Order = {
   outlet: { id: number; name: string; type: string };
   reservation: InHouse | null;
   customerLabel?: string | null;
+  orderPoint?: { id: number; type: string; label: string } | null;
   items: Array<{ id: number; nameSnapshot: string; quantity: number; lineTotal: number }>;
 };
 
@@ -38,6 +39,9 @@ function money(value: number, currency: string) { return `${currency} ${value.to
 function roomLabel(reservation: InHouse) { return reservation.allocations.map((row) => row.roomUnit?.code ?? row.roomType?.name).filter(Boolean).join(", ") || "No room"; }
 function orderGuestLabel(order: Order) { return order.reservation ? (order.reservation.guestProfile?.fullName ?? "Guest") : (order.customerLabel || "Walk-in"); }
 function orderRoomLabel(order: Order) { return order.reservation ? roomLabel(order.reservation) : "Walk-in"; }
+// Table orders identify by which table, not a guest/room pairing that never applies to them.
+function orderTablePrimary(order: Order) { return order.orderPoint?.label ?? order.customerLabel ?? "Walk-in"; }
+function orderTableSecondary() { return "Table"; }
 function orderRecordedAt(order: Order) { return order.settledAt || order.postedAt || order.cancelledAt || order.voidedAt || order.createdAt; }
 function shortDateTime(value: string) { return new Date(value).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
 function tenderLabel(value?: string | null) { return value ? value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase()) : "Method not classified"; }
@@ -155,12 +159,12 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
 
       <div className="max-w-full overflow-x-auto overscroll-x-contain">
         <div className="lg:min-w-[1360px]">
-          <div className="hidden min-w-0 grid-cols-[minmax(10rem,1.2fr)_minmax(8rem,0.9fr)_minmax(10rem,1.05fr)_minmax(11rem,1.15fr)_8rem_7rem_9rem] items-center gap-3 border-b border-neutral-200 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-neutral-500 lg:grid"><span>Order and outlet</span><span>Guest and room</span><span>Settlement and items</span><span>Service, tip and server</span><span>Completed</span><span className="text-right">Amount</span><span className="text-right">Status and control</span></div>
+          <div className="hidden min-w-0 grid-cols-[minmax(10rem,1.2fr)_minmax(8rem,0.9fr)_minmax(10rem,1.05fr)_minmax(11rem,1.15fr)_8rem_7rem_9rem] items-center gap-3 border-b border-neutral-200 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-neutral-500 lg:grid"><span>Order and outlet</span><span>{scope === "table" ? "Table" : "Guest and room"}</span><span>Settlement and items</span><span>Service, tip and server</span><span>Completed</span><span className="text-right">Amount</span><span className="text-right">Status and control</span></div>
           <div className="divide-y divide-neutral-200">
             {orders.map((order) => (
               <div key={order.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2.5 px-4 py-4 lg:grid-cols-[minmax(10rem,1.2fr)_minmax(8rem,0.9fr)_minmax(10rem,1.05fr)_minmax(11rem,1.15fr)_8rem_7rem_9rem] lg:items-center lg:gap-3">
                 <div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-800">{order.orderNumber}</p><p className="mb-0 mt-1 truncate text-xs text-neutral-500">{order.outlet.name}</p></div>
-                <div className="col-start-1 min-w-0 lg:col-auto"><p className="m-0 truncate text-[13px] font-semibold text-neutral-700">{orderGuestLabel(order)}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{orderRoomLabel(order)}</p></div>
+                <div className="col-start-1 min-w-0 lg:col-auto"><p className="m-0 truncate text-[13px] font-semibold text-neutral-700">{scope === "table" ? orderTablePrimary(order) : orderGuestLabel(order)}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{scope === "table" ? orderTableSecondary() : orderRoomLabel(order)}</p></div>
                 <div className="col-start-1 min-w-0 lg:col-auto"><p className="m-0 text-xs font-bold text-neutral-700">{order.settlementMode === "OUTLET_PAYMENT" ? `Paid at outlet · ${tenderLabel(order.settlementMethod)}` : "Room folio"}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{order.items.map((item) => `${item.quantity}× ${item.nameSnapshot}`).join(", ")}</p>{order.paymentAmountReceived != null && <p className="mb-0 mt-1.5 text-[11px] font-semibold text-neutral-600">Received {money(order.paymentAmountReceived, order.currency)}{order.paymentAmountReceived > order.total + (order.tipAmount ?? 0) ? ` · Change ${money(order.paymentAmountReceived - order.total - (order.tipAmount ?? 0), order.currency)}` : ""}</p>}</div>
                 <div className="col-start-1 min-w-0 lg:col-auto"><p className={`m-0 text-xs font-bold ${order.guestRating ? "text-amber-600" : "text-neutral-500"}`}>{order.guestRating ? `Guest rating ${order.guestRating}/5` : "No guest rating yet"}</p>{order.tipIntent === "INTERESTED" && order.tipSuggestedAmount ? <p className="mb-0 mt-1 text-[11px] font-semibold text-emerald-700">Guest suggested {money(order.tipSuggestedAmount, order.currency)}</p> : null}{order.tipAmount ? <p className="mb-0 mt-1 text-xs font-bold text-emerald-800">Tip {money(order.tipAmount, order.currency)} · {attendantName(order.tipRecipient)}</p> : <p className="mb-0 mt-1 text-[11px] text-neutral-500">No collected tip recorded</p>}{["SETTLED", "POSTED_TO_FOLIO"].includes(order.status) && role !== "FRONT_DESK" && <button type="button" onClick={() => openTipFlow(order)} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100"><Coins className="h-3.5 w-3.5" />{order.tipAmount || order.paymentAmountReceived != null ? "Edit breakdown" : "Record payment / tip"}</button>}</div>
                 <time className="col-start-1 whitespace-nowrap text-[11px] tabular-nums text-neutral-500 lg:col-auto" dateTime={orderRecordedAt(order)}>{shortDateTime(orderRecordedAt(order))}</time>

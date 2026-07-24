@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Bell, ChefHat, Check, ChevronRight, Clock, LayoutGrid, Loader2, MessageSquareText, ReceiptText, RefreshCw, X } from "lucide-react";
+import { ArrowRight, Bell, ChefHat, Check, ChevronRight, Clock, LayoutGrid, Loader2, MessageSquareText, Minus, Plus, QrCode, ReceiptText, RefreshCw, ShoppingBasket, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
 import OrderHistoryPanel from "../_components/OrderHistoryPanel";
@@ -16,6 +16,9 @@ type LiveOrder = {
   orderPoint?: { id: number; type: string; label: string } | null;
   items: Array<{ id: number; nameSnapshot: string; quantity: number; lineTotal: number }>;
 };
+type TablePoint = { id: number; type: "ROOM" | "TABLE"; label: string; active: boolean };
+type MenuItem = { id: number; name: string; category: string | null; price: number; status: string; inStock?: boolean };
+type Outlet = { id: number; name: string; type: string; currency: string; menuItems: MenuItem[] };
 
 const OPEN_STATUSES = ["CONFIRMED", "PREPARING", "SERVING"];
 const STATUS_STYLE: Record<string, string> = {
@@ -46,12 +49,22 @@ function elapsed(value: string) {
 export default function NrmsTablesPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
   const [orders, setOrders] = useState<LiveOrder[]>([]);
+  const [tablePoints, setTablePoints] = useState<TablePoint[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
+  const [role, setRole] = useState("OWNER");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [declining, setDeclining] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [tender, setTender] = useState<Record<number, string>>({});
+
+  const [orderModal, setOrderModal] = useState(false);
+  const [orderTableId, setOrderTableId] = useState<number | "">("");
+  const [orderOutletId, setOrderOutletId] = useState<number | "">("");
+  const [orderCart, setOrderCart] = useState<Record<number, number>>({});
+  const [orderNote, setOrderNote] = useState("");
+  const [creatingOrder, setCreatingOrder] = useState(false);
 
   const currency = selectedProperty?.currency ?? "TZS";
 
@@ -60,12 +73,19 @@ export default function NrmsTablesPage() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<{ orders: LiveOrder[] }>(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=table&limit=150`);
-      setOrders(res.data.orders);
+      const [ordersRes, pointsRes, contextRes] = await Promise.all([
+        apiClient.get<{ orders: LiveOrder[] }>(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=table&limit=150`),
+        apiClient.get<{ orderPoints: TablePoint[] }>(`/api/nrms/operations/property/${selectedPropertyId}/order-points`),
+        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/context`),
+      ]);
+      setOrders(ordersRes.data.orders);
+      setTablePoints((pointsRes.data.orderPoints ?? []).filter((point) => point.type === "TABLE" && point.active));
+      setOutlets(contextRes.data?.outlets ?? []);
+      setRole(contextRes.data?.access?.role ?? "OWNER");
       setTender((current) => {
         // Prefill each serving order's tender with the guest's stated choice.
         const next = { ...current };
-        for (const order of res.data.orders) if (next[order.id] === undefined && order.status === "SERVING" && order.guestPaymentMethod) next[order.id] = order.guestPaymentMethod;
+        for (const order of ordersRes.data.orders) if (next[order.id] === undefined && order.status === "SERVING" && order.guestPaymentMethod) next[order.id] = order.guestPaymentMethod;
         return next;
       });
     } catch (cause: any) {
@@ -113,6 +133,42 @@ export default function NrmsTablesPage() {
     finally { setBusyId(null); }
   };
 
+  const openOrderModal = (tableId?: number) => {
+    setError(null);
+    setOrderTableId(tableId ?? "");
+    setOrderOutletId(outlets[0]?.id ?? "");
+    setOrderCart({});
+    setOrderNote("");
+    setOrderModal(true);
+  };
+
+  const changeOrderQty = (itemId: number, delta: number) => setOrderCart((current) => {
+    const quantity = Math.max(0, (current[itemId] ?? 0) + delta);
+    const next = { ...current };
+    if (quantity === 0) delete next[itemId]; else next[itemId] = quantity;
+    return next;
+  });
+
+  const orderOutlet = outlets.find((item) => item.id === orderOutletId);
+  const orderLines = useMemo(() => (orderOutlet?.menuItems ?? []).filter((item) => (orderCart[item.id] ?? 0) > 0).map((item) => ({ item, quantity: orderCart[item.id] })), [orderCart, orderOutlet]);
+  const orderTotal = orderLines.reduce((sum, line) => sum + line.item.price * line.quantity, 0);
+
+  const createTableOrder = async () => {
+    if (!selectedPropertyId || !orderTableId || !orderOutletId || orderLines.length === 0) return;
+    setCreatingOrder(true); setError(null);
+    try {
+      await apiClient.post(`/api/nrms/operations/property/${selectedPropertyId}/orders`, {
+        outletId: orderOutletId,
+        orderPointId: orderTableId,
+        note: orderNote.trim() || undefined,
+        items: orderLines.map((line) => ({ menuItemId: line.item.id, quantity: line.quantity })),
+      });
+      setOrderModal(false);
+      await load(true);
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not create the order"); }
+    finally { setCreatingOrder(false); }
+  };
+
   const placed = useMemo(() => orders.filter((order) => order.status === "PLACED"), [orders]);
   const tabs = useMemo(() => {
     const groups = new Map<string, { label: string; sub: string; outletName: string; orders: LiveOrder[]; total: number }>();
@@ -125,6 +181,10 @@ export default function NrmsTablesPage() {
     }
     return [...groups.values()].sort((a, b) => b.total - a.total);
   }, [orders]);
+  // Every table configured under QR order points, whether or not it currently
+  // has an order, so a newly added table shows up here right away.
+  const busyPointIds = useMemo(() => new Set(orders.filter((order) => OPEN_STATUSES.includes(order.status) && order.orderPoint).map((order) => order.orderPoint!.id)), [orders]);
+  const canCreate = role !== "FRONT_DESK";
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-4 pb-10">
@@ -146,6 +206,42 @@ export default function NrmsTablesPage() {
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : (
         <div className="space-y-4">
+          {tablePoints.length > 0 && (
+            <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-4 w-4 text-neutral-400" />
+                  <p className="m-0 text-[13px] font-bold text-neutral-900">Tables</p>
+                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-500">{tablePoints.length}</span>
+                </div>
+                {canCreate && <button type="button" onClick={() => openOrderModal()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3 text-[11px] font-bold text-white hover:bg-emerald-800"><Plus className="h-3.5 w-3.5" />Take order</button>}
+              </div>
+              <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-4">
+                {tablePoints.map((point) => {
+                  const busy = busyPointIds.has(point.id);
+                  const orderCount = orders.filter((order) => OPEN_STATUSES.includes(order.status) && order.orderPoint?.id === point.id).length;
+                  return (
+                    <div key={point.id} className={`overflow-hidden rounded-xl border border-l-4 bg-white p-3.5 shadow-sm transition ${busy ? "border-neutral-200 border-l-cyan-500" : "border-neutral-200 border-l-emerald-500"}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${busy ? "bg-cyan-50 text-cyan-700" : "bg-emerald-50 text-emerald-700"}`}><QrCode className="h-4 w-4" /></span>
+                          <div className="min-w-0">
+                            <p className="m-0 truncate text-sm font-bold tracking-tight text-neutral-950">{point.label}</p>
+                            <p className="mb-0 mt-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Table</p>
+                          </div>
+                        </div>
+                        {canCreate && <button type="button" onClick={() => openOrderModal(point.id)} aria-label={`Take an order for ${point.label}`} title="Take an order" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 hover:border-emerald-300 hover:text-emerald-700"><Plus className="h-3.5 w-3.5" /></button>}
+                      </div>
+                      <div className="mt-3 border-t border-dashed border-neutral-200 pt-2.5">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold ${busy ? "bg-cyan-50 text-cyan-700" : "bg-emerald-50 text-emerald-700"}`}><span className={`h-1.5 w-1.5 rounded-full ${busy ? "bg-cyan-500" : "bg-emerald-500"}`} />{busy ? `${orderCount} order${orderCount === 1 ? "" : "s"} in progress` : "Idle · available"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           <section className={`overflow-hidden rounded-2xl border ${placed.length ? "border-violet-200" : "border-neutral-200"} bg-white`}>
             <div className={`flex items-center gap-2 border-b px-4 py-3 ${placed.length ? "border-violet-100 bg-violet-50/60" : "border-neutral-100"}`}>
               <Bell className={`h-4 w-4 ${placed.length ? "text-violet-700" : "text-neutral-400"}`} />
@@ -266,6 +362,61 @@ export default function NrmsTablesPage() {
           </section>
 
           {selectedPropertyId && <OrderHistoryPanel propertyId={selectedPropertyId} scope="table" />}
+        </div>
+      )}
+
+      {orderModal && (
+        <div className="fixed inset-0 z-[11000] flex items-center justify-center overflow-y-auto bg-neutral-950/50 p-3 sm:p-4">
+          <section className="box-border max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-[16px] bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-5" aria-label="Take a table order">
+            <div className="flex items-start justify-between gap-3 border-b border-neutral-100 pb-4">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"><ShoppingBasket className="h-[18px] w-[18px]" /></span>
+                <div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-700">Staff order</p><h3 className="mb-0 mt-0.5 text-lg font-bold text-neutral-950">Take a table order</h3></div>
+              </div>
+              <button type="button" onClick={() => setOrderModal(false)} aria-label="Close" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50"><X className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
+              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Table<span className="text-red-500"> *</span>
+                <select value={orderTableId} onChange={(event) => setOrderTableId(event.target.value ? Number(event.target.value) : "")} className="mt-1.5 box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10">
+                  <option value="">Select a table</option>
+                  {tablePoints.map((point) => <option key={point.id} value={point.id}>{point.label}{busyPointIds.has(point.id) ? " · in progress" : ""}</option>)}
+                </select>
+              </label>
+              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Outlet<span className="text-red-500"> *</span>
+                <select value={orderOutletId} onChange={(event) => { setOrderOutletId(event.target.value ? Number(event.target.value) : ""); setOrderCart({}); }} className="mt-1.5 box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10">
+                  <option value="">Select an outlet</option>
+                  {outlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {orderOutlet && (
+              <div className="mt-4 max-h-52 overflow-y-auto rounded-lg border border-neutral-200">
+                {orderOutlet.menuItems.filter((item) => item.status === "ACTIVE").map((item) => {
+                  const outOfStock = item.inStock === false;
+                  const quantity = orderCart[item.id] ?? 0;
+                  return (
+                    <div key={item.id} className={`flex items-center gap-2 border-b border-neutral-100 px-3 py-2 last:border-b-0 ${outOfStock ? "opacity-50" : ""}`}>
+                      <div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-neutral-800">{item.name}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{money(item.price, orderOutlet.currency)}{outOfStock ? " · out of stock" : ""}</p></div>
+                      <div className="flex shrink-0 items-center gap-1"><button type="button" disabled={outOfStock || quantity === 0} onClick={() => changeOrderQty(item.id, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white disabled:opacity-40"><Minus className="h-3 w-3" /></button><span className="w-5 text-center text-xs font-bold">{quantity}</span><button type="button" disabled={outOfStock} onClick={() => changeOrderQty(item.id, 1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white disabled:opacity-40"><Plus className="h-3 w-3" /></button></div>
+                    </div>
+                  );
+                })}
+                {orderOutlet.menuItems.length === 0 && <p className="m-0 px-3 py-6 text-center text-xs text-neutral-400">No active items for this outlet.</p>}
+              </div>
+            )}
+
+            <label className="mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Note (optional)
+              <input value={orderNote} onChange={(event) => setOrderNote(event.target.value)} maxLength={300} placeholder="e.g. extra spicy, no ice" className="mt-1.5 box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+            </label>
+
+            {error && <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700"><X className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}
+
+            <div className="mt-4 flex items-center justify-between border-t border-neutral-100 pt-4"><div><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Total</p><p className="mb-0 mt-0.5 text-lg font-bold text-neutral-950">{money(orderTotal, orderOutlet?.currency ?? currency)}</p></div>
+              <button type="button" onClick={() => void createTableOrder()} disabled={creatingOrder || !orderTableId || !orderOutletId || orderLines.length === 0} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{creatingOrder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Confirm order</button>
+            </div>
+          </section>
         </div>
       )}
     </div>
