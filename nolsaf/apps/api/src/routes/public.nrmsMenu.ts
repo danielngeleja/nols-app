@@ -12,6 +12,7 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
 import { guestNameMatches } from "../lib/nrmsOrderPoints.js";
+import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
 import {
   limitPublicQrMenu,
   limitPublicQrOrderCreate,
@@ -333,32 +334,47 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
   const now = new Date();
   const autoAccept = Boolean(outlet.autoAcceptQrOrders);
 
-  const order = await db.nrmsOutletOrder.create({
-    data: {
-      propertyId: point.propertyId,
-      outletId: outlet.id,
-      reservationId: stay?.id ?? null,
-      customerLabel: pointCustomerLabel(point),
-      orderPointId: point.id,
-      publicCode,
-      orderNumber,
-      status: autoAccept ? "CONFIRMED" : "PLACED",
-      settlementMode: stay ? "ROOM_FOLIO" : "OUTLET_PAYMENT",
-      guestPaymentMethod: stay ? null : parsed.data.paymentMethod,
-      currency: stay?.currency ?? outlet.currency,
-      subtotal: total,
-      total,
-      note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
-      placedAt: now,
-      ...(autoAccept ? { confirmedAt: now } : {}),
-      items: { create: lines },
-    },
-    include: {
-      outlet: { select: { name: true, type: true } },
-      orderPoint: { select: { type: true, label: true } },
-      items: { orderBy: { id: "asc" } },
-    },
-  });
+  let order;
+  try {
+    // Tracked stock is reserved at placement, in the same transaction as the
+    // order, so a pending guest order holds its quantity and cannot oversell.
+    // Staff declining the order gives the quantity back (cancel route).
+    order = await db.$transaction(async (tx: any) => {
+      await reserveMenuStock(tx, menuItems, requested);
+      return tx.nrmsOutletOrder.create({
+        data: {
+          propertyId: point.propertyId,
+          outletId: outlet.id,
+          reservationId: stay?.id ?? null,
+          customerLabel: pointCustomerLabel(point),
+          orderPointId: point.id,
+          publicCode,
+          orderNumber,
+          status: autoAccept ? "CONFIRMED" : "PLACED",
+          settlementMode: stay ? "ROOM_FOLIO" : "OUTLET_PAYMENT",
+          guestPaymentMethod: stay ? null : parsed.data.paymentMethod,
+          currency: stay?.currency ?? outlet.currency,
+          subtotal: total,
+          total,
+          note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
+          placedAt: now,
+          ...(autoAccept ? { confirmedAt: now } : {}),
+          items: { create: lines },
+        },
+        include: {
+          outlet: { select: { name: true, type: true } },
+          orderPoint: { select: { type: true, label: true } },
+          items: { orderBy: { id: "asc" } },
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof StockError) {
+      return res.status(409).json({ error: `"${error.itemName}" has just run out. Please refresh the menu and adjust your order.` });
+    }
+    console.error("[public.nrmsMenu] order create failed", error);
+    return res.status(500).json({ error: "Unable to place the order right now. Please try again." });
+  }
 
   res.status(201).json({ order: publicOrderView(order), publicCode });
 }) as RequestHandler);

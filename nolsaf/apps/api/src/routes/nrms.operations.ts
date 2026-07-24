@@ -8,6 +8,7 @@ import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
 import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -91,6 +92,8 @@ const menuItemUpdateSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
   imageUrl: z.string().trim().url().max(500).startsWith("https://").optional().nullable(),
   inStock: z.boolean().optional(),
+  stockQuantity: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  lowStockThreshold: z.number().int().min(0).max(100_000).optional(),
   sortOrder: z.number().int().min(0).max(10_000).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
@@ -643,7 +646,7 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
 router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Response) => {
   const menuItemId = Number(req.params.menuItemId);
   if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
-  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true } });
+  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true, inStock: true, stockQuantity: true } });
   if (!item) return res.status(404).json({ error: "Menu item not found" });
   const resolved = await accessForOutlet(req, res, item.outletId);
   if (!resolved) return;
@@ -660,7 +663,14 @@ router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Respons
   if (input.price !== undefined) data.price = input.price;
   if (input.description !== undefined) data.description = input.description ? sanitizeText(input.description) : null;
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl ?? null;
-  if (input.inStock !== undefined) data.inStock = input.inStock;
+  if (input.inStock !== undefined || input.stockQuantity !== undefined) {
+    // Same availability/quantity contract as the stock endpoint, so the menu
+    // editor cannot put an item "in stock" that the count says is at zero.
+    const derived = deriveStockPatch(item, { inStock: input.inStock, stockQuantity: input.stockQuantity });
+    if (derived.error) return res.status(409).json({ error: derived.error });
+    Object.assign(data, derived.data);
+  }
+  if (input.lowStockThreshold !== undefined) data.lowStockThreshold = input.lowStockThreshold;
   if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
   if (input.status !== undefined) data.status = input.status;
   if (Object.keys(data).length === 0) return res.status(400).json({ error: "Nothing to update" });
@@ -678,35 +688,51 @@ router.get("/property/:propertyId/stock", (async (req: AuthedRequest, res: Respo
   if (!access) return;
   const outlets = await db.nrmsOutlet.findMany({
     where: { propertyId: access.property.id, status: "ACTIVE", ...(access.outletId != null ? { id: access.outletId } : {}) },
-    select: { id: true, name: true, type: true, menuItems: { where: { status: "ACTIVE" }, select: { id: true, name: true, category: true, price: true, inStock: true }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
+    select: { id: true, name: true, type: true, menuItems: { where: { status: "ACTIVE" }, select: { id: true, name: true, category: true, price: true, inStock: true, stockQuantity: true, lowStockThreshold: true }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
   // Only outlets the caller is allowed to serve, so bar staff never see the
   // kitchen's list (and vice versa) even when unscoped to a single outletId.
   const visible = outlets.filter((outlet: any) => outletAllowed(access, outlet)).map((outlet: any) => ({
     id: outlet.id, name: outlet.name, type: outlet.type,
-    items: outlet.menuItems.map((item: any) => ({ id: item.id, name: item.name, category: item.category, price: number(item.price), inStock: item.inStock })),
+    items: outlet.menuItems.map((item: any) => ({ id: item.id, name: item.name, category: item.category, price: number(item.price), inStock: item.inStock, stockQuantity: item.stockQuantity, lowStockThreshold: item.lowStockThreshold })),
     outCount: outlet.menuItems.filter((item: any) => !item.inStock).length,
+    lowCount: outlet.menuItems.filter((item: any) => item.inStock && item.stockQuantity != null && item.stockQuantity <= item.lowStockThreshold).length,
   }));
   res.json({ canManageStock: STOCK_ROLES.has(access.role), outlets: visible });
 }) as RequestHandler);
 
 /**
- * PATCH /menu-items/:menuItemId/stock - flip a single item in or out of stock.
- * A narrow capability the serving roles hold for their own outlet: availability
- * only, never price or content, so a bar attendant can 86 a drink mid-service.
+ * PATCH /menu-items/:menuItemId/stock - availability and counted quantity.
+ * A narrow capability the serving roles hold for their own outlet: never price
+ * or content, so a bar attendant can 86 a drink or record received stock
+ * mid-service. Quantity rules live in deriveStockPatch: a count decides
+ * availability outright and a tracked item at zero cannot be toggled back on.
  */
 router.patch("/menu-items/:menuItemId/stock", (async (req: AuthedRequest, res: Response) => {
   const menuItemId = Number(req.params.menuItemId);
   if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
-  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true } });
+  const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true, inStock: true, stockQuantity: true } });
   if (!item) return res.status(404).json({ error: "Menu item not found" });
   const resolved = await accessForOutlet(req, res, item.outletId);
   if (!resolved) return;
   if (!STOCK_ROLES.has(resolved.access.role)) return res.status(403).json({ error: "Your role cannot change stock" });
-  const parsed = z.object({ inStock: z.boolean() }).safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: "Invalid stock state" });
-  const updated = await db.nrmsMenuItem.update({ where: { id: item.id }, data: { inStock: parsed.data.inStock }, select: { id: true, inStock: true } });
+  const parsed = z.object({
+    inStock: z.boolean().optional(),
+    stockQuantity: z.number().int().min(0).max(1_000_000).nullable().optional(),
+    lowStockThreshold: z.number().int().min(0).max(100_000).optional(),
+  }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Invalid stock update" });
+  if (parsed.data.inStock === undefined && parsed.data.stockQuantity === undefined && parsed.data.lowStockThreshold === undefined) {
+    return res.status(400).json({ error: "Nothing to update" });
+  }
+  const derived = deriveStockPatch(item, parsed.data);
+  if (derived.error) return res.status(409).json({ error: derived.error });
+  const updated = await db.nrmsMenuItem.update({
+    where: { id: item.id },
+    data: { ...derived.data, ...(parsed.data.lowStockThreshold !== undefined ? { lowStockThreshold: parsed.data.lowStockThreshold } : {}) },
+    select: { id: true, inStock: true, stockQuantity: true, lowStockThreshold: true },
+  });
   res.json({ item: updated });
 }) as RequestHandler);
 
@@ -1019,27 +1045,38 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
   const prefix = outlet.type === "RESTAURANT" ? "RST" : outlet.type === "BAR" ? "BAR" : "SVC";
   const day = new Date().toISOString().slice(2, 10).replace(/-/g, "");
   const orderNumber = `${prefix}-${day}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
-  const order = await db.nrmsOutletOrder.create({
-    data: {
-      propertyId: access.property.id,
-      outletId: outlet.id,
-      reservationId: reservation?.id ?? null,
-      customerLabel,
-      orderNumber,
-      status: "CONFIRMED",
-      settlementMode,
-      currency: reservation?.currency ?? outlet.currency,
-      subtotal: total,
-      total,
-      note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
-      createdById: req.user!.id,
-      confirmedById: req.user!.id,
-      confirmedAt: new Date(),
-      items: { create: lines },
-    },
-    include: orderInclude,
-  });
-  res.status(201).json({ order: formatOrder(order) });
+  try {
+    // Tracked stock is reserved in the same transaction that creates the order,
+    // so a failed reservation leaves no order and no quantity change.
+    const order = await db.$transaction(async (tx: any) => {
+      await reserveMenuStock(tx, menuItems, requested);
+      return tx.nrmsOutletOrder.create({
+        data: {
+          propertyId: access.property.id,
+          outletId: outlet.id,
+          reservationId: reservation?.id ?? null,
+          customerLabel,
+          orderNumber,
+          status: "CONFIRMED",
+          settlementMode,
+          currency: reservation?.currency ?? outlet.currency,
+          subtotal: total,
+          total,
+          note: parsed.data.note ? sanitizeText(parsed.data.note) : null,
+          createdById: req.user!.id,
+          confirmedById: req.user!.id,
+          confirmedAt: new Date(),
+          items: { create: lines },
+        },
+        include: orderInclude,
+      });
+    }, ORDER_TX_OPTIONS);
+    res.status(201).json({ order: formatOrder(order) });
+  } catch (error) {
+    if (error instanceof StockError) return res.status(409).json({ error: `"${error.itemName}" does not have enough stock left for this order.` });
+    console.error("[nrms.operations] order create failed", error);
+    res.status(500).json({ error: "Unable to create the order" });
+  }
 }) as RequestHandler);
 
 router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Response) => {
@@ -1136,16 +1173,29 @@ router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) =
 router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response) => {
   const parsed = reasonSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A cancellation reason is required" });
-  const order = await db.nrmsOutletOrder.findUnique({ where: { id: Number(req.params.orderId) }, include: { outlet: true } });
+  const order = await db.nrmsOutletOrder.findUnique({ where: { id: Number(req.params.orderId) }, include: { outlet: true, items: true } });
   if (!order) return res.status(404).json({ error: "Order not found" });
   const access = await loadAccess(req, res, order.propertyId);
   if (!access) return;
   if (!outletAllowed(access, order.outlet)) return res.status(403).json({ error: "You cannot cancel this order" });
-  const changed = await db.nrmsOutletOrder.updateMany({
-    where: { id: order.id, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } },
-    data: { status: "CANCELLED", cancelledAt: new Date(), voidReason: sanitizeText(parsed.data.reason) },
-  });
-  if (changed.count !== 1) return res.status(409).json({ error: "Only placed, confirmed or preparing orders can be cancelled" });
+  try {
+    await db.$transaction(async (tx: any) => {
+      const changed = await tx.nrmsOutletOrder.updateMany({
+        where: { id: order.id, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } },
+        data: { status: "CANCELLED", cancelledAt: new Date(), voidReason: sanitizeText(parsed.data.reason) },
+      });
+      if (changed.count !== 1) throw new Error("NRMS_ORDER_NOT_CANCELLABLE");
+      // The goods were never served: a cancelled order gives its quantities back.
+      // (Voids stay as-is: a voided posted order was consumed, only the money moves.)
+      await restoreMenuStock(tx, order.items);
+    }, ORDER_TX_OPTIONS);
+  } catch (error) {
+    if (error instanceof Error && error.message === "NRMS_ORDER_NOT_CANCELLABLE") {
+      return res.status(409).json({ error: "Only placed, confirmed or preparing orders can be cancelled" });
+    }
+    console.error("[nrms.operations] order cancel failed", error);
+    return res.status(500).json({ error: "Unable to cancel the order" });
+  }
   res.json({ ok: true });
 }) as RequestHandler);
 

@@ -4567,6 +4567,11 @@ model NrmsMenuItem {
   imageUrl    String? @db.VarChar(500)
   /// Daily availability toggle, independent of the lifecycle `status`.
   inStock     Boolean @default(true)
+  /// Counted inventory. Null = not tracked (availability is the toggle alone).
+  /// Tracked items decrement on every sale and auto-flip inStock at zero.
+  stockQuantity     Int?
+  /// Tracked quantity at or below this level shows as "running low".
+  lowStockThreshold Int     @default(5)
   sortOrder   Int     @default(0)
 
   createdAt DateTime @default(now())
