@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeftRight, Banknote, History, Loader2, RefreshCw, UserCheck, WalletCards } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import ShiftPanel, { type HandoverShift, type PendingHandover } from "../_components/ShiftPanel";
+import ShiftPanel, { serviceLabelForRole, type HandoverShift, type PendingHandover } from "../_components/ShiftPanel";
 import { useNrms } from "../_components/NrmsProvider";
 
 type ShiftHistoryRow = {
@@ -85,7 +85,7 @@ export default function NrmsShiftPage() {
       ) : data ? (
         <div className={loading ? "space-y-4 opacity-60 transition" : "space-y-4 transition"}>
           {data.canManageShift ? (
-            <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} onChanged={load} />
+            <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} serviceLabel={serviceLabelForRole(selectedProperty?.nrmsAccessRole)} onChanged={load} />
           ) : (
             <section className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><WalletCards className="h-5 w-5" /></span>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, Calculator, CalendarRange, Clock, Coins, Loader2, Receipt, Timer } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import ShiftPanel from "../_components/ShiftPanel";
+import ShiftPanel, { serviceLabelForRole } from "../_components/ShiftPanel";
 import { useNrms } from "../_components/NrmsProvider";
 
 type Period = "day" | "week" | "month" | "year";
@@ -179,7 +179,7 @@ export default function NrmsPerformancePage() {
             </section>
           </div>
 
-          <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} onChanged={load} />
+          <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} serviceLabel={serviceLabelForRole(selectedProperty?.nrmsAccessRole)} onChanged={load} />
         </div>
       )}
     </div>

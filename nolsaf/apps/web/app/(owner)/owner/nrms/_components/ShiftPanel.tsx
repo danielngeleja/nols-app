@@ -21,7 +21,20 @@ type HandoverSummary = {
 const METHOD_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mobile money", CARD: "Card", BANK: "Bank", OTHER: "Other", UNCLASSIFIED: "Unclassified" };
 const methodLabel = (method: string) => METHOD_LABELS[method] ?? method;
 
-export default function ShiftPanel({ shift, handover, canManageShift, propertyId, money, onChanged }: { shift: HandoverShift | null; handover: PendingHandover | null; canManageShift: boolean; propertyId: number; money: (value: number) => string; onChanged: () => void | Promise<void>; }) {
+const SERVICE_LABELS: Record<string, string> = {
+  BAR: "Bar service",
+  RESTAURANT: "Restaurant service",
+  OUTLET_SUPERVISOR: "Outlet service",
+  FRONT_DESK: "Front desk",
+  MANAGER: "Hotel management",
+  OWNER: "Property",
+};
+/** Names a person's service area for the shift header, from their access role. */
+export function serviceLabelForRole(role?: string | null): string {
+  return (role && SERVICE_LABELS[role]) || "Your service";
+}
+
+export default function ShiftPanel({ shift, handover, canManageShift, propertyId, money, serviceLabel = "Your service", onChanged }: { shift: HandoverShift | null; handover: PendingHandover | null; canManageShift: boolean; propertyId: number; money: (value: number) => string; serviceLabel?: string; onChanged: () => void | Promise<void>; }) {
   const [closing, setClosing] = useState(false);
   const [summary, setSummary] = useState<HandoverSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -122,7 +135,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white"><Clock className="h-4 w-4" /></span>
             <div>
               <p className="m-0 text-[13px] font-bold text-neutral-900">Your shift</p>
-              <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Bar &amp; restaurant · since {time(shift.openedAt)} · {elapsed}{shift.takenOverFrom ? ` · took over from ${shift.takenOverFrom}` : ""}</p>
+              <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{serviceLabel} · since {time(shift.openedAt)} · {elapsed}{shift.takenOverFrom ? ` · took over from ${shift.takenOverFrom}` : ""}</p>
             </div>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Open</span>
