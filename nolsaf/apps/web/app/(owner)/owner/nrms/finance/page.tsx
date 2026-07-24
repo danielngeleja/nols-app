@@ -171,20 +171,20 @@ export default function FinanceControlPage() {
       <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
         <div className="border-b border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction &mdash; that balance is what makes the ledger correct.</p></div>
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[900px] border-collapse text-left text-xs">
-            <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500">
-              <th className="sticky left-0 z-10 border-r border-neutral-200 bg-neutral-50 p-3">Transaction</th>
-              <th className="p-3">Source</th>
-              <th className="p-3">Description</th>
-              <th className="p-3">Accounts</th>
-              <th className="border-l border-blue-100 bg-blue-50/70 p-3 text-right text-blue-800">Debit</th>
-              <th className="border-l border-violet-100 bg-violet-50/70 p-3 text-right text-violet-800">Credit</th>
+          <table className="min-w-[900px] border-collapse text-left text-xs">
+            <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">
+              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-neutral-200 bg-neutral-50 p-3">Transaction</th>
+              <th className="whitespace-nowrap border-b border-neutral-200 bg-neutral-50 p-3">Source</th>
+              <th className="min-w-[180px] border-b border-neutral-200 bg-neutral-50 p-3">Description</th>
+              <th className="min-w-[180px] border-b border-neutral-200 bg-neutral-50 p-3">Accounts</th>
+              <th className="border-b border-l border-blue-100 bg-blue-50/70 p-3 text-right text-blue-800">Debit</th>
+              <th className="border-b border-l border-violet-100 bg-violet-50/70 p-3 text-right text-violet-800">Credit</th>
             </tr></thead>
-            <tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="border-t border-neutral-100 align-top">
-              <td className="sticky left-0 z-10 border-r border-neutral-200 bg-white p-3 font-bold">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td>
-              <td className="p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td>
-              <td className="p-3">{transaction.description}</td>
-              <td className="p-3">{transaction.entries.map((entry) => <div key={entry.id} className="mb-1">{entry.accountCode} · {entry.accountName}</div>)}</td>
+            <tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="group border-t border-neutral-100 align-top transition-colors hover:bg-neutral-50/70">
+              <td className="sticky left-0 z-10 whitespace-nowrap border-r border-neutral-200 bg-white p-3 font-bold text-neutral-900 transition-colors group-hover:bg-neutral-50">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td>
+              <td className="whitespace-nowrap p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td>
+              <td className="min-w-[180px] max-w-[280px] p-3 text-neutral-700">{transaction.description}</td>
+              <td className="min-w-[180px] max-w-[240px] p-3 text-neutral-500">{transaction.entries.map((entry) => <div key={entry.id} className="mb-1">{entry.accountCode} · {entry.accountName}</div>)}</td>
               <td className="border-l border-blue-100 bg-blue-50/40 p-3 text-right font-bold tabular-nums text-blue-800">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.debit), 0), transaction.currency)}</td>
               <td className="border-l border-violet-100 bg-violet-50/40 p-3 text-right font-bold tabular-nums text-violet-800">{cash(transaction.entries.reduce((sum, entry) => sum + Number(entry.credit), 0), transaction.currency)}</td>
             </tr>)}{!data?.ledger.transactions.length && <tr><td colSpan={6} className="p-10 text-center text-neutral-400">The ledger is posted when Night Audit closes this business date.</td></tr>}</tbody>
