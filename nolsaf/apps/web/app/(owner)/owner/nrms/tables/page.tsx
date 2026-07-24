@@ -2,18 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, Check, ChevronRight, Clock, LayoutGrid, Loader2, RefreshCw, X } from "lucide-react";
+import { Bell, Check, ChevronRight, Clock, LayoutGrid, Loader2, MessageSquareText, RefreshCw, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
 
 type LiveOrder = {
   id: number; orderNumber: string; status: string; total: number; currency: string; createdAt: string; settlementMode: string;
   customerLabel?: string | null;
+  note?: string | null;
+  guestPaymentMethod?: string | null;
   outlet: { id: number; name: string; type: string };
   reservation: { id: number; guestProfile: { fullName: string } | null; allocations: Array<{ roomUnit: { code: string } | null; roomType: { name: string } | null }> } | null;
   orderPoint?: { id: number; type: string; label: string } | null;
-  items: Array<{ id: number; nameSnapshot: string; quantity: number }>;
+  items: Array<{ id: number; nameSnapshot: string; quantity: number; lineTotal: number }>;
 };
+
+const TENDER_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mobile money", CARD: "Card", BANK: "Bank transfer", OTHER: "Other" };
+const tenderLabel = (value?: string | null) => (value ? TENDER_LABELS[value] ?? value : "Not stated");
 
 const OPEN_STATUSES = ["CONFIRMED", "PREPARING", "SERVING"];
 const STATUS_STYLE: Record<string, string> = {
@@ -132,32 +137,58 @@ export default function NrmsTablesPage() {
             {placed.length === 0 ? (
               <p className="m-0 px-4 py-6 text-center text-xs text-neutral-400">No new orders waiting. Guest QR orders will appear here to accept.</p>
             ) : (
-              <div className="divide-y divide-neutral-100">
+              <div className="grid gap-3 p-3 lg:grid-cols-2">
                 {placed.map((order) => (
-                  <div key={order.id} className="px-4 py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                  <article key={order.id} className="min-w-0 rounded-xl border border-neutral-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="m-0 text-[13px] font-bold text-neutral-900">{tabLabel(order)} <span className="text-[10px] font-normal text-neutral-400">· {tabSub(order)} · {order.outlet.name}</span></p>
-                        <p className="mb-0 mt-1 text-[11px] text-neutral-500">{order.items.map((item) => `${item.quantity}× ${item.nameSnapshot}`).join(", ")}</p>
+                        <p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p>
+                        <p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{tabLabel(order)} · {tabSub(order)}{order.orderPoint ? " · Guest QR order" : ""}</p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-[13px] font-bold text-neutral-900">{money(order.total, order.currency)}</span>
-                        {declining !== order.id && (
-                          <>
-                            <button type="button" disabled={busyId === order.id} onClick={() => { setDeclining(order.id); setReason(""); setError(null); }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 disabled:opacity-50"><X className="h-3.5 w-3.5" />Decline</button>
-                            <button type="button" disabled={busyId === order.id} onClick={() => void accept(order)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-800 px-3 text-xs font-bold text-white hover:bg-emerald-900 disabled:opacity-50">{busyId === order.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}Accept</button>
-                          </>
-                        )}
-                      </div>
+                      <span className="shrink-0 rounded-full bg-violet-50 px-2 py-1 text-[9px] font-bold text-violet-700">{order.orderPoint ? "NEW · QR" : "NEW"}</span>
                     </div>
-                    {declining === order.id && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} placeholder="Reason to decline (e.g. item unavailable)" className="box-border h-9 min-w-[200px] flex-1 rounded-lg border border-neutral-300 px-3 text-xs outline-none focus:border-red-400" />
-                        <button type="button" onClick={() => { setDeclining(null); setReason(""); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600">Keep</button>
-                        <button type="button" disabled={busyId === order.id || reason.trim().length < 3} onClick={() => void decline(order)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white disabled:bg-red-200 disabled:text-red-500">{busyId === order.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Decline order</button>
+
+                    <div className="mt-3 space-y-1">
+                      {order.items.map((item) => (
+                        <div key={item.id} className="flex justify-between gap-3 text-[11px] text-neutral-600">
+                          <span className="truncate">{item.quantity}× {item.nameSnapshot}</span>
+                          <span className="shrink-0 tabular-nums">{money(item.lineTotal, order.currency)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {order.note && (
+                      <div className="mt-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900">
+                        <MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                        <span><strong className="font-bold">Guest note:</strong> {order.note}</span>
                       </div>
                     )}
-                  </div>
+
+                    {order.settlementMode === "OUTLET_PAYMENT" && order.guestPaymentMethod && (
+                      <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] text-blue-800">
+                        <span><strong>Guest selected:</strong> {tenderLabel(order.guestPaymentMethod)}</span>
+                        <span className="shrink-0 font-semibold text-blue-600">Not yet confirmed</span>
+                      </div>
+                    )}
+
+                    {declining === order.id ? (
+                      <div className="mt-3 border-t border-neutral-100 pt-3">
+                        <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} placeholder="Reason to decline (e.g. item unavailable)" className="box-border h-9 w-full rounded-lg border border-neutral-300 px-3 text-xs outline-none focus:border-red-400" />
+                        <div className="mt-2 flex justify-end gap-1.5">
+                          <button type="button" onClick={() => { setDeclining(null); setReason(""); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600">Keep</button>
+                          <button type="button" disabled={busyId === order.id || reason.trim().length < 3} onClick={() => void decline(order)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white disabled:bg-red-200 disabled:text-red-500">{busyId === order.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Decline order</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-3">
+                        <strong className="text-sm tabular-nums">{money(order.total, order.currency)}</strong>
+                        <div className="flex gap-1.5">
+                          <button type="button" disabled={busyId === order.id} onClick={() => { setDeclining(order.id); setReason(""); setError(null); }} className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 text-[10px] font-bold text-red-600 disabled:opacity-50"><X className="h-3.5 w-3.5" />Decline</button>
+                          <button type="button" disabled={busyId === order.id} onClick={() => void accept(order)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-violet-700 px-3 text-[10px] font-bold text-white hover:bg-violet-800 disabled:bg-neutral-200 disabled:text-neutral-400">{busyId === order.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}Accept</button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
                 ))}
               </div>
             )}

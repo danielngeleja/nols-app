@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Check, ChefHat, ChevronDown, ChevronLeft, ChevronRight, Coins, History, Loader2, Minus, Plus, ReceiptText, RefreshCw, ShoppingBasket, Trash2, UtensilsCrossed, Wine } from "lucide-react";
+import { AlertTriangle, Check, ChefHat, ChevronDown, ChevronLeft, ChevronRight, Coins, History, Loader2, MessageSquareText, Minus, Plus, ReceiptText, RefreshCw, ShoppingBasket, Trash2, UtensilsCrossed, Wine } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 
 type MenuItem = { id: number; name: string; category: string | null; price: number; status: string; inStock?: boolean; description?: string | null };
@@ -325,6 +325,9 @@ export default function NrmsOrdersPage() {
                   <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status === "PLACED" ? "NEW · QR" : order.status.replaceAll("_", " ")}</span>
                 </div>
                 <div className="mt-3 space-y-1">{order.items.map((item) => <div key={item.id} className="flex justify-between gap-3 text-[11px] text-neutral-600"><span className="truncate">{item.quantity}× {item.nameSnapshot}</span><span className="shrink-0 tabular-nums">{money(item.lineTotal, order.currency)}</span></div>)}</div>
+                {order.note && (
+                  <div className="mt-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" /><span><strong className="font-bold">Guest note:</strong> {order.note}</span></div>
+                )}
                 {order.settlementMode === "OUTLET_PAYMENT" && order.guestPaymentMethod && (
                   <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] text-blue-800"><span><strong>Guest selected:</strong> {tenderLabel(order.guestPaymentMethod)}</span><span className="shrink-0 font-semibold text-blue-600">Not yet confirmed</span></div>
                 )}
