@@ -109,10 +109,14 @@ function ordersNavPresentation(role: string): { label: string; icon: typeof Shop
 }
 
 function roleCanSee(href: string, role: string) {
+  // Shift & cash is scoped to the outlet staff who actually run a drawer at
+  // their assigned bar or restaurant, not owner, manager, front desk or a
+  // supervisor covering multiple outlets.
+  if (href === "/owner/nrms/shift") return role === "BAR" || role === "RESTAURANT";
   if (role === "OWNER") return true;
-  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/shift", "/owner/nrms/finance"].includes(href);
-  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/shift"].includes(href);
-  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/shift", "/owner/nrms/finance"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
+  if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock"].includes(href);
+  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
   if (role === "HOUSEKEEPER") return href === "/owner/nrms/housekeeping";
   // Bar and restaurant staff: their floor, their outlet's stock, performance and shift.
   return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/stock", "/owner/nrms/shift"].includes(href);

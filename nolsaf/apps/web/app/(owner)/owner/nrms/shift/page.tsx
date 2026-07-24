@@ -91,7 +91,7 @@ export default function NrmsShiftPage() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><WalletCards className="h-5 w-5" /></span>
               <div>
                 <p className="m-0 text-[13px] font-bold text-neutral-800">Your role does not run a cash shift</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Shifts and drawers are held by serving and front-desk staff.</p>
+                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Shifts and drawers are held by bar and restaurant staff at their assigned outlet.</p>
               </div>
             </section>
           )}

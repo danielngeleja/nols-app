@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { ArrowRight, Bell, ChefHat, Check, ChevronRight, Clock, LayoutGrid, Loader2, MessageSquareText, ReceiptText, RefreshCw, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
+import OrderHistoryPanel from "../_components/OrderHistoryPanel";
 
 type LiveOrder = {
   id: number; orderNumber: string; status: string; total: number; currency: string; createdAt: string; settlementMode: string;
@@ -135,7 +135,7 @@ export default function NrmsTablesPage() {
           <p className="mb-0 mt-1 text-xs text-neutral-500">Table and walk-in orders only, from new order to paid. In-room and guest room orders stay in the Live order queue.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/owner/nrms/orders" className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 no-underline hover:bg-neutral-50 hover:no-underline">Order history<ChevronRight className="h-4 w-4" /></Link>
+          <button type="button" onClick={() => document.getElementById("order-history")?.scrollIntoView({ behavior: "smooth" })} className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50">Order history<ChevronRight className="h-4 w-4" /></button>
           <button type="button" onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50"><RefreshCw className="h-4 w-4" />Refresh</button>
         </div>
       </header>
@@ -264,6 +264,8 @@ export default function NrmsTablesPage() {
               </div>
             )}
           </section>
+
+          {selectedPropertyId && <OrderHistoryPanel propertyId={selectedPropertyId} scope="table" />}
         </div>
       )}
     </div>

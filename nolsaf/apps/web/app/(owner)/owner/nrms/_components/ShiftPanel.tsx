@@ -114,7 +114,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-neutral-800">No shift open</p>
-            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. Every sale is tracked by the system, so there is nothing to count or type." : "Ask a cashier or manager to open a shift."}</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. Every sale is tracked by the system, so there is nothing to count or type." : "Shifts are held by bar and restaurant staff at their assigned outlet."}</p>
             {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
           </div>
         </div>

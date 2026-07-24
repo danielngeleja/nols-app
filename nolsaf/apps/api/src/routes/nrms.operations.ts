@@ -436,9 +436,10 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
   }
 }) as RequestHandler);
 
-// Roles that hold a cash drawer and may open/close their own shift. Housekeepers
-// never handle outlet cash, so they are excluded.
-const SHIFT_ROLES = new Set(["OWNER", "MANAGER", "FRONT_DESK", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"]);
+// Shift & cash is scoped to outlet staff who run a drawer at their assigned
+// bar or restaurant. Owner, manager, front desk and outlet supervisor do not
+// get a personal shift here.
+const SHIFT_ROLES = new Set(["RESTAURANT", "BAR"]);
 
 function attendeeName(user: any): string {
   return user?.fullName || user?.name || user?.email || "Previous attendee";
