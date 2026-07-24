@@ -24,7 +24,6 @@ import {
   Package,
   QrCode,
   ReceiptText,
-  Moon,
   ShoppingBasket,
   TrendingUp,
   SlidersHorizontal,
@@ -261,9 +260,6 @@ function NrmsShell({ children }: { children: ReactNode }) {
     : accessRole === "OUTLET_SUPERVISOR" ? "Outlet operations"
     : accessRole === "MANAGER" ? "Hotel management"
     : "Property management system";
-  // Drawer-holding staff get a one-tap route to end their shift; the actual
-  // count-and-close flow lives on the Performance page.
-  const showCloseShift = ["MANAGER", "FRONT_DESK", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"].includes(accessRole);
 
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
@@ -304,11 +300,6 @@ function NrmsShell({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="border-t border-white/10 bg-black/5 p-2.5">
-        {showCloseShift && (
-          <Link href="/owner/nrms/shift" title={collapsed ? "Close shift" : undefined} className={`mb-1.5 flex min-h-9 items-center rounded-lg border-0 bg-amber-400 text-[12px] font-bold text-amber-950 no-underline transition hover:bg-amber-300 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
-            <Moon className="h-3.5 w-3.5 shrink-0" />{!collapsed && "Close shift"}
-          </Link>
-        )}
         <Link href={exitHref} title={collapsed ? "Exit NRMS" : undefined} className={`flex min-h-9 items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[12px] font-semibold text-amber-100 no-underline transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 hover:no-underline ${collapsed ? "justify-center" : "gap-2.5 px-2.5"}`}>
           <LogOut className="h-3.5 w-3.5 shrink-0" />{!collapsed && (accessRole === "OWNER" ? "Exit to marketplace" : "Exit NRMS")}
         </Link>

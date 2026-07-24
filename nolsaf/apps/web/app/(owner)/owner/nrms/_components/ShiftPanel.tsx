@@ -184,7 +184,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
           )}
 
           <div className="p-5 pt-4">
-            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={summary && summary.unpaid.count > 0 ? "Note what is outstanding, e.g. table 4 will pay by mobile money" : "Add a note for the next attendee or manager (optional)"} className="h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm outline-none focus:border-emerald-600" />
+            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={summary && summary.unpaid.count > 0 ? "Note what is outstanding, e.g. table 4 will pay by mobile money" : "Add a note for the next attendee or manager (optional)"} className="box-border h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm outline-none focus:border-emerald-600" />
             {error && <p className="mb-0 mt-2 text-[11px] text-red-600">{error}</p>}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="m-0 flex items-center gap-1.5 text-[10px] text-neutral-400"><Lock className="h-3.5 w-3.5" />Sealed under your name at close</p>

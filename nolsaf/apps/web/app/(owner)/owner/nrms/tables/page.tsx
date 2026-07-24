@@ -152,7 +152,7 @@ export default function NrmsTablesPage() {
                     </div>
                     {declining === order.id && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} placeholder="Reason to decline (e.g. item unavailable)" className="h-9 min-w-[200px] flex-1 rounded-lg border border-neutral-300 px-3 text-xs outline-none focus:border-red-400" />
+                        <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} placeholder="Reason to decline (e.g. item unavailable)" className="box-border h-9 min-w-[200px] flex-1 rounded-lg border border-neutral-300 px-3 text-xs outline-none focus:border-red-400" />
                         <button type="button" onClick={() => { setDeclining(null); setReason(""); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600">Keep</button>
                         <button type="button" disabled={busyId === order.id || reason.trim().length < 3} onClick={() => void decline(order)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white disabled:bg-red-200 disabled:text-red-500">{busyId === order.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Decline order</button>
                       </div>

@@ -79,7 +79,7 @@ export default function NrmsStockPage() {
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an item or category" className="h-9 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-emerald-600" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an item or category" className="box-border h-9 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-emerald-600" />
         </div>
         <button type="button" onClick={() => setOutOnly((value) => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold ${outOnly ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-white text-neutral-600"}`}>
           <Package className="h-4 w-4" />{totalOut} out of stock

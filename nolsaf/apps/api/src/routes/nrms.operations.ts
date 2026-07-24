@@ -539,13 +539,27 @@ router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Respo
     select: { id: true, userId: true, propertyId: true, openedAt: true, openingFloat: true, currency: true, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } },
   });
   const liveExpected = shift ? await expectedCashForShift(db, shift) : 0;
-  const pendingHandover = !shift && SHIFT_ROLES.has(access.role)
-    ? await db.nrmsCashierShift.findFirst({
-        where: { propertyId, status: "CLOSED", handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
-        orderBy: { closedAt: "desc" },
-        select: { id: true, expectedCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
-      })
-    : null;
+  const [pendingHandover, history] = await Promise.all([
+    !shift && SHIFT_ROLES.has(access.role)
+      ? db.nrmsCashierShift.findFirst({
+          where: { propertyId, status: "CLOSED", handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
+          orderBy: { closedAt: "desc" },
+          select: { id: true, expectedCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
+        })
+      : null,
+    // The attendee's own recent closed shifts, with who they took the drawer
+    // from and who confirmed receiving it, so the page doubles as their record.
+    db.nrmsCashierShift.findMany({
+      where: { propertyId, userId: req.user!.id, status: "CLOSED" },
+      orderBy: { closedAt: "desc" },
+      take: 10,
+      select: {
+        id: true, openedAt: true, closedAt: true, expectedCash: true, currency: true, closeNote: true,
+        handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } },
+        handoverTo: { select: { user: { select: { fullName: true, name: true, email: true } } } },
+      },
+    }),
+  ]);
   res.json({
     currency: access.property.currency,
     canManageShift: SHIFT_ROLES.has(access.role),
@@ -555,6 +569,11 @@ router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Respo
     handover: pendingHandover
       ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.expectedCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
       : null,
+    history: history.map((row: any) => ({
+      id: row.id, openedAt: row.openedAt, closedAt: row.closedAt, expectedCash: Number(row.expectedCash), currency: row.currency, closeNote: row.closeNote,
+      takenOverFrom: row.handoverFrom ? attendeeName(row.handoverFrom.user) : null,
+      handedTo: row.handoverTo ? attendeeName(row.handoverTo.user) : null,
+    })),
   });
 }) as RequestHandler);
 
