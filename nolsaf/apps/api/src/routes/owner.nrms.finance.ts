@@ -231,7 +231,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const selectedDayRange = dayRange(businessDate);
     const [day, shifts, issues, nbs, nightAudits, unclassifiedTenders] = await Promise.all([
       db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } }),
-      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
+      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
       controlIssues(propertyId, businessDate),
       nbsStatistics(propertyId, month),
       db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
@@ -241,7 +241,22 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { settledAt: "asc" },
       }),
     ]);
-    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({ ...shift, cashierName: personName(shift.user), approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null, handoverFromName: shift.handoverFrom ? personName(shift.handoverFrom.user) : null, liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash) })));
+    // Cashier rows are per-user, not per-outlet, so we separately join each
+    // shift's user against their outlet/role assignment for display only.
+    const shiftUserIds = [...new Set(shifts.map((shift: any) => shift.userId))];
+    const assignments = shiftUserIds.length
+      ? await db.nrmsStaffMembership.findMany({ where: { propertyId, userId: { in: shiftUserIds }, status: "ACTIVE" }, select: { userId: true, role: true, outlet: { select: { name: true } } } })
+      : [];
+    const assignmentByUserId = new Map(assignments.map((row: any) => [row.userId, { role: row.role, outletName: row.outlet?.name ?? null }]));
+    const enrichedShifts = await Promise.all(shifts.map(async (shift: any) => ({
+      ...shift,
+      cashierName: personName(shift.user),
+      assignment: shift.userId === active.property.ownerId ? { role: "OWNER", outletName: null } : assignmentByUserId.get(shift.userId) ?? null,
+      approvedByName: shift.approvedBy ? personName(shift.approvedBy) : null,
+      ownerSignedOffByName: shift.ownerSignedOffBy ? personName(shift.ownerSignedOffBy) : null,
+      handoverFromName: shift.handoverFrom ? personName(shift.handoverFrom.user) : null,
+      liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash),
+    })));
     const reportWindow = { gte: dayRange(from).start, lt: dayRange(to).end };
     const transactions = await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] });
     const accountMap = new Map<string, any>();
@@ -304,6 +319,23 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
   const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
   res.json({ shift: closed });
+}) as RequestHandler);
+
+/**
+ * POST /property/:propertyId/shifts/:shiftId/sign-off - owner/manager
+ * acknowledgment that a closed shift's sales are authentic. Distinct from the
+ * close itself (often done by the attendant); recorded once and not reversible
+ * from here, matching the "sealed" handling of the rest of the shift record.
+ */
+router.post("/property/:propertyId/shifts/:shiftId/sign-off", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
+  if (!shift) return res.status(404).json({ error: "Closed cashier shift not found" });
+  if (shift.ownerSignedOffAt) return res.status(409).json({ error: "This shift is already signed off" });
+  const signed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { ownerSignedOffAt: new Date(), ownerSignedOffById: req.user!.id } });
+  res.json({ shift: signed });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req: AuthedRequest, res: Response) => {

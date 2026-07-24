@@ -55,21 +55,31 @@ export default function NrmsStockPage() {
   const currency = selectedProperty?.currency ?? "TZS";
   const money = (value: number) => `${Math.round(value).toLocaleString()} ${currency}`;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return;
-    setLoading(true); setError(null);
+    if (!silent) setLoading(true);
+    setError(null);
     try {
       const res = await apiClient.get<StockState>(`/api/nrms/operations/property/${selectedPropertyId}/stock`);
       setData(res.data);
-      setQtyDrafts({});
+      // A background refresh must not clobber an item someone is mid-typing.
+      if (!silent) setQtyDrafts({});
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Unable to load stock");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedPropertyId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    // Stock and its status are shared across every attendant and the owner;
+    // poll so a change made elsewhere shows up here without a manual refresh.
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 15_000);
+    return () => window.clearInterval(refreshTimer);
+  }, [load]);
 
   const applyItemPatch = (itemId: number, patch: Partial<StockItem>) => {
     setData((current) => current && ({

@@ -303,6 +303,7 @@ model User {
   nrmsNightAuditsClosed     NrmsNightAuditRun[]          @relation("NrmsNightAuditClosedBy")
   nrmsCashierShifts         NrmsCashierShift[]           @relation("NrmsCashierShiftUser")
   nrmsCashierApprovals      NrmsCashierShift[]           @relation("NrmsCashierShiftApprovedBy")
+  nrmsCashierSignOffs       NrmsCashierShift[]           @relation("NrmsCashierShiftSignedOffBy")
   nrmsPaygAccounts          OwnerPaygAccount[]           @relation("NrmsPaygAccountOwner")
   guestSmsPreferences       GuestSmsPreference[]         @relation("GuestSmsPreferenceOwner")
   guestSmsCampaigns         GuestSmsCampaign[]           @relation("GuestSmsCampaignOwner")
@@ -4738,13 +4739,18 @@ model NrmsCashierShift {
   handoverFromId Int?     @unique
   openedAt      DateTime  @default(now())
   closedAt      DateTime?
+  /// Owner/manager acknowledgment that this closed shift's sales are authentic.
+  /// Distinct from approvedById, which is just whoever closed the shift.
+  ownerSignedOffAt   DateTime?
+  ownerSignedOffById Int?
 
-  property     Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  businessDay  NrmsBusinessDay   @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
-  user         User              @relation("NrmsCashierShiftUser", fields: [userId], references: [id], onDelete: Restrict)
-  approvedBy   User?             @relation("NrmsCashierShiftApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  handoverFrom NrmsCashierShift? @relation("NrmsShiftHandover", fields: [handoverFromId], references: [id], onDelete: SetNull)
-  handoverTo   NrmsCashierShift? @relation("NrmsShiftHandover")
+  property       Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  businessDay    NrmsBusinessDay   @relation(fields: [businessDayId], references: [id], onDelete: Restrict)
+  user           User              @relation("NrmsCashierShiftUser", fields: [userId], references: [id], onDelete: Restrict)
+  approvedBy     User?             @relation("NrmsCashierShiftApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  ownerSignedOffBy User?           @relation("NrmsCashierShiftSignedOffBy", fields: [ownerSignedOffById], references: [id], onDelete: SetNull)
+  handoverFrom   NrmsCashierShift? @relation("NrmsShiftHandover", fields: [handoverFromId], references: [id], onDelete: SetNull)
+  handoverTo     NrmsCashierShift? @relation("NrmsShiftHandover")
 
   @@index([propertyId, businessDate, status])
   @@index([userId, openedAt])

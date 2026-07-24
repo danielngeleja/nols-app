@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ClipboardCheck, Loader2, LockKeyhole, RefreshCw, Scale, WalletCards } from "lucide-react";
+import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ClipboardCheck, Loader2, LockKeyhole, RefreshCw, Scale, WalletCards } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
+import { serviceLabelForRole } from "../_components/ShiftPanel";
 
 type Tab = "audit" | "cashiers" | "ledger" | "tax" | "nbs";
 type Blocker = { code: string; count: number; message: string };
@@ -14,8 +15,7 @@ type ShiftCloseSummary = {
   folioPosted: { count: number; amount: number };
   unpaid: { count: number; amount: number };
 };
-type Shift = { id: number; cashierName: string; handoverFromName: string | null; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; closeSummary: ShiftCloseSummary | null; openedAt: string; closedAt: string | null };
-const TENDER_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mobile money", CARD: "Card", BANK: "Bank", OTHER: "Other", UNCLASSIFIED: "Unclassified" };
+type Shift = { id: number; cashierName: string; assignment: { role: string; outletName: string | null } | null; handoverFromName: string | null; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; closeSummary: ShiftCloseSummary | null; openedAt: string; closedAt: string | null; ownerSignedOffAt: string | null; ownerSignedOffByName: string | null };
 type LedgerEntry = { id: number; accountCode: string; accountName: string; debit: number; credit: number };
 type LedgerTransaction = { id: number; transactionNumber: string; description: string; sourceType: string; currency: string; occurredAt: string; entries: LedgerEntry[] };
 type FinanceData = {
@@ -36,6 +36,15 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof ClipboardCheck }> = [
 function localDay() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
 function cash(value: number, currency: string) { return `${currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
 function time(value?: string | null) { return value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " EAT" : "Not recorded"; }
+function tenderAmount(shift: Shift, method: string): number { return shift.closeSummary?.mySales.byMethod.find((row) => row.method === method)?.amount ?? 0; }
+const KNOWN_TENDER_METHODS = ["CASH", "MOBILE_MONEY", "BANK", "CARD"];
+function otherTenderAmount(shift: Shift): number { return (shift.closeSummary?.mySales.byMethod ?? []).filter((row) => !KNOWN_TENDER_METHODS.includes(row.method)).reduce((sum, row) => sum + row.amount, 0); }
+// Distinguishes a cashier's outlet at a glance so a long shift list doesn't read as one undifferentiated block.
+function shiftRowTone(shift: Shift): string {
+  if (shift.assignment?.role === "BAR") return "bg-violet-50/50 border-l-2 border-l-violet-400";
+  if (shift.assignment?.role === "RESTAURANT") return "bg-sky-50/50 border-l-2 border-l-sky-400";
+  return "border-l-2 border-l-transparent";
+}
 
 function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "green" | "amber" }) {
   return <div className={`min-w-0 rounded-xl border p-4 ${tone === "green" ? "border-emerald-200 bg-emerald-50" : tone === "amber" ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
@@ -48,16 +57,24 @@ export default function FinanceControlPage() {
   const [month, setMonth] = useState(localDay().slice(0, 7));
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
-  const [openingFloat, setOpeningFloat] = useState("0"); const [counted, setCounted] = useState<Record<number, string>>({}); const [notes, setNotes] = useState<Record<number, string>>({});
+  const [counted, setCounted] = useState<Record<number, string>>({}); const [notes, setNotes] = useState<Record<number, string>>({});
   const [tenderCorrections, setTenderCorrections] = useState<Record<number, string>>({});
 
-  const load = useCallback(async () => {
-    if (!selectedPropertyId) return; setLoading(true); setError(null);
+  const load = useCallback(async (silent = false) => {
+    if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
     try { const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}`); setData(response.data); }
     catch (cause: any) { setError(cause?.response?.data?.error || "Unable to load financial control records"); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [businessDate, month, selectedPropertyId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    // Cashier shifts and sales are shared with every attendant; poll so the
+    // owner sees a shift open/close or a new sale without a manual refresh.
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 15_000);
+    return () => window.clearInterval(refreshTimer);
+  }, [load]);
 
   const action = async (request: () => Promise<unknown>, success: string) => {
     setBusy(true); setError(null); setMessage(null);
@@ -66,11 +83,10 @@ export default function FinanceControlPage() {
     finally { setBusy(false); }
   };
   const propertyCurrency = data?.property.currency || "Currency not set";
-  const openShift = () => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/open`, { businessDate, openingFloat: Number(openingFloat) }), "Cashier shift opened. Cash and outlet receipts will now be attributed to it.");
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
+  const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
   const closeAudit = () => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, { businessDate }), "Night Audit completed. The business date and its balanced ledger are locked.");
   const classifyTender = (orderId: number) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/outlet-orders/${orderId}/classify`, { method: tenderCorrections[orderId] }), "Outlet payment method classified for reconciliation.");
-  const openShifts = useMemo(() => data?.shifts.filter((shift) => shift.status === "OPEN") ?? [], [data]);
   const canManage = data?.accessRole === "OWNER" || data?.accessRole === "MANAGER";
 
   if (loading && !data) return <div className="flex min-h-72 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading financial controls…</div>;
@@ -88,33 +104,45 @@ export default function FinanceControlPage() {
     </section>}
 
     {tab === "cashiers" && <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <header className="grid gap-4 border-b border-neutral-200 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Cashier shift variance</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Expected cash includes the opening float, cash folio payments and cash settled at outlets.</p></div></div>
-        <div className="grid min-w-0 gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2 sm:grid-cols-[minmax(150px,1fr)_180px_auto] sm:items-center">
-          <div className="px-1"><p className="m-0 text-[10px] font-bold text-neutral-800">Start cashier control</p><p className="mb-0 mt-0.5 text-[9px] text-neutral-500">Cash already in the drawer</p></div>
-          <label className="min-w-0"><span className="sr-only">Opening float in {propertyCurrency}</span><span className="flex h-10 items-center overflow-hidden rounded-lg border border-neutral-200 bg-white focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10"><span className="flex h-full items-center border-r border-neutral-100 bg-neutral-50 px-3 text-[10px] font-bold text-neutral-500">{propertyCurrency}</span><input type="text" inputMode="decimal" value={openingFloat} onChange={(event) => setOpeningFloat(event.target.value.replace(/[^0-9.]/g, ""))} className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-right text-sm font-bold tabular-nums text-neutral-900 outline-none" /></span></label>
-          <button type="button" onClick={openShift} disabled={busy || openShifts.length > 0 || data?.businessDay.status === "CLOSED"} className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><CheckCircle2 className="h-4 w-4" />{openShifts.length ? "Shift already open" : "Open my shift"}</button>
-        </div>
+      <header className="border-b border-neutral-200 px-5 py-4">
+        <div className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Cashier shift variance</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Expected cash includes the opening float, cash folio payments and cash settled at outlets. Attendants open and close their own shift from their Shift &amp; cash page.</p></div></div>
+        <div className="mt-3 flex items-center gap-3 text-[10px] font-bold text-neutral-500"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-400" />Bar</span><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />Restaurant</span></div>
       </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] border-collapse text-left">
-          <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500"><th className="p-2.5 pl-5">Cashier</th><th className="p-2.5">Opened</th><th className="p-2.5 text-right">Opening float</th><th className="p-2.5 text-right">Expected cash</th><th className="p-2.5 text-right">Counted cash</th><th className="p-2.5 text-right">Variance</th><th className="p-2.5 pr-5">Control</th></tr></thead>
-          <tbody>{data?.shifts.map((shift) => <tr key={shift.id} className="border-t border-neutral-100 text-xs">
-            <td className="p-2.5 pl-5 font-bold">{shift.cashierName}<small className={`mt-0.5 block font-normal ${shift.status === "OPEN" ? "text-emerald-600" : "text-neutral-400"}`}>{shift.status}{shift.handoverFromName ? ` · took over from ${shift.handoverFromName}` : ""}</small></td>
-            <td className="p-2.5 text-neutral-500">{time(shift.openedAt)}</td>
+      <div className="overflow-x-auto overscroll-x-contain">
+        <table className="w-full min-w-[1440px] border-collapse text-left">
+          <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500">
+            <th className="p-2.5 pl-5">Cashier</th>
+            <th className="p-2.5">Opened</th>
+            <th className="p-2.5 text-right">Opening float</th>
+            <th className="p-2.5 text-right">Expected cash</th>
+            <th className="p-2.5 text-right">Counted cash</th>
+            <th className="p-2.5 text-right">Variance</th>
+            <th className="p-2.5 text-right">Cash</th>
+            <th className="p-2.5 text-right">Mobile money</th>
+            <th className="p-2.5 text-right">Bank</th>
+            <th className="p-2.5 text-right">Card</th>
+            <th className="p-2.5 text-right">Folio</th>
+            <th className="p-2.5 pr-5">Note and control</th>
+          </tr></thead>
+          <tbody>{data?.shifts.map((shift) => <tr key={shift.id} className={`border-t border-neutral-100 text-xs ${shiftRowTone(shift)}`}>
+            <td className="p-2.5 pl-5 font-bold">{shift.cashierName}{shift.assignment && <small className="mt-0.5 block font-normal text-neutral-500">{serviceLabelForRole(shift.assignment.role)}{shift.assignment.outletName ? ` · ${shift.assignment.outletName}` : ""}</small>}<small className={`mt-0.5 block font-normal ${shift.status === "OPEN" ? "text-emerald-600" : "text-neutral-400"}`}>{shift.status}{shift.handoverFromName ? ` · took over from ${shift.handoverFromName}` : ""}</small></td>
+            <td className="p-2.5 whitespace-nowrap text-neutral-500">{time(shift.openedAt)}</td>
             <td className="p-2.5 text-right tabular-nums">{cash(shift.openingFloat, shift.currency)}</td>
             <td className="p-2.5 text-right font-bold tabular-nums">{cash(shift.liveExpectedCash, shift.currency)}</td>
             <td className="p-2.5 text-right">{shift.status === "OPEN" ? <input type="text" inputMode="decimal" value={counted[shift.id] ?? ""} onChange={(event) => setCounted((current) => ({ ...current, [shift.id]: event.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Physical count" className="h-8 w-32 rounded-md border border-neutral-200 bg-white px-2 text-right text-[10px] outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /> : cash(shift.declaredCash || 0, shift.currency)}</td>
             <td className={`p-2.5 text-right font-bold tabular-nums ${Number(shift.variance) ? "text-red-600" : "text-emerald-700"}`}>{shift.status === "OPEN" ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-700">Pending</span> : cash(shift.variance || 0, shift.currency)}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "CASH"), shift.currency)}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "MOBILE_MONEY"), shift.currency)}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "BANK"), shift.currency)}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "CARD"), shift.currency)}</td>
+            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(shift.closeSummary?.folioPosted.amount ?? 0, shift.currency)}</td>
             <td className="p-2.5 pr-5">{shift.status === "OPEN" ? <div className="flex items-center justify-end gap-1.5"><input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder="Variance note if needed" className="h-8 w-44 rounded-md border border-neutral-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-500" /><button type="button" onClick={() => closeShift(shift)} disabled={busy || counted[shift.id] === undefined} className="h-8 whitespace-nowrap rounded-md border-0 bg-neutral-900 px-3 text-[9px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Close</button></div> : <div className="text-[10px] leading-4 text-neutral-500">
-              {shift.closeSummary && <span className="block">
-                Paid {cash(shift.closeSummary.mySales.amount, shift.currency)}{shift.closeSummary.mySales.byMethod.length > 0 && <> ({shift.closeSummary.mySales.byMethod.map((row) => `${TENDER_LABELS[row.method] ?? row.method} ${cash(row.amount, shift.currency)}`).join(" · ")})</>}
-                {shift.closeSummary.folioPosted.count > 0 && <> · Folio {cash(shift.closeSummary.folioPosted.amount, shift.currency)}</>}
-                {shift.closeSummary.unpaid.count > 0 && <strong className="text-amber-700"> · {shift.closeSummary.unpaid.count} unpaid at close ({cash(shift.closeSummary.unpaid.amount, shift.currency)})</strong>}
-              </span>}
+              {shift.closeSummary && shift.closeSummary.unpaid.count > 0 && <strong className="block text-amber-700">{shift.closeSummary.unpaid.count} unpaid at close ({cash(shift.closeSummary.unpaid.amount, shift.currency)})</strong>}
+              {otherTenderAmount(shift) > 0 && <span className="block">Other tender {cash(otherTenderAmount(shift), shift.currency)}</span>}
               <span>{shift.closeNote || (shift.closeSummary?.unpaid.count ? "" : "Matched")}</span>
+              <div className="mt-1.5">{shift.ownerSignedOffAt ? <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" />Signed off by {shift.ownerSignedOffByName} · {time(shift.ownerSignedOffAt)}</span> : canManage ? <button type="button" onClick={() => signOffShift(shift)} disabled={busy} className="h-7 whitespace-nowrap rounded-md border border-emerald-200 bg-white px-2 text-[9px] font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Acknowledge and sign off</button> : <span className="text-[9px] text-neutral-400">Not yet signed off</span>}</div>
             </div>}</td>
-          </tr>)}{!data?.shifts.length && <tr><td colSpan={7} className="border-t border-neutral-100 p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Enter the cash currently in the drawer, then open your shift before recording cash receipts.</p></div></td></tr>}</tbody>
+          </tr>)}{!data?.shifts.length && <tr><td colSpan={12} className="border-t border-neutral-100 p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Attendants open their shift from their own Shift &amp; cash page before recording cash receipts.</p></div></td></tr>}</tbody>
         </table>
       </div>
     </section>}
