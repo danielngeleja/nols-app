@@ -196,6 +196,7 @@ type PublicPropertyDetail = {
   services: string[];
   roomsSpec: any[];
   ownerId?: number;
+  nrmsMenuUrl?: string | null;
   verificationVideoUrl?: string | null;
   physicalVerification?: {
     status: "VERIFIED" | "PENDING";
@@ -2936,6 +2937,22 @@ export default function PublicPropertyDetailPage() {
                     </p>
                   )}
                 </div>
+              ) : null}
+
+              {property.nrmsMenuUrl ? (
+                <Link
+                  href={property.nrmsMenuUrl}
+                  className="mt-3 flex items-center gap-3 rounded-2xl bg-slate-50/80 p-3 no-underline ring-1 ring-slate-200 transition hover:bg-[#02665e]/5 hover:ring-[#02665e]/20"
+                >
+                  <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
+                    <UtensilsCrossed className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold text-slate-950">View live restaurant and bar menu</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">See today's dishes, drinks and prices.</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                </Link>
               ) : null}
             </div>
           </aside>

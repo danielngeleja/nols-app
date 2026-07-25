@@ -67,6 +67,7 @@ type Access = {
     status: string;
     currency: string | null;
     nrmsActivatedAt: Date | null;
+    nrmsMenuPublic: boolean;
     housekeepingDailyServiceEnabled: boolean;
     housekeepingDailyServiceTime: string;
   };
@@ -174,6 +175,7 @@ async function loadAccess(req: AuthedRequest, res: Response, propertyId: number)
       status: true,
       currency: true,
       nrmsActivatedAt: true,
+      nrmsMenuPublic: true,
       housekeepingDailyServiceEnabled: true,
       housekeepingDailyServiceTime: true,
     },
@@ -1626,8 +1628,11 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   const [points, propertyRow] = await Promise.all([
+    // The PREVIEW point (public listing-page menu link) is system-managed
+    // from the "publish live menu" toggle, not a physical QR staff print and
+    // hand out, so it never appears mixed into this admin list.
     db.nrmsOrderPoint.findMany({
-      where: { propertyId: access.property.id },
+      where: { propertyId: access.property.id, type: { not: "PREVIEW" } },
       include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
       orderBy: [{ type: "asc" }, { label: "asc" }],
     }),
@@ -1640,6 +1645,43 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
     })),
     guestPayInstructions: Array.isArray(propertyRow?.nrmsGuestPayInstructions) ? propertyRow.nrmsGuestPayInstructions : [],
   });
+}) as RequestHandler);
+
+/**
+ * The public "View live menu" link on this property's marketplace listing.
+ * Reuses the QR order-point mechanism: enabling creates (or reactivates) one
+ * PREVIEW point, orderingEnabled false, that the public property page links
+ * to. Disabling deactivates it, so any previously shared link dies with it.
+ */
+router.get("/property/:propertyId/menu-public", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  const point = await db.nrmsOrderPoint.findFirst({ where: { propertyId: access.property.id, type: "PREVIEW" } });
+  res.json({
+    enabled: Boolean(access.property.nrmsMenuPublic),
+    menuUrl: point?.active ? buildMenuUrl(point.token) : null,
+  });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/menu-public", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can change the public menu" });
+  const enabled = Boolean(req.body?.enabled);
+  await db.property.update({ where: { id: access.property.id }, data: { nrmsMenuPublic: enabled } });
+  let point = await db.nrmsOrderPoint.findFirst({ where: { propertyId: access.property.id, type: "PREVIEW" } });
+  if (enabled) {
+    // No table/room QR quota is spent here: this point is never printed or
+    // handed to a guest, it exists only to be linked from the listing page.
+    point = point
+      ? await db.nrmsOrderPoint.update({ where: { id: point.id }, data: { active: true } })
+      : await db.nrmsOrderPoint.create({
+          data: { propertyId: access.property.id, type: "PREVIEW", label: "Menu preview", token: generateOrderPointToken(), orderingEnabled: false },
+        });
+  } else if (point?.active) {
+    point = await db.nrmsOrderPoint.update({ where: { id: point.id }, data: { active: false } });
+  }
+  res.json({ enabled, menuUrl: enabled && point?.active ? buildMenuUrl(point.token) : null });
 }) as RequestHandler);
 
 /**

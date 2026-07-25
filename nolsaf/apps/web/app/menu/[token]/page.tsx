@@ -57,6 +57,10 @@ type Outlet = {
 type MenuData = {
   property: { title: string };
   point: { type: "ROOM" | "TABLE"; label: string };
+  // False only for the read-only preview linked from a public property page,
+  // browsed before ever booking. Absent (older cached response shape) is
+  // treated as enabled, same as every real QR scan.
+  orderingEnabled?: boolean;
   roomChargeAvailable?: boolean;
   outlets: Outlet[];
 };
@@ -388,7 +392,13 @@ export default function GuestMenuPage() {
     return shelfItems.length > 0 ? [{ name: "On the shelf", items: shelfItems }] : [];
   }, [filteredCategories, isBarOutlet]);
 
+  const orderingEnabled = menu?.orderingEnabled !== false;
+
   const changeQty = (itemId: number, delta: number) => {
+    // Preview menus (linked from a public property page) never accept
+    // orders: refusing here keeps every basket surface honestly empty
+    // instead of a button that adds an item nothing downstream can send.
+    if (!orderingEnabled) return;
     setCart((current) => {
       const next = new Map(current);
       const qty = (next.get(itemId) ?? 0) + delta;
@@ -882,7 +892,7 @@ export default function GuestMenuPage() {
                               {item.description && <p className="mb-0 mt-1.5 line-clamp-2 text-[11px] leading-[1.55] text-neutral-500">{item.description}</p>}
                               <div className="mt-3 flex items-end justify-between gap-2">
                                 <p className={`m-0 text-sm font-bold ${unavailable ? "text-neutral-400" : "text-emerald-800"}`}>{money(item.price, activeOutlet.currency)}</p>
-                                {unavailable ? <span className="rounded-full bg-stone-200/70 px-2.5 py-1 text-[9px] font-bold text-stone-500">Unavailable</span> : qty === 0 ? <button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Add ${item.name}`} className="inline-flex h-8 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-bold text-emerald-800 transition hover:bg-emerald-100 active:scale-95"><Plus className="h-3.5 w-3.5" /> Add</button> : <span className="inline-flex h-8 items-center rounded-full bg-[#073f35] text-white shadow-sm"><button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 items-center justify-center rounded-full border-0 bg-transparent text-white"><Minus className="h-3 w-3" /></button><span className="min-w-5 text-center text-[11px] font-bold">{qty}</span><button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Add one ${item.name}`} className="flex h-8 w-8 items-center justify-center rounded-full border-0 bg-transparent text-white"><Plus className="h-3 w-3" /></button></span>}
+                                {unavailable ? <span className="rounded-full bg-stone-200/70 px-2.5 py-1 text-[9px] font-bold text-stone-500">Unavailable</span> : qty === 0 ? <button type="button" disabled={!orderingEnabled} onClick={() => changeQty(item.id, 1)} aria-label={orderingEnabled ? `Add ${item.name}` : `${item.name}, order by scanning your table or room QR code`} className="inline-flex h-8 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-bold text-emerald-800 transition hover:bg-emerald-100 active:scale-95 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 disabled:hover:bg-stone-100"><Plus className="h-3.5 w-3.5" /> Add</button> : <span className="inline-flex h-8 items-center rounded-full bg-[#073f35] text-white shadow-sm"><button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 items-center justify-center rounded-full border-0 bg-transparent text-white"><Minus className="h-3 w-3" /></button><span className="min-w-5 text-center text-[11px] font-bold">{qty}</span><button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Add one ${item.name}`} className="flex h-8 w-8 items-center justify-center rounded-full border-0 bg-transparent text-white"><Plus className="h-3 w-3" /></button></span>}
                               </div>
                             </div>
                             <div className="relative m-2.5 ml-0 w-28 shrink-0 overflow-hidden rounded-[15px] bg-gradient-to-br from-emerald-50 to-stone-100 sm:w-32">

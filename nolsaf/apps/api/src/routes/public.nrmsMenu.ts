@@ -255,6 +255,11 @@ router.get("/menu/:token", limitPublicQrMenu as RequestHandler, (async (req: Req
   res.json({
     property: { title: point.property.title },
     point: { type: point.type, label: point.label },
+    // False only for the PREVIEW point linked from a public listing page:
+    // browsing is open to anyone, ordering still requires an actual room or
+    // table QR. The page uses this to hide the basket rather than showing it
+    // and failing at checkout.
+    orderingEnabled: Boolean(point.orderingEnabled),
     // Only the capability is advertised; the guest's identity never leaves the server.
     roomChargeAvailable: Boolean(stay),
     outlets: outlets.map((outlet: any) => ({
@@ -269,6 +274,11 @@ router.get("/menu/:token", limitPublicQrMenu as RequestHandler, (async (req: Req
 router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (async (req: Request, res: Response) => {
   const point = await loadActivePoint(req, res);
   if (!point) return;
+  // Server-side, not just a hidden button: a preview link is for browsing a
+  // property's menu before booking, never a checkout path.
+  if (!point.orderingEnabled) {
+    return res.status(403).json({ error: "This is a preview menu. Scan the QR code at your table or in your room to order.", code: "ORDERING_DISABLED" });
+  }
   const parsed = publicOrderSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid order", details: parsed.error.flatten() });
   if (!parsed.data.chargeToRoom && !parsed.data.paymentMethod) {

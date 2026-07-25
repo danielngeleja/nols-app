@@ -416,6 +416,13 @@ model Property {
   /// ordering continues unaffected.
   nrmsQrOrderingFrozenAt DateTime?
 
+  /// Owner opt-in: shows a "View live menu" link on this property's public
+  /// listing page, pointing at a read-only preview of the same guest QR menu
+  /// (a NrmsOrderPoint of type PREVIEW, orderingEnabled false). Off by
+  /// default — publishing the menu is a choice, not a side effect of
+  /// activating NRMS.
+  nrmsMenuPublic Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -4526,11 +4533,16 @@ model NrmsStaffMembership {
 model NrmsOrderPoint {
   id         Int     @id @default(autoincrement())
   propertyId Int
-  type       String  @db.VarChar(10) // ROOM, TABLE
+  type       String  @db.VarChar(10) // ROOM, TABLE, PREVIEW
   label      String  @db.VarChar(60)
   roomUnitId Int?
   token      String  @unique @db.VarChar(48)
   active     Boolean @default(true)
+  /// False only for the one system-created PREVIEW point per property: a
+  /// public, unauthenticated visitor can browse the live menu but never place
+  /// an order from it. Enforced server-side in public.nrmsMenu.ts, not just
+  /// hidden in the UI.
+  orderingEnabled Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

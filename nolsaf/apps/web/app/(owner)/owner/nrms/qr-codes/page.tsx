@@ -11,6 +11,7 @@ import {
   Download,
   ExternalLink,
   FileDown,
+  Globe,
   Loader2,
   Plus,
   QrCode,
@@ -66,21 +67,44 @@ export default function QrCodesPage() {
     label: string;
   } | null>(null);
 
+  const [menuPublic, setMenuPublic] = useState<{ enabled: boolean; menuUrl: string | null }>({ enabled: false, menuUrl: null });
+  const [togglingMenu, setTogglingMenu] = useState(false);
+
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/order-points`);
+      const [res, menuRes] = await Promise.all([
+        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/order-points`),
+        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/menu-public`),
+      ]);
       setPoints(res.data?.orderPoints ?? []);
       setPayRows(Array.isArray(res.data?.guestPayInstructions) ? res.data.guestPayInstructions : []);
       setPayDirty(false);
+      setMenuPublic({ enabled: Boolean(menuRes.data?.enabled), menuUrl: menuRes.data?.menuUrl ?? null });
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load order points");
     } finally {
       setLoading(false);
     }
   }, [selectedPropertyId]);
+
+  const toggleMenuPublic = async () => {
+    if (!selectedPropertyId || togglingMenu) return;
+    const next = !menuPublic.enabled;
+    setTogglingMenu(true);
+    setError(null);
+    try {
+      const res = await apiClient.post(`/api/nrms/operations/property/${selectedPropertyId}/menu-public`, { enabled: next });
+      setMenuPublic({ enabled: Boolean(res.data?.enabled), menuUrl: res.data?.menuUrl ?? null });
+      setNotice(next ? "Live menu is now visible on your public listing" : "Live menu removed from your public listing");
+    } catch (cause: any) {
+      setError(cause?.response?.data?.error || "Failed to update the public menu setting");
+    } finally {
+      setTogglingMenu(false);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -396,6 +420,36 @@ export default function QrCodesPage() {
             {payRows.length < 6 && <button type="button" onClick={() => { setPayRows((rows) => [...rows, { label: "", value: "", name: null }]); setPayDirty(true); }} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:w-auto"><Plus className="h-3.5 w-3.5" /> Add payment channel</button>}
           </div>
           <div className="flex items-start gap-2 border-t border-neutral-100 bg-emerald-50/50 px-5 py-3.5 text-[11px] leading-5 text-emerald-900/70 sm:px-6"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" /><span>NoLSAF displays these instructions but does not collect or hold the guest&apos;s outlet payment.</span></div>
+        </section>
+      )}
+
+      {/* Public listing menu link: a read-only preview a guest can browse
+          before booking, separate from the room/table QR codes above. */}
+      {canManage && (
+        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><Globe className="h-5 w-5" /></span>
+              <div>
+                <h2 className="m-0 text-base font-bold tracking-tight text-neutral-950">Live menu on your public listing</h2>
+                <p className="mb-0 mt-1.5 max-w-xl text-xs leading-5 text-neutral-500">Lets guests browse today&apos;s dishes, drinks and prices before they book. It&apos;s a preview only: they can&apos;t order from it, only from a room or table QR code.</p>
+                {menuPublic.enabled && menuPublic.menuUrl && (
+                  <a href={menuPublic.menuUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:underline">
+                    <ExternalLink className="h-3.5 w-3.5" /> Preview what guests see
+                  </a>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={toggleMenuPublic}
+              disabled={togglingMenu}
+              aria-pressed={menuPublic.enabled}
+              className={`inline-flex h-9 w-16 shrink-0 items-center rounded-full border-0 p-1 transition disabled:cursor-not-allowed disabled:opacity-60 ${menuPublic.enabled ? "bg-emerald-600" : "bg-neutral-200"}`}
+            >
+              <span className={`h-7 w-7 rounded-full bg-white shadow-sm transition ${menuPublic.enabled ? "translate-x-7" : "translate-x-0"}`} />
+            </button>
+          </div>
         </section>
       )}
 
