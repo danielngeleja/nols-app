@@ -202,6 +202,7 @@ type ReportsResponse = {
       payments: number;
       outletOrders: number;
       auditEvents: number;
+      expenses: number;
     };
   };
   manager: {
@@ -232,7 +233,14 @@ type ReportsResponse = {
   payments: { rows: PaymentRow[]; cashVarianceAvailable: boolean };
   outlets: { rows: OutletRow[] };
   audit: { rows: AuditRow[] };
+  expenses: { rows: ExpenseReportRow[] };
+  profitLoss: ProfitLossRow[];
+  staffPerformance: StaffPerformanceRow[];
 };
+
+type ExpenseReportRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null };
+type ProfitLossRow = { currency: string; totalRevenue: number; totalExpenses: number; netProfit: number; expensesByCategory: Array<{ category: string; amount: number }> };
+type StaffPerformanceRow = { staffId: number; name: string; role: string; currency: string; orders: number; sales: number; tips: number };
 
 type FinanceControlResponse = {
   range: { from: string; to: string };

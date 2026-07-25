@@ -13,6 +13,7 @@ router.use(requireAuth as RequestHandler);
 const db = prisma as any;
 const ZONE = "Africa/Dar_es_Salaam";
 const PAYMENT_METHODS = ["CASH", "MOBILE_MONEY", "BANK", "CARD", "OTHER"] as const;
+const EXPENSE_CATEGORIES = ["STAFF_WAGES", "UTILITIES", "SUPPLIES", "MAINTENANCE", "MARKETING", "RENT", "LICENSING", "OTHER"] as const;
 const activeRevenueStatuses = ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
 
 type FinanceAccess = { property: { id: number; ownerId: number; title: string; currency: string | null }; role: "OWNER" | "MANAGER" | "FRONT_DESK" };
@@ -37,6 +38,16 @@ const openShiftSchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-
 const closeShiftSchema = z.object({ declaredCash: z.number().min(0), closeNote: z.string().trim().max(300).optional().nullable() });
 const closeDaySchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
 const classifyTenderSchema = z.object({ method: z.enum(PAYMENT_METHODS) });
+const createExpenseSchema = z.object({
+  category: z.enum(EXPENSE_CATEGORIES),
+  description: z.string().trim().min(1).max(300),
+  amount: z.number().positive(),
+  incurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // Omitted/null means the expense is accrued: recognised now, owed to a
+  // supplier later, rather than paid out of a specific till or account.
+  paymentMethod: z.enum(PAYMENT_METHODS).optional().nullable(),
+});
+const voidExpenseSchema = z.object({ reason: z.string().trim().min(3).max(300) });
 
 function money(value: unknown): number {
   const parsed = Number(value ?? 0);
@@ -82,6 +93,17 @@ function accountForCharge(category: string) {
   return { code: "4290", name: "Other service revenue" };
 }
 
+function accountForExpense(category: string) {
+  if (category === "STAFF_WAGES") return { code: "5100", name: "Staff wages and salaries" };
+  if (category === "UTILITIES") return { code: "5200", name: "Utilities" };
+  if (category === "SUPPLIES") return { code: "5300", name: "Supplies and consumables" };
+  if (category === "MAINTENANCE") return { code: "5400", name: "Repairs and maintenance" };
+  if (category === "MARKETING") return { code: "5500", name: "Marketing and commissions" };
+  if (category === "RENT") return { code: "5600", name: "Rent and occupancy" };
+  if (category === "LICENSING") return { code: "5700", name: "Licensing and permits" };
+  return { code: "5900", name: "Other operating expenses" };
+}
+
 function personName(user: any): string {
   return user?.fullName || user?.name || user?.email || "System";
 }
@@ -113,7 +135,7 @@ type Posting = {
 
 async function buildPostings(propertyId: number, key: string): Promise<Posting[]> {
   const { start, end } = dayRange(key);
-  const [reservations, payments, charges, outlets, tippedOrders, usageEvents] = await Promise.all([
+  const [reservations, payments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
     db.reservation.findMany({
       where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: end }, checkOut: { gt: start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
@@ -129,6 +151,12 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     }),
     db.nrmsOutletOrder.findMany({ where: { propertyId, tipAmount: { gt: 0 }, tipConfirmedAt: { gte: start, lt: end } }, select: { id: true, orderNumber: true, tipAmount: true, tipMethod: true, currency: true, tipConfirmedAt: true } }),
     db.nrmsUsageEvent.findMany({ where: { propertyId, serviceDate: dateOnly(key), amount: { gt: 0 } } }),
+    // Scoped the same way reservationCharge is above: by incurredAt OR voidedAt
+    // falling in this business date's window, so a same-day record-then-void
+    // posts both the original expense and its reversal in one pass, and a
+    // later-day void against an earlier expense still posts its reversal on
+    // the day it was actually voided.
+    db.nrmsExpense.findMany({ where: { propertyId, OR: [{ incurredAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
   ]);
   const postings: Posting[] = [];
   for (const stay of reservations) {
@@ -196,6 +224,22 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     postings.push({ sourceKey: `PAYG:${propertyId}:${event.id}`, sourceType: "PLATFORM_FEE", sourceId: event.id, description: `NoLSAF platform fee, ${event.classification.replace(/_/g, " ").toLowerCase()}`, currency: event.currency, occurredAt: start, entries: [
       { accountCode: "5000", accountName: "Platform fees (NoLSAF)", accountType: "EXPENSE", debit: amount, credit: 0 },
       { accountCode: "2100", accountName: "NoLSAF fees payable", accountType: "LIABILITY", debit: 0, credit: amount },
+    ] });
+  }
+  for (const expense of expenses) {
+    const category = accountForExpense(expense.category);
+    const amount = money(expense.amount);
+    // No payment method recorded means the expense is accrued: recognised now,
+    // owed to a supplier rather than paid out of a specific till or account.
+    const settlement = expense.paymentMethod ? accountForPayment(expense.paymentMethod) : { code: "2400", name: "Accounts payable" };
+    const settlementType = expense.paymentMethod ? "ASSET" : "LIABILITY";
+    if (new Date(expense.incurredAt) >= start && new Date(expense.incurredAt) < end) postings.push({ sourceKey: `EXPENSE:${propertyId}:${expense.id}`, sourceType: "OPERATING_EXPENSE", sourceId: expense.id, description: expense.description || `${expense.category} expense`, currency: expense.currency, occurredAt: expense.incurredAt, entries: [
+      { accountCode: category.code, accountName: category.name, accountType: "EXPENSE", debit: amount, credit: 0 },
+      { accountCode: settlement.code, accountName: settlement.name, accountType: settlementType, debit: 0, credit: amount },
+    ] });
+    if (expense.voidedAt && new Date(expense.voidedAt) >= start && new Date(expense.voidedAt) < end) postings.push({ sourceKey: `EXPENSE_VOID:${propertyId}:${expense.id}`, sourceType: "EXPENSE_REVERSAL", sourceId: expense.id, description: `Reversal: ${expense.description || `${expense.category} expense`}`, currency: expense.currency, occurredAt: expense.voidedAt, entries: [
+      { accountCode: settlement.code, accountName: settlement.name, accountType: settlementType, debit: amount, credit: 0 },
+      { accountCode: category.code, accountName: category.name, accountType: "EXPENSE", debit: 0, credit: amount },
     ] });
   }
   return postings;
@@ -446,6 +490,81 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     return { businessDay: closed, audit: { ...audit, status: "CLOSED", summary } };
   }, { maxWait: 10_000, timeout: 30_000 });
   res.json(result);
+}) as RequestHandler);
+
+/**
+ * Operating expenses (rent, utilities, supplies, wages, ...). Owner/manager
+ * only: unlike a folio charge or a payment, an expense has no guest on the
+ * other side to catch a mistake, so the same accountability gate as Night
+ * Audit close applies here.
+ */
+router.get("/property/:propertyId/expenses", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : dayKey(new Date(Date.now() - 30 * 86_400_000));
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to ?? "")) ? String(req.query.to) : dayKey(new Date());
+  if (to < from) return res.status(400).json({ error: "Choose a valid expense date range" });
+  const expenses = await db.nrmsExpense.findMany({
+    where: { propertyId: active.property.id, incurredAt: { gte: dateOnly(from), lte: dateOnly(to) } },
+    include: { recordedBy: { select: { fullName: true, name: true, email: true } } },
+    orderBy: [{ incurredAt: "desc" }, { id: "desc" }],
+  });
+  res.json({
+    range: { from, to },
+    expenses: expenses.map((expense: any) => ({
+      id: expense.id,
+      category: expense.category,
+      description: expense.description,
+      amount: money(expense.amount),
+      currency: expense.currency,
+      paymentMethod: expense.paymentMethod,
+      incurredAt: expense.incurredAt,
+      recordedBy: personName(expense.recordedBy),
+      voidedAt: expense.voidedAt,
+      voidReason: expense.voidReason,
+      createdAt: expense.createdAt,
+    })),
+  });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/expenses", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = createExpenseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter a valid expense category, description, amount and date" });
+  const currency = active.property.currency?.toUpperCase();
+  if (!currency) return res.status(409).json({ error: "Set the property currency before recording an expense" });
+  const closedDay = await db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(parsed.data.incurredAt) } } });
+  if (closedDay?.status === "CLOSED") return res.status(409).json({ error: "This business date is already closed. Record the expense against today's date instead." });
+  const expense = await db.nrmsExpense.create({
+    data: {
+      propertyId: active.property.id,
+      category: parsed.data.category,
+      description: parsed.data.description,
+      amount: parsed.data.amount,
+      currency,
+      paymentMethod: parsed.data.paymentMethod || null,
+      incurredAt: dateOnly(parsed.data.incurredAt),
+      recordedById: req.user!.id,
+    },
+  });
+  res.status(201).json({ expense });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/expenses/:expenseId/void", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = voidExpenseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Explain why this expense is being voided" });
+  const expense = await db.nrmsExpense.findFirst({ where: { id: Number(req.params.expenseId), propertyId: active.property.id, voidedAt: null } });
+  if (!expense) return res.status(404).json({ error: "Active expense not found" });
+  const closedDay = await db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(dayKey(expense.incurredAt)) } } });
+  if (closedDay?.status === "CLOSED") return res.status(409).json({ error: "The related business date is closed. Post a controlled correction instead of voiding this expense." });
+  const voided = await db.nrmsExpense.update({ where: { id: expense.id }, data: { voidedAt: new Date(), voidReason: parsed.data.reason } });
+  res.json({ expense: voided });
 }) as RequestHandler);
 
 export default router;

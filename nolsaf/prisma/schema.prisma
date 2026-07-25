@@ -288,6 +288,7 @@ model User {
   nrmsReservationEvents     ReservationEvent[]           @relation("NrmsReservationEventActor")
   nrmsPaymentsRecorded      ExternalPaymentRecord[]      @relation("NrmsPaymentRecordedBy")
   nrmsChargesPosted         ReservationCharge[]          @relation("NrmsChargePostedBy")
+  nrmsExpensesRecorded      NrmsExpense[]                @relation("NrmsExpenseRecordedBy")
   nrmsStaffMemberships      NrmsStaffMembership[]        @relation("NrmsStaffUser")
   nrmsHkTasksAssigned       NrmsHousekeepingTask[]       @relation("NrmsHkTaskAssignedTo")
   nrmsHkTasksCreated        NrmsHousekeepingTask[]       @relation("NrmsHkTaskCreatedBy")
@@ -457,6 +458,7 @@ model Property {
   nrmsOnboardingRuns     NrmsOnboardingRun[]
   nrmsServiceCases       NrmsServiceCase[]
   nrmsOfflineMutations   NrmsOfflineMutation[]
+  nrmsExpenses           NrmsExpense[]
   nrmsPortfolioLinks     NrmsPortfolioProperty[]
   nrmsForecastSnapshots  NrmsForecastSnapshot[]
   nrmsPricingGuidance    NrmsPricingRecommendation[]
@@ -4433,6 +4435,37 @@ model ReservationCharge {
   @@index([reservationId, createdAt])
   @@index([category])
   @@map("reservation_charge")
+}
+
+/// Operating expense recorded against an NRMS property (staff wages,
+/// utilities, supplies, maintenance, marketing, rent, licensing, other).
+/// Posts to the general ledger at Night Audit close the same way charges and
+/// payments do, debiting the matching EXPENSE account and crediting the
+/// settlement account (cash/bank/mobile money/card) or accounts payable when
+/// left unpaid. Rows are never edited after creation: corrections use
+/// voidedAt plus a replacement row, mirroring ReservationCharge.
+model NrmsExpense {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  category      String    @db.VarChar(30) // STAFF_WAGES, UTILITIES, SUPPLIES, MAINTENANCE, MARKETING, RENT, LICENSING, OTHER
+  description   String    @db.VarChar(300)
+  amount        Decimal   @db.Decimal(12, 2)
+  currency      String    @default("TZS") @db.VarChar(3)
+  paymentMethod String?   @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER; null = accrued, unpaid at time of recording
+  incurredAt    DateTime // the business date this expense belongs to, distinct from createdAt
+  recordedById  Int?
+
+  voidedAt   DateTime?
+  voidReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  recordedBy User?    @relation("NrmsExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, incurredAt])
+  @@index([category])
+  @@map("nrms_expense")
 }
 
 /// Property-scoped restaurant, bar, or service outlet operating only inside NRMS.

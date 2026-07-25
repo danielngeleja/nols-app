@@ -63,6 +63,9 @@ export type WorkbookData = {
   payments: { rows: Array<{ occurredAt: string; guest: string; room: string; method: string; reference: string | null; referenceNumber: string | null; currency: string; amount: Money; recordedBy: string; voidedAt: string | null; voidReason: string | null }> };
   outlets: { rows: Array<{ orderNumber: string; outlet: string; outletType: string; guest: string; room: string; status: string; settlementMode: string; settlementMethod: string | null; items: string; itemCount: number; currency: string; total: Money; orderedAt: string; completedAt: string | null; createdBy: string; voidReason: string | null }> };
   audit: { rows: Array<{ occurredAt: string; type: string; guest: string; room: string; reservationId: number; referenceNumber: string | null; actor: string; reason: string | null }> };
+  expenses: { rows: Array<{ id: number; category: string; description: string; amount: Money; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null }> };
+  profitLoss: Array<{ currency: string; totalRevenue: Money; totalExpenses: Money; netProfit: Money; expensesByCategory: Array<{ category: string; amount: Money }> }>;
+  staffPerformance: Array<{ staffId: number; name: string; role: string; currency: string; orders: number; sales: Money; tips: Money }>;
 };
 
 export type WorkbookFinance = {
@@ -253,6 +256,30 @@ export async function renderReportCharts(input: WorkbookInput): Promise<ChartIma
         type: "bar",
         data: { labels: roomTypes.map((row) => row.roomType), datasets: [{ label: "Occupancy %", data: roomTypes.map((row) => Number(row.occupancyRate.toFixed(1))), backgroundColor: "#0ea5a0" }] },
         options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } },
+      }),
+    });
+  }
+
+  const expenseCategories = (data.profitLoss.find((row) => row.currency === currency)?.expensesByCategory ?? []).filter((row) => row.amount > 0).slice(0, 12);
+  if (expenseCategories.length) {
+    charts.push({
+      key: "expenses", title: "Operating expenses by category", width: 900, height: 520,
+      dataUrl: await draw(`Operating expenses by category (${currency})`, {
+        type: "doughnut",
+        data: { labels: expenseCategories.map((row) => label(row.category)), datasets: [{ data: expenseCategories.map((row) => row.amount), backgroundColor: CHART_PALETTE, borderColor: "#ffffff", borderWidth: 2 }] },
+        options: { plugins: { legend: { position: "right" } } },
+      }),
+    });
+  }
+
+  const staffRows = data.staffPerformance.filter((row) => row.currency === currency && row.sales > 0).slice(0, 12);
+  if (staffRows.length) {
+    charts.push({
+      key: "staffPerformance", title: "Staff performance", width: 900, height: 520,
+      dataUrl: await draw(`Outlet sales by team member (${currency})`, {
+        type: "bar",
+        data: { labels: staffRows.map((row) => row.name), datasets: [{ label: `Sales (${currency})`, data: staffRows.map((row) => row.sales), backgroundColor: "#0f766e" }] },
+        options: { indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } },
       }),
     });
   }
@@ -728,9 +755,12 @@ const TAB_COLOURS: Record<string, string> = {
   Cover: TEAL,
   "Basis and Coverage": TEAL,
   "Executive Summary": TEAL_MID,
+  "Profit and Loss": TEAL_MID,
   "Revenue by Department": "FF0EA5A0",
   "Rooms Schedule": "FF0EA5A0",
   "Outlet Sales": "FF0EA5A0",
+  "Staff Performance": "FF38BDF8",
+  "Operating Expenses": "FF38BDF8",
   "Channel Production": "FF38BDF8",
   "Guest Ledger": "FF38BDF8",
   "Payment Register": "FF38BDF8",
@@ -902,7 +932,36 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
     chartRow += 15;
   }
 
-  /* ---- 3. USALI operated departments -------------------------------- */
+  /* ---- 3. Profit and loss -------------------------------------------- */
+  const pl = workbook.addWorksheet("Profit and Loss", { pageSetup: { paperSize: 9, orientation: "portrait" } });
+  pl.getColumn(1).width = 40;
+  pl.getColumn(2).width = 24;
+  pl.getColumn(3).width = 24;
+  sheetHeading(pl, input, "Profit and loss", "Operating revenue less recorded expenses, by currency", 3);
+
+  let plCursor = 5;
+  if (!data.profitLoss.length) {
+    const note = pl.getCell(plCursor, 1);
+    note.value = "No revenue or expenses were recorded in this period.";
+    note.font = { name: FONT, italic: true, color: { argb: "FF6F7C78" } };
+    plCursor += 2;
+  }
+  for (const row of data.profitLoss) {
+    plCursor = addKeyValues(pl, plCursor, `Profit and loss (${row.currency})`, [
+      { label: "Total operating revenue", value: row.totalRevenue, format: CURRENCY_FORMAT, tone: "positive" },
+      { label: "Total operating expenses", value: row.totalExpenses, format: CURRENCY_FORMAT, tone: row.totalExpenses > 0 ? "negative" : undefined },
+      ...row.expensesByCategory.map((category) => ({ label: `  ${label(category.category)}`, value: category.amount, format: CURRENCY_FORMAT } as KeyValue)),
+      { label: "Net profit", value: row.netProfit, format: CURRENCY_FORMAT, total: true, tone: row.netProfit >= 0 ? "positive" : "negative" },
+    ]);
+  }
+  const plDisclaimer = pl.getCell(plCursor, 1);
+  pl.mergeCells(plCursor, 1, plCursor, 3);
+  plDisclaimer.value = "Revenue is recognized on the same basis as the Executive Summary. Expenses are those recorded on the Operating Expenses schedule for this period. Stock cost and depreciation are not tracked yet, so this is a partial profit and loss, not a complete statement.";
+  plDisclaimer.alignment = { wrapText: true, vertical: "top" };
+  plDisclaimer.font = { size: 9, color: { argb: "FF6F7C78" } };
+  pl.getRow(plCursor).height = 46;
+
+  /* ---- 4. USALI operated departments -------------------------------- */
   addTableSheet(workbook, input, {
     name: "Revenue by Department",
     title: "Schedule: operated department revenue",
@@ -1025,6 +1084,41 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
     ],
   });
 
+  /* ---- 8a. Staff performance ------------------------------------------ */
+  addTableSheet(workbook, input, {
+    name: "Staff Performance",
+    title: "Individual staff performance",
+    subtitle: "Outlet sales and tips by team member who settled the order, bar / restaurant / outlet-supervisor roles",
+    rows: data.staffPerformance.filter((row) => row.currency === currency),
+    emptyNote: "No outlet orders were settled by a named team member in this period.",
+    columns: [
+      { header: "Team member", group: "identity", value: (row) => row.name, width: 26 },
+      { header: "Role", group: "identity", value: (row) => label(row.role) },
+      { header: "Orders settled", group: "volume", value: (row) => row.orders, format: INTEGER_FORMAT, total: true },
+      { header: `Sales (${currency})`, group: "revenue", value: (row) => row.sales, format: CURRENCY_FORMAT, total: true },
+      { header: `Tips collected (${currency})`, group: "revenue", value: (row) => row.tips, format: CURRENCY_FORMAT, total: true },
+      { header: `Average sale (${currency})`, group: "revenue", value: (row) => row.orders > 0 ? Number((row.sales / row.orders).toFixed(2)) : 0, format: CURRENCY_FORMAT },
+    ],
+  });
+
+  /* ---- 8b. Operating expenses ------------------------------------------ */
+  addTableSheet(workbook, input, {
+    name: "Operating Expenses",
+    title: "Operating expenses",
+    subtitle: "Rent, utilities, supplies, wages and other costs recorded for this period",
+    rows: data.expenses.rows.filter((row) => row.currency === currency),
+    emptyNote: "No operating expenses were recorded in this period.",
+    columns: [
+      { header: `Incurred at (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.incurredAt), format: DATE_FORMAT, width: 16 },
+      { header: "Category", group: "identity", value: (row) => label(row.category), width: 22 },
+      { header: "Description", group: "identity", value: (row) => row.description, width: 36 },
+      { header: `Amount (${currency})`, group: "deduction", value: (row) => row.amount, format: CURRENCY_FORMAT, total: true },
+      { header: "Payment method", group: "control", value: (row) => row.paymentMethod ? label(row.paymentMethod) : "Accrued, unpaid" },
+      { header: "Recorded by", group: "control", value: (row) => row.recordedBy, width: 22 },
+      { header: "Status", group: "control", value: (row) => row.voidedAt ? "Voided" : "Active" },
+    ],
+  });
+
   /* ---- 9. Cashier shifts -------------------------------------------- */
   addTableSheet(workbook, input, {
     name: "Cashier Shifts",
@@ -1112,6 +1206,9 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
       ["Amount due", "Total spend less total collected", "NRMS", "Outstanding guest ledger balance at period end."],
       ["Advance deposits", "Collections received before the stay period", "USALI", "A liability until the stay is consumed."],
       ["Bed occupancy %", "Bed nights occupied / Bed nights available x 100", "NBS Tanzania", "Statutory tourism statistic, distinct from room occupancy."],
+      ["Net profit", "Total operating revenue - total operating expenses", "NRMS", "Partial P&amp;L: stock cost and depreciation are not tracked yet."],
+      ["Operating expenses", "Sum of active (non-voided) expenses recorded for the period", "NRMS", "Recorded on the Expenses tab of Financial Control; posts to the ledger at Night Audit close."],
+      ["Staff sales", "Sum of order totals settled by that team member", "NRMS", "Bar, restaurant and outlet-supervisor roles only; front desk and housekeeping have no comparable sales figure."],
       ["Timestamps", "Stored in UTC, presented as UTC+3", "East Africa Time", "EAT observes no daylight saving, so the offset is constant all year."],
     ] as Array<[string, string, string, string]>,
     columns: [

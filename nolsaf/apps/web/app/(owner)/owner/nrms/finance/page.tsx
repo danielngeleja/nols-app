@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ClipboardCheck, Loader2, LockKeyhole, RefreshCw, Scale, WalletCards } from "lucide-react";
+import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ClipboardCheck, Loader2, LockKeyhole, Plus, Receipt, RefreshCw, Scale, WalletCards, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
 import { serviceLabelForRole } from "../_components/ShiftPanel";
 
-type Tab = "audit" | "cashiers" | "ledger" | "tax" | "nbs";
+type Tab = "audit" | "cashiers" | "expenses" | "ledger" | "tax" | "nbs";
+type ExpenseRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null; voidReason: string | null; createdAt: string };
 type Blocker = { code: string; count: number; message: string };
 type ShiftCloseSummary = {
   mySales: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
@@ -31,8 +32,20 @@ type FinanceData = {
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof ClipboardCheck }> = [
   { id: "audit", label: "Night Audit", icon: ClipboardCheck }, { id: "cashiers", label: "Cashier variance", icon: WalletCards },
+  { id: "expenses", label: "Expenses", icon: Receipt },
   { id: "ledger", label: "Accounting ledger", icon: BookOpen }, { id: "tax", label: "Tax register", icon: Calculator }, { id: "nbs", label: "NBS statistics", icon: Scale },
 ];
+const EXPENSE_CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: "STAFF_WAGES", label: "Staff wages" },
+  { value: "UTILITIES", label: "Utilities" },
+  { value: "SUPPLIES", label: "Supplies" },
+  { value: "MAINTENANCE", label: "Maintenance" },
+  { value: "MARKETING", label: "Marketing" },
+  { value: "RENT", label: "Rent" },
+  { value: "LICENSING", label: "Licensing" },
+  { value: "OTHER", label: "Other" },
+];
+function expenseCategoryLabel(value: string): string { return EXPENSE_CATEGORIES.find((item) => item.value === value)?.label ?? value; }
 
 function localDay() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
 function cash(value: number, currency: string) { return `${currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
@@ -68,6 +81,10 @@ export default function FinanceControlPage() {
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
   const [counted, setCounted] = useState<Record<number, string>>({}); const [notes, setNotes] = useState<Record<number, string>>({});
   const [tenderCorrections, setTenderCorrections] = useState<Record<number, string>>({});
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [expensesLoading, setExpensesLoading] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ category: "OTHER", description: "", amount: "", incurredAt: localDay(), paymentMethod: "" });
+  const [expenseVoidReason, setExpenseVoidReason] = useState<Record<number, string>>({});
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
@@ -84,6 +101,50 @@ export default function FinanceControlPage() {
     }, 15_000);
     return () => window.clearInterval(refreshTimer);
   }, [load]);
+
+  const loadExpenses = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    setExpensesLoading(true);
+    try {
+      const from = `${month}-01`;
+      const to = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10);
+      const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}/expenses?from=${from}&to=${to}`);
+      setExpenses(response.data.expenses ?? []);
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Unable to load expenses"); }
+    finally { setExpensesLoading(false); }
+  }, [month, selectedPropertyId]);
+  useEffect(() => { if (tab === "expenses") void loadExpenses(); }, [tab, loadExpenses]);
+
+  const createExpense = async () => {
+    if (!selectedPropertyId) return;
+    const amount = Number(expenseForm.amount);
+    if (!expenseForm.description.trim() || !Number.isFinite(amount) || amount <= 0) { setError("Enter a description and a positive amount before saving the expense."); return; }
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      await apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/expenses`, {
+        category: expenseForm.category,
+        description: expenseForm.description.trim(),
+        amount,
+        incurredAt: expenseForm.incurredAt,
+        paymentMethod: expenseForm.paymentMethod || undefined,
+      });
+      setMessage("Expense recorded. It will post to the ledger when this business date's Night Audit closes.");
+      setExpenseForm({ category: "OTHER", description: "", amount: "", incurredAt: localDay(), paymentMethod: "" });
+      await loadExpenses();
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not record this expense"); }
+    finally { setBusy(false); }
+  };
+  const voidExpense = async (expenseId: number) => {
+    const reason = (expenseVoidReason[expenseId] || "").trim();
+    if (reason.length < 3) { setError("Explain why this expense is being voided (at least 3 characters)."); return; }
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      await apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/expenses/${expenseId}/void`, { reason });
+      setMessage("Expense voided.");
+      await loadExpenses();
+    } catch (cause: any) { setError(cause?.response?.data?.error || "Could not void this expense"); }
+    finally { setBusy(false); }
+  };
 
   const action = async (request: () => Promise<unknown>, success: string) => {
     setBusy(true); setError(null); setMessage(null);
@@ -191,10 +252,44 @@ export default function FinanceControlPage() {
       </div>
     </section>}
 
+    {tab === "expenses" && <div className="grid gap-4 xl:grid-cols-[.7fr_1.3fr]">
+      <section className="h-fit rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><Receipt className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Record an expense</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Posts to the general ledger when that business date's Night Audit closes, the same way charges and payments do.</p></div></div>
+        <div className="mt-4 space-y-3">
+          <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Category</label><select value={expenseForm.category} onChange={(event) => setExpenseForm((current) => ({ ...current, category: event.target.value }))} className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none focus:border-emerald-500">{EXPENSE_CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+          <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Description</label><input type="text" value={expenseForm.description} onChange={(event) => setExpenseForm((current) => ({ ...current, description: event.target.value }))} maxLength={300} placeholder="e.g. July electricity bill" className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-800 outline-none focus:border-emerald-500" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Amount ({propertyCurrency})</label><input type="number" min="0" step="0.01" value={expenseForm.amount} onChange={(event) => setExpenseForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0.00" className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs tabular-nums text-neutral-800 outline-none focus:border-emerald-500" /></div>
+            <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Date</label><DatePickerField label="Expense date" value={expenseForm.incurredAt} onChangeAction={(next) => setExpenseForm((current) => ({ ...current, incurredAt: next }))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
+          </div>
+          <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Payment method</label><select value={expenseForm.paymentMethod} onChange={(event) => setExpenseForm((current) => ({ ...current, paymentMethod: event.target.value }))} className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none focus:border-emerald-500"><option value="">Accrued (not yet paid)</option><option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-400">Leave as accrued if this is owed to a supplier rather than paid out of till or account today.</p></div>
+          <button type="button" onClick={() => void createExpense()} disabled={!canManage || busy} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400"><Plus className="h-4 w-4" />{!canManage ? "Manager approval required" : "Save expense"}</button>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-5 py-4"><div><h3 className="m-0 text-base font-bold">Expenses this month</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{month}, by date recorded.</p></div><span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[10px] font-bold text-neutral-500">{expenses.filter((row) => !row.voidedAt).length} active</span></header>
+        {expensesLoading && !expenses.length ? <div className="flex min-h-40 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading expenses…</div> : (
+          <div className="divide-y divide-neutral-100">
+            {expenses.map((row) => (
+              <div key={row.id} className={`px-5 py-3.5 ${row.voidedAt ? "opacity-50" : ""}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{row.description}</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">{expenseCategoryLabel(row.category)} · {new Date(row.incurredAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · {row.paymentMethod ? row.paymentMethod.replace(/_/g, " ").toLowerCase() : "accrued, unpaid"} · recorded by {row.recordedBy}</p>{row.voidedAt && <p className="mb-0 mt-1 text-[10px] font-bold text-red-600">Voided: {row.voidReason}</p>}</div>
+                  <strong className="whitespace-nowrap text-sm tabular-nums text-neutral-900">{cash(row.amount, row.currency)}</strong>
+                </div>
+                {!row.voidedAt && canManage && <div className="mt-2 flex flex-wrap items-center gap-2"><input type="text" value={expenseVoidReason[row.id] ?? ""} onChange={(event) => setExpenseVoidReason((current) => ({ ...current, [row.id]: event.target.value }))} placeholder="Reason for voiding" className="h-8 min-w-[200px] flex-1 rounded-lg border border-neutral-200 bg-white px-2.5 text-[11px] text-neutral-700 outline-none focus:border-red-400" /><button type="button" onClick={() => void voidExpense(row.id)} disabled={busy} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 text-[10px] font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"><XCircle className="h-3.5 w-3.5" />Void</button></div>}
+              </div>
+            ))}
+            {!expensesLoading && !expenses.length && <div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><Receipt className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No expenses recorded this month</p></div>}
+          </div>
+        )}
+      </section>
+    </div>}
+
     {tab === "ledger" && <section className="space-y-4">
       {profitAndLoss.length > 0 && <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
         <h3 className="m-0 text-sm font-bold">Profit and loss</h3>
-        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range. Payroll, stock cost and depreciation are not tracked yet, so this is not a complete P&amp;L.</p>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab. Stock cost and depreciation are not tracked yet, so this is not a complete P&amp;L.</p>
         <div className="mt-3 space-y-3">{profitAndLoss.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-3">
           <Metric label={`Revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Room, restaurant, bar and other service revenue" tone="green" />
           <Metric label={`Expenses (${row.currency})`} value={cash(row.expense, row.currency)} note="Platform fees and other posted costs" tone="amber" />

@@ -101,7 +101,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const db = prisma as any;
     const dateWindow = { gte: rangeStart, lt: rangeEnd };
 
-    const [reservations, payments, charges, orders, events, roomTypes, allocations, blocks] = await Promise.all([
+    const [reservations, payments, charges, orders, events, roomTypes, allocations, blocks, expenses, outletStaff] = await Promise.all([
       db.reservation.findMany({
         where: {
           propertyId,
@@ -217,6 +217,8 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           cancelledAt: true,
           voidedAt: true,
           voidReason: true,
+          tipAmount: true,
+          settledById: true,
           outlet: { select: { name: true, type: true } },
           createdBy: { select: { fullName: true, name: true, email: true } },
           settledBy: { select: { fullName: true, name: true, email: true } },
@@ -283,12 +285,39 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         },
         select: { startDate: true, endDate: true, roomUnitId: true, bedsBlocked: true },
       }),
+      db.nrmsExpense.findMany({
+        where: { propertyId, OR: [{ incurredAt: dateWindow }, { voidedAt: dateWindow }] },
+        select: { id: true, category: true, description: true, amount: true, currency: true, paymentMethod: true, incurredAt: true, voidedAt: true, recordedBy: { select: { fullName: true, name: true, email: true } } },
+        orderBy: { incurredAt: "desc" },
+      }),
+      // Individual performance is only meaningful for roles that actually
+      // settle outlet orders; front desk, housekeeping and managers have no
+      // comparable sales figure, so they are intentionally left out here
+      // rather than measured against a metric that doesn't apply to them.
+      db.nrmsStaffMembership.findMany({
+        where: { propertyId, status: "ACTIVE", role: { in: ["BAR", "RESTAURANT", "OUTLET_SUPERVISOR"] } },
+        select: { role: true, user: { select: { id: true, fullName: true, name: true } } },
+      }),
     ]);
 
     const balanceReservations = reservations.filter((reservation: any) => ACTIVE_REVENUE_STATUSES.includes(reservation.status));
     const activeCharges = charges.filter((charge: any) => !charge.voidedAt && inRange(charge.createdAt, rangeStart, rangeEnd));
     const activePayments = payments.filter((payment: any) => !payment.voidedAt && inRange(payment.createdAt, rangeStart, rangeEnd));
     const settledOutletOrders = orders.filter((order: any) => order.status === "SETTLED" && order.settlementMode === "OUTLET_PAYMENT" && !order.voidedAt && inRange(order.settledAt, rangeStart, rangeEnd));
+    const activeExpenses = expenses.filter((expense: any) => !expense.voidedAt && inRange(expense.incurredAt, rangeStart, rangeEnd));
+    // Staff performance is scoped to whoever actually settled the order, on
+    // outlet roles only (see the query above for why front desk, housekeeping
+    // and managers are left out).
+    const outletStaffByUserId = new Map<number, { role: string; name: string }>(
+      outletStaff.map((member: any) => [member.user.id, { role: member.role, name: userLabel(member.user) }]),
+    );
+    const staffOrders = orders.filter((order: any) =>
+      ["SETTLED", "POSTED_TO_FOLIO"].includes(order.status)
+      && !order.voidedAt
+      && order.settledById
+      && outletStaffByUserId.has(order.settledById)
+      && inRange(order.settledAt || order.postedAt, rangeStart, rangeEnd),
+    );
     const stayRevenueReservations = reservations.filter((reservation: any) =>
       ACTIVE_REVENUE_STATUSES.includes(reservation.status)
       && new Date(reservation.checkIn).getTime() < rangeEnd.getTime()
@@ -301,6 +330,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     for (const charge of activeCharges) currencies.add(charge.currency || "TZS");
     for (const payment of activePayments) currencies.add(payment.currency || "TZS");
     for (const order of settledOutletOrders) currencies.add(order.currency || "TZS");
+    for (const expense of activeExpenses) currencies.add(expense.currency || "TZS");
     if (!currencies.size) currencies.add(roomTypes[0]?.currency || "TZS");
 
     const guestBalances = balanceReservations.map((reservation: any) => {
@@ -404,6 +434,50 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         paymentMethods: [...paymentMethodMap.values()].map((item) => ({ ...item, amount: round(item.amount) })).sort((a, b) => b.amount - a.amount),
       };
     });
+
+    const expenseRows = expenses.map((expense: any) => ({
+      id: expense.id,
+      category: expense.category,
+      description: expense.description,
+      amount: round(decimal(expense.amount)),
+      currency: expense.currency,
+      paymentMethod: expense.paymentMethod,
+      incurredAt: expense.incurredAt,
+      recordedBy: userLabel(expense.recordedBy),
+      voidedAt: expense.voidedAt,
+    })).sort((a: any, b: any) => new Date(b.incurredAt).getTime() - new Date(a.incurredAt).getTime());
+
+    // Net profit per currency: total operating revenue already computed above,
+    // less operating expenses recorded for the same range. Stock cost and
+    // depreciation are not tracked yet, so this stays a partial P&L, same
+    // caveat the finance ledger's own profit-and-loss block carries.
+    const profitLoss = currencyReports.map((report: any) => {
+      const currencyExpenses = activeExpenses.filter((expense: any) => (expense.currency || "TZS") === report.currency);
+      const expensesByCategory = new Map<string, number>();
+      for (const expense of currencyExpenses) expensesByCategory.set(expense.category, (expensesByCategory.get(expense.category) ?? 0) + decimal(expense.amount));
+      const totalExpenses = [...expensesByCategory.values()].reduce((sum, amount) => sum + amount, 0);
+      return {
+        currency: report.currency,
+        totalRevenue: report.summary.totalRevenue,
+        totalExpenses: round(totalExpenses),
+        netProfit: round(report.summary.totalRevenue - totalExpenses),
+        expensesByCategory: [...expensesByCategory.entries()].map(([category, amount]) => ({ category, amount: round(amount) })).sort((a, b) => b.amount - a.amount),
+      };
+    });
+
+    const staffPerformanceMap = new Map<string, { staffId: number; name: string; role: string; currency: string; orders: number; sales: number; tips: number }>();
+    for (const order of staffOrders) {
+      const key = `${order.settledById}:${order.currency}`;
+      const info = outletStaffByUserId.get(order.settledById)!;
+      const row = staffPerformanceMap.get(key) ?? { staffId: order.settledById, name: info.name, role: info.role, currency: order.currency, orders: 0, sales: 0, tips: 0 };
+      row.orders += 1;
+      row.sales += decimal(order.total);
+      row.tips += decimal(order.tipAmount);
+      staffPerformanceMap.set(key, row);
+    }
+    const staffPerformance = [...staffPerformanceMap.values()]
+      .map((row) => ({ ...row, sales: round(row.sales), tips: round(row.tips) }))
+      .sort((a, b) => b.sales - a.sales);
 
     const recordedSources = new Set<string>(RESERVATION_SOURCE_ORDER);
     for (const reservation of reservations) recordedSources.add(String(reservation.source || "OTHER").toUpperCase());
@@ -631,6 +705,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           payments: activePayments.length,
           outletOrders: outletRows.length,
           auditEvents: auditRows.length,
+          expenses: activeExpenses.length,
         },
       },
       manager: {
@@ -673,6 +748,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       payments: { rows: paymentRows, cashVarianceAvailable: false },
       outlets: { rows: outletRows, customerSplit: outletCustomerSplit },
       audit: { rows: auditRows },
+      expenses: { rows: expenseRows },
+      profitLoss,
+      staffPerformance,
     });
   } catch (error) {
     console.error("[owner.nrms.reports] report failed", error);
