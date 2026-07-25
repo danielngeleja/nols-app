@@ -747,6 +747,17 @@ function addCoverSheet(workbook: Sheet, input: WorkbookInput) {
     foot.alignment = { vertical: "top", wrapText: true, indent: 1 };
     fillRange(sheet, footRow, COVER_FIRST, footRow, COVER_LAST, TEAL_PALE);
     boxRange(sheet, footRow, COVER_FIRST, footRow, COVER_LAST, RULE);
+
+    /* Legend: every other sheet is protected against edits, and this is the
+       one place that says why, so the reason travels with the file rather
+       than living in a support article no one opens with it. */
+    const legendRow = footRow + 2;
+    sheet.getRow(legendRow).height = 32;
+    sheet.mergeCells(legendRow, COVER_FIRST, legendRow, COVER_LAST);
+    const legend = sheet.getCell(legendRow, COVER_FIRST);
+    legend.value = "Every sheet in this workbook is locked (read-only): every figure is generated directly from NRMS transactions, not typed in, so there is nothing here for a reader to fill in. Selecting, copying, sorting and filtering stay available.";
+    legend.font = { name: FONT, size: 8, italic: true, color: { argb: INK_SOFT } };
+    legend.alignment = { vertical: "top", wrapText: true, indent: 1 };
   }
 }
 
