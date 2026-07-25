@@ -11,6 +11,9 @@ type Order = {
   settlementMethod?: string | null; postedAt?: string | null; settledAt?: string | null; cancelledAt?: string | null; voidedAt?: string | null;
   guestRating?: number | null; tipIntent?: string | null; tipSuggestedAmount?: number | null;
   paymentAmountReceived?: number | null; tipAmount?: number | null; tipMethod?: string | null;
+  // Room-folio orders never collect their own cash; this is true once the
+  // reservation carrying the charge has been paid off in full at checkout.
+  reservationSettled?: boolean;
   settledBy?: { id: number; fullName?: string | null; name?: string | null } | null;
   tipRecipient?: { id: number; fullName?: string | null; name?: string | null } | null;
   outlet: { id: number; name: string; type: string };
@@ -166,7 +169,19 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
                 <div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-800">{order.orderNumber}</p><p className="mb-0 mt-1 truncate text-xs text-neutral-500">{order.outlet.name}</p></div>
                 <div className="col-start-1 min-w-0 lg:col-auto"><p className="m-0 truncate text-[13px] font-semibold text-neutral-700">{scope === "table" ? orderTablePrimary(order) : orderGuestLabel(order)}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{scope === "table" ? orderTableSecondary() : orderRoomLabel(order)}</p></div>
                 <div className="col-start-1 min-w-0 lg:col-auto"><p className="m-0 text-xs font-bold text-neutral-700">{order.settlementMode === "OUTLET_PAYMENT" ? `Paid at outlet · ${tenderLabel(order.settlementMethod)}` : "Room folio"}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{order.items.map((item) => `${item.quantity}× ${item.nameSnapshot}`).join(", ")}</p>{order.paymentAmountReceived != null && <p className="mb-0 mt-1.5 text-[11px] font-semibold text-neutral-600">Received {money(order.paymentAmountReceived, order.currency)}{order.paymentAmountReceived > order.total + (order.tipAmount ?? 0) ? ` · Change ${money(order.paymentAmountReceived - order.total - (order.tipAmount ?? 0), order.currency)}` : ""}</p>}</div>
-                <div className="col-start-1 min-w-0 lg:col-auto"><p className={`m-0 text-xs font-bold ${order.guestRating ? "text-amber-600" : "text-neutral-500"}`}>{order.guestRating ? `Guest rating ${order.guestRating}/5` : "No guest rating yet"}</p>{order.tipIntent === "INTERESTED" && order.tipSuggestedAmount ? <p className="mb-0 mt-1 text-[11px] font-semibold text-emerald-700">Guest suggested {money(order.tipSuggestedAmount, order.currency)}</p> : null}{order.tipAmount ? <p className="mb-0 mt-1 text-xs font-bold text-emerald-800">Tip {money(order.tipAmount, order.currency)} · {attendantName(order.tipRecipient)}</p> : <p className="mb-0 mt-1 text-[11px] text-neutral-500">No collected tip recorded</p>}{["SETTLED", "POSTED_TO_FOLIO"].includes(order.status) && role !== "FRONT_DESK" && <button type="button" onClick={() => openTipFlow(order)} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100"><Coins className="h-3.5 w-3.5" />{order.tipAmount || order.paymentAmountReceived != null ? "Edit breakdown" : "Record payment / tip"}</button>}</div>
+                <div className="col-start-1 min-w-0 lg:col-auto">
+                  <p className={`m-0 text-xs font-bold ${order.guestRating ? "text-amber-600" : "text-neutral-500"}`}>{order.guestRating ? `Guest rating ${order.guestRating}/5` : "No guest rating yet"}</p>
+                  {order.tipIntent === "INTERESTED" && order.tipSuggestedAmount ? <p className="mb-0 mt-1 text-[11px] font-semibold text-emerald-700">Guest suggested {money(order.tipSuggestedAmount, order.currency)}</p> : null}
+                  {order.tipAmount ? (
+                    <p className="mb-0 mt-1 text-xs font-bold text-emerald-800">Tip {money(order.tipAmount, order.currency)} · {attendantName(order.tipRecipient)}</p>
+                  ) : order.reservationSettled ? (
+                    // The room is already paid off; this isn't a gap to chase, it's a resolved fact.
+                    <p className="mb-0 mt-1 flex items-center gap-1 text-[11px] text-neutral-400"><Check className="h-3 w-3" />No tip collected</p>
+                  ) : (
+                    <p className="mb-0 mt-1 text-[11px] text-neutral-500">No collected tip recorded</p>
+                  )}
+                  {["SETTLED", "POSTED_TO_FOLIO"].includes(order.status) && role !== "FRONT_DESK" && !(order.reservationSettled && !order.tipAmount) && <button type="button" onClick={() => openTipFlow(order)} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100"><Coins className="h-3.5 w-3.5" />{order.tipAmount || order.paymentAmountReceived != null ? "Edit breakdown" : "Record payment / tip"}</button>}
+                </div>
                 <time className="col-start-1 whitespace-nowrap text-[11px] tabular-nums text-neutral-500 lg:col-auto" dateTime={orderRecordedAt(order)}>{shortDateTime(orderRecordedAt(order))}</time>
                 <strong className="col-start-2 row-start-2 whitespace-nowrap text-right text-sm tabular-nums text-neutral-800 lg:col-auto lg:row-auto">{money(order.total, order.currency)}</strong>
                 <div className="col-start-2 row-start-1 flex items-center justify-end gap-1.5 lg:col-auto lg:row-auto"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status.replaceAll("_", " ")}</span>{(order.status === "POSTED_TO_FOLIO" || order.status === "SETTLED") && role !== "FRONT_DESK" && <button type="button" onClick={() => setReasonOrderId(order.id)} className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-[11px] font-bold text-red-600 hover:bg-red-50">Void</button>}</div>

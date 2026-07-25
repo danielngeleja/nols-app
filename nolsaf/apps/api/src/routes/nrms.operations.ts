@@ -9,6 +9,7 @@ import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
 import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
+import { computeOutstanding } from "../lib/nrmsFolio.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -244,6 +245,14 @@ async function accessForOutlet(req: AuthedRequest, res: Response, outletId: numb
 }
 
 function formatOrder(order: any) {
+  // A room-folio order never collects its own cash: the money lands when the
+  // guest's whole stay is settled, not per outlet ticket. Once that reservation
+  // balance is at zero, "no tip recorded" is a finished fact, not an open task
+  // for staff to keep chasing on this specific order.
+  const reservationSettled = order.settlementMode === "ROOM_FOLIO" && order.reservation
+    ? computeOutstanding(order.reservation.totalAmount, order.reservation.chargesTotal, order.reservation.amountPaid) <= 0
+    : false;
+  const { totalAmount: _totalAmount, chargesTotal: _chargesTotal, amountPaid: _amountPaid, ...reservationPublic } = order.reservation ?? {};
   return {
     ...order,
     subtotal: number(order.subtotal),
@@ -252,6 +261,8 @@ function formatOrder(order: any) {
     tipSuggestedAmount: order.tipSuggestedAmount == null ? null : number(order.tipSuggestedAmount),
     tipAmount: order.tipAmount == null ? null : number(order.tipAmount),
     items: (order.items ?? []).map((item: any) => ({ ...item, unitPrice: number(item.unitPrice), lineTotal: number(item.lineTotal) })),
+    reservation: order.reservation ? reservationPublic : null,
+    reservationSettled,
   };
 }
 
@@ -262,6 +273,9 @@ const orderInclude = {
       id: true,
       status: true,
       currency: true,
+      totalAmount: true,
+      chargesTotal: true,
+      amountPaid: true,
       guestProfile: { select: { fullName: true } },
       allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } },
     },
