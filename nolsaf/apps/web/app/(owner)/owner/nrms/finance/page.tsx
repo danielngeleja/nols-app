@@ -85,6 +85,7 @@ export default function FinanceControlPage() {
   const [expensesLoading, setExpensesLoading] = useState(false);
   const [expenseForm, setExpenseForm] = useState({ category: "OTHER", description: "", amount: "", incurredAt: localDay(), paymentMethod: "" });
   const [expenseVoidReason, setExpenseVoidReason] = useState<Record<number, string>>({});
+  const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
@@ -141,6 +142,8 @@ export default function FinanceControlPage() {
     try {
       await apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/expenses/${expenseId}/void`, { reason });
       setMessage("Expense voided.");
+      setVoidTargetId(null);
+      setExpenseVoidReason((current) => ({ ...current, [expenseId]: "" }));
       await loadExpenses();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not void this expense"); }
     finally { setBusy(false); }
@@ -253,7 +256,8 @@ export default function FinanceControlPage() {
     </section>}
 
     {tab === "expenses" && <div className="grid gap-4 xl:grid-cols-[.7fr_1.3fr]">
-      <section className="h-fit rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <section id="nrms-expense-form" className="h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <style>{`#nrms-expense-form, #nrms-expense-form * { box-sizing: border-box; }`}</style>
         <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><Receipt className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Record an expense</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Posts to the general ledger when that business date's Night Audit closes, the same way charges and payments do.</p></div></div>
         <div className="mt-4 space-y-3">
           <div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-400">Category</label><select value={expenseForm.category} onChange={(event) => setExpenseForm((current) => ({ ...current, category: event.target.value }))} className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none focus:border-emerald-500">{EXPENSE_CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
@@ -267,17 +271,41 @@ export default function FinanceControlPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <section id="nrms-expense-list" className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <style>{`#nrms-expense-list, #nrms-expense-list * { box-sizing: border-box; }`}</style>
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-5 py-4"><div><h3 className="m-0 text-base font-bold">Expenses this month</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{month}, by date recorded.</p></div><span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[10px] font-bold text-neutral-500">{expenses.filter((row) => !row.voidedAt).length} active</span></header>
         {expensesLoading && !expenses.length ? <div className="flex min-h-40 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading expenses…</div> : (
           <div className="divide-y divide-neutral-100">
             {expenses.map((row) => (
-              <div key={row.id} className={`px-5 py-3.5 ${row.voidedAt ? "opacity-50" : ""}`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{row.description}</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">{expenseCategoryLabel(row.category)} · {new Date(row.incurredAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · {row.paymentMethod ? row.paymentMethod.replace(/_/g, " ").toLowerCase() : "accrued, unpaid"} · recorded by {row.recordedBy}</p>{row.voidedAt && <p className="mb-0 mt-1 text-[10px] font-bold text-red-600">Voided: {row.voidReason}</p>}</div>
-                  <strong className="whitespace-nowrap text-sm tabular-nums text-neutral-900">{cash(row.amount, row.currency)}</strong>
+              <div key={row.id} className={`px-5 py-3 transition-colors ${row.voidedAt ? "bg-neutral-50/70" : "hover:bg-neutral-50/60"}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className={`m-0 truncate text-xs font-bold ${row.voidedAt ? "text-neutral-400 line-through" : "text-neutral-900"}`}>{row.description}</p>
+                    <p className="mb-0 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] leading-none text-neutral-400">
+                      <span className="rounded-full bg-neutral-100 px-1.5 py-1 font-bold text-neutral-500">{expenseCategoryLabel(row.category)}</span>
+                      <span>{new Date(row.incurredAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                      <span aria-hidden>·</span>
+                      <span>{row.paymentMethod ? row.paymentMethod.replace(/_/g, " ").toLowerCase() : "accrued, unpaid"}</span>
+                      <span aria-hidden>·</span>
+                      <span className="truncate">{row.recordedBy}</span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <strong className={`whitespace-nowrap text-sm tabular-nums ${row.voidedAt ? "text-neutral-400 line-through" : "text-neutral-900"}`}>{cash(row.amount, row.currency)}</strong>
+                    {!row.voidedAt && canManage && voidTargetId !== row.id && <button type="button" onClick={() => setVoidTargetId(row.id)} title="Void this expense" aria-label={`Void ${row.description}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-300 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"><XCircle className="h-3.5 w-3.5" /></button>}
+                  </div>
                 </div>
-                {!row.voidedAt && canManage && <div className="mt-2 flex flex-wrap items-center gap-2"><input type="text" value={expenseVoidReason[row.id] ?? ""} onChange={(event) => setExpenseVoidReason((current) => ({ ...current, [row.id]: event.target.value }))} placeholder="Reason for voiding" className="h-8 min-w-[200px] flex-1 rounded-lg border border-neutral-200 bg-white px-2.5 text-[11px] text-neutral-700 outline-none focus:border-red-400" /><button type="button" onClick={() => void voidExpense(row.id)} disabled={busy} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 text-[10px] font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"><XCircle className="h-3.5 w-3.5" />Void</button></div>}
+                {row.voidedAt && <p className="mb-0 mt-1.5 text-[10px] font-bold text-red-500">Voided: {row.voidReason}</p>}
+                {!row.voidedAt && canManage && voidTargetId === row.id && (
+                  <div className="mt-2.5 rounded-lg border border-red-100 bg-red-50/50 p-2.5">
+                    <p className="mb-2 mt-0 text-[10px] font-bold uppercase tracking-wide text-red-500">Why is this being voided?</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input type="text" autoFocus value={expenseVoidReason[row.id] ?? ""} onChange={(event) => setExpenseVoidReason((current) => ({ ...current, [row.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void voidExpense(row.id); if (event.key === "Escape") setVoidTargetId(null); }} placeholder="e.g. duplicate entry, wrong amount" className="h-8 min-w-[160px] flex-1 rounded-md border border-red-200 bg-white px-2.5 text-[11px] text-neutral-700 outline-none focus:border-red-400" />
+                      <button type="button" onClick={() => void voidExpense(row.id)} disabled={busy} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border-0 bg-red-600 px-3 text-[10px] font-bold text-white hover:bg-red-700 disabled:bg-neutral-200 disabled:text-neutral-400"><XCircle className="h-3.5 w-3.5" />Void expense</button>
+                      <button type="button" onClick={() => setVoidTargetId(null)} className="inline-flex h-8 shrink-0 items-center rounded-md border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-500 hover:bg-neutral-50">Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             {!expensesLoading && !expenses.length && <div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><Receipt className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No expenses recorded this month</p></div>}
