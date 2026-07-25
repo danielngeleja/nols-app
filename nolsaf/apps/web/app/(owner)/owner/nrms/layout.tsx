@@ -40,6 +40,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
+import NrmsBootScreen from "./_components/NrmsBootScreen";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 import NrmsPropertyGate from "./_components/NrmsPropertyGate";
 import NrmsOperationalFooter from "./_components/NrmsOperationalFooter";
@@ -158,6 +159,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [booting, setBooting] = useState(true);
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
   const [liveOrders, setLiveOrders] = useState<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number } | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -165,6 +167,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
+
+  const handleBooted = useCallback(() => setBooting(false), []);
 
   useEffect(() => {
     try { setCollapsed(localStorage.getItem("nrms-sidebar-collapsed") === "1"); } catch {}
@@ -249,6 +253,12 @@ function NrmsShell({ children }: { children: ReactNode }) {
     });
   };
 
+  // The boot screen owns the entrance only. A later refresh() flips loading
+  // back on without re-showing it, so switching property or retrying never
+  // throws the whole workspace behind a splash again.
+  if (booting && !error) {
+    return <NrmsBootScreen ready={!loading} propertyTitle={selectedProperty?.title} onDone={handleBooted} />;
+  }
   if (loading) return <div className="flex min-h-screen items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (error) {
     const frozen = error.includes("temporarily frozen by an administrator");
