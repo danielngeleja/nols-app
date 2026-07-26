@@ -13,6 +13,7 @@ const ACTIVE_REVENUE_STATUSES = ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
 const OPEN_ORDER_STATUSES = ["CONFIRMED", "PREPARING", "SERVING"];
 const RESERVATION_SOURCE_ORDER = ["NOLSAF", "BOOKING_COM", "AIRBNB", "EXPEDIA", "WALK_IN", "DIRECT", "PHONE", "OTHER"];
 const NRMS_TIME_ZONE = "Africa/Dar_es_Salaam";
+const MAX_REPORT_ROWS_PER_DATASET = 5_000;
 
 function decimal(value: unknown): number {
   const number = Number(value ?? 0);
@@ -142,6 +143,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           },
         },
         orderBy: [{ checkIn: "desc" }, { id: "desc" }],
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.externalPaymentRecord.findMany({
         where: { reservation: { propertyId }, OR: [{ createdAt: dateWindow }, { voidedAt: dateWindow }] },
@@ -168,7 +170,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 1000,
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.reservationCharge.findMany({
         where: { reservation: { propertyId }, OR: [{ createdAt: dateWindow }, { voidedAt: dateWindow }] },
@@ -186,7 +188,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           outletOrder: { select: { orderNumber: true, outlet: { select: { name: true } } } },
         },
         orderBy: { createdAt: "desc" },
-        take: 1000,
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.nrmsOutletOrder.findMany({
         where: {
@@ -233,7 +235,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           items: { select: { nameSnapshot: true, quantity: true, unitPrice: true, lineTotal: true } },
         },
         orderBy: { createdAt: "desc" },
-        take: 1000,
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.reservationEvent.findMany({
         where: { reservation: { propertyId }, createdAt: dateWindow },
@@ -253,7 +255,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 1000,
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.roomType.findMany({
         where: { propertyId },
@@ -274,6 +276,8 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           endDate: true,
           reservation: { select: { id: true, currency: true, totalAmount: true, checkIn: true, checkOut: true } },
         },
+        orderBy: { id: "asc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.propertyAvailabilityBlock.findMany({
         where: {
@@ -284,11 +288,14 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           endDate: { gt: rangeStart },
         },
         select: { startDate: true, endDate: true, roomUnitId: true, bedsBlocked: true },
+        orderBy: { id: "asc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.nrmsExpense.findMany({
         where: { propertyId, OR: [{ incurredAt: dateWindow }, { voidedAt: dateWindow }] },
         select: { id: true, category: true, description: true, amount: true, currency: true, paymentMethod: true, incurredAt: true, voidedAt: true, recordedBy: { select: { fullName: true, name: true, email: true } } },
         orderBy: { incurredAt: "desc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       // Individual performance is only meaningful for roles that actually
       // settle outlet orders; front desk, housekeeping and managers have no
@@ -299,6 +306,24 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         select: { role: true, user: { select: { id: true, fullName: true, name: true } } },
       }),
     ]);
+
+    const oversizedDataset = [
+      ["reservations", reservations],
+      ["payments", payments],
+      ["charges", charges],
+      ["outlet orders", orders],
+      ["audit events", events],
+      ["room allocations", allocations],
+      ["availability blocks", blocks],
+      ["expenses", expenses],
+    ].find(([, rows]) => (rows as any[]).length > MAX_REPORT_ROWS_PER_DATASET);
+    if (oversizedDataset) {
+      return res.status(422).json({
+        error: `This range contains too many ${oversizedDataset[0]} to calculate safely. Choose a shorter date range.`,
+        code: "REPORT_RANGE_TOO_LARGE",
+        maxRowsPerDataset: MAX_REPORT_ROWS_PER_DATASET,
+      });
+    }
 
     const balanceReservations = reservations.filter((reservation: any) => ACTIVE_REVENUE_STATUSES.includes(reservation.status));
     const activeCharges = charges.filter((charge: any) => !charge.voidedAt && inRange(charge.createdAt, rangeStart, rangeEnd));

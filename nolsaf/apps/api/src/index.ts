@@ -7,6 +7,7 @@ import { csrfProtection, csrfTokenHeader } from "./middleware/csrf.js";
 import { performanceMiddleware } from "./middleware/performance.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { getRedis } from "./lib/redis.js";
+import { redactSensitiveUrl } from "./lib/safeAccessLog.js";
 import {
   registerApiRoutes,
   registerEarlyRoutes,
@@ -32,6 +33,10 @@ function shouldStartSocketServer(): boolean {
 }
 
 const app = express();
+
+morgan.token("safe-url", (req) =>
+  redactSensitiveUrl((req as express.Request).originalUrl || req.url),
+);
 
 // Do not advertise the application framework in every response.
 app.disable("x-powered-by");
@@ -89,7 +94,7 @@ app.use(express.urlencoded({
 }));
 app.use(
   process.env.NODE_ENV === "production"
-    ? morgan("tiny", {
+    ? morgan(':remote-addr :method :safe-url :status :res[content-length] - :response-time ms', {
         skip: (_req, res) => res.statusCode < 400,
       })
     : morgan("dev")

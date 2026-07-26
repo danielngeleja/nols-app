@@ -12,8 +12,6 @@ const isProduction = process.env.NODE_ENV === 'production';
 if (!apiOrigin) {
   throw new Error('Missing API_ORIGIN. Set API_ORIGIN to your API base URL (e.g. https://api.nolsaf.com).');
 }
-const socketOrigin = (process.env.NEXT_PUBLIC_SOCKET_URL || '').replace(/\/$/, '');
-
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Keep the local NRMS shell unobstructed; production never shows this badge.
@@ -59,60 +57,6 @@ const nextConfig: NextConfig = {
     ],
   },
   turbopack: {},
-  async headers() {
-    const localConnectSrc = isProduction ? [] : [
-      'http://127.0.0.1:4000',
-      'http://localhost:4000',
-      'http://localhost:3001',
-      'ws:',
-    ];
-    const connectSrc = [
-      "'self'",
-      'https:',
-      'wss:',
-      'https://api.mapbox.com',
-      'https://events.mapbox.com',
-      apiOrigin,
-      socketOrigin,
-      ...localConnectSrc,
-    ].filter(Boolean);
-    const scriptSrc = [
-      "'self'",
-      ...(isProduction ? [] : ["'unsafe-eval'"]),
-      "'unsafe-inline'",
-      'https://static.cloudflareinsights.com',
-      'https://api.mapbox.com',
-      'https://events.mapbox.com',
-    ].join(' ');
-    const imgSrc = [
-      "'self'",
-      'blob:',
-      'data:',
-      'https:',
-      ...(isProduction ? [] : ['http:']),
-      'res.cloudinary.com',
-      'img.youtube.com',
-      'https://api.mapbox.com',
-      'https://*.mapbox.com',
-    ].join(' ');
-    const frameSrc = [
-      "'self'",
-      'https://js.stripe.com',
-      'https://hooks.stripe.com',
-    ].join(' ');
-
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src ${imgSrc}; font-src 'self' data:; worker-src 'self' blob:; media-src 'self' blob: data: https:; connect-src ${connectSrc.join(' ')}; frame-ancestors 'self'; frame-src ${frameSrc};`,
-          },
-        ],
-      },
-    ];
-  },
   async rewrites() {
     return {
       // beforeFiles: rewrites run before filesystem/page checks.

@@ -7,12 +7,26 @@ import { runNrmsWorker } from "../lib/nrmsWorkerHealth.js";
 const db = prisma as any;
 
 export async function runNrmsDunning(now = new Date()) {
-  const accounts = await db.ownerPaygAccount.findMany({
-    where: { status: { notIn: ["CLOSED", "FROZEN"] }, unpaidBalance: { gt: 0 } },
-    include: { policy: true, property: { select: { title: true } } },
-  });
+  const batchSize = Math.max(50, Math.min(1000, Number(process.env.NRMS_WORKER_BATCH_SIZE || 250)));
+  let cursorId = 0;
+  let accountsProcessed = 0;
   let changed = 0;
-  for (const account of accounts) {
+  while (true) {
+    const accounts = await db.ownerPaygAccount.findMany({
+      where: { id: { gt: cursorId }, status: { notIn: ["CLOSED", "FROZEN"] }, unpaidBalance: { gt: 0 } },
+      include: { policy: true, property: { select: { title: true } } },
+      orderBy: { id: "asc" },
+      take: batchSize,
+    });
+    if (!accounts.length) break;
+    const lastId = Number(accounts[accounts.length - 1].id);
+    if (!Number.isFinite(lastId) || lastId <= cursorId) {
+      throw new Error("NRMS dunning pagination did not advance");
+    }
+    const isLastBatch = accounts.length < batchSize;
+    cursorId = lastId;
+    accountsProcessed += accounts.length;
+    for (const account of accounts) {
     // PAYMENT_PENDING is sticky in the evaluator because a decided payment must
     // not be re-dunned while the provider confirms it. But if the provider never
     // calls back at all, the pending attempt eventually expires and nothing else
@@ -54,8 +68,10 @@ export async function runNrmsDunning(now = new Date()) {
     }
     if (template) await notifyOwner(account.ownerId, template, { propertyTitle: account.property.title, unpaidBalance: Number(account.unpaidBalance), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, freezeAt: dunning.freezeAt?.toISOString() ?? null });
     changed += 1;
+    }
+    if (isLastBatch) break;
   }
-  return { accounts: accounts.length, changed };
+  return { accounts: accountsProcessed, changed };
 }
 
 export function startNrmsDunningWorker() {

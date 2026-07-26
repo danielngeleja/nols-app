@@ -144,6 +144,16 @@ function getAuthTokenFromRequest(req: any): string | null {
   return null;
 }
 
+async function revokeCurrentSession(req: any): Promise<void> {
+  const userId = Number(req?.user?.id);
+  const sessionId = String(req?.sessionId || req?.user?.sessionId || "").trim();
+  if (!Number.isInteger(userId) || userId <= 0 || !sessionId) return;
+  await prisma.session.updateMany({
+    where: { id: sessionId, userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
 function authOtpUse(normalizedRole: string | null): "AUTH_LOGIN" | "AUTH_RESET" | "AUTH_SIGNUP" {
   return normalizedRole === "RESET" ? "AUTH_RESET" : normalizedRole ? "AUTH_SIGNUP" : "AUTH_LOGIN";
 }
@@ -1359,6 +1369,7 @@ router.get("/logout", maybeAuth, async (req, res) => {
     console.warn("Failed to audit logout:", auditError);
   }
 
+  await revokeCurrentSession(req).catch(() => {});
   if (token) await invalidateAuthSessionCacheForToken(token).catch(() => {});
   clearAuthCookie(res);
   const next = safeNextPath((req as any)?.query?.next);
@@ -1385,6 +1396,7 @@ router.post("/logout", maybeAuth, async (req, res) => {
     console.warn("Failed to audit logout:", auditError);
   }
   
+  await revokeCurrentSession(req).catch(() => {});
   if (token) await invalidateAuthSessionCacheForToken(token).catch(() => {});
   clearAuthCookie(res);
   return res.json({ ok: true });

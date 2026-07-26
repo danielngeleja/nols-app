@@ -26,28 +26,32 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   const database = url.pathname.replace(/^\/+/, '')
 
   const allowPublicKeyRetrievalParam = url.searchParams.get('allowPublicKeyRetrieval')
-  // Default true — Railway (and most remote MySQL 8/MariaDB) require public-key
-  // retrieval for caching_sha2_password auth. Only disable if explicitly set to false.
-  const allowPublicKeyRetrieval =
-    allowPublicKeyRetrievalParam !== 'false' &&
-    allowPublicKeyRetrievalParam !== '0'
+  // Public-key retrieval weakens an unencrypted authentication handshake, so it
+  // is available only through an explicit DATABASE_URL opt-in.
+  const allowPublicKeyRetrieval = ['1', 'true', 'yes'].includes(
+    String(allowPublicKeyRetrievalParam || '').trim().toLowerCase(),
+  )
 
   // Enable SSL if sslaccept/ssl-mode params are present or if NODE_ENV is production.
   // Aiven MySQL emits URLs with `ssl-mode=REQUIRED`; Prisma examples often use `sslaccept`.
   const sslAccept = url.searchParams.get('sslaccept')
   const sslMode = url.searchParams.get('ssl-mode') || url.searchParams.get('sslmode')
-  const wantsSsl = Boolean(sslAccept || sslMode)
-  const shouldRejectUnauthorized =
-    sslAccept
-      ? sslAccept !== 'accept_invalid_certs'
-      : sslMode
-        ? !['REQUIRED', 'required', 'DISABLED', 'disabled'].includes(sslMode)
-        : false
+  const isProduction = process.env.NODE_ENV === 'production'
+  const normalizedSslMode = String(sslMode || '').trim().toUpperCase()
+  const acceptsInvalidCertificates = String(sslAccept || '').trim().toLowerCase() === 'accept_invalid_certs'
+
+  if (isProduction && (normalizedSslMode === 'DISABLED' || acceptsInvalidCertificates)) {
+    throw new Error('Production DATABASE_URL must use TLS with certificate verification enabled.')
+  }
+
+  const wantsSsl = isProduction || Boolean(sslAccept || sslMode)
+  const ca = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim()
   const ssl = wantsSsl
-    ? { rejectUnauthorized: shouldRejectUnauthorized }
-    : process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : undefined
+    ? {
+        rejectUnauthorized: isProduction || !acceptsInvalidCertificates,
+        ...(ca ? { ca } : {}),
+      }
+    : undefined
 
   return new PrismaMariaDb({
     host: url.hostname,

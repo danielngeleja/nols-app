@@ -5,13 +5,20 @@ const router = Router();
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((v) => typeof v === "string") as string[];
+  return value
+    .filter((v): v is string => typeof v === "string")
+    // Public update media must be references, never embedded data/blob URLs.
+    // This also prevents a handful of records from creating multi-megabyte
+    // anonymous responses.
+    .filter((value) => value.length <= 2_048 && /^(https?:\/\/|\/)/i.test(value))
+    .slice(0, 12);
 }
 
 /** GET /api/public/updates - Get public updates */
 router.get("/", async (_req, res, next) => {
   // Ensure we always return JSON, even on errors - set headers early
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   
   try {
     const rows = await prisma.siteUpdate.findMany({

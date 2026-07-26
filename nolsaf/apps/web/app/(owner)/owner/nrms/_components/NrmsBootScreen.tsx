@@ -30,7 +30,9 @@ export default function NrmsBootScreen({
   const handedOff = useRef(false);
 
   const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     const timers = [

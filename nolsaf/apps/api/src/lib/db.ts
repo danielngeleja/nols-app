@@ -28,23 +28,31 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   const database = url.pathname.replace(/^\/+/, '');
 
   const allowPublicKeyRetrievalParam = url.searchParams.get('allowPublicKeyRetrieval');
-  const allowPublicKeyRetrieval =
-    allowPublicKeyRetrievalParam !== 'false' &&
-    allowPublicKeyRetrievalParam !== '0';
+  // Public-key retrieval is unnecessary over normal verified TLS and can make
+  // an unencrypted authentication handshake vulnerable to a malicious server.
+  // Enable it only when the deployment explicitly opts in.
+  const allowPublicKeyRetrieval = ['1', 'true', 'yes'].includes(
+    String(allowPublicKeyRetrievalParam || '').trim().toLowerCase(),
+  );
 
   const sslAccept = url.searchParams.get('sslaccept');
   const sslMode = url.searchParams.get('ssl-mode') || url.searchParams.get('sslmode');
-  const wantsSsl = Boolean(sslAccept || sslMode);
-  const shouldRejectUnauthorized = sslAccept
-    ? sslAccept !== 'accept_invalid_certs'
-    : sslMode
-      ? !['REQUIRED', 'required', 'DISABLED', 'disabled'].includes(sslMode)
-      : false;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const normalizedSslMode = String(sslMode || '').trim().toUpperCase();
+  const acceptsInvalidCertificates = String(sslAccept || '').trim().toLowerCase() === 'accept_invalid_certs';
+
+  if (isProduction && (normalizedSslMode === 'DISABLED' || acceptsInvalidCertificates)) {
+    throw new Error('Production DATABASE_URL must use TLS with certificate verification enabled.');
+  }
+
+  const wantsSsl = isProduction || Boolean(sslAccept || sslMode);
+  const ca = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim();
   const ssl = wantsSsl
-    ? { rejectUnauthorized: shouldRejectUnauthorized }
-    : process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : undefined;
+    ? {
+        rejectUnauthorized: isProduction || !acceptsInvalidCertificates,
+        ...(ca ? { ca } : {}),
+      }
+    : undefined;
 
   return new PrismaMariaDb({
     host: url.hostname,

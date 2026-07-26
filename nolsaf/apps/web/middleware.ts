@@ -2,6 +2,62 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+function buildContentSecurityPolicy(nonce: string): string {
+  const isProduction = process.env.NODE_ENV === "production";
+  const apiOrigin = String(process.env.API_ORIGIN || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const socketOrigin = String(process.env.NEXT_PUBLIC_SOCKET_URL || "").replace(/\/$/, "");
+  const localConnectSrc = isProduction
+    ? []
+    : ["http://127.0.0.1:4000", "http://localhost:4000", "http://localhost:3001", "ws:"];
+  const connectSrc = [
+    "'self'",
+    "https:",
+    "wss:",
+    "https://api.mapbox.com",
+    "https://events.mapbox.com",
+    apiOrigin,
+    socketOrigin,
+    ...localConnectSrc,
+  ].filter(Boolean);
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    ...(isProduction ? [] : ["'unsafe-eval'"]),
+    "https://static.cloudflareinsights.com",
+    "https://api.mapbox.com",
+    "https://events.mapbox.com",
+  ];
+  const imgSrc = [
+    "'self'",
+    "blob:",
+    "data:",
+    "https:",
+    ...(isProduction ? [] : ["http:"]),
+    "res.cloudinary.com",
+    "img.youtube.com",
+    "https://api.mapbox.com",
+    "https://*.mapbox.com",
+  ];
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(" ")}`,
+    "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
+    `img-src ${imgSrc.join(" ")}`,
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "media-src 'self' blob: data: https:",
+    `connect-src ${connectSrc.join(" ")}`,
+    "frame-ancestors 'self'",
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    ...(isProduction ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+}
+
 // Browser API requests must retain the API's normal CSRF protections.
 // This middleware only allows the Next.js rewrite to proxy the request.
 // It deliberately adds no trusted headers to browser traffic.
@@ -14,6 +70,15 @@ export function middleware(req: NextRequest) {
     req.nextUrl.pathname.startsWith("/webhooks/");
 
   if (isApiProxy) return NextResponse.next();
+
+  // Next reads the nonce from the request CSP and applies it to framework
+  // scripts. The matching response header lets the browser enforce it. A new
+  // nonce per request removes the need for script-src 'unsafe-inline'.
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
+  requestHeaders.set("x-nonce", nonce);
   const url = req.nextUrl.clone();
   const path = url.pathname;
 
@@ -124,7 +189,20 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+  const isCapabilityPage =
+    path.startsWith("/nrms/guest/payment/") ||
+    path.startsWith("/nrms/guest/review/");
+  response.headers.set(
+    "Referrer-Policy",
+    isCapabilityPage ? "no-referrer" : "strict-origin-when-cross-origin",
+  );
+  if (isCapabilityPage) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  }
+  return response;
 }
 
 export const config = {

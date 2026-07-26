@@ -15,12 +15,10 @@
     "@prisma/debug": "7.8.0",
     "@typescript-eslint/eslint-plugin": "8.54.0",
     "@typescript-eslint/parser": "8.54.0",
-    "cliui": "^9.0.1",
     "concurrently": "^9.0.1",
     "eslint": "9.39.2",
     "eslint-plugin-react-hooks": "7.0.1",
-    "snyk": "^1.1300.0",
-    "yargs": "^18.0.0"
+    "snyk": "^1.1300.0"
   },
   "scripts": {
     "postinstall": "prisma generate",
@@ -64,9 +62,6 @@
         "lodash": "4.18.1"
       },
       "diff": "4.0.4",
-      "fast-xml-parser": ">=5.7.0",
-      "@aws-sdk/xml-builder": "3.972.17",
-      "glob": "10.5.0",
       "hono": "^4.12.25",
       "@hono/node-server": "1.19.14",
       "dompurify": "3.4.11",
@@ -74,16 +69,10 @@
       "sanitize-html": "^2.17.4",
       "mailparser": "3.9.3",
       "js-yaml": "4.3.0",
-      "minimatch": ">=10.2.1",
       "jspdf": "4.2.1",
-      "jws": "3.2.3",
       "lodash": "4.18.1",
       "nodemailer": "9.0.1",
       "qs": "^6.15.2",
-      "postcss": "^8.5.12",
-      "next": {
-        "postcss": "^8.5.12"
-      },
       "shell-quote": "^1.8.4",
       "xcode": {
         "uuid": "^11.1.1"
@@ -98,9 +87,6 @@
       "lodash": "4.18.1"
     },
     "diff": "4.0.4",
-    "fast-xml-parser": ">=5.7.0",
-    "@aws-sdk/xml-builder": "3.972.17",
-    "glob": "10.5.0",
     "hono": "^4.12.25",
     "@hono/node-server": "1.19.14",
     "dompurify": "3.4.11",
@@ -109,16 +95,10 @@
     "magicast": "0.5.2",
     "mailparser": "3.9.3",
     "js-yaml": "4.3.0",
-    "minimatch": ">=10.2.1",
     "jspdf": "4.2.1",
-    "jws": "3.2.3",
     "lodash": "4.18.1",
     "nodemailer": "9.0.1",
     "qs": "^6.15.2",
-    "postcss": "^8.5.12",
-    "next": {
-      "postcss": "^8.5.12"
-    },
     "shell-quote": "^1.8.4",
     "xcode": {
       "uuid": "^11.1.1"

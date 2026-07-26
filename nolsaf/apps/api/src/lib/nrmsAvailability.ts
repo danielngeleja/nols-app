@@ -106,10 +106,37 @@ export async function getRoomTypeAvailability(
   end: Date,
   opts?: { excludeReservationId?: number },
 ): Promise<{ capacity: number; consumed: number; available: number }> {
-  const [roomType, consumers, bookings, blocks] = await Promise.all([
-    db.roomType.findFirst({
-      where: { id: roomTypeId, propertyId },
-      select: { name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
+  const result = await getRoomTypesAvailability(
+    db,
+    propertyId,
+    [roomTypeId],
+    start,
+    end,
+    opts,
+  );
+  return result.get(roomTypeId) ?? { capacity: 0, consumed: 0, available: 0 };
+}
+
+/**
+ * Batch availability for public quote and calendar consumers. The previous
+ * per-room-type path repeated the same booking, block, and reservation scans
+ * four times for every room type.
+ */
+export async function getRoomTypesAvailability(
+  db: DbLike,
+  propertyId: number,
+  roomTypeIds: number[],
+  start: Date,
+  end: Date,
+  opts?: { excludeReservationId?: number },
+): Promise<Map<number, { capacity: number; consumed: number; available: number }>> {
+  const uniqueIds = [...new Set(roomTypeIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!uniqueIds.length) return new Map();
+
+  const [roomTypes, consumers, bookings, blocks] = await Promise.all([
+    db.roomType.findMany({
+      where: { id: { in: uniqueIds }, propertyId },
+      select: { id: true, name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
     }),
     getNrmsCapacityConsumers(db, propertyId, start, end, opts),
     db.booking.findMany({
@@ -129,22 +156,30 @@ export async function getRoomTypeAvailability(
       select: { roomCode: true, roomUnitId: true, bedsBlocked: true, roomUnit: { select: { roomTypeId: true } } },
     }),
   ]);
-  if (!roomType) return { capacity: 0, consumed: 0, available: 0 };
-  const matchesType = (code: string | null | undefined) => {
-    const value = String(code ?? "").trim().toLowerCase();
-    const name = roomType.name.trim().toLowerCase();
-    return value === name || value.startsWith(`${name}-`);
-  };
-  const nrmsCount = consumers.filter((row) => row.roomTypeId === roomTypeId).length;
-  const bookingCount = bookings
-    .filter((row: any) => matchesType(row.roomCode))
-    .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.roomsQty ?? 1)), 0);
-  const blockCount = blocks
-    .filter((row: any) => row.roomUnit?.roomTypeId === roomTypeId || matchesType(row.roomCode))
-    .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.bedsBlocked ?? 1)), 0);
-  const capacity = roomType._count.units;
-  const consumed = nrmsCount + bookingCount + blockCount;
-  return { capacity, consumed, available: Math.max(0, capacity - consumed) };
+
+  const result = new Map<number, { capacity: number; consumed: number; available: number }>();
+  for (const roomType of roomTypes) {
+    const matchesType = (code: string | null | undefined) => {
+      const value = String(code ?? "").trim().toLowerCase();
+      const name = roomType.name.trim().toLowerCase();
+      return value === name || value.startsWith(`${name}-`);
+    };
+    const nrmsCount = consumers.filter((row) => row.roomTypeId === roomType.id).length;
+    const bookingCount = bookings
+      .filter((row: any) => matchesType(row.roomCode))
+      .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.roomsQty ?? 1)), 0);
+    const blockCount = blocks
+      .filter((row: any) => row.roomUnit?.roomTypeId === roomType.id || matchesType(row.roomCode))
+      .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.bedsBlocked ?? 1)), 0);
+    const capacity = roomType._count.units;
+    const consumed = nrmsCount + bookingCount + blockCount;
+    result.set(roomType.id, {
+      capacity,
+      consumed,
+      available: Math.max(0, capacity - consumed),
+    });
+  }
+  return result;
 }
 
 /**

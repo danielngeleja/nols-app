@@ -50,7 +50,7 @@ function rewriteInFile(content, rewriteMap) {
   for (const [from, to] of rewriteMap) {
     // Replace only full-quoted specifiers to avoid accidental partial matches.
     out = out
-      .replaceAll(`\"${from}\"`, `\"${to}\"`)
+      .replaceAll(`"${from}"`, `"${to}"`)
       .replaceAll(`'${from}'`, `'${to}'`);
   }
   return out;

@@ -2,12 +2,25 @@ import crypto from "node:crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
-import { getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
+import { getRoomTypeAvailability, getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { REVIEW_RECOVERY_THRESHOLD, resolveReviewCategories, reviewCategoryOptions, sanitiseCategoryRatings } from "../lib/nrmsReviewCategories.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { limitPublicNrmsDirectHold, limitPublicNrmsDirectQuote, limitPublicNrmsGuestCapability } from "../middleware/rateLimit.js";
 
 export const router = Router();
+
+const capabilityResponseHeaders: RequestHandler = (_req, res, next) => {
+  // Capability URLs are bearer credentials. Keep them out of browser/CDN
+  // caches and prevent the full URL leaking in an outbound Referer header.
+  res.set("Cache-Control", "private, no-store, max-age=0");
+  res.set("Pragma", "no-cache");
+  res.set("Referrer-Policy", "no-referrer");
+  res.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  next();
+};
+
+router.use("/payment-requests/:token", capabilityResponseHeaders);
+router.use("/reviews/:token", capabilityResponseHeaders);
 
 // The hold transaction takes the property inventory lock, re-reads availability, upserts the
 // guest profile and writes the reservation, its allocation, its event and the payment request.
@@ -58,10 +71,17 @@ async function directQuote(propertyId: number, input: z.infer<typeof directQuote
       ],
     },
   });
+  const availabilityByRoomType = await getRoomTypesAvailability(
+    prisma,
+    propertyId,
+    roomTypes.map((room) => room.id),
+    checkIn,
+    checkOut,
+  );
   const quotes: DirectRoomQuote[] = [];
   for (const roomType of roomTypes) {
     if (input.adults > roomType.capacityAdults || input.children > roomType.capacityChildren) continue;
-    const availability = await getRoomTypeAvailability(prisma, propertyId, roomType.id, checkIn, checkOut); if (availability.available < 1) continue;
+    const availability = availabilityByRoomType.get(roomType.id) ?? { capacity: 0, consumed: 0, available: 0 }; if (availability.available < 1) continue;
     const plan = roomType.ratePlans[0] ?? await prisma.nrmsRatePlan.findFirst({
       where: { propertyId, roomTypeId: null, status: "ACTIVE", ...(requestedRatePlanId ? { id: requestedRatePlanId } : {}) },
       include: { seasons: { where: { status: "ACTIVE", startDate: { lte: checkOut }, endDate: { gte: checkIn } }, orderBy: { priority: "desc" } } },
@@ -91,10 +111,10 @@ router.post("/direct/:propertyId/hold", limitPublicNrmsDirectHold as RequestHand
     const holdExpiresAt = new Date(Date.now() + 30 * 60_000); const publicToken = crypto.randomBytes(24).toString("base64url"); const externalRef = `DIRECT-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
     const result = await prisma.$transaction(async (tx) => {
       await lockPropertyInventory(tx, propertyId); const capacity = await getRoomTypeAvailability(tx, propertyId, selected.roomType.id, quote.checkIn, quote.checkOut); if (capacity.available < 1) return null;
-      const existingGuest = await tx.guestProfile.findFirst({ where: { propertyId, phone: parsed.data.guest.phone } });
-      const guest = existingGuest
-        ? await tx.guestProfile.update({ where: { id: existingGuest.id }, data: { fullName: parsed.data.guest.fullName, email: parsed.data.guest.email, nationality: parsed.data.guest.nationality } })
-        : await tx.guestProfile.create({ data: { propertyId, ownerId: quote.property.ownerId, fullName: parsed.data.guest.fullName, phone: parsed.data.guest.phone, email: parsed.data.guest.email, nationality: parsed.data.guest.nationality } });
+      // A public booking must not mutate an existing guest merely because the
+      // caller knows that guest's phone number. Keep this unverified submission
+      // isolated; staff can merge verified duplicates through an audited flow.
+      const guest = await tx.guestProfile.create({ data: { propertyId, ownerId: quote.property.ownerId, fullName: parsed.data.guest.fullName, phone: parsed.data.guest.phone, email: parsed.data.guest.email, nationality: parsed.data.guest.nationality } });
       const reservation = await tx.reservation.create({ data: { propertyId, ownerId: quote.property.ownerId, guestProfileId: guest.id, source: "DIRECT", attribution: "OWNER_DIRECT", externalRef, status: "HELD", holdExpiresAt, checkIn: quote.checkIn, checkOut: quote.checkOut, adults: parsed.data.adults, children: parsed.data.children, currency: selected.currency, roomRate: selected.nightly[0]?.rate ?? 0, taxAmount: selected.tax, totalAmount: selected.total, depositAmount: selected.depositAmount, notes: `Guest accepted direct booking terms at ${new Date().toISOString()}.`, allocations: { create: { roomTypeId: selected.roomType.id, startDate: quote.checkIn, endDate: quote.checkOut } }, events: { create: { type: "CREATED", data: { source: "DIRECT", ratePlanId: selected.ratePlan?.id ?? null, termsAccepted: true } } } } });
       const paymentRequest = await tx.nrmsGuestPaymentRequest.create({ data: { reservationId: reservation.id, kind: "DEPOSIT", amount: selected.depositAmount || selected.total, currency: selected.currency, publicToken, dueAt: holdExpiresAt, instructions: quote.property.nrmsGuestPayInstructions ?? undefined } }); return { reservation, paymentRequest };
     }, HOLD_TX_OPTIONS);

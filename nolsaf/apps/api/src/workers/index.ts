@@ -3,7 +3,7 @@ import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
-import { acquireLeaderLock } from "./leaderLock.js";
+import { acquireLeaderLock, setLeadershipLostHandler } from "./leaderLock.js";
 import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
 import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
@@ -53,6 +53,14 @@ export function startBackgroundWorkers(io: SocketServer): void {
     }
     return;
   }
+
+  // Timers and in-flight work cannot safely continue after the lease expires.
+  // Process exit is the fencing boundary; the supervisor restarts a clean web
+  // instance while another process may acquire worker leadership.
+  setLeadershipLostHandler((reason) => {
+    console.error(`[workers] Stopping process after leadership loss: ${reason}`);
+    process.exit(1);
+  });
 
   // This process is allowed to run workers, but only ONE process may actually
   // run them. The distributed lease decides — every instance can attempt this,
