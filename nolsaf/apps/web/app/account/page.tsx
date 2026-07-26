@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import apiClient from "@/lib/apiClient";
-import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart, MapPin, IdCard, Eye, EyeOff, Info } from "lucide-react";
+import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart, MapPin, IdCard, Eye, EyeOff, Info, Loader2, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -38,6 +38,10 @@ export default function AccountIndex() {
   const [referralLink, setReferralLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showIdentityNumber, setShowIdentityNumber] = useState(false);
+  const [emailVerificationOpen, setEmailVerificationOpen] = useState(false);
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [sendingEmailVerification, setSendingEmailVerification] = useState(false);
+  const [confirmingEmailVerification, setConfirmingEmailVerification] = useState(false);
   const [stats, setStats] = useState<{ bookings: number; rides: number; groupStays: number; tourPackages: number; savedProperties: number }>({
     bookings: 0,
     rides: 0,
@@ -237,6 +241,61 @@ export default function AccountIndex() {
       setTimeout(() => setError(null), 5000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const sendEmailVerificationCode = async () => {
+    const email = String(form.email || user?.email || "").trim().toLowerCase();
+    if (!email) {
+      setError("Add an email address before requesting verification.");
+      return;
+    }
+
+    setSendingEmailVerification(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.post("/api/account/contact/request-change", {
+        field: "email",
+        value: email,
+      });
+      setEmailVerificationOpen(true);
+      setEmailVerificationCode("");
+      setSuccess(`A verification code was sent to ${email}.`);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Could not send the verification code.");
+    } finally {
+      setSendingEmailVerification(false);
+    }
+  };
+
+  const confirmEmailVerificationCode = async () => {
+    const otp = emailVerificationCode.trim();
+    if (otp.length < 4) {
+      setError("Enter the verification code from your email.");
+      return;
+    }
+
+    setConfirmingEmailVerification(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await api.post("/api/account/contact/confirm-change", {
+        field: "email",
+        otp,
+      });
+      const verifiedUser = response.data?.data?.user ?? response.data?.user;
+      const verifiedAt = verifiedUser?.emailVerifiedAt ?? new Date().toISOString();
+      setUser((current: any) => ({ ...(current ?? {}), ...(verifiedUser ?? {}), emailVerifiedAt: verifiedAt }));
+      setForm((current: any) => ({ ...(current ?? {}), ...(verifiedUser ?? {}), emailVerifiedAt: verifiedAt }));
+      setEmailVerificationOpen(false);
+      setEmailVerificationCode("");
+      setSuccess("Your email address is now verified.");
+      await loadProfile();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "The verification code could not be confirmed.");
+    } finally {
+      setConfirmingEmailVerification(false);
     }
   };
 
@@ -474,16 +533,94 @@ export default function AccountIndex() {
           </div>
 
           {/* Email — read only */}
-          <div className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5 transition-colors hover:bg-slate-50/80">
-            <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
-              <Mail className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Email Address</div>
-              <div className="mt-0.5 text-sm font-semibold text-slate-900 break-all">
-                {form.email || user?.email || 'Not provided'}
+          <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-slate-50/80">
+              <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
+                <Mail className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
               </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Email Address</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900 break-all">
+                  {form.email || user?.email || 'Not provided'}
+                </div>
+              </div>
+              {(form.email || user?.email) && (
+                form.emailVerifiedAt || user?.emailVerifiedAt ? (
+                  <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-bold text-emerald-700">
+                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                    Verified
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={sendEmailVerificationCode}
+                    disabled={sendingEmailVerification || confirmingEmailVerification}
+                    className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-3 py-2 text-xs font-bold text-[#02665e] transition hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendingEmailVerification ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {sendingEmailVerification ? "Sending…" : emailVerificationOpen ? "Resend code" : "Verify email"}
+                  </button>
+                )
+              )}
             </div>
+
+            {emailVerificationOpen && !(form.emailVerifiedAt || user?.emailVerifiedAt) && (
+              <div className="border-t border-slate-200 bg-white px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">Enter the code from your email</div>
+                    <p className="mb-0 mt-1 text-[11px] leading-5 text-slate-500">
+                      The code expires after five minutes. Check your spam folder if it is not in your inbox.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailVerificationOpen(false);
+                      setEmailVerificationCode("");
+                    }}
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close email verification"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={emailVerificationCode}
+                    onChange={(event) => setEmailVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !confirmingEmailVerification) {
+                        void confirmEmailVerificationCode();
+                      }
+                    }}
+                    placeholder="Verification code"
+                    aria-label="Email verification code"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold tracking-[0.18em] text-slate-900 outline-none transition placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmEmailVerificationCode}
+                    disabled={confirmingEmailVerification || emailVerificationCode.trim().length < 4}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#02665e] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#01534d] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {confirmingEmailVerification ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {confirmingEmailVerification ? "Verifying…" : "Confirm email"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Phone — editable */}

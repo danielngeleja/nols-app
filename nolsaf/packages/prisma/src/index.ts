@@ -29,7 +29,11 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   // Public-key retrieval weakens an unencrypted authentication handshake, so it
   // is available only through an explicit DATABASE_URL opt-in.
   const allowPublicKeyRetrieval = ['1', 'true', 'yes'].includes(
-    String(allowPublicKeyRetrievalParam || '').trim().toLowerCase(),
+    String(
+      allowPublicKeyRetrievalParam
+      || process.env.DB_ALLOW_PUBLIC_KEY_RETRIEVAL
+      || '',
+    ).trim().toLowerCase(),
   )
 
   // Enable SSL if sslaccept/ssl-mode params are present or if NODE_ENV is production.

@@ -32,7 +32,11 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   // an unencrypted authentication handshake vulnerable to a malicious server.
   // Enable it only when the deployment explicitly opts in.
   const allowPublicKeyRetrieval = ['1', 'true', 'yes'].includes(
-    String(allowPublicKeyRetrievalParam || '').trim().toLowerCase(),
+    String(
+      allowPublicKeyRetrievalParam
+      || process.env.DB_ALLOW_PUBLIC_KEY_RETRIEVAL
+      || '',
+    ).trim().toLowerCase(),
   );
 
   const sslAccept = url.searchParams.get('sslaccept');
