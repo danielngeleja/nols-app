@@ -17,7 +17,7 @@ export default function SalesPageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="relative overflow-hidden border border-emerald-100/80 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-5 shadow-[0_16px_45px_-40px_rgba(3,73,61,0.55)] sm:px-6">
+    <header className="relative overflow-hidden rounded-[26px] border border-emerald-100/80 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-5 shadow-[0_16px_45px_-40px_rgba(3,73,61,0.55)] sm:px-6">
       <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-emerald-100/45 blur-2xl" />
       <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3.5">
@@ -41,4 +41,3 @@ export default function SalesPageHeader({
     </header>
   );
 }
-

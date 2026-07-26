@@ -246,15 +246,74 @@ function safePdfText(value: string): string {
     .replace(/—/g, "-");
 }
 
+type SalesContractFonts = { regular: string; bold: string };
+
+const SALES_CONTRACT_SECTION_TITLES = new Set([
+  "Nature of the relationship",
+  "Term",
+  "Territory",
+  "Attribution",
+  "What the Partner earns",
+  "When the Partner earns",
+  "Reversal",
+  "Payment",
+  "Conduct",
+  "Termination",
+  "Governing law and disputes",
+  "Entire agreement",
+  "Notices",
+  "Confidentiality and records",
+  "Responsibility and claims",
+  "Events outside reasonable control",
+  "Assignment and transfer",
+  "Electronic records",
+  "Acceptance",
+]);
+
+const SALES_CONTRACT_METADATA_LABELS = new Set([
+  "Contract ID",
+  "Contract Version",
+  "Agent Code",
+  "Commencement Date",
+  "Expiry Date",
+]);
+
+const SALES_CONTRACT_EXAMPLE_LABELS = new Set([
+  "Booking value",
+  "NoLSAF commission (10%)",
+  "Tax and processing",
+  "Eligible net NoLSAF revenue",
+  "Partner rate",
+  "Partner earning",
+]);
+
+function registerSalesContractFonts(doc: PDFKit.PDFDocument): SalesContractFonts {
+  const regularPath = [
+    process.env.TREBUCHET_MS_REGULAR_PATH,
+    "C:\\Windows\\Fonts\\trebuc.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebuc.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebuc.ttf",
+  ].filter((value): value is string => Boolean(value)).find(existsSync);
+  const boldPath = [
+    process.env.TREBUCHET_MS_BOLD_PATH,
+    "C:\\Windows\\Fonts\\trebucbd.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebucbd.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/trebucbd.ttf",
+  ].filter((value): value is string => Boolean(value)).find(existsSync);
+
+  if (!regularPath || !boldPath) return { regular: "Helvetica", bold: "Helvetica-Bold" };
+  doc.registerFont("Sales-Trebuchet", regularPath);
+  doc.registerFont("Sales-Trebuchet-Bold", boldPath);
+  return { regular: "Sales-Trebuchet", bold: "Sales-Trebuchet-Bold" };
+}
+
 export function generateSalesContractPdf(body: string): Promise<Buffer> {
   return new Promise((resolveBuffer, reject) => {
     const doc = new PDFDocument({
       size: "A4",
-      margins: { top: 48, bottom: 54, left: 52, right: 52 },
+      margins: { top: 52, bottom: 62, left: 52, right: 52 },
       compress: true,
       bufferPages: true,
-      // Fixed document metadata keeps byte generation deterministic. The
-      // legally relevant timestamps are printed in the agreement itself.
       info: {
         Title: "NoLSAF Sales Partner Agreement",
         Author: "NoLSAF",
@@ -263,51 +322,194 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
       },
     });
     const chunks: Buffer[] = [];
+    const fonts = registerSalesContractFonts(doc);
+    const pageWidth = 595.28;
+    const contentWidth = 491.28;
+    const teal = "#073c35";
+    const emerald = "#087f68";
+    const ink = "#172033";
+    const muted = "#667085";
+    const border = "#d9e2e1";
+    const pale = "#eef8f5";
     let inCode = false;
+    let codeRows: Array<{ label: string; value: string }> = [];
+    let metadataRow = 0;
 
     doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     doc.on("end", () => resolveBuffer(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.on("pageAdded", () => {
-      doc.font("Helvetica").fontSize(8).fillColor("#667085");
-      doc.text("NoLSAF Sales Partner Agreement", 52, 24, { align: "right" });
-      doc.fillColor("#111827");
-    });
+    const drawRunningHeader = () => {
+      doc.font(fonts.bold).fontSize(8).fillColor(teal)
+        .text("NoLSAF", 52, 22, { lineBreak: false });
+      doc.font(fonts.regular).fontSize(7.5).fillColor(muted)
+        .text("SALES PARTNER AGREEMENT", 52, 22, { width: contentWidth, align: "right", lineBreak: false });
+      doc.moveTo(52, 39).lineTo(543.28, 39).lineWidth(0.6).strokeColor(border).stroke();
+      doc.y = 53;
+      doc.fillColor(ink);
+    };
+
+    doc.on("pageAdded", drawRunningHeader);
+
+    doc.rect(0, 0, pageWidth, 98).fill(teal);
+    doc.font(fonts.bold).fontSize(22).fillColor("#ffffff")
+      .text("NoLSAF", 52, 25, { lineBreak: false });
+    doc.font(fonts.bold).fontSize(15).fillColor("#ffffff")
+      .text("SALES PARTNER AGREEMENT", 52, 52, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(8).fillColor("#bce8dc")
+      .text("Controlled partner onboarding document", 52, 75, { lineBreak: false });
+    doc.y = 118;
+
+    const ensureSpace = (height: number) => {
+      if (doc.y + height > 775) doc.addPage();
+    };
+
+    const drawMetadataRow = (label: string, value: string) => {
+      ensureSpace(32);
+      const y = doc.y;
+      if (metadataRow % 2 === 0) doc.rect(52, y, contentWidth, 30).fill("#f7faf9");
+      doc.rect(52, y, contentWidth, 30).lineWidth(0.5).strokeColor(border).stroke();
+      doc.moveTo(190, y).lineTo(190, y + 30).strokeColor(border).stroke();
+      doc.font(fonts.bold).fontSize(8).fillColor(muted).text(label.toUpperCase(), 62, y + 10, {
+        width: 118,
+        lineBreak: false,
+      });
+      doc.font(fonts.bold).fontSize(9).fillColor(ink).text(value, 202, y + 9, {
+        width: 328,
+        lineBreak: false,
+        ellipsis: true,
+      });
+      doc.y = y + 30;
+      doc.x = 52;
+      metadataRow += 1;
+    };
+
+    const drawWorkedExample = () => {
+      if (!codeRows.length) return;
+      ensureSpace(34 + codeRows.length * 27);
+      let y = doc.y + 4;
+      doc.roundedRect(52, y, contentWidth, 26, 4).fill(teal);
+      doc.font(fonts.bold).fontSize(8.5).fillColor("#ffffff")
+        .text("WORKED MARKETPLACE EXAMPLE", 62, y + 9, { width: 300, lineBreak: false });
+      doc.text("AMOUNT", 390, y + 9, { width: 140, align: "right", lineBreak: false });
+      y += 26;
+      doc.y = y;
+      for (const [index, row] of codeRows.entries()) {
+        ensureSpace(27);
+        y = doc.y;
+        doc.rect(52, y, contentWidth, 27).fill(index % 2 ? "#f7faf9" : "#ffffff");
+        doc.rect(52, y, contentWidth, 27).lineWidth(0.5).strokeColor(border).stroke();
+        doc.moveTo(360, y).lineTo(360, y + 27).strokeColor(border).stroke();
+        doc.font(fonts.regular).fontSize(8.5).fillColor(ink)
+          .text(row.label, 62, y + 9, { width: 286, lineBreak: false });
+        doc.font(fonts.bold).fontSize(8.5).fillColor(ink)
+          .text(row.value, 372, y + 9, { width: 158, align: "right", lineBreak: false });
+        doc.y = y + 27;
+      }
+      doc.moveDown(0.45);
+      doc.x = 52;
+      codeRows = [];
+    };
 
     for (const rawLine of body.split("\n")) {
       const line = safePdfText(rawLine);
       if (line.trim() === "```") {
+        if (inCode) drawWorkedExample();
         inCode = !inCode;
         continue;
       }
       if (inCode) {
-        doc.font("Courier").fontSize(8.5).fillColor("#111827").text(line || " ", { lineGap: 1 });
+        const match = line.trim().match(/^(.+?):\s{2,}(.+)$/);
+        if (match) {
+          codeRows.push({
+            label: match[1].trim(),
+            value: match[2].replace(/\s+/g, " ").trim(),
+          });
+        }
         continue;
       }
-      if (line.startsWith("# ")) {
-        doc.moveDown(0.2).font("Helvetica-Bold").fontSize(17).fillColor("#02665e").text(line.slice(2), { align: "center" });
-        doc.moveDown(0.5);
-      } else if (line.startsWith("## ")) {
-        doc.moveDown(0.55).font("Helvetica-Bold").fontSize(12).fillColor("#02665e").text(line.slice(3));
-        doc.moveDown(0.15);
-      } else if (!line.trim()) {
-        doc.moveDown(0.35);
+      const workedExample = line.trim().match(/^(.+?):\s{2,}(.+)$/);
+      if (workedExample && SALES_CONTRACT_EXAMPLE_LABELS.has(workedExample[1].trim())) {
+        codeRows.push({
+          label: workedExample[1].trim(),
+          value: workedExample[2].replace(/\s+/g, " ").trim(),
+        });
+        continue;
+      }
+      if (codeRows.length) drawWorkedExample();
+
+      if (line.startsWith("# ") || line.trim() === "NoLSAF SALES PARTNER AGREEMENT") {
+        continue;
+      }
+      const metadata =
+        rawLine.match(/^\*\*(.+?):\*\*\s*(.+)$/) ||
+        rawLine.match(/^([^:]+):\s*(.+)$/);
+      if (metadata && metadataRow < 5 && SALES_CONTRACT_METADATA_LABELS.has(metadata[1].trim())) {
+        drawMetadataRow(metadata[1], safePdfText(metadata[2]));
       } else {
-        doc.font("Helvetica").fontSize(9.5).fillColor("#111827").text(line, { lineGap: 2, align: "justify" });
+        const plainSection = line.match(/^(\d+)\.\s+(.+)$/);
+        const isPlainSection = Boolean(
+          plainSection && SALES_CONTRACT_SECTION_TITLES.has(plainSection[2].trim()),
+        );
+        if (line.startsWith("## ") || isPlainSection) {
+        ensureSpace(42);
+        doc.moveDown(0.35);
+        const y = doc.y;
+        doc.roundedRect(52, y, contentWidth, 23, 4).fill(pale);
+        const sectionTitle = line.startsWith("## ") ? line.slice(3) : line;
+        doc.font(fonts.bold).fontSize(10.2).fillColor(teal).text(sectionTitle, 62, y + 6, {
+          width: contentWidth - 20,
+          lineBreak: false,
+        });
+        doc.y = y + 28;
+        doc.x = 52;
+        } else if (line.trim() === "Partner" || line.trim() === "For NoLSAF") {
+          ensureSpace(30);
+          doc.moveDown(0.35);
+          doc.font(fonts.bold).fontSize(10).fillColor(teal).text(line.trim(), {
+            width: contentWidth,
+            underline: false,
+          });
+          doc.moveTo(52, doc.y + 2).lineTo(543.28, doc.y + 2).lineWidth(0.5).strokeColor(border).stroke();
+          doc.moveDown(0.35);
+        } else if (!line.trim()) {
+        doc.moveDown(0.15);
+        } else {
+        const clause = line.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+        if (clause) {
+          ensureSpace(24);
+          const y = doc.y;
+          doc.font(fonts.bold).fontSize(8.5).fillColor(emerald)
+            .text(clause[1], 52, y, { width: 36, lineBreak: false });
+          doc.font(fonts.regular).fontSize(8.9).fillColor(ink)
+            .text(clause[2], 94, y, { width: 449, lineGap: 1.5, align: "justify" });
+          doc.moveDown(0.15);
+          doc.x = 52;
+        } else {
+          doc.x = 52;
+          doc.font(fonts.regular).fontSize(8.9).fillColor(ink)
+            .text(line, { width: contentWidth, lineGap: 1.5, align: "justify" });
+          doc.moveDown(0.12);
+        }
+        }
       }
     }
+    if (codeRows.length) drawWorkedExample();
 
     const pages = doc.bufferedPageRange();
     for (let index = pages.start; index < pages.start + pages.count; index += 1) {
       doc.switchToPage(index);
-      doc.font("Helvetica").fontSize(7.5).fillColor("#667085");
+      const originalBottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
+      doc.moveTo(52, 804).lineTo(543.28, 804).lineWidth(0.5).strokeColor(border).stroke();
+      doc.font(fonts.regular).fontSize(7.2).fillColor(muted);
       doc.text(
-        `Generated by NoLSAF - page ${index - pages.start + 1} of ${pages.count}. Verify the acceptance reference against the platform record.`,
+        `NoLSAF controlled agreement · Page ${index - pages.start + 1} of ${pages.count} · Verify the acceptance reference against the platform record.`,
         52,
-        812,
+        814,
         { width: 491, align: "center", lineBreak: false },
       );
+      doc.page.margins.bottom = originalBottomMargin;
     }
     doc.end();
   });

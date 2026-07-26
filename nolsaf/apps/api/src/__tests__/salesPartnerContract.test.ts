@@ -48,6 +48,9 @@ describe("sales partner contract evidence", () => {
     expect(rendered).toContain("Partner earning:              TSh    17,600");
     expect(rendered).toContain("20% of the eligible net commission");
     expect(rendered).toContain("NSC-2026-00042");
+    expect(rendered).not.toMatch(/(^|\n)#{1,6}\s/);
+    expect(rendered).not.toContain("**");
+    expect(rendered).not.toContain("```");
   });
 
   it("changes the terms hash when a commercial term changes", () => {
