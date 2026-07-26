@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { getCheckoutSettlement } from "./nrmsFolio.js";
 import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
+import { accrueNrmsSalesCommission } from "./salesCommission.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -219,6 +220,11 @@ export async function reconcileNrmsPayment(tx: any, input: { token: string; prov
   const balance = Math.max(0, Number(account.unpaidBalance) - input.amount);
   const dunning = evaluateNrmsDunning({ balance, reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, trialEndsAt: account.trialEndsAt });
   await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt, reminderNotifiedAt: balance < Number(account.policy.reminderAmount) ? null : undefined, warningNotifiedAt: balance < Number(account.policy.warningAmount) ? null : undefined, freezeNotifiedAt: balance < Number(account.unpaidLimit) ? null : undefined } });
+  await accrueNrmsSalesCommission(tx, token.statementId).catch((error: any) => {
+    // Payment settlement remains authoritative while the migration is rolling
+    // out. The idempotent reconciliation pass can fill a deferred commission.
+    console.warn("[sales commission] NRMS accrual deferred:", error?.message || String(error));
+  });
   return payment;
 }
 

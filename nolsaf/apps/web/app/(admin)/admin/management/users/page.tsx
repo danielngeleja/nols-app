@@ -37,8 +37,14 @@ const ROLE_CARDS: Array<{ role: string; title: string; subtitle: string }> = [
   { role: "CUSTOMER", title: "Customers", subtitle: "Bookings and payments" },
   { role: "OWNER", title: "Owners", subtitle: "Property partners" },
   { role: "DRIVER", title: "Drivers", subtitle: "Transport operations" },
-  { role: "AGENT", title: "Agents", subtitle: "Sales & support" },
+  // The persisted role remains AGENT for backward compatibility, but this
+  // account type represents tour-company operators in the admin UI.
+  { role: "AGENT", title: "Operators", subtitle: "Tour companies" },
 ];
+
+function roleLabel(role: string): string {
+  return String(role || "").toUpperCase() === "AGENT" ? "OPERATOR" : String(role || "").toUpperCase();
+}
 
 export default function Page() {
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -458,7 +464,7 @@ export default function Page() {
                       {u.phone || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={getRoleBadgeClass(u.role)}>{u.role}</span>
+                      <span className={getRoleBadgeClass(u.role)}>{roleLabel(u.role)}</span>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {u.twoFactorEnabled ? (
@@ -736,7 +742,7 @@ export default function Page() {
                         }}
                       >
                         {editing.role !== "ADMIN" && editing.role !== "OWNER" && editing.role !== "CUSTOMER" ? (
-                          <option value={editing.role}>{editing.role}</option>
+                          <option value={editing.role}>{roleLabel(editing.role)}</option>
                         ) : null}
                         <option value="ADMIN">Admin</option>
                         <option value="OWNER">Owner</option>
@@ -746,7 +752,7 @@ export default function Page() {
                       <div className="mt-2 text-xs text-slate-600">
                         Role is pinned and can’t be edited here.
                         {editingOriginalRole ? (
-                          <span className="ml-1">Original: <span className="font-semibold text-slate-700">{editingOriginalRole}</span></span>
+                          <span className="ml-1">Original: <span className="font-semibold text-slate-700">{roleLabel(editingOriginalRole)}</span></span>
                         ) : null}
                       </div>
                       {editing.role === "ADMIN" ? (

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import apiClient from "@/lib/apiClient";
-import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart } from "lucide-react";
+import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart, MapPin, IdCard, Eye, EyeOff, Info } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -37,6 +37,7 @@ export default function AccountIndex() {
   const [success, setSuccess] = useState<string | null>(null);
   const [referralLink, setReferralLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showIdentityNumber, setShowIdentityNumber] = useState(false);
   const [stats, setStats] = useState<{ bookings: number; rides: number; groupStays: number; tourPackages: number; savedProperties: number }>({
     bookings: 0,
     rides: 0,
@@ -197,9 +198,12 @@ export default function AccountIndex() {
     try {
       const payload: any = {
         fullName: form.fullName || form.name,
-        phone: form.phone,
-        avatarUrl: form.avatarUrl,
+        address: String(form.address || "").trim(),
+        nin: String(form.nin || "").trim(),
       };
+      if (typeof form.avatarUrl === "string" && form.avatarUrl.trim()) {
+        payload.avatarUrl = form.avatarUrl.trim();
+      }
 
       // Handle file uploads if any
       const formData = new FormData();
@@ -215,11 +219,11 @@ export default function AccountIndex() {
 
       // Use FormData if files exist, otherwise use JSON
       if (avatarFileInputRef.current?.files?.[0]) {
-        await api.put('/account/profile', formData, {
+        await api.put('/api/account/profile', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } else {
-        await api.put('/account/profile', payload);
+        await api.put('/api/account/profile', payload);
       }
 
       setSuccess('Profile saved successfully!');
@@ -483,20 +487,70 @@ export default function AccountIndex() {
           </div>
 
           {/* Phone — editable */}
-          <label className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5 cursor-text transition-all duration-200 hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+          <div className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5">
             <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
               <Phone className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Phone</div>
+              <div className="mt-0.5 text-sm font-semibold text-slate-900">{form.phone || "Not provided"}</div>
+            </div>
+            <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0">VERIFIED CONTACT</span>
+          </div>
+
+          <div className="pt-3">
+            <div className="flex items-start gap-3 border-l-2 border-[#02665e] px-3 py-1">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" />
+              <div>
+                <h3 className="m-0 text-xs font-bold text-slate-900">Additional information</h3>
+                <p className="mb-0 mt-1 text-[11px] leading-5 text-slate-500">
+                  You can add or update these optional profile details at any time.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-4 rounded-xl border border-slate-200 px-4 py-3 transition-all hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+            <MapPin className="h-5 w-5 shrink-0 text-[#02665e]" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Residential or business address</div>
               <input
-                className="mt-0.5 text-sm font-semibold text-slate-900 bg-transparent border-none outline-none w-full placeholder:text-slate-300 focus:text-[#02665e] transition-colors"
-                value={form.phone || ''}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                placeholder="Add phone number"
+                className="mt-0.5 w-full border-none bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
+                value={form.address || ""}
+                onChange={(event) => setForm({ ...form, address: event.target.value })}
+                maxLength={500}
+                autoComplete="street-address"
+                placeholder="Add your address"
               />
             </div>
-            <span className="text-[10px] text-teal-500 font-semibold flex-shrink-0">EDIT</span>
+          </label>
+
+          <label className="flex items-center gap-4 rounded-xl border border-slate-200 px-4 py-3 transition-all hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+            <IdCard className="h-5 w-5 shrink-0 text-[#02665e]" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">National ID or passport number</div>
+              <input
+                type={showIdentityNumber ? "text" : "password"}
+                className="mt-0.5 w-full border-none bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
+                value={form.nin || ""}
+                onChange={(event) => setForm({ ...form, nin: event.target.value })}
+                maxLength={50}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Add an ID or passport number"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                setShowIdentityNumber((current) => !current);
+              }}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-[#02665e]"
+              aria-label={showIdentityNumber ? "Hide identity number" : "Show identity number"}
+            >
+              {showIdentityNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
           </label>
         </div>
 

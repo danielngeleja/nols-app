@@ -91,6 +91,18 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Driver Payout Claim Submitted",
         body: `${data.driverName ? `${data.driverName} ` : "A driver "}submitted a payout claim for trip${data.transportBookingId ? ` #${data.transportBookingId}` : ""}. Review and approve it in the driver payouts dashboard.`
       },
+      sales_partner_contract_signed: {
+        title: "Sales partner agreement awaiting activation",
+        body: `${data.agentCode || "A sales partner"} signed agreement ${data.contractNumber || ""}. Review and countersign it before activating workspace access.`
+      },
+        sales_partner_conversion_requested: {
+        title: "Sales lead conversion awaiting review",
+        body: `${data.propertyName || "A sales prospect"} was submitted for ${data.proposedProduct || "product"} conversion review${data.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? " and has a possible duplicate warning" : ""}.`
+        },
+        sales_partner_payout_requested: {
+          title: "Sales partner payout awaiting review",
+          body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
+        },
     };
 
     const templateData = notificationTemplates[template] || {
@@ -404,6 +416,71 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Payout Claim Rejected",
         body: `Your payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
       },
+      // Sales Partner Workspace. See docs/SALES_PARTNER_WORKSPACE.md section 13.
+      sales_partner_contract_sent: {
+        title: "Your sales partner agreement is ready",
+        body: `Agreement ${data.contractNumber || ""} is ready to review and sign. Your agent code is ${data.agentCode || ""}. The workspace opens once the agreement is signed and activated.`
+      },
+      sales_partner_contract_signed: {
+        title: "Agreement signed",
+        body: `We have received your signed agreement ${data.contractNumber || ""}. Your sales workspace opens once an administrator activates it.`
+      },
+      sales_partner_workspace_activated: {
+        title: "Sales workspace activated",
+        body: `Your sales partner workspace is now open. Agreement ${data.contractNumber || ""} runs until ${data.expiresAt ? new Date(data.expiresAt).toDateString() : "its expiry date"}.`
+      },
+      sales_partner_workspace_suspended: {
+        title: "Sales workspace suspended",
+        body: `Your sales workspace has been suspended. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_contract_expiring: {
+        title: "Your agreement is expiring soon",
+        body: `Agreement ${data.contractNumber || ""} expires in ${data.daysRemaining ?? "a few"} days. Earnings stop accruing once it lapses, so arrange a renewal before then.`
+      },
+      sales_partner_attribution_approved: {
+        title: "Property approved to your portfolio",
+        body: `${data.propertyName || "A property"} has been verified as yours for ${data.productType || "the agreed product"}. It will now generate earnings for you.`
+      },
+      sales_partner_attribution_verified: {
+        title: "Property attribution verified",
+        body: `${data.propertyName || "A property"} has been verified for ${data.productType || "the agreed product"}. Earnings begin only after the attribution is activated.`
+      },
+      sales_partner_conversion_returned: {
+        title: "Conversion needs more work",
+        body: `Your conversion request was returned to ${String(data.status || "the pipeline").replace(/_/g, " ").toLowerCase()}. ${data.reason ? `Reason: ${data.reason}` : "Review the lead before submitting it again."}`
+      },
+      sales_partner_attribution_revoked: {
+        title: "Property attribution revoked",
+        body: `${data.propertyName || "A property"} is no longer attributed to you for ${data.productType || "the product"}. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_attribution_reassigned_away: {
+        title: "Property attribution reassigned",
+        body: `${data.propertyName || "A property"} was reassigned for ${data.productType || "the product"}. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_commission_available: {
+        title: "Earnings ready to withdraw",
+        body: `${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} is now available to withdraw from your sales workspace.`
+      },
+      sales_partner_commission_reversed: {
+        title: "Earnings entry reversed",
+        body: `A ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} earnings entry was reversed. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_payout_approved: {
+        title: "Payout approved",
+        body: `Your payout ${data.referenceNumber || ""} was approved for ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} and is awaiting processing.`
+      },
+      sales_partner_payout_paid: {
+        title: "Payout sent",
+        body: `Your payout ${data.referenceNumber || ""} of ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} has been sent${data.paymentReference ? ` (ref: ${data.paymentReference})` : ""}.`
+      },
+      sales_partner_payout_rejected: {
+        title: "Payout request rejected",
+        body: `Your payout request ${data.referenceNumber || ""} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."} The earnings have been returned to your available balance.`
+      },
+      sales_partner_lead_followup: {
+        title: "Lead follow up due",
+        body: `${data.propertyName || "A lead"} is due for follow up${data.nextFollowUpAt ? ` on ${new Date(data.nextFollowUpAt).toDateString()}` : ""}.`
+      },
       cancellation_status_update: {
         title: "Cancellation Claim Update",
         body: `Your cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} is now "${data.status || "UPDATED"}". ${data.decisionNote ? `Note: ${data.decisionNote}` : ""}`
@@ -437,11 +514,13 @@ export async function notifyUser(userId: number, template: string, data: any) {
         meta: data,
         type: template.startsWith("agent_")
           ? "agent"
-          : template.startsWith("cancellation")
-            ? "cancellation"
-            : template === "document_concern"
-              ? "booking"
-              : "system"
+          : template.startsWith("sales_partner_")
+            ? "sales"
+            : template.startsWith("cancellation")
+              ? "cancellation"
+              : template === "document_concern"
+                ? "booking"
+                : "system"
       }
     });
 

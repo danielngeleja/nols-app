@@ -1,6 +1,6 @@
 # Sales Partner Workspace: Onboarding, Attribution, Earnings, Payouts
 
-Status: DRAFT FOR APPROVAL. Nothing is built. No schema change has been made and no migration exists. This document is the agreed scope; it is edited here first and only then implemented.
+Status: APPROVED, PHASE 1 IN PROGRESS. Schema and entitlement layer are written and typecheck clean. No migration has been generated and none will be: Daniel applies schema changes himself. Progress is logged in section 19. This document is the agreed scope; it is edited here first and only then implemented.
 Owner: Daniel
 Written: 2026-07-26
 Revised: 2026-07-26. Trial length corrected to policy data rather than a fixed 45 days (moving to 15). Partner economics added at 7.4. Levels rebased on revenue generated rather than property count.
@@ -100,7 +100,7 @@ Manage leads, properties, earnings, contracts and payouts.
 
 ## 5. Data model
 
-Eleven new tables, all `Int` ids, all `@@map`ped, all status fields as `VarChar`.
+Ten new tables plus two columns on the existing `SystemSetting`. All `Int` ids, all `@@map`ped, all status fields as `VarChar`. What is deliberately **not** added is listed in 5.2.
 
 | Model | Table | Purpose | Key constraint |
 |-------|-------|---------|----------------|
@@ -114,7 +114,6 @@ Eleven new tables, all `Int` ids, all `@@map`ped, all status fields as `VarChar`
 | `SalesPayoutRequest` | `sales_payout_request` | Withdrawal request and its review trail | unique referenceNumber |
 | `SalesPayoutItem` | `sales_payout_item` | Locks one commission to one payout | **unique commissionId** |
 | `SalesMaterial` | `sales_material` | Admin-managed sales enablement library | indexed (category, isPublished) |
-| `SalesPartnerLevelRule` | `sales_partner_level_rule` | Configurable tier thresholds | unique level |
 
 The three bolded constraints are the whole integrity story and are worth stating plainly:
 
@@ -132,6 +131,20 @@ Each is enforced by the database, not by application code, because application c
 - Source pointers (`sourceStatementId`, `sourceInvoiceId`, `sourceBookingId`) are plain indexed `Int` columns rather than foreign keys. Those rows are never hard deleted, and this avoids adding relation fields to `Invoice`, `Booking` and `NrmsBillingStatement`, three of the most heavily used models in the schema. Idempotency is guaranteed by `sourceKey`, not by the FK.
 - `SalesPayoutRequest` snapshots the payout destination at request time, so editing the profile mid-flight cannot redirect a payment.
 - Reversals never edit the original row. The original moves to `REVERSED` and a linked negative row records the offset, so the ledger stays append-only and reconcilable.
+
+### 5.2 Reuse decisions: what is deliberately not added
+
+The original brief specified several structures that already exist here in another form. Adding them would have created a second source of truth for something the platform already answers. Each was checked against the codebase before being dropped.
+
+| Brief asked for | Already exists as | Decision |
+|-----------------|-------------------|----------|
+| `SalesAuditLog` table | `AuditLog` (actor, action, entity, entityId, beforeJson, afterJson, ip, ua) with the helper at `apps/api/src/lib/audit.ts` | Reuse `AuditLog`. Sales actions use the `SALES_*` action prefix. A parallel audit table would split the trail in two and break the existing admin audit viewer |
+| A notifications table | `Notification` (userId, title, body, read state) | Reuse. Partner notifications are ordinary user notifications |
+| `SalesPartnerLevelRule` table | `apps/api/src/lib/agentLevel.ts`, the established pattern: tiers are a TypeScript spec constant declared as single source of truth, imported by both the dashboard and the admin panel so the two can never disagree | Drop the table. Add `apps/api/src/lib/salesPartnerLevel.ts` on the same pattern. Levels are display only and the thresholds are a starting guess, so a deploy to retune them is acceptable and is how every other tier model here already works |
+| A contract template table | Templates are files: markdown plus a `.fields.json` dictionary in `docs/` (see `NoLSAF_Operator_Mutual_NDA.md`), validated through `contractTemplateFieldDictionarySchema` and `admin.contractTemplates.ts` | Reuse. The sales contract template becomes `docs/NoLSAF_Sales_Partner_Agreement.md` plus its field dictionary. `SalesPartnerContract.contractFileUrl` holds only the rendered signed PDF |
+| Rates configured per deployment | `SystemSetting` singleton already holds `commissionPercent`, `driverCommissionPercent`, `agentCommissionPercent` and their currencies | Add two columns, `salesNrmsCommissionPercent` (default 14.00) and `salesMarketplaceRevenuePercent` (default 20.00), rather than a new table. These are the defaults used when issuing a contract. The contract still snapshots them, so changing the default never alters a signed agreement |
+
+Two structures were checked and kept as new because no equivalent exists: `SalesMaterial` (the only content library is `SiteUpdate`, which is public marketing updates) and the payout pair `SalesPayoutRequest` and `SalesPayoutItem`. The payout pair intentionally mirrors the shape of the existing `ReferralEarning` and `ReferralWithdrawal` models used for drivers, so the two payout systems read alike, but they stay separate tables because the driver models carry driver-specific columns.
 
 ## 6. Lifecycle: lead to payout
 
@@ -501,7 +514,7 @@ Audit rows via the existing `AuditLog` on: partner promotion, contract creation,
 
 ## 14. Levels
 
-Rule based and configurable through `SalesPartnerLevelRule`, not hard coded.
+Declared in `apps/api/src/lib/salesPartnerLevel.ts` as a single-source-of-truth spec constant, following the existing `agentLevel.ts` pattern. No table, per 5.2.
 
 **Levels are based on revenue generated for NoLSAF, not on property count.** This is a deliberate reversal of the original brief and follows directly from 7.4: three large hotels are worth more than twenty guest houses, so a count-based ladder would reward exactly the wrong behaviour. The measure is trailing twelve month eligible net revenue produced by the partner's active attributions, across both streams.
 
@@ -513,7 +526,7 @@ Rule based and configurable through `SalesPartnerLevelRule`, not hard coded.
 | SENIOR | TSh 15,000,000 generated, plus admin approval |
 | REGIONAL_LEAD | Explicit admin promotion |
 
-`SalesPartnerLevelRule.minimumProperties` is retained in the schema as a secondary floor, defaulted to 0 and normally unused, so a count condition can be reintroduced later without a migration.
+The spec carries a `minProperties` field defaulted to 0 and normally unused, so a count condition can be reintroduced later without reshaping anything.
 
 Levels affect visibility and progress display only. They do not change commission rates, because rates live on the contract. Senior and regional lead require admin approval.
 
@@ -598,4 +611,172 @@ These change the build and I am not deciding them alone.
 
 ## 18. Migration note
 
-No migration has been written and no schema change has been made. Per standing instruction, the migration SQL will be prepared as a file and reviewed before anything touches a database. Development currently points at the Railway database, so `.env` must be confirmed before any Prisma command runs.
+The reviewed additive migration now lives at `prisma/migrations/20260726111500_add_sales_partner_workspace/migration.sql`. It was produced by an offline schema-to-schema diff from the last committed Prisma schema to the sales workspace schema. It creates the ten sales tables, their indexes and foreign keys, and adds the two sales default-rate columns to `SystemSetting`. It contains no drop, rename, data rewrite or destructive alteration.
+
+**The migration has not been applied to any database.** Deploy it to Aiven staging first, validate the full promotion/signature/activation flow there, and only then deploy the same committed migration to AWS production. Do not use `db push` for either environment.
+
+## 19. Build log
+
+### Step 1: Schema. Complete.
+
+`prisma/schema.prisma`, validates clean.
+
+Ten models added: `UserWorkspaceAccess`, `SalesPartnerProfile`, `SalesPartnerContract`, `SalesLead`, `SalesLeadActivity`, `PropertySalesAttribution`, `SalesCommission`, `SalesPayoutRequest`, `SalesPayoutItem`, `SalesMaterial`.
+
+Two columns added to the existing `SystemSetting` singleton: `salesNrmsCommissionPercent` (default 14.00) and `salesMarketplaceRevenuePercent` (default 20.00), as the defaults used when issuing a contract.
+
+Back-relations added to `User` (eleven, all named) and `Property` (three). No other existing model was touched, and no existing column was altered, so the migration is purely additive.
+
+`SalesPartnerLevelRule` was dropped per 5.2 in favour of a spec constant.
+
+### Step 2: Shared value sets and level model. Complete.
+
+`apps/api/src/lib/salesPartner.ts` is the single source of truth for every status set the schema stores as `VarChar`, so Zod, the route handlers and the UI cannot drift. It also holds `commissionSourceKey()`, which every commission writer must go through, since the unique index on `sourceKey` is the whole idempotency guarantee; `buildAgentCode()`; `maskPayoutAccount()`; and `isContractEarning()`, shared by the access gate and both commission engines so access and earning can never disagree on what active means.
+
+`apps/api/src/lib/salesPartnerLevel.ts` follows the existing `agentLevel.ts` pattern. Revenue-based per section 14, with `minProperties` present but defaulted to 0. An admin-granted level always outranks the earned one, in both directions, so a deliberate promotion is never undone by a quiet quarter and an admin-only level is never reached automatically.
+
+### Step 3: Entitlement middleware. Complete.
+
+`apps/api/src/middleware/salesWorkspace.ts` provides `requireWorkspaceAccess('SALES')`, `requireActivePartnerContract`, `loadSalesPartnerContext()`, `hasWorkspaceAccess()`, `listWorkspaces()` and `partnerIdFor()`.
+
+Three decisions worth recording. Admins pass the workspace gate without an entitlement row so they can administer and test, but they receive no partner context unless they genuinely have a profile, which stops partner-scoped queries from silently returning every partner's data. `partnerIdFor()` reads only from the session, never from a route or query parameter, which is the control that prevents cross-partner access. And the contract gate re-reads the contract rather than trusting `UserWorkspaceAccess.expiresAt`, which is only a fast path for the common check.
+
+Typechecks clean under `tsc --noEmit`.
+
+### Step 4: Workspace selection API and admin promotion. Complete.
+
+`apps/api/src/routes/sales.workspace.ts`
+- `GET /api/me/workspaces` returns the workspaces the account may enter plus `requiresSelection`, so the selector is only shown when there is genuinely a choice.
+- `POST /api/me/workspace/select` validates the entitlement server side before setting the cookie, so the cookie can never hold a value the server would refuse.
+- `GET /api/sales/me` returns identity, contract standing with days remaining, and level progress. Level is computed from actual ledger revenue over the trailing twelve months, never from a stored total.
+
+`apps/api/src/routes/admin.sales.partners.ts`
+- `GET /admin/sales/users/search` finds an existing user and reports whether they already hold a profile.
+- `POST /admin/sales/partners/promote` runs the whole promotion in one `$transaction`: verify the user exists and is not suspended, reject a duplicate profile, mint the agent code, create the profile, upsert `PENDING` workspace access, and create the first contract in `SENT`. Audit and notification fire after the transaction commits, so a failed notification can never roll back a promotion.
+- `GET /admin/sales/partners` and `/partners/:id`, both paginated and masking the payout account.
+
+`apps/api/src/routes/sales.ts` registers all of it, wired into `routes/index.ts`.
+
+**The selected workspace is a UI preference, not an authorization token.** It is stored in a client-readable cookie (mirroring the existing `role` cookie so Next.js middleware can route on it). Tampering with it changes which shell renders and nothing else, because every protected route independently re-checks the entitlement.
+
+Promotion grants nothing on its own. Workspace access is created `PENDING` and the response says so explicitly. Entry requires signature plus admin activation, which is step 5.
+
+Two existing files were extended rather than duplicated, consistent with 5.2:
+
+| File | Change | Why |
+|------|--------|-----|
+| `lib/audit.ts` | `audit()` gained an optional sixth parameter `entityId` | It previously always wrote `entityId: null`, and the only helper that set it, `auditLog()`, is typed to `entity: "PROPERTY"` so it cannot serve sales. Additive and backward compatible; no call site changed |
+| `lib/notifications.ts` | Ten `sales_partner_*` templates registered, plus a `sales` notification type | Unknown templates fall back to "You have an update", which is useless copy. Registering them is what reusing the `Notification` model actually requires |
+
+Typechecks clean under `tsc --noEmit`.
+
+### Step 5: Workspace selector UI and sales shell. Complete.
+
+`apps/web/app/workspace/select/page.tsx` shows the chooser only when `requiresSelection` is true. A single-workspace account is redirected straight through, so nothing changes for the ordinary user who makes up almost all traffic.
+
+`apps/web/components/SalesShell.tsx` is the shell: dark green sidebar on `brand-800`, the nine-item navigation from 9.1, the header block from 9.2 (avatar, name, level badge, status pill, agent code, region, contract expiry with days remaining), and the workspace switcher. It also exports `statusTone()`, the status colour mapping from 9.7, so every later page colours states identically instead of each one inventing its own.
+
+`apps/web/app/(sales)/sales/page.tsx` renders active properties, revenue generated and the contract rates, plus level progress. It deliberately shows only figures the API can currently prove. The KPI row and earnings charts wait for phase 3, because a dashboard of zeros teaches a partner to distrust the numbers.
+
+`apps/web/middleware.ts` gains a `/sales` and `/workspace/select` guard that requires a token and nothing more. This is the same reasoning as the existing `/owner/nrms` guard: there is no SALES role, the role cookie says nothing about the entitlement, and authorization lives in `UserWorkspaceAccess` where the API enforces it on every request. The shell only asks that somebody is signed in.
+
+A 403 from `/api/sales/me` renders a named reason and a route back to NoLSAF rather than a blank screen, so a partner whose contract has lapsed is told what happened.
+
+Both apps typecheck clean under `tsc --noEmit`.
+
+**Not verified in a browser.** The pages require authentication, and the tables they read do not exist until the migration is applied. Per the standing convention, authenticated routes are not driven through the browser tooling; verification is by code parity and typecheck. The first real check is after the migration lands.
+
+### Phase 1 status
+
+Foundation complete: schema, entitlement middleware, workspace selection, admin promotion, selector UI, shell, agreement template and the contract acceptance/activation bridge required to open the workspace.
+
+Not yet built:
+
+1. Seed data for development.
+2. The remaining phase 2 partner operations: leads, property portfolio, attribution views and learning materials.
+
+**Carry into phase 2:** the web app disables Tailwind preflight, so there is no global `border-box`. Any sales page with `w-full` inputs must scope `#page-id * { box-sizing: border-box }` or the fields will overflow their container. The lead form is the first place this will bite.
+
+### Step 6: Sales partner agreement template. Complete.
+
+`docs/NoLSAF_Sales_Partner_Agreement.md` is the agreement a partner signs. Clause 5.3 includes the marketplace calculation from section 7.2 verbatim and states plainly that the 20% share applies to eligible net NoLSAF commission, not to the booking value.
+
+`docs/NoLSAF_Sales_Partner_Agreement.fields.json` declares every template placeholder, its source, editability and validation rules. It parses under `contractTemplateFieldDictionarySchema`; all placeholders used by the Markdown are declared exactly once, and the dictionary contains no unused placeholders. Prisma-backed sources use the real `User`, `SalesPartnerProfile`, `SalesPartnerContract` and `NrmsUsageChargePolicy` field names. Fixed programme terms point to their dictionary defaults, shared sales constants point to `salesPartner.ts`, and the NoLSAF countersignatory uses the same `CONTRACT_NOLSAF_SIGNATORY_*` environment settings as the existing contract workflows.
+
+### Step 7: Contract acceptance and activation. Complete.
+
+`apps/api/src/routes/sales.contracts.ts` implements the partner-owned contract API from section 10: current, history, detail, viewed, accept and PDF download. These are the only sales routes available before workspace activation. They require authentication and resolve the `SalesPartnerProfile` from the session user; no partner id from a route, query or request body is trusted. Contract acceptance requires all three explicit confirmations, a typed legal-name match, and the exact terms hash returned when the agreement was viewed. A compare-and-set update on `SENT|VIEWED` makes concurrent/replayed signatures harmless.
+
+Acceptance evidence binds the SHA-256 of the rendered terms to contract id and number, partner id, user id, legal name, server timestamp, proxy-normalized IP address and truncated user agent. The accepted terms hash, exact signed Markdown, rendered field snapshot and document digests are persisted on `SalesPartnerContract`; an executed document is never reconstructed from a later-edited user profile.
+
+`POST /admin/sales/contracts/:id/activate` is the NoLSAF countersignature. It accepts only `SIGNED`, in-term agreements. The final PDF is generated deterministically and content-addressed. When `SALES_CONTRACT_S3_BUCKET` (or the existing `AWS_S3_BUCKET`/`S3_BUCKET`) is configured, it is uploaded under `private/sales-contracts/` with S3 server-side encryption and downloads use a five-minute presigned URL. Without object storage, the authenticated owner-only route streams the deterministically regenerated PDF from the immutable database snapshot. Contract status, partner status and workspace entitlement become `ACTIVE` in one transaction; storage failure never activates access.
+
+The workspace selector now exposes a `PENDING` sales entitlement as “Agreement signature required” and sends it only to `/sales/contract`. This does not broaden authorization: the selected-workspace cookie remains a navigation preference, all normal sales APIs still require `ACTIVE`, and the onboarding contract API still scopes ownership from the authenticated session.
+
+`apps/web/app/(sales)/sales/contract/page.tsx` renders the read-only rates, dates and territory, complete agreement, timeline, PDF download, explicit acceptance controls, evidence reference and the waiting-for-countersignature state. Executed agreements render inside the full sales shell; pending agreements use a restricted onboarding frame.
+
+Schema additions to `SalesPartnerContract` are additive: `renderedContractBody`, `renderedFieldSnapshot`, `acceptedTermsHash`, `renderedBodyHash` and `pdfSha256`. They are included in the migration recorded in section 18; that migration remains unapplied.
+
+Focused contract-evidence tests cover placeholder resolution, the worked marketplace example, commercial-term hash changes, acceptance-metadata binding, legal-name normalization and deterministic PDF generation.
+
+### Step 8: Partner lead pipeline. Complete.
+
+`apps/api/src/routes/sales.leads.ts` implements the four lead endpoints from section 10: paginated/filterable list and create, owned detail and patch, append-only activity creation, and conversion request. Every route requires authenticated `ACTIVE` sales workspace access plus an earning contract. Every lookup combines the route id with `salesPartnerId` derived from the session, and responses never expose another partner's candidate id or contact data.
+
+Lead registration opens the 60-day protection window. Calls, emails, meetings, received documents and sent proposals extend it from the activity time; notes and follow-up reminders do not. Conversion requests are compare-and-set, append a status event, notify administrators, and never create a property attribution or commission. Only an administrator can verify that later phase.
+
+The original `SalesLead` draft could index display-form phone/email/name values but could not match formatting variants or retain the registration/tax identifiers and review evidence required by section 6.1. Because the migration is still unapplied, the model and the same migration now include canonical indexed matching fields, registration and tax numbers, `duplicateReviewStatus`, and internal `duplicateEvidence`. The API preserves the partner's original display text while matching deterministic canonical values.
+
+Possible duplicates are warnings, not rejections. One strong identifier (phone, email, registration or tax number), or property name plus location, flags the saved lead for admin review. A generic name match alone stays below the warning threshold. Strong identifiers are queried separately from names so a flood of common hotel names cannot hide an exact match, and a post-commit scan closes the ordinary check-then-insert race. Partner responses include only matched field names and ids of their own matching leads.
+
+`apps/web/app/(sales)/sales/leads/` provides the responsive list/table, status tabs, server-side search and follow-up filters, registration form, duplicate warning, owned detail/editor, pipeline status changes, activity timeline, protection date, conversion confirmation and mobile layouts. All lead form controls scope `border-box` because Tailwind preflight is disabled.
+
+`salesLeadMatching.test.ts` names the canonical phone, email, identifier, name/location threshold and strongest-match ordering cases. Full database ownership integration remains part of the staging test pass after the migration is applied.
+
+### Step 9: Admin conversion and attribution boundary. Complete.
+
+`apps/api/src/routes/admin.sales.attributions.ts` implements the administrator conversion queue, existing-property lookup, conversion approval/return, attribution listing, activation, revocation and reassignment. Approval binds the lead to an existing `Property` and creates `VERIFIED` rows only. It never starts earnings. Activation is a separate transition to `ACTIVE`, and activation, revocation and reassignment require the existing admin finance OTP grant.
+
+Property/product exclusivity is checked before creation and remains enforced by the database unique constraint. All state changes use compare-and-set conditions, and the audit row is written inside the same transaction as the protected change. A concurrent claim therefore either commits once or returns a conflict without a partial lead conversion. Reassignment updates the unique property/product row in place; the previous and replacement partner states are preserved in the immutable `AuditLog`, while commission rows already snapshot their own partner and contract.
+
+`apps/web/app/(admin)/admin/sales/page.tsx` exposes the review queue and attribution controls. Duplicate warnings must receive an explicit administrator decision, property search shows existing product ownership before approval, and verified rows remain visibly non-earning until an administrator activates them.
+
+Focused lifecycle tests cover combined-product expansion, current-contract selection, activation/revocation/reassignment boundaries and commission start dates. Database concurrency and authenticated browser checks remain part of the Aiven staging pass after the unapplied migration lands.
+
+### Step 10: Partner property portfolio and learning materials. Complete.
+
+`apps/api/src/routes/sales.properties.ts` implements the four partner property routes from section 10. Every property lookup requires an attribution owned by `salesPartnerId` derived from the authenticated session; a property id from the URL never grants access. The list provides product/status filters and recorded earnings, while detail exposes only that partner's attribution, originating lead, contract, commission rows and activity. `AuditLog` bigint ids are converted to strings before JSON serialization.
+
+`apps/web/app/(sales)/sales/properties/` provides the responsive attributed-property list and detail views, including independent NRMS/marketplace states, earning windows, lead origin, calculation inputs and activity history. Revoked and expired records remain visible when selected so portfolio history is not silently erased.
+
+`apps/api/src/routes/sales.materials.ts` adds published-only partner reads and an admin create/edit/publish workflow. Resource links must be valid HTTPS URLs, partner routes require the active workspace and earning contract, admin writes block impersonation, and material audit rows commit in the same transaction as their changes. `apps/web/app/(sales)/sales/materials/page.tsx` is the partner library; `apps/web/app/(admin)/admin/sales/materials/page.tsx` manages drafts, ordering and publication.
+
+Phase 2 partner operations are now structurally complete. The next build phase is Phase 3 revenue: commission accrual engines, earnings ledger views, balances and payout requests. The sales migration remains unapplied until the Aiven staging migration pass.
+
+### Step 11: Phase 3 revenue ledger and payout requests. Complete.
+
+`apps/api/src/lib/salesCommission.ts` is the single commission writer for both revenue streams. `NRMS_STATEMENT:<id>` and `INVOICE:<id>` source keys make provider replays and concurrent callbacks idempotent at the database boundary. Eligibility requires an ACTIVE product-specific attribution, an open attribution window and the same live contract bound to that attribution. Rates come only from that contract snapshot.
+
+NRMS accrual runs when `reconcileNrmsPayment` settles the statement, including the finance-OTP manual reconciliation path. Marketplace accrual is connected to webhook collection, the admin invoice payment flow and the admin revenue payment flow. Marketplace `grossAmount` is `Invoice.commissionAmount`, never booking value. Missing source commission basis causes a recorded skip rather than inventing a percentage or paying against `Invoice.total`.
+
+Tax deductions use data already known by the source: NRMS uses the configured inclusive-tax component and marketplace uses the invoice revenue convention. Provider processing fees are currently not persisted on either source, so the ledger snapshots zero and leaves the earning in `VALIDATING`; it does not fabricate a fee. The open VAT and validation-window programme decisions remain explicit configuration decisions before production payout approval.
+
+`apps/api/src/workers/salesCommissionLifecycle.ts` provides the recovery boundary. The leader-only worker reconciles recent paid statements and invoices that missed their synchronous hook, relying on source-key uniqueness, and moves expired `VALIDATING` rows to `ELIGIBLE` with a transactional audit entry. It never moves a commission to `AVAILABLE`; finance approval remains an administrator action in Phase 4.
+
+`apps/api/src/routes/sales.earnings.ts` provides summary, paginated ledger, detail and chart endpoints, all scoped by session-derived `salesPartnerId`. Withdrawable balance excludes `AVAILABLE` rows already locked to a payout. `apps/web/app/(sales)/sales/earnings/page.tsx` shows the balance states and the mandatory calculation breakdown for every row.
+
+`apps/api/src/routes/sales.payouts.ts` creates and lists partner payout requests and permits cancellation only before review. The destination is snapshotted from the partner profile inside the transaction. Only `AVAILABLE` rows with no payout item can be selected, all items must share one currency, and the unique `SalesPayoutItem.commissionId` constraint prevents concurrent double claims. Cancelling releases those item locks while the payout amount and immutable audit evidence remain. `apps/web/app/(sales)/sales/payouts/page.tsx` exposes the available balance, masked destination, request history and unreviewed cancellation.
+
+Focused verification for this build: API and web typechecks pass; the four commission arithmetic tests pass, including the agreement's NRMS inclusive-tax example and marketplace calculation. The full regression suite remains deferred during active construction, per the current build instruction. No migration was applied.
+
+### Step 12: Phase 4 finance administration and payout settlement. Complete.
+
+`apps/api/src/routes/admin.sales.finance.ts` provides the administrator commission and payout queues. Every write blocks impersonation, requires the existing finance OTP grant, uses a compare-and-set state transition and writes its audit row in the same database transaction as the financial change. An `ELIGIBLE` commission can be approved into `AVAILABLE`; a locked commission cannot be reversed while its payout is active. Reversing a paid commission retains the original row and creates a uniquely keyed negative `MANUAL_ADJUSTMENT`, so recovered money is visible in the ledger rather than deleted from history.
+
+Manual adjustments are administrator-only ledger entries tied to an active partner contract. Optional property links must belong to that partner, zero-value adjustments are rejected, and both positive credits and negative recovery offsets carry the required audit reason. A payout request must still have a positive net credit balance before it can be submitted.
+
+Payout review follows one forward path: `REQUESTED|UNDER_REVIEW -> APPROVED -> PROCESSING -> PAID`, with rejection available only before approval. Approval snapshots deductions and requires the net amount to remain positive. Rejection releases the unique commission locks. Marking a payout paid atomically moves every locked `AVAILABLE` commission to `PAID`, stores the external payment reference, records the receipt route and commits the audit evidence.
+
+`apps/api/src/routes/sales.payouts.ts` now serves the generated PDF receipt only to the authenticated owning partner and only for a completed payout. It includes the immutable payout reference, masked destination, ledger-item count and settlement amounts, and is returned with private no-store caching. `apps/web/app/(admin)/admin/sales/finance/page.tsx` exposes the commission queue, payout state actions and manual adjustments in the existing admin shell; the existing API interceptor opens the finance verification panel when an OTP grant is required.
+
+Focused verification for this build: API and web typechecks pass; eight targeted commission arithmetic and finance lifecycle tests pass. The full regression suite and authenticated database integration remain deferred until the additive migration is applied to Aiven staging. The migration remains unapplied.

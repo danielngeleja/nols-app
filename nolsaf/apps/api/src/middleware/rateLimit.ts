@@ -503,6 +503,104 @@ export const limitPublicQrOrderStatus = rateLimit({
   keyGenerator: (req) => `qr-status:${req.ip || req.socket.remoteAddress || "unknown"}`,
 });
 
+export const limitSalesContractRead = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many contract requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-contract-read:${userId}`
+      : `sales-contract-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesContractAccept = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many contract acceptance attempts. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-contract-accept:${userId}`
+      : `sales-contract-accept:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesLeadRead = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many lead requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-lead-read:${userId}`
+      : `sales-lead-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesLeadWrite = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many lead changes. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-lead-write:${userId}`
+      : `sales-lead-write:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesAdminRead = rateLimit({
+  windowMs: 60_000,
+  limit: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sales administration requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-admin-read:${userId}`
+      : `sales-admin-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesAdminWrite = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sales administration changes. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-admin-write:${userId}`
+      : `sales-admin-write:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitSalesPropertyRead = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sales property requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-property-read:${userId}`
+      : `sales-property-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
 // Public QR post-service feedback (one submission per completed order)
 export const limitPublicQrOrderFeedback = rateLimit({
   windowMs: 10 * 60_000,

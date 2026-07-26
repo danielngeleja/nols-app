@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "npm --prefix ../../packages/prisma run build",
+    "predev": "npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
     "dev": "tsx watch src/index.ts",
-    "prebuild": "npm --prefix ../../packages/prisma run build",
+    "prebuild": "npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
     "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
     "start": "node dist/src/index.js",
     "lint": "eslint .",

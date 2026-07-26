@@ -11,6 +11,7 @@ import {
   resolveCommissionAmount,
   resolveOwnerPayoutAmount,
 } from "../lib/accommodationPayout.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 
 export const router = Router();
@@ -328,6 +329,9 @@ router.post("/:id/pay", async (req, res) => {
         receiptNumber: inv.receiptNumber ?? receiptNumberFor(id),
         paymentRef: paymentRef ?? inv.paymentRef ?? undefined,
       },
+    });
+    await accrueMarketplaceSalesCommission(tx, paid.id).catch((error: any) => {
+      console.warn("[sales commission] Admin invoice accrual deferred:", error?.message || String(error));
     });
 
     // Attempt to create a payout record for this invoice if the Payout model/table exists.

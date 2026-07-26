@@ -119,9 +119,10 @@ export default function PublicProfile() {
     try {
       const payload: any = {
         fullName: form.fullName || form.name,
-        phone: form.phone,
-        avatarUrl: form.avatarUrl,
       };
+      if (typeof form.avatarUrl === "string" && form.avatarUrl.trim()) {
+        payload.avatarUrl = form.avatarUrl.trim();
+      }
 
       // Handle file uploads if any
       const formData = new FormData();
@@ -137,11 +138,11 @@ export default function PublicProfile() {
 
       // Use FormData if files exist, otherwise use JSON
       if (avatarFileInputRef.current?.files?.[0]) {
-        await api.put('/account/profile', formData, {
+        await api.put('/api/account/profile', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } else {
-        await api.put('/account/profile', payload);
+        await api.put('/api/account/profile', payload);
       }
 
       setSuccess('Profile saved successfully!');
@@ -305,10 +306,11 @@ export default function PublicProfile() {
                 Phone
               </span>
               <input
-                className="border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-[#02665e]/50 focus:outline-none focus:ring-1 focus:ring-[#02665e]/20 hover:border-slate-300 transition-all duration-300 ease-out"
+                readOnly
+                className="cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
                 value={form.phone || ''}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 placeholder="+255700000001"
+                title="Phone changes require contact verification"
               />
             </label>
           </div>

@@ -170,6 +170,13 @@ const nrmsDetails: Item[] = [
   { href: "/admin/nrms/health", label: "System Health", Icon: Activity },
 ];
 
+const salesDetails: Item[] = [
+  { href: "/admin/sales/partners", label: "Sales partners", Icon: Users },
+  { href: "/admin/sales", label: "Conversion review", Icon: ShieldCheck },
+  { href: "/admin/sales/finance", label: "Finance", Icon: Wallet },
+  { href: "/admin/sales/materials", label: "Learning materials", Icon: FileText },
+];
+
 const userDetails: Item[] = [
   { href: "/admin/users", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/users/list", label: "All Users", Icon: Users },
@@ -214,11 +221,13 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
   const [nrmsOpen, setNrmsOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
 
   const activeSection = (() => {
     if (!path) return null;
     if (path === "/admin/home") return "Home";
     if (path.startsWith("/admin/nrms")) return "NRMS";
+    if (path.startsWith("/admin/sales")) return "Sales";
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
@@ -283,6 +292,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     const isAgents = path.startsWith("/admin/agents");
     const isCancellations = path.startsWith("/admin/cancellations");
     const isNrms = path.startsWith("/admin/nrms");
+    const isSales = path.startsWith("/admin/sales");
     // Owner (admin) mini-sidebar: open when on /admin (owners dashboard) or admin child routes
     // but NOT on /admin/home (which is the admin , not owners)
     const isAdminChildRoute = (path === "/admin" ||
@@ -311,6 +321,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // NRMS mini-sidebar
     if (isNrms) setNrmsOpen(true);
     else setNrmsOpen(false);
+    setSalesOpen(isSales);
     // Visual chevrons for Users
     setUsersOpen(isUsers);
   }, [path]);
@@ -568,6 +579,32 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Sales partners */}
+        {collapsed ? (
+          <Item href="/admin/sales" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="Sales partners"
+              Icon={Briefcase}
+              isOpen={salesOpen}
+              onClick={() => setSalesOpen((value) => !value)}
+              collapsed={collapsed}
+              active={activeSection === "Sales"}
+            />
+            {salesOpen && (
+              <div className="mt-2">
+                <SectionHeader title="Sales partners" active={activeSection === "Sales"} />
+                <div className="mt-2 space-y-2">
+                  {salesDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
+                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

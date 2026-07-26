@@ -12,6 +12,7 @@ import { decrypt } from "../lib/crypto.js";
 import { sendMail } from "../lib/mailer.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 
 export const router = Router();
 router.use(requireAuth as express.RequestHandler, requireRole("ADMIN") as express.RequestHandler);
@@ -657,7 +658,6 @@ router.post("/invoices/:id/verify", async (req, res) => {
       data: { status: "VERIFIED", verifiedBy: adminId, verifiedAt: new Date(), notes },
       include: { booking: true },
     });
-
     await createAdminAuditSafe({
       adminId,
       targetUserId: before?.ownerId ?? updated.ownerId,
@@ -960,6 +960,9 @@ router.post("/invoices/:id/mark-paid", async (req, res) => {
         receiptQrPng: png,
       },
       include: { booking: true },
+    });
+    await prisma.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, updated.id)).catch((error: any) => {
+      console.warn("[sales commission] Admin revenue accrual deferred:", error?.message || String(error));
     });
 
     await createAdminAuditSafe({

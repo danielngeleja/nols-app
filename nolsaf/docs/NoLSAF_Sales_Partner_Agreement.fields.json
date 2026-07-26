@@ -1,0 +1,310 @@
+{
+  "template": {
+    "name": "NoLSAF_Sales_Partner_Agreement",
+    "version": "1.0.0",
+    "templateFile": "docs/NoLSAF_Sales_Partner_Agreement.md",
+    "description": "Field dictionary for the sales partner agreement: system auto-fill, pre-send validation and post-sign artifacts."
+  },
+  "generationRules": {
+    "lockFieldsAtSigning": true,
+    "allowManualOverrideBeforeSend": [
+      "TERRITORY",
+      "EXCLUSIVITY_TERMS",
+      "NRMS_COMMISSION_RATE",
+      "MARKETPLACE_REVENUE_RATE",
+      "NOTICE_DAYS",
+      "TERMINATION_PENDING_TREATMENT",
+      "GOVERNING_LAW",
+      "ARBITRATION_LOCATION"
+    ],
+    "effectiveDateStrategy": "contract_starts_at_unless_activated_later",
+    "voidAndReissueOnLegalIdentityChange": true
+  },
+  "fields": [
+    {
+      "placeholder": "CONTRACT_ID",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerContract.contractNumber",
+      "example": "NSC-2026-00042",
+      "editable": false,
+      "validation": { "regex": "^NSC-\\d{4}-\\d{5}$", "unique": true }
+    },
+    {
+      "placeholder": "CONTRACT_VERSION",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerContract.contractVersion",
+      "example": "1.0.0",
+      "editable": false,
+      "validation": { "regex": "^\\d+\\.\\d+\\.\\d+$" }
+    },
+    {
+      "placeholder": "AGENT_CODE",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerProfile.agentCode",
+      "example": "NSA-DAR-0042",
+      "editable": false,
+      "validation": { "regex": "^NSA-[A-Z]{3}-\\d{4}$" }
+    },
+    {
+      "placeholder": "PARTNER_LEGAL_NAME",
+      "required": true,
+      "dataType": "string",
+      "source": "user.fullName",
+      "fallbackSource": "user.name",
+      "example": "Amon Francis Mwakalinga",
+      "editable": false,
+      "validation": { "minLength": 3, "maxLength": 160 }
+    },
+    {
+      "placeholder": "PARTNER_ADDRESS",
+      "required": true,
+      "dataType": "string",
+      "source": "user.address",
+      "fallbackSource": "salesPartnerProfile.territory",
+      "example": "Kinondoni, Dar es Salaam",
+      "editable": true,
+      "validation": { "minLength": 3, "maxLength": 200 }
+    },
+    {
+      "placeholder": "PARTNER_ID_NUMBER",
+      "required": true,
+      "dataType": "string",
+      "source": "user.nin",
+      "example": "19900101-12345-00001-01",
+      "editable": true,
+      "validation": { "minLength": 5, "maxLength": 60 }
+    },
+    {
+      "placeholder": "NOLSAF_JURISDICTION",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "the United Republic of Tanzania",
+      "example": "the United Republic of Tanzania",
+      "editable": false
+    },
+    {
+      "placeholder": "NOLSAF_ADDRESS",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "Dar es Salaam, Tanzania",
+      "example": "Dar es Salaam, Tanzania",
+      "editable": false,
+      "validation": { "minLength": 3, "maxLength": 200 }
+    },
+    {
+      "placeholder": "STARTS_AT",
+      "required": true,
+      "dataType": "date",
+      "source": "salesPartnerContract.startsAt",
+      "example": "2026-08-01",
+      "editable": false,
+      "validation": { "format": "YYYY-MM-DD" }
+    },
+    {
+      "placeholder": "EXPIRES_AT",
+      "required": true,
+      "dataType": "date",
+      "source": "salesPartnerContract.expiresAt",
+      "example": "2027-07-31",
+      "editable": false,
+      "validation": { "format": "YYYY-MM-DD" }
+    },
+    {
+      "placeholder": "TERM_DAYS",
+      "required": true,
+      "dataType": "integer",
+      "source": "computed.termDays",
+      "computedRule": "days_between(STARTS_AT, EXPIRES_AT)",
+      "default": 365,
+      "editable": false,
+      "validation": { "min": 30, "max": 1095 }
+    },
+    {
+      "placeholder": "TERRITORY",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerContract.territory",
+      "fallbackSource": "salesPartnerProfile.region",
+      "example": "Dar es Salaam and Coast",
+      "editable": true,
+      "validation": { "minLength": 2, "maxLength": 200 }
+    },
+    {
+      "placeholder": "EXCLUSIVITY_TERMS",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "None. This territory is non-exclusive.",
+      "example": "None. This territory is non-exclusive.",
+      "editable": true,
+      "validation": { "maxLength": 300 }
+    },
+    {
+      "placeholder": "NRMS_COMMISSION_RATE",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerContract.nrmsCommissionRate",
+      "example": "14",
+      "editable": true,
+      "validation": { "regex": "^\\d{1,3}(\\.\\d{1,2})?$" }
+    },
+    {
+      "placeholder": "MARKETPLACE_REVENUE_RATE",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerContract.marketplaceRevenueRate",
+      "example": "20",
+      "editable": true,
+      "validation": { "regex": "^\\d{1,3}(\\.\\d{1,2})?$" }
+    },
+    {
+      "placeholder": "TRIAL_DAYS",
+      "required": true,
+      "dataType": "integer",
+      "source": "nrmsUsageChargePolicy.trialDays",
+      "example": "15",
+      "editable": false,
+      "validation": { "min": 0, "max": 365 }
+    },
+    {
+      "placeholder": "LEAD_PROTECTION_DAYS",
+      "required": true,
+      "dataType": "integer",
+      "source": "salesPartnerConstants.LEAD_PROTECTION_DAYS",
+      "default": 60,
+      "editable": false,
+      "validation": { "min": 7, "max": 365 }
+    },
+    {
+      "placeholder": "MIN_PAYOUT_AMOUNT",
+      "required": true,
+      "dataType": "string",
+      "source": "salesPartnerConstants.MIN_PAYOUT_AMOUNT",
+      "default": "TSh 50,000",
+      "example": "TSh 50,000",
+      "editable": true,
+      "validation": { "maxLength": 40 }
+    },
+    {
+      "placeholder": "TERMINATION_PENDING_TREATMENT",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "is paid once that period has run, provided the underlying revenue is not reversed",
+      "example": "is paid once that period has run, provided the underlying revenue is not reversed",
+      "editable": true,
+      "validation": { "maxLength": 300 }
+    },
+    {
+      "placeholder": "NOTICE_DAYS",
+      "required": true,
+      "dataType": "integer",
+      "source": "field.default",
+      "default": 30,
+      "editable": true,
+      "validation": { "min": 7, "max": 180 }
+    },
+    {
+      "placeholder": "GOVERNING_LAW",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "the United Republic of Tanzania",
+      "example": "the United Republic of Tanzania",
+      "editable": true
+    },
+    {
+      "placeholder": "ARBITRATION_LOCATION",
+      "required": true,
+      "dataType": "string",
+      "source": "field.default",
+      "default": "Dar es Salaam, Tanzania",
+      "example": "Dar es Salaam, Tanzania",
+      "editable": true
+    },
+    {
+      "placeholder": "SIGNED_AT",
+      "required": false,
+      "dataType": "datetime",
+      "source": "salesPartnerContract.signedAt",
+      "example": "2026-07-28T09:14:00Z",
+      "editable": false
+    },
+    {
+      "placeholder": "ACCEPTANCE_HASH",
+      "required": false,
+      "dataType": "string",
+      "source": "salesPartnerContract.acceptanceHash",
+      "example": "9f2c1ab4e7d3...",
+      "editable": false,
+      "validation": { "minLength": 64, "maxLength": 128 }
+    },
+    {
+      "placeholder": "ACTIVATED_AT",
+      "required": false,
+      "dataType": "datetime",
+      "source": "salesPartnerContract.activatedAt",
+      "example": "2026-07-28T10:00:00Z",
+      "editable": false
+    },
+    {
+      "placeholder": "NOLSAF_SIGNATORY_NAME",
+      "required": false,
+      "dataType": "string",
+      "source": "process.env.CONTRACT_NOLSAF_SIGNATORY_NAME",
+      "example": "Daniel Mussa Ngeleja",
+      "editable": true,
+      "validation": { "maxLength": 160 }
+    },
+    {
+      "placeholder": "NOLSAF_SIGNATORY_TITLE",
+      "required": false,
+      "dataType": "string",
+      "source": "process.env.CONTRACT_NOLSAF_SIGNATORY_TITLE",
+      "default": "Director",
+      "example": "Director",
+      "editable": true,
+      "validation": { "maxLength": 120 }
+    }
+  ],
+  "preSendValidation": {
+    "requiredFieldsMustBeResolved": true,
+    "blockOnMissingLegalIdentity": [
+      "PARTNER_LEGAL_NAME",
+      "PARTNER_ADDRESS",
+      "PARTNER_ID_NUMBER",
+      "NOLSAF_ADDRESS"
+    ],
+    "blockOnMissingCommercialTerms": [
+      "NRMS_COMMISSION_RATE",
+      "MARKETPLACE_REVENUE_RATE",
+      "STARTS_AT",
+      "EXPIRES_AT",
+      "TERRITORY",
+      "MIN_PAYOUT_AMOUNT"
+    ],
+    "blockOnMissingNoticeData": [
+      "NOTICE_DAYS",
+      "GOVERNING_LAW",
+      "ARBITRATION_LOCATION",
+      "TERMINATION_PENDING_TREATMENT"
+    ]
+  },
+  "postSignArtifacts": {
+    "generateImmutablePdf": true,
+    "storePdfHashSha256": true,
+    "storeRenderedFieldSnapshot": true,
+    "captureAuditMetadata": [
+      "acceptedIpAddress",
+      "acceptedUserAgent",
+      "acceptedName",
+      "signedAt",
+      "acceptanceHash"
+    ]
+  }
+}

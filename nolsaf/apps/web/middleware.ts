@@ -146,6 +146,21 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  if (path.startsWith("/sales") || path === "/workspace/select") {
+    // Sales partners are ordinary users: there is no SALES role and the role
+    // cookie says nothing about the entitlement. Authorization lives in
+    // UserWorkspaceAccess and is enforced by the API on every request, exactly
+    // as /owner/nrms does for staff memberships. The shell only requires that
+    // somebody is signed in.
+    if (!token) {
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
+      return NextResponse.redirect(url);
+    }
+  }
+
   // Customer account pages should require auth (like Group Stays).
   // Allow auth routes under /account/* to remain public.
   if (path.startsWith("/account")) {

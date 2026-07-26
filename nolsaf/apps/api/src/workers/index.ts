@@ -18,6 +18,7 @@ import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingCo
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
 import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
+import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -92,6 +93,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();
     startNrmsGuestAutomationWorker();
+    startSalesCommissionLifecycleWorker();
     startChannelOperationsWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
       startBookingComReservationSyncWorker();

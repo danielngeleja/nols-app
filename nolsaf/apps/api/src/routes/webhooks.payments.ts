@@ -30,6 +30,7 @@ import { safeEq } from "../lib/signature.js";
 import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
 import { markNrmsPaymentFailed, reconcileNrmsPayment } from "../lib/nrmsBilling.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 
 const router = Router();
 
@@ -381,6 +382,9 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
       receiptQrPng: png,
     },
     include: { booking: true },
+  });
+  await prisma.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, updated.id)).catch((error: any) => {
+    console.warn("[sales commission] Marketplace accrual deferred:", error?.message || String(error));
   });
 
   // A public booking is only confirmed after payment succeeds, and the check-in

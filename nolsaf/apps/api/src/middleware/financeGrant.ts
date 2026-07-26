@@ -47,4 +47,17 @@ export async function requireFinanceGrant(req: Request, res: Response, next: Nex
   return next();
 }
 
+/**
+ * General admin finance re-authentication. Sales attribution activation,
+ * revocation and reassignment affect future earnings but are not NRMS-only
+ * operations, so they must not inherit the separate NRMS operator role gate.
+ */
+export async function requireAdminFinanceGrant(req: Request, res: Response, next: NextFunction) {
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Admin only" });
+  if (!(await hasFinanceGrant(req))) {
+    return res.status(403).json({ error: "OTP required", require2fa: true });
+  }
+  return next();
+}
+
 export { hasFinanceGrant } from "../lib/financeGrantStore.js";
