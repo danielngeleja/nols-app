@@ -128,6 +128,46 @@ function SalesShellContentSkeleton() {
   );
 }
 
+function SalesOperationalFooter({ contract }: { contract: SalesMe['contract'] | null }) {
+  const hasContract = Boolean(contract);
+  const healthy = contract?.daysRemaining && contract.daysRemaining > 0;
+  const statusLabel = hasContract ? (healthy ? "Agreement healthy" : "Agreement expired") : "No contract";
+  const statusDot = hasContract ? (healthy ? "bg-emerald-500" : "bg-rose-500") : "bg-amber-400";
+  const statusHelp = hasContract
+    ? healthy
+      ? `${contract.daysRemaining} days remaining`
+      : "Please review your agreement"
+    : "Open the contract page to get started";
+
+  return (
+    <footer className="mx-4 mb-4 rounded-2xl border border-white/10 bg-[#0c433d] px-4 py-3 text-xs text-emerald-100 shadow-sm lg:mx-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/sales/contract"
+          className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:bg-white/5 hover:no-underline"
+        >
+          <FileSignature className="h-4 w-4" />
+          Contract
+        </Link>
+
+        <span className="inline-flex items-center gap-2 rounded-full bg-white/5 px-2.5 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-100">
+          <span className={`h-2.5 w-2.5 rounded-full ${statusDot}`} />
+          {statusLabel}
+        </span>
+
+        <Link
+          href="/sales/support"
+          className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:bg-white/5 hover:no-underline"
+        >
+          <LifeBuoy className="h-4 w-4" />
+          Help
+        </Link>
+      </div>
+      <p className="mt-3 text-[11px] text-emerald-200">{statusHelp}</p>
+    </footer>
+  );
+}
+
 export default function SalesShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -263,16 +303,19 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           </button>
         </nav>
         {contract ? (
-          <div className="mx-4 mt-auto hidden border-t border-white/10 py-4 lg:block">
-            <div className="m-0 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/55">
-              <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-100" />
-              <span>Agreement standing</span>
+          <>
+            <div className="mx-4 mt-auto hidden border-t border-white/10 py-4 lg:block">
+              <div className="m-0 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/55">
+                <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-100" />
+                <span>Agreement standing</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-white">{contract.status}</span>
+                <span className="text-emerald-100/65">{contract.daysRemaining > 0 ? `${contract.daysRemaining} days` : "Expired"}</span>
+              </div>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-              <span className="font-bold text-white">{contract.status}</span>
-              <span className="text-emerald-100/65">{contract.daysRemaining > 0 ? `${contract.daysRemaining} days` : "Expired"}</span>
-            </div>
-          </div>
+            <SalesOperationalFooter contract={contract} />
+          </>
         ) : null}
       </aside>
 
