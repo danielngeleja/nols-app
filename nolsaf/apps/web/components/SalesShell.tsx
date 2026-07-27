@@ -7,7 +7,7 @@
 // /api/sales/me, which is entitlement gated on the server.
 //
 // See docs/SALES_PARTNER_WORKSPACE.md sections 9.1 and 9.7.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -95,6 +95,37 @@ export function initialsOf(name: string | null | undefined): string {
   const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "SP";
   return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
+}
+
+function SalesShellContentSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-3">
+        {[1, 2, 3].map((item) => (
+          <div key={item} className="space-y-4 rounded-3xl bg-white p-6 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+            <div className="h-5 w-2/5 rounded-full bg-slate-200/80 animate-pulse" />
+            <div className="space-y-3">
+              <div className="h-3 rounded-full bg-slate-200/80 animate-pulse" />
+              <div className="h-3 rounded-full bg-slate-200/80 animate-pulse" />
+              <div className="h-3 w-3/4 rounded-full bg-slate-200/80 animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[1, 2].map((item) => (
+          <div key={item} className="rounded-3xl bg-white p-6 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+            <div className="h-5 w-1/3 rounded-full bg-slate-200/80 animate-pulse" />
+            <div className="mt-4 space-y-3">
+              <div className="h-3 rounded-full bg-slate-200/80 animate-pulse" />
+              <div className="h-3 rounded-full bg-slate-200/80 animate-pulse" />
+              <div className="h-3 w-2/3 rounded-full bg-slate-200/80 animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function SalesShell({ children }: { children: ReactNode }) {
@@ -300,7 +331,9 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           )}
         </header>
 
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">{children}</main>
+        <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+          <Suspense fallback={<SalesShellContentSkeleton />}>{children}</Suspense>
+        </main>
       </div>
     </div>
   );
