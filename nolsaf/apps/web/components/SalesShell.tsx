@@ -7,7 +7,7 @@
 // /api/sales/me, which is entitlement gated on the server.
 //
 // See docs/SALES_PARTNER_WORKSPACE.md sections 9.1 and 9.7.
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -134,6 +134,8 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<SalesMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState<string>("");
+  const [contentLoading, setContentLoading] = useState(false);
+  const previousPathname = useRef(pathname);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +171,19 @@ export default function SalesShell({ children }: { children: ReactNode }) {
     }
     router.push("/account");
   }, [router]);
+
+  useEffect(() => {
+    if (previousPathname.current && previousPathname.current !== pathname) {
+      setContentLoading(true);
+    }
+    previousPathname.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!contentLoading) return;
+    const timeout = window.setTimeout(() => setContentLoading(false), 800);
+    return () => window.clearTimeout(timeout);
+  }, [contentLoading]);
 
   if (loading) {
     return (
@@ -331,8 +346,13 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           )}
         </header>
 
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+        <main className="relative mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
           <Suspense fallback={<SalesShellContentSkeleton />}>{children}</Suspense>
+          {contentLoading ? (
+            <div className="pointer-events-none absolute inset-0 z-10 rounded-3xl bg-white/90 p-4 shadow-inner backdrop-blur-sm">
+              <SalesShellContentSkeleton />
+            </div>
+          ) : null}
         </main>
       </div>
     </div>
