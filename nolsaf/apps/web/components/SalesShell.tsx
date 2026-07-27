@@ -183,7 +183,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           font: inherit;
         }
       `}</style>
-      <aside className="bg-[#07332d] text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[252px] lg:shrink-0 lg:flex-col">
+      <aside className="bg-[#07332d] text-white rounded-3xl lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[252px] lg:shrink-0 lg:flex-col">
         <div className="flex items-center gap-3 border-b border-white/10 px-4 py-4 lg:px-5 lg:py-5">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-400 font-black text-emerald-950">N</span>
           <div className="min-w-0">
@@ -198,7 +198,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex min-h-10 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-semibold transition ${
+                className={`flex min-h-10 items-center gap-2.5 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold no-underline transition ${
                   active ? "bg-emerald-400 text-emerald-950 shadow-sm" : "text-emerald-50/75 hover:bg-white/10 hover:text-white"
                 }`}
               >
@@ -210,7 +210,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={switchToNormal}
-            className="flex min-h-10 w-full items-center gap-2.5 whitespace-nowrap rounded-lg px-3 text-left text-[13px] font-semibold text-emerald-50/75 transition hover:bg-white/10 hover:text-white lg:mt-4"
+            className="flex min-h-10 w-full items-center justify-center gap-2.5 whitespace-nowrap rounded-full bg-emerald-900/10 px-3 text-[13px] font-semibold text-emerald-100 transition hover:bg-emerald-400/15 lg:mt-4"
           >
             <ArrowLeftRight className="h-4 w-4 shrink-0" />
             Switch workspace
@@ -218,7 +218,10 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         </nav>
         {contract ? (
           <div className="mx-4 mt-auto hidden border-t border-white/10 py-4 lg:block">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/55">Agreement standing</p>
+            <div className="m-0 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/55">
+              <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-100" />
+              <span>Agreement standing</span>
+            </div>
             <div className="mt-2 flex items-center justify-between gap-2 text-xs">
               <span className="font-bold text-white">{contract.status}</span>
               <span className="text-emerald-100/65">{contract.daysRemaining > 0 ? `${contract.daysRemaining} days` : "Expired"}</span>
