@@ -121,16 +121,40 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
 
     // Bind this JWT to its exact session. An unrelated active session must
     // never keep a revoked device token alive.
-    const activeSession = await (prisma.session as any).findFirst({
-      where: { id: sessionId, userId, revokedAt: null },
-      select: {
-        id: true,
-        lastSeenAt: true,
-        user: {
-          select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
+    let activeSession: any;
+    try {
+      activeSession = await (prisma.session as any).findFirst({
+        where: { id: sessionId, userId, revokedAt: null },
+        select: {
+          id: true,
+          lastSeenAt: true,
+          user: {
+            select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
+          },
         },
-      },
-    });
+      });
+    } catch (error: any) {
+      const missingFinanceRole =
+        error?.code === "P2022"
+        && String(error?.message || "").includes("nrmsFinanceRole");
+      if (!missingFinanceRole) throw error;
+
+      // Safe compatibility path while a forward-only deployment migration is
+      // being applied. Finance privileges fail closed to NONE; ordinary
+      // authentication must not be converted into a misleading generic 401.
+      console.error("[AUTH] user.nrmsFinanceRole is missing; using NONE until migrations are applied");
+      activeSession = await (prisma.session as any).findFirst({
+        where: { id: sessionId, userId, revokedAt: null },
+        select: {
+          id: true,
+          lastSeenAt: true,
+          user: {
+            select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
+          },
+        },
+      });
+      if (activeSession?.user) activeSession.user.nrmsFinanceRole = "NONE";
+    }
 
     if (!activeSession) {
       throw authError("SESSION_REVOKED", "Session revoked");
