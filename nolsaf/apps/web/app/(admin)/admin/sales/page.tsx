@@ -30,6 +30,9 @@ type Lead = {
   contactPhone: string | null;
   contactEmail: string | null;
   location: string | null;
+  region: string | null;
+  district: string | null;
+  ward: string | null;
   proposedProduct: string;
   duplicateReviewStatus: string;
   conversionRequestedAt: string;
@@ -391,7 +394,7 @@ export default function SalesReviewPage() {
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       <div className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2.5"><UserRound className="h-4 w-4 shrink-0 text-neutral-400" /><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Contact</p><p className="m-0 truncate text-xs font-semibold text-neutral-700">{lead.contactPerson || "Not supplied"}</p></div></div>
                       <div className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2.5">{lead.contactPhone ? <Phone className="h-4 w-4 shrink-0 text-neutral-400" /> : <Mail className="h-4 w-4 shrink-0 text-neutral-400" />}<div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Contact detail</p><p className="m-0 truncate text-xs font-semibold text-neutral-700">{lead.contactPhone || lead.contactEmail || "Not supplied"}</p></div></div>
-                      <div className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2.5"><MapPin className="h-4 w-4 shrink-0 text-neutral-400" /><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Location</p><p className="m-0 truncate text-xs font-semibold text-neutral-700">{lead.location || "Not supplied"}</p></div></div>
+                      <div className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2.5"><MapPin className="h-4 w-4 shrink-0 text-neutral-400" /><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Location</p><p className="m-0 truncate text-xs font-semibold text-neutral-700">{[lead.location, lead.ward, lead.district, lead.region].filter(Boolean).join(", ") || "Not supplied"}</p></div></div>
                       <div className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2.5"><ShieldCheck className="h-4 w-4 shrink-0 text-neutral-400" /><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Sales partner</p><p className="m-0 truncate text-xs font-semibold text-neutral-700">{lead.salesPartner.agentCode} / {lead.salesPartner.user.name || lead.salesPartner.user.email}</p></div></div>
                     </div>
                     {flagged && (

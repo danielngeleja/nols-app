@@ -148,6 +148,8 @@ router.get("/leads/conversion-requests", limitSalesAdminRead, asyncHandler(async
         contactEmail: true,
         location: true,
         region: true,
+        district: true,
+        ward: true,
         propertyType: true,
         estimatedRooms: true,
         registrationNumber: true,

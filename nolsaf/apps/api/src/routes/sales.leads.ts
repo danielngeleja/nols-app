@@ -68,6 +68,8 @@ const leadInputShape = {
     .transform((value) => (value ? value.toLocaleLowerCase("en") : null)),
   location: optionalText(200),
   region: optionalText(120),
+  district: optionalText(120),
+  ward: optionalText(120),
   propertyType: optionalText(60),
   estimatedRooms: z.union([z.coerce.number().int().min(1).max(100_000), z.null()]).optional(),
   registrationNumber: optionalText(80),
@@ -230,6 +232,8 @@ function leadSelect() {
     contactEmail: true,
     location: true,
     region: true,
+    district: true,
+    ward: true,
     propertyType: true,
     estimatedRooms: true,
     registrationNumber: true,
@@ -268,6 +272,9 @@ router.get("/leads", limitSalesLeadRead as any, asyncHandler(async (req: SalesAu
       { contactPhone: { contains: q } },
       { contactEmail: { contains: q } },
       { location: { contains: q } },
+      { region: { contains: q } },
+      { district: { contains: q } },
+      { ward: { contains: q } },
     ];
   }
   if (followUp === "OVERDUE") where.nextFollowUpAt = { lt: now };

@@ -3,14 +3,35 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Target } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  BedDouble,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  Phone,
+  Save,
+  Send,
+  ShieldCheck,
+  Target,
+  UserRound,
+  X,
+} from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
 import SalesLeadForm, { toSalesLeadPayload, type SalesLeadFormValue } from "@/components/sales/SalesLeadForm";
 import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
-type Activity = {
+type ActivityRecord = {
   id: number;
   type: string;
   description: string;
@@ -27,6 +48,8 @@ type Lead = {
   contactEmail: string | null;
   location: string | null;
   region: string | null;
+  district: string | null;
+  ward: string | null;
   propertyType: string | null;
   estimatedRooms: number | null;
   registrationNumber: string | null;
@@ -41,7 +64,7 @@ type Lead = {
   conversionRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  activities: Activity[];
+  activities: ActivityRecord[];
 };
 
 function localDateTime(value: string | null): string {
@@ -60,6 +83,52 @@ function displayDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function activityIcon(type: string) {
+  if (type === "CALL") return Phone;
+  if (type === "EMAIL") return Mail;
+  if (type === "MEETING") return UserRound;
+  if (type === "FOLLOW_UP") return CalendarClock;
+  if (type === "DOCUMENT_RECEIVED") return FileText;
+  if (type === "PROPOSAL_SENT") return Send;
+  if (type === "STATUS_CHANGED") return Activity;
+  return MessageSquare;
+}
+
+function LeadDetailSkeleton() {
+  return (
+    <div className="space-y-5" role="status" aria-label="Loading lead details">
+      <section className="animate-pulse overflow-hidden rounded-[26px] border border-emerald-100 bg-white">
+        <div className="flex items-start gap-4 px-6 py-6">
+          <span className="h-14 w-14 rounded-2xl bg-emerald-100" />
+          <div className="flex-1 space-y-3">
+            <span className="block h-3 w-44 rounded bg-emerald-100" />
+            <span className="block h-7 w-72 max-w-full rounded bg-slate-200" />
+            <span className="block h-3 w-56 rounded bg-slate-100" />
+          </div>
+        </div>
+      </section>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="h-16 border-b border-slate-100 bg-slate-50/50" />
+        <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="space-y-3 bg-white p-5">
+              <span className="block h-3 w-24 rounded bg-slate-100" />
+              <span className="block h-4 w-36 max-w-full rounded bg-slate-200" />
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export default function SalesLeadDetailPage() {
@@ -169,58 +238,119 @@ export default function SalesLeadDetailPage() {
     }
   };
 
+  const canRequestConversion = lead
+    ? !["CONVERSION_REQUESTED", "CONVERTED", "LOST", "CANCELLED"].includes(lead.status)
+    : false;
+  const canChangeStatus = lead ? !["CONVERSION_REQUESTED", "CONVERTED"].includes(lead.status) : false;
+
   return (
     <SalesShell>
-      <style jsx global>{`
-        #sales-lead-detail *,
-        #sales-lead-detail *::before,
-        #sales-lead-detail *::after {
-          box-sizing: border-box;
-        }
-      `}</style>
       <div id="sales-lead-detail">
-        {loading ? <p className="mt-6 text-sm text-gray-500">Loading lead...</p> : null}
-        {error ? <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-        {notice ? <p className="mt-5 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p> : null}
+        {loading ? <LeadDetailSkeleton /> : null}
+
+        {error ? (
+          <p className="mb-0 mt-4 flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {error}
+          </p>
+        ) : null}
+        {notice ? (
+          <p className="mb-0 mt-4 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            {notice}
+          </p>
+        ) : null}
 
         {lead ? (
           <>
             <SalesPageHeader
               icon={Target}
-              eyebrow={`${lead.proposedProduct.replaceAll("_", " ")} prospect`}
+              eyebrow={`${formatLabel(lead.proposedProduct)} prospect`}
               title={lead.propertyName}
-              description={`Pipeline status: ${lead.status.replaceAll("_", " ")}${lead.location ? ` · ${lead.location}` : ""}`}
-              actions={<div className="flex flex-wrap justify-end gap-2">
-                <Link href="/sales/leads" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline hover:border-emerald-300"><ArrowLeft className="h-4 w-4" />Leads</Link>
-                <button type="button" onClick={() => setEditing((value) => !value)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800">
-                  {editing ? "Close editor" : "Edit lead"}
-                </button>
-                {!["CONVERSION_REQUESTED", "CONVERTED", "LOST", "CANCELLED"].includes(lead.status) ? (
-                  <button type="button" onClick={() => setConversionConfirm(true)} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
-                    Request conversion
+              description={lead.location || lead.region || "Location not recorded"}
+              actions={(
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className={`inline-flex min-h-9 items-center rounded-full px-3 text-[10px] font-black uppercase tracking-wide ${statusTone(lead.status)}`}>
+                    {formatLabel(lead.status)}
+                  </span>
+                  {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? (
+                    <span className="inline-flex min-h-9 items-center rounded-full bg-amber-50 px-3 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                      Duplicate review
+                    </span>
+                  ) : null}
+                  <Link
+                    href="/sales/leads"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Leads
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setEditing((value) => !value)}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                  >
+                    {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                    {editing ? "Close editor" : "Edit lead"}
                   </button>
-                ) : null}
-              </div>}
+                  {canRequestConversion ? (
+                    <button
+                      type="button"
+                      onClick={() => setConversionConfirm(true)}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:bg-emerald-800"
+                    >
+                      <Send className="h-4 w-4" />
+                      Request conversion
+                    </button>
+                  ) : null}
+                </div>
+              )}
             />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusTone(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span>
-              {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800">Duplicate review</span> : null}
-            </div>
 
             {conversionConfirm ? (
-              <section className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-sm font-semibold text-gray-900">Send this lead for conversion review?</p>
-                <p className="mt-1 text-sm text-gray-700">An administrator will verify the property and attribution. This action does not approve earnings.</p>
-                <div className="mt-4 flex gap-2">
-                  <button type="button" disabled={saving} onClick={requestConversion} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Confirm request</button>
-                  <button type="button" onClick={() => setConversionConfirm(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Cancel</button>
+              <section className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-amber-700 shadow-sm">
+                    <ShieldCheck className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="m-0 text-sm font-black text-amber-950">Send this lead for conversion review?</p>
+                    <p className="mb-0 mt-1 text-xs leading-5 text-amber-900/75">
+                      An administrator will verify the property and attribution. This does not approve earnings.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConversionConfirm(false)}
+                    className="min-h-10 rounded-xl border border-amber-200 bg-white px-4 text-sm font-bold text-amber-900"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={requestConversion}
+                    className="min-h-10 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? "Submitting" : "Confirm request"}
+                  </button>
                 </div>
               </section>
             ) : null}
 
             {editing ? (
-              <section className="mt-6 rounded-xl border border-gray-200 bg-white p-5">
-                <h2 className="mb-4 text-sm font-semibold text-gray-900">Edit prospect details</h2>
+              <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+                <div className="mb-5 flex items-center gap-2">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                    <Pencil className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h2 className="m-0 text-sm font-black text-slate-900">Edit prospect details</h2>
+                    <p className="mb-0 mt-1 text-[10px] text-slate-400">Keep identity, property and follow-up information accurate.</p>
+                  </div>
+                </div>
                 <SalesLeadForm
                   key={lead.updatedAt}
                   initial={{
@@ -230,6 +360,8 @@ export default function SalesLeadDetailPage() {
                     contactEmail: lead.contactEmail || "",
                     location: lead.location || "",
                     region: lead.region || "",
+                    district: lead.district || "",
+                    ward: lead.ward || "",
                     propertyType: lead.propertyType || "",
                     estimatedRooms: lead.estimatedRooms ? String(lead.estimatedRooms) : "",
                     registrationNumber: lead.registrationNumber || "",
@@ -244,13 +376,22 @@ export default function SalesLeadDetailPage() {
                 />
               </section>
             ) : (
-              <>
-                {!["CONVERSION_REQUESTED", "CONVERTED"].includes(lead.status) ? (
-                  <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
-                    <div className="flex flex-wrap items-end gap-3">
-                      <label className="min-w-52 flex-1 text-sm font-medium text-gray-800">
-                        Pipeline status
-                        <select value={statusEdit} onChange={(event) => setStatusEdit(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+              <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div>
+                    <h2 className="m-0 text-sm font-black text-slate-900">Lead overview</h2>
+                    <p className="mb-0 mt-1 text-[10px] text-slate-400">Contact, property and follow-up information</p>
+                  </div>
+
+                  {canChangeStatus ? (
+                    <div className="flex flex-wrap items-end justify-end gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-slate-500">Pipeline status</span>
+                        <select
+                          value={statusEdit}
+                          onChange={(event) => setStatusEdit(event.target.value)}
+                          className="min-h-10 min-w-48 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                        >
                           <option value="NEW">New</option>
                           <option value="CONTACTED">Contacted</option>
                           <option value="MEETING_SCHEDULED">Meeting scheduled</option>
@@ -262,69 +403,141 @@ export default function SalesLeadDetailPage() {
                         </select>
                       </label>
                       {statusEdit === "LOST" ? (
-                        <label className="min-w-64 flex-[2] text-sm font-medium text-gray-800">
-                          Lost reason
-                          <input value={lostReason} onChange={(event) => setLostReason(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" maxLength={300} />
+                        <label>
+                          <span className="mb-1 block text-[10px] font-bold text-slate-500">Lost reason</span>
+                          <input
+                            value={lostReason}
+                            onChange={(event) => setLostReason(event.target.value)}
+                            className="min-h-10 min-w-64 rounded-xl border border-slate-200 px-3 text-xs outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                            maxLength={300}
+                          />
                         </label>
                       ) : null}
                       <button
                         type="button"
                         onClick={saveStatus}
                         disabled={saving || statusEdit === lead.status || (statusEdit === "LOST" && lostReason.trim().length < 2)}
-                        className="rounded-lg border border-brand px-4 py-2 text-sm font-medium text-brand disabled:opacity-40"
+                        className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#073c35] px-3 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                       >
+                        <Save className="h-3.5 w-3.5" />
                         Save status
                       </button>
                     </div>
-                  </section>
-                ) : null}
-                <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  ) : null}
+                </div>
+
+                <dl className="m-0 grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
                   {[
-                    ["Contact", lead.contactPerson || "Not recorded"],
-                    ["Phone", lead.contactPhone || "Not recorded"],
-                    ["Email", lead.contactEmail || "Not recorded"],
-                    ["Location", lead.location || "Not recorded"],
-                    ["Property type", lead.propertyType || "Not recorded"],
-                    ["Estimated rooms", lead.estimatedRooms ? String(lead.estimatedRooms) : "Not recorded"],
-                    ["Next follow-up", displayDate(lead.nextFollowUpAt)],
-                    ["Protection expires", displayDate(lead.protectionExpiresAt)],
-                  ].map(([label, value]) => (
-                    <div key={label} className="border border-slate-200 bg-white p-4">
-                      <p className="text-xs text-gray-500">{label}</p>
-                      <p className="mt-1 break-words text-sm font-medium text-gray-900">{value}</p>
+                    { label: "Contact", value: lead.contactPerson || "Not recorded", Icon: UserRound },
+                    { label: "Phone", value: lead.contactPhone || "Not recorded", Icon: Phone },
+                    { label: "Email", value: lead.contactEmail || "Not recorded", Icon: Mail },
+                    { label: "Property type", value: lead.propertyType ? formatLabel(lead.propertyType) : "Not recorded", Icon: Building2 },
+                    { label: "Region", value: lead.region ? formatLabel(lead.region) : "Not recorded", Icon: MapPin },
+                    { label: "District", value: lead.district ? formatLabel(lead.district) : "Not recorded", Icon: MapPin },
+                    { label: "Ward", value: lead.ward ? formatLabel(lead.ward) : "Not recorded", Icon: MapPin },
+                    { label: "Street or landmark", value: lead.location || "Not recorded", Icon: MapPin },
+                    { label: "Estimated rooms", value: lead.estimatedRooms ? String(lead.estimatedRooms) : "Not recorded", Icon: BedDouble },
+                    { label: "Registration number", value: lead.registrationNumber || "Not recorded", Icon: FileText },
+                    { label: "Next follow-up", value: displayDate(lead.nextFollowUpAt), Icon: CalendarClock },
+                    { label: "Protection expires", value: displayDate(lead.protectionExpiresAt), Icon: ShieldCheck },
+                  ].map(({ label, value, Icon }) => (
+                    <div key={label} className="min-w-0 bg-white px-5 py-4">
+                      <dt className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                        <Icon className="h-3.5 w-3.5 text-emerald-600" />
+                        {label}
+                      </dt>
+                      <dd className="m-0 mt-2 break-words text-sm font-bold leading-5 text-slate-800">{value}</dd>
                     </div>
                   ))}
-                </section>
-              </>
+                </dl>
+              </section>
             )}
 
-            <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-              <section className="rounded-xl border border-gray-200 bg-white">
-                <div className="border-b border-gray-200 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-gray-900">Activity timeline</h2>
+            <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-700">
+                      <Clock3 className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <h2 className="m-0 text-sm font-black text-slate-900">Activity timeline</h2>
+                      <p className="mb-0 mt-1 text-[10px] text-slate-400">{lead.activities.length} recorded event{lead.activities.length === 1 ? "" : "s"}</p>
+                    </div>
+                  </div>
                 </div>
+
                 {lead.activities.length ? (
-                  <ol className="divide-y divide-gray-100">
-                    {lead.activities.map((activity) => (
-                      <li key={activity.id} className="p-5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">{activity.type.replaceAll("_", " ")}</span>
-                          <time className="text-xs text-gray-500">{displayDate(activity.createdAt)}</time>
-                        </div>
-                        <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{activity.description}</p>
-                        <p className="mt-2 text-xs text-gray-500">By {activity.createdBy.fullName || activity.createdBy.name || "NoLSAF user"}</p>
-                        {activity.fileUrl ? <a href={activity.fileUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-medium text-brand hover:underline">Open document</a> : null}
-                      </li>
-                    ))}
+                  <ol className="m-0 list-none px-5 py-2">
+                    {lead.activities.map((activity, index) => {
+                      const ActivityIcon = activityIcon(activity.type);
+                      const isLast = index === lead.activities.length - 1;
+                      return (
+                        <li key={activity.id} className="relative grid grid-cols-[36px_minmax(0,1fr)] gap-3 py-4">
+                          {!isLast ? <span className="absolute bottom-0 left-[17px] top-12 w-px bg-slate-200" aria-hidden /> : null}
+                          <span className="relative z-10 grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                            <ActivityIcon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0 rounded-xl bg-slate-50/70 px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-600 shadow-sm">
+                                {formatLabel(activity.type)}
+                              </span>
+                              <time className="text-[10px] font-medium text-slate-400">{displayDate(activity.createdAt)}</time>
+                            </div>
+                            <p className="mb-0 mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                              <p className="m-0 text-[10px] text-slate-400">
+                                By <span className="font-bold text-slate-600">{activity.createdBy.fullName || activity.createdBy.name || "NoLSAF user"}</span>
+                              </p>
+                              {activity.fileUrl ? (
+                                <a
+                                  href={activity.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:no-underline"
+                                >
+                                  <FileText className="h-3.5 w-3.5" />
+                                  Document
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ol>
-                ) : <p className="p-5 text-sm text-gray-500">No activity recorded.</p>}
+                ) : (
+                  <div className="grid min-h-56 place-items-center px-6 py-10 text-center">
+                    <div>
+                      <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+                        <Activity className="h-5 w-5" />
+                      </span>
+                      <p className="mb-0 mt-3 text-sm font-black text-slate-700">No activity recorded</p>
+                      <p className="mb-0 mt-1 text-xs text-slate-400">Use the form to record the first interaction.</p>
+                    </div>
+                  </div>
+                )}
               </section>
 
-              <section className="h-fit rounded-xl border border-gray-200 bg-white p-5">
-                <h2 className="text-sm font-semibold text-gray-900">Record activity</h2>
-                <label className="mt-4 block text-sm font-medium text-gray-800">
-                  Type
-                  <select value={activityType} onChange={(event) => setActivityType(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)] xl:sticky xl:top-5">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                    <Activity className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h2 className="m-0 text-sm font-black text-slate-900">Record activity</h2>
+                    <p className="mb-0 mt-1 text-[10px] text-slate-400">Add a traceable sales interaction</p>
+                  </div>
+                </div>
+
+                <label className="mt-5 block">
+                  <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Activity type</span>
+                  <select
+                    value={activityType}
+                    onChange={(event) => setActivityType(event.target.value)}
+                    className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                  >
                     <option value="NOTE">Note</option>
                     <option value="CALL">Call</option>
                     <option value="EMAIL">Email</option>
@@ -334,10 +547,18 @@ export default function SalesLeadDetailPage() {
                     <option value="PROPOSAL_SENT">Proposal sent</option>
                   </select>
                 </label>
-                <label className="mt-4 block text-sm font-medium text-gray-800">
-                  Description
-                  <textarea value={activityDescription} onChange={(event) => setActivityDescription(event.target.value)} className="mt-1 block min-h-28 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" maxLength={5000} />
+
+                <label className="mt-4 block">
+                  <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Description</span>
+                  <textarea
+                    value={activityDescription}
+                    onChange={(event) => setActivityDescription(event.target.value)}
+                    className="min-h-28 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                    placeholder="Record the outcome and next action"
+                    maxLength={5000}
+                  />
                 </label>
+
                 <div className="mt-4">
                   <SalesDateTimeField
                     label="Next follow-up"
@@ -345,19 +566,28 @@ export default function SalesLeadDetailPage() {
                     onChangeAction={setActivityFollowUp}
                   />
                 </div>
+
                 {activityType === "DOCUMENT_RECEIVED" ? (
-                  <label className="mt-4 block text-sm font-medium text-gray-800">
-                    Private document URL
-                    <input value={documentUrl} onChange={(event) => setDocumentUrl(event.target.value)} type="url" placeholder="https://" className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                  <label className="mt-4 block">
+                    <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Private document URL</span>
+                    <input
+                      value={documentUrl}
+                      onChange={(event) => setDocumentUrl(event.target.value)}
+                      type="url"
+                      placeholder="https://"
+                      className="min-h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                    />
                   </label>
                 ) : null}
+
                 <button
                   type="button"
                   disabled={saving || activityDescription.trim().length < 2}
                   onClick={addActivity}
-                  className="mt-5 w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                 >
-                  {saving ? "Saving..." : "Record activity"}
+                  <Save className="h-4 w-4" />
+                  {saving ? "Saving activity" : "Record activity"}
                 </button>
               </section>
             </div>

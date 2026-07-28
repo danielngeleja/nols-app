@@ -5776,6 +5776,8 @@ model SalesLead {
   location       String? @db.VarChar(200)
   locationNormalized String? @db.VarChar(200)
   region         String? @db.VarChar(120)
+  district       String? @db.VarChar(120)
+  ward           String? @db.VarChar(120)
   propertyType   String? @db.VarChar(60)
   estimatedRooms Int?
   registrationNumber           String? @db.VarChar(80)
