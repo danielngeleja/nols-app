@@ -200,38 +200,49 @@ export default function AccountIndex() {
     setError(null);
     setSuccess(null);
     try {
+      const avatarFile = avatarFileInputRef.current?.files?.[0];
+      let savedAvatarUrl =
+        typeof form.avatarUrl === "string" && /^https?:\/\//i.test(form.avatarUrl.trim())
+          ? form.avatarUrl.trim()
+          : undefined;
+
+      if (avatarFile) {
+        const avatarUpload = new FormData();
+        avatarUpload.append("file", avatarFile);
+        avatarUpload.append("folder", "avatars");
+        const uploadResponse = await api.post("/api/uploads/cloudinary/upload", avatarUpload);
+        const uploadedUrl = String(uploadResponse.data?.secure_url || "").trim();
+        if (!/^https:\/\/res\.cloudinary\.com\//i.test(uploadedUrl)) {
+          throw new Error("Avatar upload did not return a valid image URL.");
+        }
+        savedAvatarUrl = uploadedUrl;
+      }
+
       const payload: any = {
         fullName: form.fullName || form.name,
         address: String(form.address || "").trim(),
         nin: String(form.nin || "").trim(),
       };
-      if (typeof form.avatarUrl === "string" && form.avatarUrl.trim()) {
-        payload.avatarUrl = form.avatarUrl.trim();
+      if (savedAvatarUrl) {
+        payload.avatarUrl = savedAvatarUrl;
       }
 
-      // Handle file uploads if any
-      const formData = new FormData();
-      Object.keys(payload).forEach(key => {
-        if (payload[key] !== null && payload[key] !== undefined) {
-          formData.append(key, payload[key]);
-        }
-      });
-
-      if (avatarFileInputRef.current?.files?.[0]) {
-        formData.append('avatarFile', avatarFileInputRef.current.files[0]);
-      }
-
-      // Use FormData if files exist, otherwise use JSON
-      if (avatarFileInputRef.current?.files?.[0]) {
-        await api.put('/api/account/profile', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } else {
-        await api.put('/api/account/profile', payload);
-      }
+      // Store one shared URL on the User record. The booking, Sales, Owner and
+      // other workspaces all read this same avatarUrl.
+      await api.put('/api/account/profile', payload);
 
       setSuccess('Profile saved successfully!');
       setUser({ ...(user ?? {}), ...payload });
+      setForm((current: any) => ({ ...current, ...payload }));
+      if (savedAvatarUrl) {
+        try {
+          window.dispatchEvent(new CustomEvent("account:avatarUrl", { detail: { avatarUrl: savedAvatarUrl } }));
+          window.dispatchEvent(new CustomEvent("nolsaf:profile-updated", { detail: { avatarUrl: savedAvatarUrl } }));
+        } catch {
+          // The profile is already persisted; cross-header refresh is best effort.
+        }
+      }
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = "";
       setTimeout(() => setSuccess(null), 3000);
       // Reload profile to get updated data
       await loadProfile();

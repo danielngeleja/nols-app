@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 
 export type SalesLeadFormValue = {
   propertyName: string;
@@ -143,15 +144,11 @@ export default function SalesLeadForm({
           <option value="NRMS_AND_MARKETPLACE">NRMS and marketplace</option>
         </select>
       </label>
-      <label className="text-sm font-medium text-gray-800">
-        Next follow-up
-        <input
-          value={value.nextFollowUpAt}
-          onChange={(event) => set("nextFollowUpAt", event.target.value)}
-          className={inputClass}
-          type="datetime-local"
-        />
-      </label>
+      <SalesDateTimeField
+        label="Next follow-up"
+        value={value.nextFollowUpAt}
+        onChangeAction={(next) => set("nextFollowUpAt", next)}
+      />
       <label className="text-sm font-medium text-gray-800">
         Registration number
         <input value={value.registrationNumber} onChange={(event) => set("registrationNumber", event.target.value)} className={inputClass} />

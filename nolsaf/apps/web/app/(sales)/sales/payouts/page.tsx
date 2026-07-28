@@ -113,16 +113,52 @@ export default function SalesPayoutsPage() {
           </button>}
         />
 
-        {error ? <p className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
-        {notice ? <p className="mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p> : null}
+        {!loading && error ? <p className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
+        {!loading && notice ? <p className="mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p> : null}
 
         <section className="mt-6 grid gap-3 md:grid-cols-2">
-          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Available to withdraw</p><p className="mb-0 mt-2 text-2xl font-black tracking-tight text-slate-950">{money(summary.available, summary.currency)}</p><p className="mb-0 mt-2 text-xs text-slate-500">Minimum TSh 50,000 per request.</p></div>
-          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Saved destination</p>{destinationReady ? <><p className="mb-0 mt-2 font-bold text-slate-900">{me!.payout.name}</p><p className="mb-0 mt-1 text-sm text-slate-600">{me!.payout.method} ending {me!.payout.accountMasked}</p></> : <p className="mb-0 mt-2 text-sm font-bold text-amber-700">Payout destination is incomplete. Ask an administrator to complete it before requesting.</p>}<p className="mb-0 mt-2 text-xs text-slate-500">The destination is snapshotted when each request is submitted.</p></div>
+          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Available to withdraw</p>
+            {loading ? <div className="mt-3 h-7 w-44 rounded-full bg-slate-200 animate-pulse" /> : <p className="mb-0 mt-2 text-2xl font-black tracking-tight text-slate-950">{money(summary.available, summary.currency)}</p>}
+            <p className="mb-0 mt-2 text-xs text-slate-500">Minimum TSh 50,000 per request.</p>
+          </div>
+          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Saved destination</p>
+            {loading ? (
+              <div className="mt-3 space-y-2">
+                <div className="h-4 w-40 rounded-full bg-slate-200 animate-pulse" />
+                <div className="h-3 w-56 max-w-full rounded-full bg-slate-100 animate-pulse" />
+              </div>
+            ) : destinationReady ? (
+              <>
+                <p className="mb-0 mt-2 font-bold text-slate-900">{me!.payout.name}</p>
+                <p className="mb-0 mt-1 text-sm text-slate-600">{me!.payout.method} ending {me!.payout.accountMasked}</p>
+              </>
+            ) : (
+              <p className="mb-0 mt-2 text-sm font-bold text-amber-700">Payout destination is incomplete. Ask an administrator to complete it before requesting.</p>
+            )}
+            <p className="mb-0 mt-2 text-xs text-slate-500">The destination is snapshotted when each request is submitted.</p>
+          </div>
         </section>
 
         <section className="mt-5 overflow-hidden border border-slate-200 bg-white">
-          {loading ? <div className="p-10 text-center text-sm text-gray-500">Loading payouts...</div> : payouts.length === 0 ? <div className="p-10 text-center"><p className="text-sm font-medium text-gray-900">No payout requests</p><p className="mt-1 text-sm text-gray-500">Approved available earnings can be requested here.</p></div> : (
+          {loading ? (
+            <div className="divide-y divide-slate-100" role="status" aria-label="Loading payouts">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="space-y-4 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="h-4 w-36 rounded-full bg-slate-200 animate-pulse" />
+                    <div className="h-6 w-20 rounded-full bg-slate-100 animate-pulse" />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="h-3 rounded-full bg-slate-100 animate-pulse" />
+                    <div className="h-3 rounded-full bg-slate-100 animate-pulse" />
+                    <div className="h-3 rounded-full bg-slate-100 animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : payouts.length === 0 ? <div className="p-10 text-center"><p className="text-sm font-medium text-gray-900">No payout requests</p><p className="mt-1 text-sm text-gray-500">Approved available earnings can be requested here.</p></div> : (
             <div className="divide-y divide-gray-100">
               {payouts.map((payout) => (
                 <article key={payout.id} className="p-5">

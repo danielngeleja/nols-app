@@ -7,6 +7,7 @@ import { ArrowLeft, Target } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
 import SalesLeadForm, { toSalesLeadPayload, type SalesLeadFormValue } from "@/components/sales/SalesLeadForm";
+import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Activity = {
@@ -337,10 +338,13 @@ export default function SalesLeadDetailPage() {
                   Description
                   <textarea value={activityDescription} onChange={(event) => setActivityDescription(event.target.value)} className="mt-1 block min-h-28 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" maxLength={5000} />
                 </label>
-                <label className="mt-4 block text-sm font-medium text-gray-800">
-                  Next follow-up
-                  <input value={activityFollowUp} onChange={(event) => setActivityFollowUp(event.target.value)} type="datetime-local" className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-                </label>
+                <div className="mt-4">
+                  <SalesDateTimeField
+                    label="Next follow-up"
+                    value={activityFollowUp}
+                    onChangeAction={setActivityFollowUp}
+                  />
+                </div>
                 {activityType === "DOCUMENT_RECEIVED" ? (
                   <label className="mt-4 block text-sm font-medium text-gray-800">
                     Private document URL

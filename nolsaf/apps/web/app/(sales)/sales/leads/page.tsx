@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, UsersRound } from "lucide-react";
+import { Eye, Plus, UsersRound } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
@@ -162,41 +162,58 @@ export default function SalesLeadsPage() {
           ) : (
             <>
               <div className="hidden overflow-x-auto md:block">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead className="bg-gray-50 text-xs text-gray-600">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Property</th>
-                      <th className="px-4 py-3 font-medium">Product</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Follow-up</th>
-                      <th className="px-4 py-3 font-medium">Activity</th>
-                      <th className="px-4 py-3 font-medium"></th>
+                <table className="w-full min-w-[860px] table-fixed border-collapse text-left text-sm">
+                  <colgroup>
+                    <col className="w-[28%]" />
+                    <col className="w-[24%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                  </colgroup>
+                  <thead className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                    <tr className="h-11">
+                      <th scope="col" className="px-5 py-3 font-bold">Property</th>
+                      <th scope="col" className="px-4 py-3 font-bold">Product</th>
+                      <th scope="col" className="px-4 py-3 font-bold">Status</th>
+                      <th scope="col" className="px-4 py-3 font-bold">Follow-up</th>
+                      <th scope="col" className="px-4 py-3 text-center font-bold">Activity</th>
+                      <th scope="col" className="px-4 py-3 text-center font-bold"><span className="sr-only">View</span></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {leads.map((lead) => {
                       const overdue = lead.nextFollowUpAt && new Date(lead.nextFollowUpAt).getTime() < Date.now();
                       return (
-                        <tr key={lead.id}>
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-gray-900">{lead.propertyName}</p>
-                            <p className="text-xs text-gray-500">{lead.location || lead.contactPerson || "No location recorded"}</p>
+                        <tr key={lead.id} className="h-[4.75rem] transition-colors hover:bg-slate-50/70">
+                          <td className="px-5 py-3 align-middle">
+                            <p className="m-0 truncate font-semibold text-slate-900">{lead.propertyName}</p>
+                            <p className="mb-0 mt-1 truncate text-xs text-slate-500">{lead.location || lead.contactPerson || "No location recorded"}</p>
                             {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? (
-                              <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
+                              <span className="mt-1.5 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                                 Duplicate review
                               </span>
                             ) : null}
                           </td>
-                          <td className="px-4 py-3 text-gray-700">{lead.proposedProduct.replaceAll("_", " ")}</td>
-                          <td className="px-4 py-3">
-                            <span className={`rounded-full px-2 py-1 text-xs ${statusTone(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span>
+                          <td className="px-4 py-3 align-middle text-xs font-medium text-slate-600">
+                            <span className="line-clamp-2">{lead.proposedProduct.replaceAll("_", " ")}</span>
                           </td>
-                          <td className={`px-4 py-3 ${overdue ? "font-medium text-red-700" : "text-gray-700"}`}>
+                          <td className="px-4 py-3 align-middle">
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${statusTone(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span>
+                          </td>
+                          <td className={`whitespace-nowrap px-4 py-3 align-middle text-xs ${overdue ? "font-semibold text-red-700" : "text-slate-600"}`}>
                             {shortDate(lead.nextFollowUpAt)}
                           </td>
-                          <td className="px-4 py-3 text-gray-700">{lead._count.activities}</td>
-                          <td className="px-4 py-3 text-right">
-                            <Link href={`/sales/leads/${lead.id}`} className="font-medium text-brand hover:underline">Open</Link>
+                          <td className="px-4 py-3 text-center align-middle text-xs font-semibold tabular-nums text-slate-700">{lead._count.activities}</td>
+                          <td className="px-4 py-3 text-center align-middle">
+                            <Link
+                              href={`/sales/leads/${lead.id}`}
+                              aria-label={`View ${lead.propertyName}`}
+                              title={`View ${lead.propertyName}`}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 no-underline shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 hover:no-underline focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                            >
+                              <Eye className="h-4 w-4" aria-hidden />
+                            </Link>
                           </td>
                         </tr>
                       );
