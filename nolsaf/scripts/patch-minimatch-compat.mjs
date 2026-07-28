@@ -10,8 +10,20 @@ const pluginVersions = {
   "eslint-plugin-react": "7.37.5",
 };
 
+const installedPlugins = new Set();
+
 for (const [pluginName, expectedVersion] of Object.entries(pluginVersions)) {
   const packageJsonPath = path.join(repositoryRoot, "node_modules", pluginName, "package.json");
+
+  // API-only production installs intentionally omit the web workspace, which
+  // means its lint plugins are not present. The compatibility patch is only
+  // needed when those plugins are installed, so do not make an API Docker
+  // build fail because optional web tooling is absent.
+  if (!fs.existsSync(packageJsonPath)) {
+    console.log(`[minimatch-compat] ${pluginName} is not installed; skipping.`);
+    continue;
+  }
+
   const installedVersion = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")).version;
 
   if (installedVersion !== expectedVersion) {
@@ -19,6 +31,8 @@ for (const [pluginName, expectedVersion] of Object.entries(pluginVersions)) {
       `${pluginName} ${installedVersion} is installed; review the minimatch compatibility patch before replacing ${expectedVersion}.`,
     );
   }
+
+  installedPlugins.add(pluginName);
 }
 
 const patches = [
@@ -58,6 +72,11 @@ const patches = [
 let patchedFileCount = 0;
 
 for (const patch of patches) {
+  const pluginName = patch.relativePath.split(path.sep)[0];
+  if (!installedPlugins.has(pluginName)) {
+    continue;
+  }
+
   const filePath = path.join(repositoryRoot, "node_modules", patch.relativePath);
   const source = fs.readFileSync(filePath, "utf8");
 
