@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Send, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Landmark, Loader2, Send, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
-import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Payout = {
   id: number;
@@ -28,6 +27,8 @@ type Payout = {
 
 type Summary = { available: number; currency: string };
 type SalesMe = { payout: { name: string | null; method: string | null; accountMasked: string | null } };
+
+const MIN_PAYOUT_AMOUNT = 50_000;
 
 function money(value: number, currency = "TZS") {
   return `${currency === "TZS" ? "TSh" : currency} ${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
@@ -99,47 +100,126 @@ export default function SalesPayoutsPage() {
   };
 
   const destinationReady = Boolean(me?.payout?.name && me?.payout?.method && me?.payout?.accountMasked);
+  const minimumReached = summary.available >= MIN_PAYOUT_AMOUNT;
+  const canRequest = !loading && !busy && destinationReady && minimumReached;
 
   return (
     <SalesShell>
       <style jsx global>{`#sales-payouts, #sales-payouts * { box-sizing: border-box; }`}</style>
       <div id="sales-payouts">
-        <SalesPageHeader
-          icon={Wallet}
-          title="Payouts"
-          description="Request approved, available earnings and follow every finance review through to settlement."
-          actions={<button type="button" disabled={busy || summary.available <= 0 || !destinationReady} onClick={() => void requestPayout()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#087f68] px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-45">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Request all available
-          </button>}
-        />
+        <section className="relative overflow-hidden rounded-[26px] border border-emerald-100 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
+          <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-emerald-100/60 blur-3xl" />
+          <div className="relative flex items-start gap-4 px-5 py-6 sm:px-7 sm:py-7">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#087f68] text-white shadow-[0_14px_30px_-18px_rgba(8,127,104,0.9)]">
+              <Wallet className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <p className="m-0 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
+                Sales workspace
+              </p>
+              <h1 className="mb-0 mt-1.5 text-[clamp(1.45rem,2.5vw,2rem)] font-black leading-tight tracking-[-0.035em] text-slate-950">
+                Payouts
+              </h1>
+              <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Request available earnings and follow each finance review through to settlement.
+              </p>
+            </div>
+          </div>
+
+          <div className="relative grid gap-px border-t border-slate-200 bg-slate-200 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="bg-white/95 px-5 py-5 sm:px-7 sm:py-6">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                <CircleDollarSign className="h-4 w-4 text-emerald-700" />
+                Available to withdraw
+              </div>
+
+              {loading ? (
+                <div className="mt-4 h-9 w-48 animate-pulse rounded-lg bg-slate-100" />
+              ) : (
+                <p className="mb-0 mt-3 text-3xl font-black tracking-[-0.04em] text-slate-950">
+                  {money(summary.available, summary.currency)}
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="m-0 text-xs font-semibold text-slate-600">
+                    Minimum {money(MIN_PAYOUT_AMOUNT, summary.currency)} per request
+                  </p>
+                  {!loading && !minimumReached ? (
+                    <p className="mb-0 mt-1 text-[11px] text-slate-400">
+                      {money(Math.max(0, MIN_PAYOUT_AMOUNT - summary.available), summary.currency)} more needed
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  disabled={!canRequest}
+                  onClick={() => void requestPayout()}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white shadow-[0_12px_24px_-16px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                >
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {busy ? "Submitting" : "Request payout"}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white/95 px-5 py-5 sm:px-7 sm:py-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <Landmark className="h-4 w-4 text-emerald-700" />
+                  Payout destination
+                </div>
+                {!loading ? (
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                    destinationReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                  }`}>
+                    {destinationReady ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                    {destinationReady ? "Ready" : "Action required"}
+                  </span>
+                ) : null}
+              </div>
+
+              {loading ? (
+                <div className="mt-4 space-y-2">
+                  <div className="h-5 w-44 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-4 w-64 max-w-full animate-pulse rounded-lg bg-slate-100" />
+                </div>
+              ) : destinationReady ? (
+                <div className="mt-4 flex items-center gap-3">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="m-0 truncate text-sm font-black text-slate-900">{me!.payout.name}</p>
+                    <p className="mb-0 mt-1 text-xs text-slate-500">
+                      {me!.payout.method} ending {me!.payout.accountMasked}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-3.5">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-amber-700 shadow-sm">
+                    <AlertTriangle className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="m-0 text-sm font-bold text-amber-900">Destination details are incomplete</p>
+                    <p className="mb-0 mt-1 text-xs leading-5 text-amber-800/80">
+                      Ask an administrator to add your payout name, method and account before requesting.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <p className="mb-0 mt-3 text-[11px] text-slate-400">
+                Your saved destination is securely snapshotted when a request is submitted.
+              </p>
+            </div>
+          </div>
+        </section>
 
         {!loading && error ? <p className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
         {!loading && notice ? <p className="mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p> : null}
-
-        <section className="mt-6 grid gap-3 md:grid-cols-2">
-          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Available to withdraw</p>
-            {loading ? <div className="mt-3 h-7 w-44 rounded-full bg-slate-200 animate-pulse" /> : <p className="mb-0 mt-2 text-2xl font-black tracking-tight text-slate-950">{money(summary.available, summary.currency)}</p>}
-            <p className="mb-0 mt-2 text-xs text-slate-500">Minimum TSh 50,000 per request.</p>
-          </div>
-          <div className="border border-slate-200 bg-white p-5 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">Saved destination</p>
-            {loading ? (
-              <div className="mt-3 space-y-2">
-                <div className="h-4 w-40 rounded-full bg-slate-200 animate-pulse" />
-                <div className="h-3 w-56 max-w-full rounded-full bg-slate-100 animate-pulse" />
-              </div>
-            ) : destinationReady ? (
-              <>
-                <p className="mb-0 mt-2 font-bold text-slate-900">{me!.payout.name}</p>
-                <p className="mb-0 mt-1 text-sm text-slate-600">{me!.payout.method} ending {me!.payout.accountMasked}</p>
-              </>
-            ) : (
-              <p className="mb-0 mt-2 text-sm font-bold text-amber-700">Payout destination is incomplete. Ask an administrator to complete it before requesting.</p>
-            )}
-            <p className="mb-0 mt-2 text-xs text-slate-500">The destination is snapshotted when each request is submitted.</p>
-          </div>
-        </section>
 
         <section className="mt-5 overflow-hidden border border-slate-200 bg-white">
           {loading ? (

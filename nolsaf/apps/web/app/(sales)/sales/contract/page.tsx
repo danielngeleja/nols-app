@@ -5,7 +5,6 @@ import Link from "next/link";
 import { CalendarClock, CheckCircle2, Download, FileSignature, Hash, MapPinned, Percent, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
-import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type ContractPayload = {
   partner: {
@@ -364,20 +363,94 @@ export default function SalesContractPage() {
 
   return (
     <ContractFrame active={isActive}>
-      <SalesPageHeader
-        icon={FileSignature}
-        eyebrow="Agreement and access"
-        title="Sales partner agreement"
-        description="Review the complete agreement, follow its signing status and retain the executed PDF for your records."
-        actions={data ? (
-          <a
-            href={`/api/sales/contracts/${data.contract.id}/download`}
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-white px-4 text-sm font-bold text-emerald-800 no-underline hover:bg-emerald-50"
-          >
-            <Download className="h-4 w-4" />Download PDF
-          </a>
+      <section className="relative overflow-hidden rounded-[26px] border border-emerald-100 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-emerald-100/60 blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-5 px-5 py-6 sm:px-7 sm:py-7">
+          <div className="flex min-w-0 items-start gap-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#087f68] text-white shadow-[0_14px_30px_-18px_rgba(8,127,104,0.9)]">
+              <FileSignature className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <p className="m-0 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
+                Agreement and access
+              </p>
+              <h1 className="mb-0 mt-1.5 text-[clamp(1.45rem,2.5vw,2rem)] font-black leading-tight tracking-[-0.035em] text-slate-950">
+                Sales partner agreement
+              </h1>
+              <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Review your terms, track signing progress and retain the executed agreement for your records.
+              </p>
+            </div>
+          </div>
+
+          {data ? (
+            <a
+              href={`/api/sales/contracts/${data.contract.id}/download`}
+              className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white no-underline shadow-[0_12px_24px_-16px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800"
+            >
+              <Download className="h-4 w-4" />
+              Download PDF
+            </a>
+          ) : null}
+        </div>
+
+        {data ? (
+          <dl className="relative m-0 grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="bg-white/95 px-5 py-4 sm:px-6">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <Hash className="h-4 w-4 text-emerald-700" />
+                Agreement
+              </dt>
+              <dd className="m-0 mt-2">
+                <p className="m-0 text-sm font-black text-slate-900">{data.contract.contractNumber}</p>
+                <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusTone(data.contract.status)}`}>
+                  {data.contract.status}
+                </span>
+              </dd>
+            </div>
+
+            <div className="bg-white/95 px-5 py-4 sm:px-6">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <CalendarClock className="h-4 w-4 text-emerald-700" />
+                Agreement term
+              </dt>
+              <dd className="m-0 mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs leading-5">
+                <span className="font-semibold text-slate-400">Starts</span>
+                <span className="font-semibold text-slate-800">{date(data.contract.startsAt)}</span>
+                <span className="font-semibold text-slate-400">Ends</span>
+                <span className="font-semibold text-slate-800">{date(data.contract.expiresAt)}</span>
+              </dd>
+            </div>
+
+            <div className="bg-white/95 px-5 py-4 sm:px-6">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <Percent className="h-4 w-4 text-emerald-700" />
+                Commission rates
+              </dt>
+              <dd className="m-0 mt-2 flex flex-wrap gap-2">
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-emerald-900">
+                  <strong className="text-base">{data.contract.nrmsCommissionRate}%</strong>
+                  <span className="text-[10px] font-bold uppercase tracking-wide">NRMS</span>
+                </span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-slate-800">
+                  <strong className="text-base">{data.contract.marketplaceRevenueRate}%</strong>
+                  <span className="text-[10px] font-bold uppercase tracking-wide">Marketplace</span>
+                </span>
+              </dd>
+            </div>
+
+            <div className="bg-white/95 px-5 py-4 sm:px-6">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <MapPinned className="h-4 w-4 text-emerald-700" />
+                Territory
+              </dt>
+              <dd className="m-0 mt-2 text-sm font-black text-slate-900">
+                {data.contract.territory || "As stated in agreement"}
+              </dd>
+            </div>
+          </dl>
         ) : null}
-      />
+      </section>
 
       {error ? (
         <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
@@ -387,34 +460,6 @@ export default function SalesContractPage() {
 
       {data ? (
         <>
-          <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-slate-500"><Hash className="h-4 w-4" /><p className="m-0 text-xs">Contract</p></div>
-              <p className="mt-2 text-sm font-bold text-gray-900">{data.contract.contractNumber}</p>
-              <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs ${statusTone(data.contract.status)}`}>
-                {data.contract.status}
-              </span>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-slate-500"><CalendarClock className="h-4 w-4" /><p className="m-0 text-xs">Term</p></div>
-              <p className="mt-2 text-sm leading-6 text-gray-900">
-                {date(data.contract.startsAt)} to {date(data.contract.expiresAt)}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-slate-500"><Percent className="h-4 w-4" /><p className="m-0 text-xs">Commission rates</p></div>
-              <p className="mt-2 text-sm font-bold text-gray-900">
-                {data.contract.nrmsCommissionRate}% NRMS
-              </p>
-              <p className="text-sm font-bold text-gray-900">
-                {data.contract.marketplaceRevenueRate}% marketplace
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-slate-500"><MapPinned className="h-4 w-4" /><p className="m-0 text-xs">Territory</p></div>
-              <p className="mt-2 text-sm font-semibold text-gray-900">{data.contract.territory || "As stated in agreement"}</p>
-            </div>
-          </section>
 
           <section className="mt-6 rounded-[22px] border border-gray-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-gray-900">Agreement timeline</h2>
