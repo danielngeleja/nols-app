@@ -247,20 +247,15 @@ export default function RegisterPage() {
   const nextParamRaw = searchParams?.get('next');
   const api = apiClient;
 
+  // This page is the shared web login gate for every account role. The role
+  // query parameter controls registration presentation and redirect context;
+  // it must never be sent as a native-app login restriction.
   const safeNextPath = (raw: unknown): string | undefined => {
     if (typeof raw !== 'string') return undefined;
     const v = raw.trim();
     if (!v) return undefined;
     if (!v.startsWith('/') || v.startsWith('//')) return undefined;
     return v;
-  };
-
-  const loginAppForRoleParam = (): 'CUSTOMER' | 'DRIVER' | 'PARTNERS' | 'ADMIN' | undefined => {
-    if (roleParam === 'driver') return 'DRIVER';
-    if (roleParam === 'owner' || roleParam === 'partner' || roleParam === 'partners' || roleParam === 'agent') return 'PARTNERS';
-    if (roleParam === 'admin') return 'ADMIN';
-    if (roleParam === 'traveller' || roleParam === 'customer' || roleParam === 'user') return 'CUSTOMER';
-    return undefined;
   };
 
   // Register state
@@ -365,7 +360,7 @@ export default function RegisterPage() {
       const verifyRes = await fetch('/api/auth/passkeys/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, response: assertion, ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}) }),
+        body: JSON.stringify({ sessionId, response: assertion }),
         credentials: 'include',
       });
       if (!verifyRes.ok) {
@@ -1187,11 +1182,7 @@ export default function RegisterPage() {
                             method: 'POST',
                             credentials: 'include',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              email,
-                              password: loginPassword,
-                              ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}),
-                            }),
+                            body: JSON.stringify({ email, password: loginPassword }),
                           });
                           const data = await r.json().catch(() => ({}));
                           if (!r.ok) {
@@ -1330,7 +1321,6 @@ export default function RegisterPage() {
                           const response = await api.post('/api/auth/verify-otp', {
                             phone: normalizeLoginPhone(loginPhone, loginCountryCode),
                             otp: loginOtp.trim(),
-                            ...(loginAppForRoleParam() ? { loginApp: loginAppForRoleParam() } : {}),
                           });
                           
                           if (response.status === 200) {

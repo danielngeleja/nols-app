@@ -24,6 +24,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
 import { getRedis } from '../lib/redis.js';
 import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
+import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
 
 const router = Router();
 
@@ -318,13 +319,6 @@ function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RES
 }
 
 type ResetAppContext = 'DRIVER' | 'PARTNERS' | 'CUSTOMER' | null;
-type LoginAppContext = 'DRIVER' | 'PARTNERS' | 'CUSTOMER' | 'ADMIN' | null;
-
-function normalizeAccountRole(input: any): string {
-  const v = String(input ?? '').trim().toUpperCase();
-  if (v === 'TRAVELLER' || v === 'TRAVELER' || v === 'USER') return 'CUSTOMER';
-  return v;
-}
 
 function normalizeResetAppContext(input: any): ResetAppContext {
   const v = String(input ?? '').trim().toUpperCase();
@@ -332,12 +326,6 @@ function normalizeResetAppContext(input: any): ResetAppContext {
   if (v === 'PARTNER' || v === 'PARTNERS' || v === 'PARTNERS_APP' || v === 'OWNER' || v === 'AGENT') return 'PARTNERS';
   if (v === 'CUSTOMER' || v === 'CUSTOMER_APP' || v === 'WEB') return 'CUSTOMER';
   return null;
-}
-
-function normalizeLoginAppContext(input: any): LoginAppContext {
-  const v = String(input ?? '').trim().toUpperCase();
-  if (v === 'ADMIN' || v === 'ADMIN_APP') return 'ADMIN';
-  return normalizeResetAppContext(input);
 }
 
 function getResetAppRoleError(accountRoleInput: any, resetAppInput: any): { error: string; message: string; action: string } | null {
@@ -390,54 +378,6 @@ function getResetRolePolicyError(accountRoleInput: any): { error: string; messag
     error: 'admin_reset_restricted',
     message: 'Admin password resets require NoLSAF security approval. Please contact another active admin or NoLSAF security support.',
     action: 'contact_security',
-  };
-}
-
-function getLoginAppRoleError(accountRoleInput: any, loginAppInput: any): { error: string; code: string; message: string; action: string } | null {
-  const loginApp = normalizeLoginAppContext(loginAppInput);
-  if (!loginApp) return null;
-
-  const accountRole = normalizeAccountRole(accountRoleInput);
-  const allowed =
-    loginApp === 'DRIVER' ? accountRole === 'DRIVER' :
-    loginApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' :
-    loginApp === 'ADMIN' ? accountRole === 'ADMIN' :
-    accountRole === 'CUSTOMER';
-
-  if (allowed) return null;
-
-  if (accountRole === 'ADMIN') {
-    return {
-      error: 'wrong_login_app',
-      code: 'WRONG_LOGIN_APP',
-      message: 'This account is registered as an admin. Please sign in with the NoLSAF Admin portal.',
-      action: 'use_admin_portal',
-    };
-  }
-
-  if (accountRole === 'DRIVER') {
-    return {
-      error: 'wrong_login_app',
-      code: 'WRONG_LOGIN_APP',
-      message: 'This account is registered as a driver. Please sign in with the NoLSAF Driver app.',
-      action: 'use_driver_app',
-    };
-  }
-
-  if (accountRole === 'OWNER' || accountRole === 'AGENT') {
-    return {
-      error: 'wrong_login_app',
-      code: 'WRONG_LOGIN_APP',
-      message: 'This account is registered for NoLSAF Partners. Please sign in with the NoLSAF Partners app.',
-      action: 'use_partners_app',
-    };
-  }
-
-  return {
-    error: 'wrong_login_app',
-    code: 'WRONG_LOGIN_APP',
-    message: 'This account is registered as a traveller. Please sign in from the main NoLSAF account app or website.',
-    action: 'use_customer_account',
   };
 }
 
