@@ -249,6 +249,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setMobileOpen(false);
+    setNavigation(null);
   }, [pathname]);
 
   const toggleCollapsed = useCallback(() => {

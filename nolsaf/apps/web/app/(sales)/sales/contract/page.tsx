@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarClock, CheckCircle2, Download, FileSignature, Hash, MapPinned, Percent, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
+import { useSalesWorkspace } from "@/components/sales/SalesWorkspaceContext";
 
 type ContractPayload = {
   partner: {
@@ -287,7 +288,46 @@ function ContractFrame({
   );
 }
 
+function ContractLoadingContent() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Loading sales agreement">
+      <section className="overflow-hidden rounded-[26px] border border-emerald-100 bg-white">
+        <div className="flex items-start gap-4 px-5 py-6 sm:px-7 sm:py-7">
+          <span className="h-14 w-14 shrink-0 animate-pulse rounded-2xl bg-emerald-100" />
+          <div className="min-w-0 flex-1 space-y-3 pt-1">
+            <span className="block h-3 w-36 animate-pulse rounded-full bg-emerald-100" />
+            <span className="block h-7 w-72 max-w-full animate-pulse rounded-lg bg-slate-200" />
+            <span className="block h-4 w-full max-w-2xl animate-pulse rounded-full bg-slate-100" />
+          </div>
+        </div>
+        <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="space-y-3 bg-white px-5 py-5 sm:px-6">
+              <span className="block h-3 w-24 animate-pulse rounded-full bg-slate-100" />
+              <span className="block h-5 w-36 max-w-full animate-pulse rounded-full bg-slate-200" />
+              <span className="block h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-[22px] border border-slate-200 bg-white p-5">
+        <span className="block h-4 w-36 animate-pulse rounded-full bg-slate-200" />
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="space-y-2 border-l-2 border-emerald-100 pl-4">
+              <span className="block h-3 w-20 animate-pulse rounded-full bg-slate-200" />
+              <span className="block h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function SalesContractPage() {
+  const { me: workspaceMe } = useSalesWorkspace();
   const [data, setData] = useState<ContractPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -350,16 +390,19 @@ export default function SalesContractPage() {
     }
   };
 
+  const workspaceContractActive = ["ACTIVE", "EXPIRING"].includes(String(workspaceMe?.contract?.status || ""));
+  const isActive = data
+    ? ["ACTIVE", "EXPIRING"].includes(String(data.contract.status || ""))
+    : workspaceContractActive;
+  const canAccept = ["SENT", "VIEWED"].includes(String(data?.contract.status || ""));
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" aria-label="Loading" />
-      </div>
+      <ContractFrame active={workspaceContractActive}>
+        <ContractLoadingContent />
+      </ContractFrame>
     );
   }
-
-  const isActive = ["ACTIVE", "EXPIRING"].includes(String(data?.contract.status || ""));
-  const canAccept = ["SENT", "VIEWED"].includes(String(data?.contract.status || ""));
 
   return (
     <ContractFrame active={isActive}>

@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
-  BookOpen,
   Building2,
   CheckCircle2,
   ChevronDown,
@@ -321,18 +320,9 @@ const guides: SupportGuide[] = [
   },
 ];
 
-const quickLinks = [
-  { href: "/sales/leads/new", label: "Register lead", icon: UserRoundCheck },
-  { href: "/sales/contract", label: "Agreement", icon: FileSignature },
-  { href: "/sales/earnings", label: "Earnings", icon: CircleDollarSign },
-  { href: "/sales/payouts", label: "Payouts", icon: WalletCards },
-  { href: "/sales/materials", label: "Materials", icon: BookOpen },
-  { href: "/sales/notifications", label: "Notifications", icon: Bell },
-];
-
 export default function SalesSupportPage() {
   const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<CategoryId | "all">("all");
+  const [activeCategory, setActiveCategory] = useState<CategoryId | "all">("access");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@nolsaf.com";
@@ -341,8 +331,7 @@ export default function SalesSupportPage() {
 
   const filteredGuides = useMemo(() => {
     return guides.filter((guide) => {
-      if (activeCategory !== "all" && guide.category !== activeCategory) return false;
-      if (!normalizedQuery) return true;
+      if (!normalizedQuery) return activeCategory === "all" || guide.category === activeCategory;
       const category = categories.find((item) => item.id === guide.category);
       const searchable = [
         guide.question,
@@ -359,10 +348,10 @@ export default function SalesSupportPage() {
 
   return (
     <SalesShell>
-      <div className="space-y-5">
-        <section className="relative overflow-hidden rounded-[26px] border border-emerald-100 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
+      <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
+        <section className="relative overflow-hidden bg-white">
           <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-emerald-100/60 blur-3xl" />
-          <div className="relative flex flex-wrap items-start justify-between gap-5 px-5 py-6 sm:px-7 sm:py-7">
+          <div className="relative flex flex-wrap items-center justify-between gap-5 px-5 py-5 sm:px-7">
             <div className="flex min-w-0 items-start gap-4">
               <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#087f68] text-white shadow-[0_14px_30px_-18px_rgba(8,127,104,0.9)]">
                 <LifeBuoy className="h-6 w-6" />
@@ -379,22 +368,16 @@ export default function SalesSupportPage() {
                 </p>
               </div>
             </div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-800">
-              <CheckCircle2 className="h-4 w-4" />
-              {guides.length} workspace guides
-            </span>
-          </div>
-
-          <div className="relative border-t border-slate-200 bg-slate-50/70 px-5 py-4 sm:px-7">
-            <label htmlFor="sales-support-search" className="sr-only">Search sales support</label>
-            <div className="relative max-w-3xl">
+            <div className="w-full max-w-md">
+              <label htmlFor="sales-support-search" className="sr-only">Search sales support</label>
+              <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 id="sales-support-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="min-h-11 w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                placeholder="Search agreements, leads, attribution, earnings, payouts..."
+                placeholder="Search workspace guidance"
               />
               {query ? (
                 <button
@@ -406,80 +389,60 @@ export default function SalesSupportPage() {
                   <X className="h-4 w-4" />
                 </button>
               ) : null}
+              </div>
+              <p className="mb-0 mt-1.5 text-right text-[10px] font-semibold text-slate-400">
+                {guides.length} verified guides
+              </p>
             </div>
           </div>
         </section>
 
-        <section aria-labelledby="support-topics-heading">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <p className="m-0 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Browse by workflow</p>
-              <h2 id="support-topics-heading" className="mb-0 mt-1 text-lg font-black text-slate-950">Support topics</h2>
-            </div>
-            {activeCategory !== "all" ? (
-              <button
-                type="button"
-                onClick={() => setActiveCategory("all")}
-                className="text-xs font-bold text-emerald-700 hover:text-emerald-900"
-              >
-                View all topics
-              </button>
-            ) : null}
-          </div>
-
+        <section className="border-t border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-6" aria-label="Support categories">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {categories.map((category) => {
               const Icon = category.icon;
               const isActive = activeCategory === category.id;
-              const count = guides.filter((guide) => guide.category === category.id).length;
               return (
                 <button
                   key={category.id}
                   type="button"
-                  onClick={() => setActiveCategory(isActive ? "all" : category.id)}
+                  onClick={() => { setActiveCategory(category.id); setQuery(""); }}
                   aria-pressed={isActive}
-                  className={`min-h-36 rounded-2xl border p-4 text-left transition ${
+                  className={`flex min-h-11 items-center gap-2.5 rounded-xl border px-3 text-left transition ${
                     isActive
-                      ? "border-emerald-400 bg-emerald-50 shadow-[0_12px_28px_-22px_rgba(8,127,104,0.8)]"
-                      : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm"
+                      ? "border-emerald-300 bg-emerald-700 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-800"
                   }`}
                 >
-                  <span className={`grid h-9 w-9 place-items-center rounded-xl ${
-                    isActive ? "bg-emerald-700 text-white" : "bg-slate-100 text-slate-600"
-                  }`}>
-                    <Icon className="h-4.5 w-4.5" />
-                  </span>
-                  <span className="mt-3 block text-sm font-black text-slate-900">{category.shortLabel}</span>
-                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">{category.description}</span>
-                  <span className="mt-2 block text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                    {count} guide{count === 1 ? "" : "s"}
-                  </span>
+                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-emerald-100" : "text-slate-400"}`} />
+                  <span className="truncate text-xs font-bold">{category.shortLabel}</span>
                 </button>
               );
             })}
           </div>
         </section>
 
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.55)]" aria-labelledby="support-guides-heading">
+        <div className="grid items-start border-t border-slate-200 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <section className="overflow-hidden bg-white" aria-labelledby="support-guides-heading">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
               <div>
                 <h2 id="support-guides-heading" className="m-0 text-sm font-black text-slate-950">
-                  {selectedCategory?.label || (normalizedQuery ? "Search results" : "Frequently needed guidance")}
+                  {normalizedQuery ? "Search results" : selectedCategory?.label}
                 </h2>
                 <p className="mb-0 mt-1 text-xs text-slate-500">
-                  {filteredGuides.length} result{filteredGuides.length === 1 ? "" : "s"}
-                  {normalizedQuery ? ` for “${query.trim()}”` : ""}
+                  {normalizedQuery
+                    ? `${filteredGuides.length} result${filteredGuides.length === 1 ? "" : "s"} for “${query.trim()}”`
+                    : selectedCategory?.description}
                 </p>
               </div>
-              {(activeCategory !== "all" || query) ? (
+              {query ? (
                 <button
                   type="button"
-                  onClick={() => { setActiveCategory("all"); setQuery(""); }}
+                  onClick={() => setQuery("")}
                   className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-xs font-bold text-slate-600 transition hover:border-emerald-300 hover:text-emerald-800"
                 >
                   <X className="h-3.5 w-3.5" />
-                  Clear filters
+                  Clear search
                 </button>
               ) : null}
             </div>
@@ -505,10 +468,7 @@ export default function SalesSupportPage() {
                           <CategoryIcon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">
-                            {category.shortLabel}
-                          </span>
-                          <span className="mt-1 block text-sm font-bold leading-5 text-slate-900">
+                          <span className="block text-sm font-bold leading-5 text-slate-900">
                             {guide.question}
                           </span>
                         </span>
@@ -555,17 +515,17 @@ export default function SalesSupportPage() {
                   <p className="mb-0 mt-1 text-xs text-slate-500">Try a broader phrase or clear the selected topic.</p>
                   <button
                     type="button"
-                    onClick={() => { setQuery(""); setActiveCategory("all"); }}
+                    onClick={() => setQuery("")}
                     className="mt-4 text-xs font-bold text-emerald-700"
                   >
-                    Show all guidance
+                    Clear search
                   </button>
                 </div>
               </div>
             )}
           </section>
 
-          <aside className="space-y-4 lg:sticky lg:top-5">
+          <aside className="space-y-4 border-t border-slate-200 bg-slate-50/70 p-4 lg:border-l lg:border-t-0">
             <section className="overflow-hidden rounded-2xl border border-[#0b5f52] bg-[#073c35] text-white shadow-[0_18px_35px_-28px_rgba(3,60,53,0.9)]">
               <div className="p-5">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-emerald-100">
@@ -603,7 +563,6 @@ export default function SalesSupportPage() {
                     </a>
                   </div>
                 </div>
-                <p className="mb-0 mt-3 break-all text-[10px] text-white/55">{supportEmail}</p>
               </div>
               <div className="border-t border-white/10 bg-white/5 px-5 py-3">
                 <p className="m-0 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-emerald-100">
@@ -634,25 +593,6 @@ export default function SalesSupportPage() {
               <div className="mt-4 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 Never send passwords, one-time codes or full payout credentials.
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h2 className="m-0 text-sm font-black text-slate-900">Quick workspace links</h2>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {quickLinks.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="group flex min-h-16 flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/50 p-3 no-underline transition hover:border-emerald-300 hover:bg-emerald-50"
-                    >
-                      <Icon className="h-4 w-4 text-slate-500 transition group-hover:text-emerald-700" />
-                      <span className="mt-2 text-[11px] font-bold text-slate-700 group-hover:text-emerald-900">{item.label}</span>
-                    </Link>
-                  );
-                })}
               </div>
             </section>
 
