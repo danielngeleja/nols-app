@@ -2,6 +2,7 @@ import { Router } from "express";
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { z } from "zod";
+import { prisma } from "@nolsaf/prisma";
 import { requireAuth } from "../middleware/auth.js";
 import { limitCloudinarySign, limitUploadPresign } from "../middleware/rateLimit.js";
 
@@ -65,6 +66,8 @@ const allowedFolderPatterns: Array<{ type: "exact"; value: string } | { type: "p
   { type: "exact", value: "properties" },
   { type: "prefix", value: "properties/" },
   { type: "exact", value: "trust-partners" },
+  { type: "exact", value: "nrms-menu" },
+  { type: "prefix", value: "nrms-menu/" },
 ];
 
 function isAllowedFolder(folder: string): boolean {
@@ -84,13 +87,30 @@ function isFolderAllowedForRole(req: any, folder: string): boolean {
   if (role === "ADMIN") return true;
   if (folder === "uploads" || folder === "avatars") return true;
   if (role === "AGENT") return folderMatches(folder, "agent-operator") || folderMatches(folder, "agent-documents");
-  if (role === "OWNER") return folderMatches(folder, "owner-documents") || folderMatches(folder, "properties");
+  if (role === "OWNER") return folderMatches(folder, "owner-documents") || folderMatches(folder, "properties") || folderMatches(folder, "nrms-menu");
   if (role === "DRIVER") return folderMatches(folder, "driver-documents");
   return false;
 }
 
+/**
+ * Async permission layer on top of the role map. NRMS menu photos may also be
+ * uploaded by non-owner staff who hold an active manager or outlet-supervisor
+ * membership, which only the database can confirm.
+ */
+async function isFolderAllowedForUser(req: any, folder: string): Promise<boolean> {
+  if (isFolderAllowedForRole(req, folder)) return true;
+  if (folderMatches(folder, "nrms-menu") && req.user?.id) {
+    const membership = await (prisma as any).nrmsStaffMembership.findFirst({
+      where: { userId: req.user.id, status: "ACTIVE", role: { in: ["MANAGER", "OUTLET_SUPERVISOR"] } },
+      select: { id: true },
+    });
+    return Boolean(membership);
+  }
+  return false;
+}
+
 /** GET /uploads/cloudinary/sign?folder=avatars */
-router.get("/sign", limitCloudinarySign as any, (req, res) => {
+router.get("/sign", limitCloudinarySign as any, async (req, res) => {
   const parsed = signQuerySchema.safeParse(req.query ?? {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_query" });
 
@@ -98,7 +118,7 @@ router.get("/sign", limitCloudinarySign as any, (req, res) => {
   if (!isAllowedFolder(folder)) {
     return res.status(400).json({ error: "invalid_folder" });
   }
-  if (!isFolderAllowedForRole(req, folder)) {
+  if (!(await isFolderAllowedForUser(req, folder))) {
     return res.status(403).json({ error: "folder_forbidden" });
   }
 
@@ -119,10 +139,10 @@ router.get("/sign", limitCloudinarySign as any, (req, res) => {
 
   // Cloudinary signature is sensitive to exact param values.
   // Use string values to match what browsers send via FormData.
+  // `max_file_size` is not included by Cloudinary in the upload signature
+  // canonical string. Keep the signed fields to the exact fields sent to its
+  // upload API; size limits remain enforced by the application upload flow.
   const params: Record<string, string | number> = { timestamp, folder, overwrite: "true" };
-  if (typeof maxFileSize === "number") {
-    params.max_file_size = String(maxFileSize);
-  }
   const signature = cloudinary.utils.api_sign_request(params as any, process.env.CLOUDINARY_API_SECRET!);
   res.setHeader("Cache-Control", "no-store");
   res.json({
@@ -144,7 +164,7 @@ router.post("/upload", limitUploadPresign as any, upload.single("file"), async (
   if (!isAllowedFolder(folder)) {
     return res.status(400).json({ error: "invalid_folder" });
   }
-  if (!isFolderAllowedForRole(req, folder)) {
+  if (!(await isFolderAllowedForUser(req, folder))) {
     return res.status(403).json({ error: "folder_forbidden" });
   }
 

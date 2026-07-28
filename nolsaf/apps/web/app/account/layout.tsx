@@ -47,7 +47,7 @@ export default function CustomerAccountLayout({ children }: { children: ReactNod
           />
 
           {/* Main content */}
-          <div className={isAgentPortalRoute ? "pt-6 pb-20 md:pb-6" : "pt-16 pb-6"}>
+          <div className={isAgentPortalRoute ? "pt-6 pb-20 md:pb-6" : "pt-6 pb-6"}>
             <main className="w-full max-w-full overflow-x-hidden">
               {children}
             </main>

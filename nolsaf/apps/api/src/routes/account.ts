@@ -125,7 +125,10 @@ const updateProfileSchema = z.object({
   name: z.string().min(1).max(160).optional(),
   avatarUrl: z.string().url().max(500).optional(),
   tin: z.string().max(50).optional(),
-  address: z.string().max(500).optional(),
+  address: z.string().trim().max(500).optional(),
+  // Optional for ordinary accounts; promotion requires it before an agreement
+  // can be generated.
+  nin: z.string().trim().max(50).optional(),
   gender: z.string().max(20).optional(),
   nationality: z.string().max(80).optional(),
 }).strict();
@@ -770,12 +773,15 @@ const updateProfile: RequestHandler = async (req, res) => {
 
     // Get before state for audit
     const beforeSelect: any = { fullName: true, name: true, phone: true, email: true, avatarUrl: true };
-    // Always try to include tin and address for audit
+    // Always try to include optional legal/business fields for audit comparison.
     try {
       beforeSelect.tin = true;
     } catch (e) {}
     try {
       beforeSelect.address = true;
+    } catch (e) {}
+    try {
+      beforeSelect.nin = true;
     } catch (e) {}
 
     let before: any = null;
@@ -805,6 +811,9 @@ const updateProfile: RequestHandler = async (req, res) => {
     if (data.address !== undefined) {
       updateData.address = data.address;
     }
+    if (data.nin !== undefined) {
+      updateData.nin = data.nin;
+    }
     if (data.gender !== undefined) {
       updateData.gender = data.gender;
     }
@@ -823,7 +832,7 @@ const updateProfile: RequestHandler = async (req, res) => {
       updated = await prisma.user.update({ where: { id: userId }, data: updateData } as any);
     } catch (err: any) {
       // Some environments may have an older generated Prisma Client that doesn't include
-      // newer fields yet (e.g., `fullName`, `tin`, `address`). Retry by dropping unsupported fields.
+      // newer fields yet (e.g., `fullName`, `tin`, `address`, `nin`). Retry by dropping unsupported fields.
       const badField = extractUnknownArg(err);
       if (badField) {
         console.warn(`[account/profile] Field '${badField}' not available in schema, retrying without it`);
@@ -835,13 +844,14 @@ const updateProfile: RequestHandler = async (req, res) => {
         try {
           updated = await prisma.user.update({ where: { id: userId }, data: updateData } as any);
         } catch (err2: any) {
-          // If still fails, try removing tin/address specifically
-          if (badField === 'tin' || badField === 'address') {
+          // If still failing, remove optional legal/business fields.
+          if (badField === 'tin' || badField === 'address' || badField === 'nin') {
             const retryData = { ...updateData };
             delete retryData.tin;
             delete retryData.address;
+            delete retryData.nin;
             updated = await prisma.user.update({ where: { id: userId }, data: retryData } as any);
-            console.warn(`[account/profile] tin/address fields not available, saved other fields only`);
+            console.warn(`[account/profile] optional legal fields not available, saved other fields only`);
           } else {
             throw err2;
           }
@@ -852,7 +862,15 @@ const updateProfile: RequestHandler = async (req, res) => {
     }
     
     try {
-      await audit(req as AuthedRequest, 'USER_PROFILE_UPDATE', `user:${updated.id}`, before, updateData);
+      const auditAfter = {
+        ...updateData,
+        // Never duplicate the raw identity number into a general audit payload.
+        ...(data.nin !== undefined ? { nin: data.nin ? "[UPDATED]" : "[CLEARED]" } : {}),
+      };
+      const auditBefore = before
+        ? { ...before, ...(before.nin !== undefined ? { nin: before.nin ? "[SET]" : null } : {}) }
+        : before;
+      await audit(req as AuthedRequest, 'USER_PROFILE_UPDATE', `user:${updated.id}`, auditBefore, auditAfter);
     } catch (e) {
       // Best-effort audit
     }
@@ -1301,6 +1319,9 @@ const changePassword: RequestHandler = async (req, res) => {
     const forceLogout = await shouldForceLogout();
     
     if (forceLogout) {
+      // Bump tokensValidAfter so every already-issued token (this device and all
+      // others) is rejected, not just the current cookie cleared below.
+      await prisma.user.update({ where: { id: user.id }, data: { tokensValidAfter: new Date() } }).catch(() => {});
       await invalidateAuthSessionCacheForUser(user.id).catch(() => {});
       clearAuthCookie(res);
     }
@@ -2625,15 +2646,18 @@ const revokeOtherSessions: RequestHandler = async (req, res) => {
     const currentId = (req as any).sessionId as string | undefined;
     
     await prisma.session.updateMany({
-      where: { 
-        userId, 
-        ...(currentId ? { NOT: { id: currentId } } : {}), 
-        revokedAt: null 
+      where: {
+        userId,
+        ...(currentId ? { NOT: { id: currentId } } : {}),
+        revokedAt: null
       },
       data: { revokedAt: new Date() },
     });
+
+    // Exact server-side session binding makes the row revocations sufficient.
+    // Keep this device's existing session instead of minting a duplicate.
     await invalidateAuthSessionCacheForUser(userId).catch(() => {});
-    
+
     await audit(req as AuthedRequest, "USER_SESSION_REVOKE_OTHERS", `user:${userId}`);
     sendSuccess(res, null, "Other sessions revoked successfully");
   } catch (error: any) {

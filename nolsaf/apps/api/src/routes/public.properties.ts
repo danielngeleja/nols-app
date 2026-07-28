@@ -8,6 +8,7 @@ import { withCache, cacheKeys, cacheTags, measureTime } from "../lib/performance
 import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
+import { buildMenuUrl } from "../lib/nrmsOrderPoints.js";
 
 const router = Router();
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
@@ -905,6 +906,8 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               services: true,
               roomsSpec: true,
               ownerId: true, // Include ownerId to check ownership on frontend
+              nrmsActivatedAt: true,
+              nrmsMenuPublic: true,
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.
@@ -969,8 +972,20 @@ const getPublicProperty: RequestHandler = async (req, res) => {
             });
           }
 
+          // A guest browsing before booking never needs a room/table QR to
+          // see the menu: the read-only PREVIEW order point stands in for one.
+          let nrmsMenuUrl: string | null = null;
+          if (p.nrmsActivatedAt && p.nrmsMenuPublic) {
+            const previewPoint = await prisma.nrmsOrderPoint.findFirst({
+              where: { propertyId: id, type: "PREVIEW", active: true },
+              select: { token: true },
+            });
+            if (previewPoint) nrmsMenuUrl = buildMenuUrl(previewPoint.token);
+          }
+
           const dto = toPublicDetail({
             ...p,
+            nrmsMenuUrl,
             photos: legacyPhotos,
             physicalVerification: {
               status: "VERIFIED",

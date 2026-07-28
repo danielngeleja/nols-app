@@ -1,6 +1,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "./groupStayAvailabilityBlocks.js";
+import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
 
 export type DraftBookingAvailability = {
   available: boolean;
@@ -160,7 +161,7 @@ export async function computeDraftBookingAvailability(
   const buckets = buildBuckets(booking.property, roomCode);
   const keys = Object.keys(buckets);
 
-  const [conflictingBookings, rawConflictingBlocks] = await Promise.all([
+  const [conflictingBookings, rawConflictingBlocks, nrmsConsumers] = await Promise.all([
     db.booking.findMany({
       where: {
         propertyId,
@@ -177,6 +178,7 @@ export async function computeDraftBookingAvailability(
       },
       select: { id: true, roomCode: true, bedsBlocked: true, source: true, notes: true },
     }),
+    getNrmsCapacityConsumers(db, propertyId, checkIn, checkOut),
   ]);
   const conflictingBlocks = await filterPayableAvailabilityBlocks(rawConflictingBlocks, db);
 
@@ -196,6 +198,9 @@ export async function computeDraftBookingAvailability(
 
   for (const row of conflictingBlocks) {
     applyToBucket(row.roomCode, toFiniteInt(row.bedsBlocked ?? 1, 1), "blockedRooms");
+  }
+  for (const row of nrmsConsumers) {
+    applyToBucket(row.roomUnitCode ?? row.roomTypeName, 1, "blockedRooms");
   }
 
   const selectedRoomType = roomCode ? roomCodeToTypeKey(roomCode) : null;

@@ -29,6 +29,8 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { safeEq } from "../lib/signature.js";
 import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
+import { markNrmsPaymentFailed, reconcileNrmsPayment } from "../lib/nrmsBilling.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 
 const router = Router();
 
@@ -381,6 +383,9 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
     },
     include: { booking: true },
   });
+  await prisma.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, updated.id)).catch((error: any) => {
+    console.warn("[sales commission] Marketplace accrual deferred:", error?.message || String(error));
+  });
 
   // A public booking is only confirmed after payment succeeds, and the check-in
   // code must exist before it appears in My Bookings.
@@ -713,6 +718,8 @@ export async function markTourBookingPaid(
       guestPhone: true,
       guestEmail: true,
       paymentStatus: true,
+      paymentRef: true,
+      customerPaymentRef: true,
       operatorAgentId: true,
       title: true,
       destination: true,
@@ -734,8 +741,26 @@ export async function markTourBookingPaid(
       status: "CONFIRMED",
       paidAt: new Date(),
       paymentProvider: provider,
+      customerPaymentRef: tour.customerPaymentRef ?? tour.paymentRef,
     },
   });
+
+  const incomingRef = tour.customerPaymentRef ?? tour.paymentRef;
+  if (incomingRef) {
+    await prisma.tourFinancialTransaction.upsert({
+      where: { reference: incomingRef },
+      create: {
+        tourBookingId: tour.id,
+        kind: "PAYMENT",
+        status: "PAID",
+        provider,
+        reference: incomingRef,
+        currency: tour.currency,
+        amount: tour.grossAmount,
+      },
+      update: { status: "PAID", provider },
+    });
+  }
 
   // Notify operator (agent): in-app + email + SMS, so they prepare immediately.
   if (tour.operatorAgentId) {
@@ -864,17 +889,34 @@ export function detectPaymentChannel(payload: any): "MNO" | "BANK" | "CARD" | nu
  */
 router.post("/azampay", webhookLimiter, async (req: any, res) => {
   try {
+    const diagIp = String(req.ip || "");
+    const diagCt = req.header("content-type") || "";
+    const diagSigHeader = req.header("X-Azampay-Signature") || req.header("x-azampay-signature") || null;
+    const diagBodyLen =
+      Buffer.isBuffer(req.body) ? req.body.length
+      : typeof req.body === "string" ? req.body.length
+      : JSON.stringify(req.body ?? {}).length;
+    // Trace every inbound call up front so a rejection further down (IP, content-type,
+    // missing/invalid signature) still leaves a record of exactly what AzamPay sent.
+    // Without this, a silently-rejected callback looks identical to one that never arrived.
+    console.info(
+      `[AzamPay Webhook] incoming ip=${diagIp} contentType=${diagCt || "-"} ` +
+      `sigHeaderPresent=${diagSigHeader != null} sigHeaderLen=${diagSigHeader?.length ?? 0} ` +
+      `bodyBytes=${diagBodyLen} headerNames=${Object.keys(req.headers || {}).join(",")}`
+    );
+
     // ── Optional IP allowlist check ────
     const allowedIps = (process.env.AZAMPAY_WEBHOOK_ALLOWED_IPS || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    if (!isWebhookIpAllowed(String(req.ip || ""), allowedIps)) {
-      console.warn("[Webhook] Request from non-allowlisted IP rejected");
+    if (!isWebhookIpAllowed(diagIp, allowedIps)) {
+      console.warn(`[AzamPay Webhook] rejected: IP not allowlisted (ip=${diagIp}, allowlistSize=${allowedIps.length})`);
       return res.status(403).json({ ok: false, error: "forbidden" });
     }
 
     // Reject non-JSON content types immediately (before touching body)
-    const ct = req.header("content-type") || "";
+    const ct = diagCt;
     if (!ct.includes("application/json") && !ct.includes("text/plain")) {
+      console.warn(`[AzamPay Webhook] rejected: unsupported content-type "${ct}" (ip=${diagIp})`);
       return res.status(415).json({ ok: false, error: "Unsupported content type" });
     }
 
@@ -884,15 +926,18 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         : typeof req.body === "string"
           ? req.body
           : JSON.stringify(req.body ?? {});
-    const signature = req.header("X-Azampay-Signature") || req.header("x-azampay-signature");
+    const signature = diagSigHeader;
     const secret = process.env.AZAMPAY_WEBHOOK_SECRET;
 
     if (!secret) {
-      console.warn("AZAMPAY_WEBHOOK_SECRET not configured");
+      console.warn(`[AzamPay Webhook] rejected: AZAMPAY_WEBHOOK_SECRET not configured (ip=${diagIp})`);
       return res.status(500).json({ ok: false, error: "Webhook secret not configured" });
     }
 
     if (!signature) {
+      console.warn(
+        `[AzamPay Webhook] rejected: signature header missing (ip=${diagIp}, headerNames=${Object.keys(req.headers || {}).join(",")})`
+      );
       return res.status(400).json({ ok: false, error: "Signature missing" });
     }
 
@@ -900,9 +945,13 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
     const sig = String(signature).trim().toLowerCase();
     if (!safeEq(computed, sig)) {
-      console.warn("Invalid AzamPay webhook signature");
+      console.warn(
+        `[AzamPay Webhook] rejected: signature mismatch (ip=${diagIp}, receivedLen=${sig.length}, receivedPrefix=${sig.slice(0, 8)}, ` +
+        `computedPrefix=${computed.slice(0, 8)}, bodyBytes=${rawBody.length})`
+      );
       return res.status(401).json({ ok: false, error: "Invalid signature" });
     }
+    console.info(`[AzamPay Webhook] signature verified (ip=${diagIp})`);
 
     const payload = JSON.parse(rawBody);
 
@@ -984,6 +1033,14 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const tourIdHint  = Number(extraProps?.tourBookingId);
     const groupIdHint = Number(extraProps?.groupBookingId);
     const sessionHint = eventId ? eventId.toString() : null;
+    const existingPayload = existing?.payload && typeof existing.payload === "object" ? existing.payload as any : null;
+    const nrmsTokenHint = String(extraProps?.nrmsToken || existingPayload?.nrmsToken || (/^NRMS-/i.test(String(paymentRef || "")) ? paymentRef : "") || "");
+    const nrmsOr: any[] = [];
+    if (nrmsTokenHint) nrmsOr.push({ token: nrmsTokenHint });
+    if (sessionHint) nrmsOr.push({ checkoutSessionId: sessionHint });
+    const nrmsPaymentToken = nrmsOr.length
+      ? await (prisma as any).nrmsServicePaymentToken.findFirst({ where: { OR: nrmsOr }, include: { statement: { include: { account: true } }, payment: true } })
+      : null;
 
     // Find invoice by paymentRef
     let invoice = null as any;
@@ -1059,7 +1116,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // Visibility: which entity (if any) this callback resolved to, and via which signal.
     console.info(
       `[Webhook] match status=${normalizedStatus} ` +
-      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} ` +
+      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} nrms=${nrmsPaymentToken?.id ?? "-"} ` +
       `(paymentRef=${paymentRef ? "y" : "n"} tourHint=${Number.isInteger(tourIdHint) ? tourIdHint : "-"} ` +
       `groupHint=${Number.isInteger(groupIdHint) ? groupIdHint : "-"} session=${sessionHint ? "y" : "n"})`
     );
@@ -1083,6 +1140,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         payload: {
           transactionId: eventId,
           paymentRef:    paymentRef ?? null,
+          nrmsToken:     nrmsPaymentToken?.token ?? null,
           status:        payload.status ?? null,
           provider:      payload.provider ?? null,
         },
@@ -1118,6 +1176,24 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           `(diff ${Math.abs(amount - want)} TZS). Invoice NOT marked paid.`
         );
       }
+    }
+
+    if (nrmsPaymentToken && normalizedStatus === "SUCCESS") {
+      try {
+        await prisma.$transaction((tx: any) => reconcileNrmsPayment(tx, {
+          token: nrmsPaymentToken.token,
+          provider: "AZAMPAY",
+          providerRef: eventId.toString(),
+          idempotencyKey: `AZAMPAY:${eventId}`.slice(0, 120),
+          amount,
+        }));
+      } catch (nrmsError: any) {
+        const message = String(nrmsError?.message || "");
+        if (!message.includes("AMOUNT_MISMATCH")) console.error("[Webhook] NRMS reconciliation failed:", message || nrmsError);
+      }
+    }
+    if (nrmsPaymentToken && normalizedStatus === "FAILED") {
+      await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
     }
 
     // ── Tour booking payment success ──────────────────────────────────────────

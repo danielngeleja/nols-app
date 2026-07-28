@@ -19,6 +19,13 @@ import {
 } from "../lib/cache.js";
 import { auditLog } from "../lib/audit.js";
 import { invalidateCache, cacheKeys, cacheTags } from "../lib/performance.js";
+import {
+  RESTRICTION_SCOPE,
+  createRestrictionCase,
+  resolveRestrictionCase,
+  sendRestrictionOpenedEmail,
+  sendRestrictionResolvedEmail,
+} from "../lib/restrictionCases.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireAdmin as RequestHandler);
@@ -1520,7 +1527,7 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
 
   const before = await prisma.property.findFirst({
     where: { id },
-    select: { status: true, ownerId: true, title: true },
+    select: { status: true, ownerId: true, title: true, tourismSiteId: true, parkPlacement: true },
   });
   if (!before) return res.status(404).json({ error: "Not found" });
   
@@ -1539,7 +1546,8 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
   // Change status from APPROVED to SUSPENDED
   const newStatus = "SUSPENDED";
   
-  const updated = await prisma.$transaction(async (tx) => {
+  const appliedAt = new Date();
+  const { property: updated, restriction } = await prisma.$transaction(async (tx) => {
     const property = await tx.property.update({
       where: { id },
       data: { status: newStatus },
@@ -1553,7 +1561,17 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
       note: verificationNoteFor("PENDING", parse.data.reason),
     });
 
-    return property;
+    const restriction = await createRestrictionCase(tx as any, {
+      scope: RESTRICTION_SCOPE.MARKETPLACE_PROPERTY,
+      ownerId: before.ownerId,
+      targetId: id,
+      propertyId: id,
+      reason: parse.data.reason,
+      appliedByAdminId: req.user!.id,
+      appliedAt,
+    });
+
+    return { property, restriction };
   });
 
   // Invalidate cache for this property and property lists
@@ -1580,6 +1598,13 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
       propertyId: id,
       propertyTitle: before.title,
       reason: parse.data.reason,
+      referenceCode: restriction.referenceCode,
+    }),
+    createAdminAuditSafe({
+      adminId: req.user!.id,
+      targetUserId: before.ownerId,
+      action: "PROPERTY_SUSPEND",
+      details: { propertyId: id, title: before.title, fromStatus: before.status, toStatus: newStatus, reason: parse.data.reason, referenceCode: restriction.referenceCode },
     }),
     (async () => {
       const auditResult = await auditLog({
@@ -1589,7 +1614,7 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
         entity: "PROPERTY",
         entityId: id,
         before,
-        after: { status: newStatus, reason: parse.data.reason },
+        after: { status: newStatus, reason: parse.data.reason, referenceCode: restriction.referenceCode },
         ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || req.ip || undefined,
         ua: (req.headers["user-agent"] as string) || undefined,
       });
@@ -1604,8 +1629,10 @@ router.post("/:id/suspend", (async (req: AuthedRequest, res) => {
 
   await Promise.all(promises);
 
+  const emailDelivery = await sendRestrictionOpenedEmail(restriction, before.title);
+
   broadcastStatus(req, payload);
-  res.json({ ok: true, id: updated.id, status: updated.status });
+  res.json({ ok: true, id: updated.id, status: updated.status, referenceCode: restriction.referenceCode, emailDelivery });
 }) as RequestHandler);
 
 /** POST /admin/properties/:id/unsuspend { reason } */
@@ -1621,7 +1648,7 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
 
   const before = await prisma.property.findFirst({
     where: { id },
-    select: { status: true, ownerId: true, title: true },
+    select: { status: true, ownerId: true, title: true, tourismSiteId: true, parkPlacement: true },
   });
   if (!before) return res.status(404).json({ error: "Not found" });
   
@@ -1633,7 +1660,7 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
     });
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { property: updated, restriction } = await prisma.$transaction(async (tx) => {
     const property = await tx.property.update({
       where: { id },
       data: {
@@ -1652,7 +1679,14 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
       note: "This stay was re-verified and restored to public listing by NoLSAF.",
     });
 
-    return property;
+    const restriction = await resolveRestrictionCase(tx as any, {
+      scope: RESTRICTION_SCOPE.MARKETPLACE_PROPERTY,
+      targetId: id,
+      resolvedByAdminId: req.user!.id,
+      resolutionNote: parse.data.reason,
+    });
+
+    return { property, restriction };
   });
 
   // Invalidate cache for this property and property lists
@@ -1678,6 +1712,7 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
       propertyId: id, 
       propertyTitle: before.title,
       reason: parse.data.reason,
+      referenceCode: restriction?.referenceCode ?? null,
     }),
     auditLog({
       actorId: req.user!.id,
@@ -1686,14 +1721,18 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
       entity: "PROPERTY",
       entityId: id,
       before,
-      after: { status: "APPROVED", reason: parse.data.reason },
+      after: { status: "APPROVED", reason: parse.data.reason, referenceCode: restriction?.referenceCode ?? null },
       ip: req.ip,
       ua: req.headers["user-agent"] as string,
     }),
   ]);
 
+  const emailDelivery = restriction
+    ? await sendRestrictionResolvedEmail(restriction, before.title)
+    : { sent: false, error: "No tracked restriction case was found" };
+
   broadcastStatus(req, payload);
-  res.json({ ok: true, id: updated.id, status: updated.status });
+  res.json({ ok: true, id: updated.id, status: updated.status, referenceCode: restriction?.referenceCode ?? null, emailDelivery });
 }) as RequestHandler);
 
 export default router;

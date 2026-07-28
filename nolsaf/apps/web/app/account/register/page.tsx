@@ -433,6 +433,14 @@ export default function RegisterPage() {
       if (role === 'OWNER') return '/owner';
       if (role === 'DRIVER') return '/driver';
       if (role === 'AGENT') return '/account/agent';
+      // Preserve the existing NRMS staff chooser for accounts assigned to one
+      // or more property workspaces.
+      try {
+        const nrms = await apiClient.get<any>('/api/nrms/operations/me');
+        if (Array.isArray(nrms.data?.properties) && nrms.data.properties.length > 0) return '/nrms/choose';
+      } catch {
+        // Not NRMS staff or the check failed.
+      }
       return '/account';
     } catch {
       return '/account';
@@ -442,6 +450,12 @@ export default function RegisterPage() {
   const resolvePostAuthDestination = async () => {
     const safeNext = safeNextPath(nextParamRaw);
     if (safeNext) return safeNext;
+    try {
+      const workspaces = await apiClient.get('/api/me/workspaces');
+      if (workspaces.data?.requiresSelection) return '/workspace/select';
+    } catch {
+      // Preserve the existing role-based login destination if discovery fails.
+    }
     return await resolveRoleHome();
   };
 

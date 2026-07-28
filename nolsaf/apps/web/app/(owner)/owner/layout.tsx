@@ -51,6 +51,12 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
     setMobileSidebarOpen(false);
   }, [pathname]);
 
+  // NRMS is a self-contained operational workspace. It owns its navigation and
+  // deliberately hides the marketplace owner chrome until the user exits NRMS.
+  if (pathname.startsWith("/owner/nrms")) {
+    return <div className="min-h-screen min-w-0 bg-neutral-100">{children}</div>;
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50">
       <OwnerSiteHeader unreadMessages={unreadCount} />

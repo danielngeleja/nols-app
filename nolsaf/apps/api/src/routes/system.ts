@@ -26,6 +26,9 @@ export function registerEarlyRoutes(app: Express): void {
 }
 
 export function registerRouteBodyParsers(app: Express): void {
+  // Expedia webhook signatures cover the exact bytes received. Keep this
+  // route raw and tightly bounded before the global JSON parser runs.
+  app.use("/webhooks/expedia", express.raw({ type: "application/json", limit: "256kb" }));
   // Apply larger body size limit for property routes BEFORE global middleware.
   app.use("/owner/properties", express.json({ limit: "25mb", strict: true }));
   app.use("/owner/properties", express.urlencoded({ extended: true, limit: "25mb", parameterLimit: 200 }));

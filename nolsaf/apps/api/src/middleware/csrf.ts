@@ -108,19 +108,20 @@ export async function verifyCsrfToken(sessionId: string, token: string): Promise
 function getSessionId(req: Request): string {
   const cookieHeader = req.headers.cookie || "";
   // Parse cookies manually — avoids a cookie-parser dependency.
-  const jwt = cookieHeader
+  // Match auth middleware precedence exactly. Browsers can temporarily carry
+  // legacy and __Host cookies together; header order must not select a
+  // different JWT for CSRF than the one authentication selected.
+  const cookies = cookieHeader
     .split(";")
     .map((part) => part.trim())
-    .reduce<string | null>((found, part) => {
-      if (found) return found;
+    .reduce<Record<string, string>>((result, part) => {
       const eqIdx = part.indexOf("=");
-      if (eqIdx === -1) return null;
+      if (eqIdx === -1) return result;
       const name = part.slice(0, eqIdx).trim();
-      if (name === "nolsaf_token" || name === "token") {
-        return part.slice(eqIdx + 1).trim();
-      }
-      return null;
-    }, null);
+      if (AUTH_COOKIE_NAMES.has(name)) result[name] = part.slice(eqIdx + 1).trim();
+      return result;
+    }, {});
+  const jwt = cookies["nolsaf_token"] || cookies["__Host-nolsaf_token"] || cookies["token"] || cookies["__Host-token"] || null;
 
   if (jwt) {
     // Hash the token so the raw credential never appears in any store key.
@@ -136,19 +137,6 @@ function getSessionId(req: Request): string {
 function hasBearerAuth(req: Request): boolean {
   const auth = String(req.headers.authorization || "");
   return auth.startsWith("Bearer ");
-}
-
-/**
- * Trust requests that arrive through the internal Next.js proxy.
- * The proxy stamps every forwarded request with x-proxy-secret (a shared env
- * var).  Since this header is added server-side by Next.js and never exposed
- * to browsers, its presence proves the request went through the trusted proxy
- * rather than coming directly from an untrusted origin.
- */
-function isInternalProxy(req: Request): boolean {
-  const secret = process.env.INTERNAL_PROXY_SECRET;
-  if (!secret) return false;
-  return req.headers["x-proxy-secret"] === secret;
 }
 
 function hasAuthCookie(req: Request): boolean {
@@ -257,16 +245,14 @@ export async function csrfProtection(req: Request, res: Response, next: NextFunc
     return next();
   }
 
-  // Requests forwarded by the internal Next.js proxy carry a shared secret.
-  // These are server-to-server calls; browser CSRF mitigations don't apply.
-  if (isInternalProxy(req)) {
-    return next();
-  }
-
   // Public unauthenticated mutations are protected by validation/rate limits, not CSRF.
   if (!hasAuthCookie(req)) {
     return next();
   }
+
+  // This response can vary based on browser-supplied request context.
+  res.vary("Sec-Fetch-Site");
+  res.vary("Origin");
 
   const sessionId = getSessionId(req);
   const token = req.headers["x-csrf-token"] as string;
@@ -283,16 +269,25 @@ export async function csrfProtection(req: Request, res: Response, next: NextFunc
 
   const secFetchSite = String(req.get("sec-fetch-site") || "").toLowerCase();
   const explicitlyCrossSite = secFetchSite === "cross-site";
+  const explicitlySameOrigin = secFetchSite === "same-origin";
   const hasOriginHeaders = Boolean(req.get("origin") || req.get("referer"));
+  const hasTrustedOrigin = hasOriginHeaders && isTrustedOrigin(req);
+  const hasOriginConflict = hasOriginHeaders && !hasTrustedOrigin;
 
-  if (explicitlyCrossSite || (hasOriginHeaders && !isTrustedOrigin(req))) {
-    return res.status(403).json({
-      error: "CSRF token missing",
-      message: "Cross-site cookie-auth requests must include X-CSRF-Token.",
-    });
+  // Compatibility fallback for older call sites that do not yet attach the
+  // synchronizer token: accept only when the browser positively proves a
+  // same-origin request. Missing metadata is ambiguous and must fail closed.
+  // `same-site` is intentionally insufficient because a compromised sibling
+  // subdomain can still initiate a same-site cross-origin request.
+  if (!explicitlyCrossSite && !hasOriginConflict && (explicitlySameOrigin || hasTrustedOrigin)) {
+    return next();
   }
 
-  next();
+  return res.status(403).json({
+    error: "CSRF token missing",
+    code: "CSRF_TOKEN_MISSING",
+    message: "Cookie-authenticated mutations must include X-CSRF-Token or verifiable same-origin metadata.",
+  });
 }
 
 /**

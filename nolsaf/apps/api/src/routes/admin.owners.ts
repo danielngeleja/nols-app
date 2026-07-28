@@ -2,7 +2,7 @@
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import jwt from "jsonwebtoken";
+import { signUserJwt } from "../lib/sessionManager.js";
 import { Prisma } from "@prisma/client";
 import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
@@ -561,10 +561,9 @@ router.post("/:id/impersonate", async (req, res) => {
   }
 
   const ttlSec = 10 * 60; // 10 minutes
-  const token = jwt.sign(
-    { sub: owner.id, role: "OWNER", imp: true },
-    process.env.JWT_SECRET!,
-    { expiresIn: ttlSec }
+  const token = await signUserJwt(
+    { id: owner.id, role: "OWNER", email: owner.email },
+    { impersonated: true, expiresInSeconds: ttlSec },
   );
   
   await prisma.adminAudit.create({

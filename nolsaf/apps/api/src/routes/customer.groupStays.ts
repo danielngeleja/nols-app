@@ -21,6 +21,7 @@ import {
 import { loadGroupStayDepositReceipt, loadGroupStayDepositReceiptData } from "../lib/groupStayReceipts.js";
 import { signGroupStayReceiptToken } from "../lib/groupStayReceiptToken.js";
 import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationPayout.js";
+import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -166,6 +167,15 @@ router.get("/", async (req, res) => {
         createdAt: gb.createdAt,
         updatedAt: gb.updatedAt,
         adminSuggestions, // Include admin suggestions/messages
+        lifecycle: mapGroupStayLifecycle({
+          bookingStatus: gb.status,
+          depositPaid: Boolean(gb.depositPaid),
+          depositPaidAt: gb.depositPaidAt,
+          depositAmount: gb.depositAmount,
+          depositExpired: gb.status === "AWAITING_DEPOSIT" && !gb.depositPaid && Boolean(gb.depositDueAt) && new Date(gb.depositDueAt).getTime() < now.getTime(),
+          confirmedPropertyId: gb.confirmedPropertyId,
+          cancellationLoaded: false,
+        }),
         deposit: {
           amount: gb.depositAmount != null ? Number(gb.depositAmount) : null,
           paid: gb.depositPaid === true,

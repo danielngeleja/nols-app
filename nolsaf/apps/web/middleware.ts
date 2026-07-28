@@ -2,27 +2,83 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Shared secret stamped on every server-side proxy request to the API.
-// Express CSRF middleware trusts requests carrying this header, because they
-// can only come from this Next.js server process — never from a browser.
-// Set INTERNAL_PROXY_SECRET to the same value in both web and api env vars.
-const INTERNAL_PROXY_SECRET = process.env.INTERNAL_PROXY_SECRET || "";
+function buildContentSecurityPolicy(nonce: string): string {
+  const isProduction = process.env.NODE_ENV === "production";
+  const apiOrigin = String(process.env.API_ORIGIN || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const socketOrigin = String(process.env.NEXT_PUBLIC_SOCKET_URL || "").replace(/\/$/, "");
+  const localConnectSrc = isProduction
+    ? []
+    : ["http://127.0.0.1:4000", "http://localhost:4000", "http://localhost:3001", "ws:"];
+  const connectSrc = [
+    "'self'",
+    "https:",
+    "wss:",
+    "https://api.mapbox.com",
+    "https://events.mapbox.com",
+    apiOrigin,
+    socketOrigin,
+    ...localConnectSrc,
+  ].filter(Boolean);
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    ...(isProduction ? [] : ["'unsafe-eval'"]),
+    "https://static.cloudflareinsights.com",
+    "https://api.mapbox.com",
+    "https://events.mapbox.com",
+  ];
+  const imgSrc = [
+    "'self'",
+    "blob:",
+    "data:",
+    "https:",
+    ...(isProduction ? [] : ["http:"]),
+    "res.cloudinary.com",
+    "img.youtube.com",
+    "https://api.mapbox.com",
+    "https://*.mapbox.com",
+  ];
 
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(" ")}`,
+    "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
+    `img-src ${imgSrc.join(" ")}`,
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "media-src 'self' blob: data: https:",
+    `connect-src ${connectSrc.join(" ")}`,
+    "frame-ancestors 'self'",
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    ...(isProduction ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+}
+
+// Browser API requests must retain the API's normal CSRF protections.
+// This middleware only allows the Next.js rewrite to proxy the request.
+// It deliberately adds no trusted headers to browser traffic.
 export function middleware(req: NextRequest) {
-  // Stamp all /api/* proxy requests so Express can skip the browser-origin CSRF
-  // check.  The Next.js rewrite runs AFTER middleware, so the header added here
-  // is forwarded by the rewrite to the Express backend.
+  // API traffic is proxied by Next.js rewrites without a CSRF bypass.
+  // The rewrite runs after middleware and forwards the original request headers.
   const isApiProxy =
     req.nextUrl.pathname.startsWith("/api/") ||
     req.nextUrl.pathname.startsWith("/uploads/") ||
     req.nextUrl.pathname.startsWith("/webhooks/");
 
-  if (isApiProxy && INTERNAL_PROXY_SECRET) {
-    const headers = new Headers(req.headers);
-    headers.set("x-proxy-secret", INTERNAL_PROXY_SECRET);
-    const response = NextResponse.next({ request: { headers } });
-    return response;
-  }
+  if (isApiProxy) return NextResponse.next();
+
+  // Next reads the nonce from the request CSP and applies it to framework
+  // scripts. The matching response header lets the browser enforce it. A new
+  // nonce per request removes the need for script-src 'unsafe-inline'.
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
+  requestHeaders.set("x-nonce", nonce);
   const url = req.nextUrl.clone();
   const path = url.pathname;
 
@@ -43,6 +99,10 @@ export function middleware(req: NextRequest) {
   const tokenRole = decodeRoleFromToken(token);
   const cookieRole = req.cookies.get("role")?.value || "";
   const role = tokenRole || cookieRole;
+  const isPublicNrmsGuestRoute =
+    path.startsWith("/nrms/book/") ||
+    path.startsWith("/nrms/guest/payment/") ||
+    path.startsWith("/nrms/guest/review/");
 
   if (path.startsWith("/admin")) {
     if (role !== "ADMIN") {
@@ -51,7 +111,28 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  if (path.startsWith("/owner")) {
+  if (path.startsWith("/nrms") && !isPublicNrmsGuestRoute && !token) {
+    // Preserve the destination (e.g. the emailed /nrms/confirm?token=... link)
+    // so the user lands back on it after signing in.
+    const next = path + (req.nextUrl.search || "");
+    url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", next);
+    return NextResponse.redirect(url);
+  }
+
+  if (path.startsWith("/owner/nrms")) {
+    // NRMS staff are authorized by property-scoped memberships in the API.
+    // The page shell requires authentication but deliberately does not grant
+    // access to any other Owner route.
+    if (!token) {
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
+      return NextResponse.redirect(url);
+    }
+  } else if (path.startsWith("/owner")) {
     if (role !== "OWNER" && role !== "ADMIN") {
       url.pathname = "/login";
       return NextResponse.redirect(url);
@@ -61,6 +142,21 @@ export function middleware(req: NextRequest) {
   if (path.startsWith("/driver")) {
     if (role !== "DRIVER" && role !== "ADMIN") {
       url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (path.startsWith("/sales") || path === "/workspace/select") {
+    // Sales partners are ordinary users: there is no SALES role and the role
+    // cookie says nothing about the entitlement. Authorization lives in
+    // UserWorkspaceAccess and is enforced by the API on every request, exactly
+    // as /owner/nrms does for staff memberships. The shell only requires that
+    // somebody is signed in.
+    if (!token) {
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
       return NextResponse.redirect(url);
     }
   }
@@ -94,8 +190,12 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // If logged in and on /login, bounce to role home
+  // If logged in and on /login, honor a safe next target, else bounce to role home
   if (path === "/login" && role) {
+    const next = url.searchParams.get("next") || "";
+    if (next.startsWith("/") && !next.startsWith("//")) {
+      return NextResponse.redirect(new URL(next, req.url));
+    }
     if (role === "ADMIN") url.pathname = "/admin/home";
     else if (role === "OWNER") url.pathname = "/owner";
     else if (role === "DRIVER") url.pathname = "/driver";
@@ -104,7 +204,20 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+  const isCapabilityPage =
+    path.startsWith("/nrms/guest/payment/") ||
+    path.startsWith("/nrms/guest/review/");
+  response.headers.set(
+    "Referrer-Policy",
+    isCapabilityPage ? "no-referrer" : "strict-origin-when-cross-origin",
+  );
+  if (isCapabilityPage) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  }
+  return response;
 }
 
 export const config = {

@@ -215,6 +215,9 @@ export default function PublicHeader({
   const isPublicPath = pathname?.startsWith("/public") ?? false;
   // Detect non-public pages (like /account, /help, policy pages, etc.) that need strong visibility
   const isNonPublicPage = !isPublicPath && pathname !== "/public";
+  // Account workspaces should keep the navigation in document flow. A fixed
+  // marketing header can otherwise cover cancellation forms and case actions.
+  const useFlowHeader = pathname?.startsWith("/account/") ?? false;
 
   // Header is always dark/glass — matches the premium hero background.
   // 'overHero'  = floating pill state (transparent dark glass, not scrolled yet)
@@ -263,6 +266,7 @@ export default function PublicHeader({
     { href: '/public/tour-packages', label: 'Tour Packages' },
     { href: '/public/group-stays', label: 'Group Stays' },
     { href: '/public/nolscope', label: 'Cost Estimator' },
+    { href: '/public/nrms', label: 'NRMS' },
   ], []);
 
   const NavLink = ({ href, children, onClick }: { href: string; children: React.ReactNode; onClick?: () => void }) => {
@@ -295,7 +299,7 @@ export default function PublicHeader({
     <>
       <header 
         ref={headerRef}
-        className={`fixed z-50 text-white ${
+        className={`${useFlowHeader ? "sticky top-0" : "fixed"} z-50 text-white ${
           (isMobile || headerVisible)
             ? 'translate-y-0 opacity-100' 
             : '-translate-y-full opacity-0 pointer-events-none'
@@ -655,7 +659,9 @@ export default function PublicHeader({
         style={{
           // On /public we want the hero image to be treated as the header background,
           // but on mobile keep a small owner-like gap so the fixed header feels separate.
-          height: isPublicHome
+          height: useFlowHeader
+            ? 0
+            : isPublicHome
             ? (useOwnerLikeMobileHeader ? '76px' : 0)
             : (scrolled ? 'calc(64px + 24px)' : (compact ? '56px' : '80px')),
           transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',

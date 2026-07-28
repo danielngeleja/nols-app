@@ -93,6 +93,13 @@ type OperatorProfile = {
   };
 };
 
+type OperatorVerification = {
+  status: "VERIFIED";
+  certificateId: string;
+  approvedAt: string | null;
+  verificationUrl: string | null;
+};
+
 type VehicleAsset = {
   id: string;
   type: string;
@@ -178,7 +185,7 @@ function parseTimelineToEvents(input: unknown): ItineraryEvent[] {
         startTime: rangeMatch[1],
         endTime: rangeMatch[2],
         activity: rangeMatch[3].trim(),
-        difficulty: "Normal",
+        difficulty: "",
       };
     }
 
@@ -189,7 +196,7 @@ function parseTimelineToEvents(input: unknown): ItineraryEvent[] {
         startTime: startMatch[1],
         endTime: "",
         activity: startMatch[2].trim(),
-        difficulty: "Normal",
+        difficulty: "",
       };
     }
 
@@ -198,7 +205,7 @@ function parseTimelineToEvents(input: unknown): ItineraryEvent[] {
       startTime: "",
       endTime: "",
       activity: trimmed,
-      difficulty: "Normal",
+      difficulty: "",
     };
   };
 
@@ -219,7 +226,7 @@ function parseTimelineToEvents(input: unknown): ItineraryEvent[] {
             startTime,
             endTime,
             activity,
-            difficulty: "Normal",
+            difficulty: String((entry as any)?.experienceVibe || (entry as any)?.difficulty || "").trim(),
           } as ItineraryEvent;
         }
         return parseLineText(String(entry || ""));
@@ -246,7 +253,7 @@ function normalizeItineraryDay(day: any, index: number): ItineraryDay {
         startTime,
         endTime,
         activity,
-        difficulty: String(evt?.difficulty || "Normal").trim() || "Normal",
+        difficulty: String(evt?.experienceVibe || evt?.difficulty || "").trim(),
       } as ItineraryEvent;
     })
     .filter((evt: any) => !!evt) as ItineraryEvent[];
@@ -476,6 +483,34 @@ function HeroBanner({ photos }: { photos: string[] }) {
   );
 }
 
+function formatVerificationDate(value: string | null): string {
+  if (!value) return "NoLSAF approval record";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "NoLSAF approval record";
+  return date.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function experienceVibeStyle(value: string): { badge: string; icon: string } {
+  switch (value.trim().toLowerCase()) {
+    case "easy":
+      return { badge: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: "text-emerald-600" };
+    case "normal":
+      return { badge: "border-sky-200 bg-sky-50 text-sky-700", icon: "text-sky-600" };
+    case "difficult":
+      return { badge: "border-amber-200 bg-amber-50 text-amber-800", icon: "text-amber-600" };
+    case "funny":
+      return { badge: "border-violet-200 bg-violet-50 text-violet-700", icon: "text-violet-600" };
+    case "delicious":
+      return { badge: "border-yellow-200 bg-yellow-50 text-yellow-800", icon: "text-yellow-600" };
+    default:
+      return { badge: "border-slate-200 bg-slate-50 text-slate-700", icon: "text-slate-500" };
+  }
+}
+
 export function OperatorProfilePreviewScreen({
   adminAgentId: adminAgentIdProp,
   publicAgentId: publicAgentIdProp,
@@ -510,6 +545,7 @@ export function OperatorProfilePreviewScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<OperatorProfile | null>(null);
+  const [operatorVerification, setOperatorVerification] = useState<OperatorVerification | null>(null);
   const [agentStatus, setAgentStatus] = useState<string | null>(null);
   const [reviewStatus, setReviewStatus] = useState<string>("SUBMITTED");
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -569,6 +605,17 @@ export function OperatorProfilePreviewScreen({
         const payload = (res as any)?.data;
         const agent = payload?.agent ?? payload?.data ?? payload ?? null;
         const raw = agent?.operatorProfile ?? agent?.profile ?? null;
+        const verification = agent?.verification;
+        setOperatorVerification(
+          isPublicPreview && verification?.status === "VERIFIED" && typeof verification?.certificateId === "string"
+            ? {
+                status: "VERIFIED",
+                certificateId: verification.certificateId,
+                approvedAt: typeof verification.approvedAt === "string" ? verification.approvedAt : null,
+                verificationUrl: typeof verification.verificationUrl === "string" ? verification.verificationUrl : null,
+              }
+            : null,
+        );
         const profileCommission = resolveProfileCommission(raw);
         const effectiveCommission = profileCommission ?? loadedCommission;
         if (Number.isFinite(Number(loadedCommission))) {
@@ -1593,6 +1640,55 @@ export function OperatorProfilePreviewScreen({
         {/* -- Main grid: stacked on mobile, 2+1 on desktop -- */}
         <div className="mt-4 grid gap-4 lg:grid-cols-3 lg:items-start">
 
+          {isPublicPreview && operatorVerification?.status === "VERIFIED" && (
+            <section className="relative order-0 overflow-hidden rounded-2xl border border-[#02665e]/15 bg-[#fcfffe] shadow-[0_16px_40px_-30px_rgba(2,102,94,0.42)] lg:col-span-2">
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#02665e]/[0.025] via-transparent to-[#4ecdc4]/[0.05]" />
+              <ShieldCheck className="pointer-events-none absolute -right-6 -top-10 h-40 w-40 text-[#02665e] opacity-[0.05]" aria-hidden />
+
+              <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div className="flex min-w-0 items-start gap-3.5">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#02665e] text-white shadow-[0_10px_22px_-12px_rgba(2,102,94,0.75)]">
+                    <BadgeCheck className="h-5.5 w-5.5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-extrabold tracking-[0.18em] text-[#02665e]/60">NoLSAF verified</p>
+                    <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900">Verified Tour Operator</h2>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-slate-500">
+                      <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-[#0f9f8d]" aria-hidden />Approved profile</span>
+                      <span className="text-[#02665e]/35" aria-hidden>•</span>
+                      <span>Active NoLSAF partner</span>
+                    </div>
+                  </div>
+                </div>
+                {operatorVerification.verificationUrl ? (
+                  <a
+                    href={operatorVerification.verificationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#02665e] px-4 py-3 text-sm font-bold text-white no-underline shadow-sm transition hover:bg-[#014b45]"
+                  >
+                    <ShieldCheck className="h-4 w-4" aria-hidden />
+                    View certificate
+                  </a>
+                ) : null}
+              </div>
+
+              <div className="relative grid grid-cols-2 border-t border-[#02665e]/10 bg-white/65">
+                <div className="px-4 py-3.5 sm:px-6">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Certificate ID</p>
+                  <p className="mt-1 font-mono text-sm font-bold tracking-wide text-[#02665e]">{operatorVerification.certificateId}</p>
+                </div>
+                <div className="flex items-center gap-2 border-l border-[#02665e]/10 px-4 py-3.5 sm:px-6">
+                  <CalendarClock className="h-4 w-4 text-[#02665e]" aria-hidden />
+                  <div>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Verified on</p>
+                    <p className="mt-1 text-sm font-bold text-slate-700">{formatVerificationDate(operatorVerification.approvedAt)}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* About */}
             {p?.description && (
               <div className="relative overflow-hidden rounded-2xl shadow-xl order-1 lg:col-span-2" style={{ background: "linear-gradient(135deg, #011f1c 0%, #02665e 45%, #013d38 75%, #024d46 100%)" }}>
@@ -2064,6 +2160,12 @@ export function OperatorProfilePreviewScreen({
                               <Package className="h-3 w-3" />
                               Package {idx + 1}
                             </span>
+                            {isPublicPreview && operatorVerification?.status === "VERIFIED" && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.16em] text-emerald-700 ring-1 ring-emerald-200">
+                                <BadgeCheck className="h-3.5 w-3.5" />
+                                Verified operator
+                              </span>
+                            )}
                             {pkg.category && (
                               <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-600 ring-1 ring-slate-200">
                                 {pkg.category}
@@ -2421,22 +2523,31 @@ export function OperatorProfilePreviewScreen({
                                       <ul className="m-0 mt-3 list-none space-y-2 border-l border-[#02665e]/20 pl-3">
                                         {day.events.map((evt) => {
                                           const timeText = [evt.startTime, evt.endTime].filter(Boolean).join(" - ");
+                                          const vibeStyle = experienceVibeStyle(evt.difficulty);
                                           return (
                                             <li key={evt.id} className="relative pl-3">
                                               <span className="absolute -left-[17px] top-2 h-2 w-2 rounded-full border border-white bg-[#02665e]" aria-hidden />
-                                              <div className="rounded-md bg-slate-50/80 px-2.5 py-2">
-                                                <div>
-                                                  {timeText ? (
-                                                    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-extrabold tracking-wide text-slate-700">
-                                                      {timeText}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-400">
-                                                      Flexible
-                                                    </span>
-                                                  )}
+                                              <div className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-white px-3 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.03)] sm:grid-cols-[168px_minmax(0,1fr)_116px] sm:items-center">
+                                                <div className="min-w-0 sm:order-1">
+                                                  <span className="mb-1 block text-[8px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Time</span>
+                                                  <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-extrabold tracking-wide text-slate-700">
+                                                    <CalendarClock className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
+                                                    <span className="truncate">{timeText || "Flexible"}</span>
+                                                  </div>
                                                 </div>
-                                                <p className="mt-1 break-words text-xs leading-relaxed text-slate-700">{evt.activity || "Activity details"}</p>
+                                                <div className="order-3 col-span-2 min-w-0 border-t border-slate-100 pt-3 sm:order-2 sm:col-span-1 sm:border-t-0 sm:pt-0">
+                                                  <span className="mb-1 block text-[8px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Activity</span>
+                                                  <p className="break-words text-sm font-semibold leading-relaxed text-slate-800">{evt.activity || "Activity details"}</p>
+                                                </div>
+                                                <div className="order-2 min-w-0 border-l border-[#02665e]/10 pl-3 sm:order-3">
+                                                  <span className="mb-1 block text-[8px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Vibe</span>
+                                                  {evt.difficulty ? (
+                                                    <span className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${vibeStyle.badge}`}>
+                                                      <Tag className={`h-3 w-3 shrink-0 ${vibeStyle.icon}`} aria-hidden />
+                                                      <span className="truncate">{evt.difficulty}</span>
+                                                    </span>
+                                                  ) : <span className="block px-2.5 py-1 text-[10px] font-semibold text-slate-400">—</span>}
+                                                </div>
                                               </div>
                                             </li>
                                           );

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 
 let app: any;
+const testRunIpPrefix = (process.pid % 65_535).toString(16);
 
 beforeAll(async () => {
   // Ensure the API entrypoint does not bind to a port.
@@ -26,6 +27,7 @@ describe("API smoke", () => {
   it("rejects non-string login credentials before authentication work", async () => {
     const res = await request(app)
       .post("/api/auth/login-password")
+      .set("X-Forwarded-For", `2001:db8:${testRunIpPrefix}::31`)
       .send({ email: { injected: true }, password: ["not", "text"] });
 
     expect(res.status).toBe(400);
@@ -35,6 +37,7 @@ describe("API smoke", () => {
   it("rejects oversized login credentials", async () => {
     const res = await request(app)
       .post("/api/auth/login-password")
+      .set("X-Forwarded-For", `2001:db8:${testRunIpPrefix}::32`)
       .send({ email: `${"a".repeat(321)}@example.com`, password: "test-password" });
 
     expect(res.status).toBe(400);

@@ -65,7 +65,7 @@ type ItineraryEvent = {
   startTime: string;
   endTime: string;
   activity: string;
-  difficulty: "Easy" | "Normal" | "Difficult" | "Funny" | "Delicious";
+  difficulty: "" | "Easy" | "Normal" | "Difficult" | "Funny" | "Delicious";
 };
 
 type ValidationIssue = {
@@ -373,8 +373,16 @@ function makeItineraryEvent(seed?: Partial<ItineraryEvent>): ItineraryEvent {
     startTime: seed?.startTime ?? "",
     endTime: seed?.endTime ?? "",
     activity: seed?.activity ?? "",
-    difficulty: seed?.difficulty ?? "Normal",
+    difficulty: normalizeExperienceVibe(seed?.difficulty),
   };
+}
+
+function normalizeExperienceVibe(value: unknown): ItineraryEvent["difficulty"] {
+  const vibe = String(value || "").trim();
+  if (!vibe) return "";
+  return vibe === "Easy" || vibe === "Normal" || vibe === "Difficult" || vibe === "Funny" || vibe === "Delicious"
+    ? vibe
+    : "";
 }
 
 function parseLegacyTimelineToEvents(input: unknown): ItineraryEvent[] {
@@ -388,7 +396,7 @@ function parseLegacyTimelineToEvents(input: unknown): ItineraryEvent[] {
         startTime: rangeMatch[1],
         endTime: rangeMatch[2],
         activity: rangeMatch[3].trim(),
-        difficulty: "Normal",
+        difficulty: "",
       });
     }
 
@@ -397,11 +405,11 @@ function parseLegacyTimelineToEvents(input: unknown): ItineraryEvent[] {
       return makeItineraryEvent({
         startTime: startMatch[1],
         activity: startMatch[2].trim(),
-        difficulty: "Normal",
+        difficulty: "",
       });
     }
 
-    return makeItineraryEvent({ activity: trimmed, difficulty: "Normal" });
+    return makeItineraryEvent({ activity: trimmed, difficulty: "" });
   };
 
   if (Array.isArray(input)) {
@@ -422,7 +430,7 @@ function parseLegacyTimelineToEvents(input: unknown): ItineraryEvent[] {
             startTime,
             endTime,
             activity,
-            difficulty: "Normal",
+            difficulty: normalizeExperienceVibe((entry as any)?.experienceVibe || (entry as any)?.difficulty),
           });
         }
 
@@ -446,11 +454,7 @@ function normalizeItineraryDay(rawDay: any, index: number): ItineraryDay {
         startTime: String(evt?.startTime || "").trim(),
         endTime: String(evt?.endTime || "").trim(),
         activity: String(evt?.activity || "").trim(),
-        difficulty: String(evt?.difficulty || "Normal").trim() === "Easy"
-          ? "Easy"
-          : String(evt?.difficulty || "Normal").trim() === "Difficult"
-            ? "Difficult"
-            : "Normal",
+        difficulty: normalizeExperienceVibe(evt?.experienceVibe || evt?.difficulty),
       })
     )
     .filter((evt: ItineraryEvent) => evt.activity || evt.startTime || evt.endTime);
@@ -541,6 +545,7 @@ function serializeProfileForApi(source: OperatorProfile): OperatorProfile {
             time,
             label,
             description: "",
+            experienceVibe: normalizeExperienceVibe(evt.difficulty),
           };
         })
         .filter((entry) => entry.time && (entry.label || entry.description));
@@ -1206,8 +1211,7 @@ export default function AgentOperatorProfileEditor() {
       const activity = String(evt.activity || "").trim();
       if (!startTime && !endTime && !activity) return acc;
 
-      const difficulty: ItineraryEvent["difficulty"] =
-        evt.difficulty === "Easy" || evt.difficulty === "Difficult" ? evt.difficulty : "Normal";
+      const difficulty = normalizeExperienceVibe(evt.difficulty);
 
       acc.push({
         id: String(evt.id || "") || id(),
@@ -2783,8 +2787,9 @@ async function persistProfileDraft(showSuccessMessage = true) {
                                           <Select
                                             value={evt.difficulty}
                                             onChange={(e) => patchItineraryEvent(pkg.id, day.id, evt.id, { difficulty: e.target.value as ItineraryEvent["difficulty"] })}
-                                            aria-label={`Day ${day.day} experience vibe`}
-                                          >
+                                          aria-label={`Day ${day.day} experience vibe`}
+                                        >
+                                            <option value="">Select vibe</option>
                                             <option value="Easy">Easy</option>
                                             <option value="Normal">Normal</option>
                                             <option value="Difficult">Difficult</option>
@@ -2982,6 +2987,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                                   onChange={(e) => patchDraftItineraryEvent(pkg.id, evt.id, { difficulty: e.target.value as ItineraryEvent["difficulty"] })}
                                   aria-label={`Draft day ${pkg.itinerary.length + 1} experience vibe`}
                                 >
+                                  <option value="">Select vibe</option>
                                   <option value="Easy">Easy</option>
                                   <option value="Normal">Normal</option>
                                   <option value="Difficult">Difficult</option>

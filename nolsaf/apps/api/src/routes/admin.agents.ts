@@ -13,7 +13,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { Prisma } from "@prisma/client";
 import { sendMail } from "../lib/mailer.js";
 import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileApprovedEmail, getOperatorProfileRejectedEmail } from "../lib/authEmailTemplates.js";
-import jwt from "jsonwebtoken";
+import { signUserJwt } from "../lib/sessionManager.js";
 import crypto from "crypto";
 
 // ============================================================
@@ -2268,10 +2268,10 @@ router.post(
       if (!agent) return sendError(res, 404, "Agent not found");
 
       const ttlSec = 10 * 60;
-      const secret = process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? (process.env.DEV_JWT_SECRET || "dev_jwt_secret") : "");
-      if (!secret) return sendError(res, 500, "Server JWT secret not configured");
-
-      const token = jwt.sign({ sub: agent.userId, role: "AGENT", imp: true }, secret, { expiresIn: ttlSec });
+      const token = await signUserJwt(
+        { id: agent.userId, role: "AGENT" },
+        { impersonated: true, expiresInSeconds: ttlSec },
+      );
 
       await audit(req as AuthedRequest, "AGENT_IMPERSONATE_ISSUE", `agent:${agentId}`, { reason }, { ttlSec });
       await prisma.adminAudit.create({

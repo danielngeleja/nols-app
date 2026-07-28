@@ -45,7 +45,6 @@ export default function AzamPayButton({
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "initiating" | "pending" | "success" | "failed">("idle");
   const [showModal, setShowModal]         = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string | undefined>(initialPhoneNumber);
-  const [selectedProvider, setSelectedProvider] = useState<string | undefined>(initialProvider);
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastClickTimeRef   = useRef<number>(0);
@@ -133,7 +132,7 @@ export default function AzamPayButton({
   // ── Core payment initiator ──
   const initiatePayment = async (
     channel: PaymentChannel,
-    params: { phone?: string; provider?: string; bankCode?: string; accountNumber?: string }
+    params: { phone?: string; provider?: string; bankCode?: string; accountNumber?: string; merchantMobileNumber?: string; otp?: string }
   ) => {
     // Double-click guard
     const now = Date.now();
@@ -157,7 +156,7 @@ export default function AzamPayButton({
         body     = { invoiceId, idempotencyKey: key, phoneNumber: params.phone, provider: params.provider };
       } else if (channel === "BANK") {
         endpoint = `${API_URL}/api/payments/azampay/bank/initiate`;
-        body     = { invoiceId, idempotencyKey: key, bankCode: params.bankCode, accountNumber: params.accountNumber };
+        body     = { invoiceId, idempotencyKey: key, bankCode: params.bankCode, accountNumber: params.accountNumber, merchantMobileNumber: params.merchantMobileNumber, otp: params.otp };
       } else {
         endpoint = `${API_URL}/api/payments/coralcommerce/card/initiate`;
         body     = { invoiceId, idempotencyKey: key };
@@ -208,10 +207,9 @@ export default function AzamPayButton({
     setShowModal(false);
     if (method.method === "MNO") {
       setSelectedPhone(method.phoneNumber);
-      setSelectedProvider(method.provider);
       initiatePayment("MNO", { phone: method.phoneNumber, provider: method.provider });
     } else if (method.method === "BANK") {
-      initiatePayment("BANK", { bankCode: method.bankCode, accountNumber: method.accountNumber });
+      initiatePayment("BANK", { bankCode: method.bankCode, accountNumber: method.accountNumber, merchantMobileNumber: method.merchantMobileNumber, otp: method.otp });
     } else {
       initiatePayment("CARD", {});
     }

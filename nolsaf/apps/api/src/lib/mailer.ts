@@ -96,7 +96,13 @@ export async function sendMail(
   subject: string,
   html: string,
   attachments?: MailAttachment[],
-  options?: { bypassEligibilityCheck?: boolean; from?: string; replyTo?: string }
+  options?: {
+    bypassEligibilityCheck?: boolean;
+    from?: string;
+    replyTo?: string;
+    /** Prevent secrets such as single-use links from appearing in dev logs. */
+    sensitiveContent?: boolean;
+  }
 ) {
   if (!options?.bypassEligibilityCheck) {
     const eligibility = await canReceiveNotifications({ email: to });
@@ -186,7 +192,9 @@ export async function sendMail(
   // Development mode: log instead of sending — but ONLY when no provider is configured at all
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[Email:DEV] No provider configured — logging only. from=${from} to=${to} subject="${subject}"`);
-    console.log(`[Email:DEV] Content: ${plainText.substring(0, 300)}...`);
+    if (!options?.sensitiveContent) {
+      console.log(`[Email:DEV] Content: ${plainText.substring(0, 300)}...`);
+    }
     return { success: true, messageId: `dev-${Date.now()}`, provider: 'console' };
   }
 

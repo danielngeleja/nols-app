@@ -17,6 +17,9 @@ import {
 import { buildOperatorProfileSeed, mergeOperatorProfileSeed } from "../lib/operatorProfileSeed.js";
 import { extractPlannedActivities } from "../lib/agentPlannedActivities.js";
 import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
+import { canClaimFinalTourPayout, disputeWindowEndsAt } from "../lib/tourLifecycle.js";
+import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
+import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
 import {
   buildContractWorkflowSeed,
   readContractWorkflow,
@@ -335,6 +338,7 @@ const itineraryTimelineSchema = z
     time: z.string().max(40).optional().default(""),
     label: z.string().max(200).optional().default(""),
     description: z.string().max(800).optional().default(""),
+    experienceVibe: z.string().max(80).optional().default(""),
   });
 
 const itineraryDaySchema = z
@@ -798,7 +802,164 @@ router.get(
   })
 );
 
+// Operator-wide case inbox. This avoids requiring operators to open each
+// booking individually to discover a traveller cancellation or issue.
+router.get(
+  "/tour-cases",
+  requireRole("AGENT") as RequestHandler,
+  limitAgentPortalRead as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+    const status = String(req.query?.status || "").trim().toUpperCase();
+    const cases = await prisma.tourCase.findMany({
+      where: {
+        booking: { operatorAgentId: gate.agent.id },
+        ...(status ? { status } : {}),
+      },
+      include: {
+        booking: {
+          select: {
+            id: true, bookingCode: true, title: true, destination: true,
+            startDate: true, status: true, paymentStatus: true, payoutStatus: true, currency: true,
+            grossAmount: true, operatorPayoutAmount: true, guestName: true,
+          },
+        },
+        events: { orderBy: { createdAt: "desc" }, take: 50 },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 250,
+    });
+    const visibleCases = cases.flatMap((item) => {
+      const responsibility = classifyOperatorCaseResponsibility({
+        bookingOperatorAgentId: gate.agent.id,
+        requestingAgentId: gate.agent.id,
+        paymentStatus: item.booking.paymentStatus,
+        eventTypes: item.events.map((event) => event.type),
+      });
+      return responsibility.visible ? [{ ...item, operatorReceiptStatus: responsibility.status }] : [];
+    });
+    const requiresReconciliation = (item: typeof visibleCases[number]) => item.status === "REJECTED" && (
+      ["CANCELED", "REFUNDED"].includes(String(item.booking.status).toUpperCase()) || item.booking.payoutStatus === "HELD"
+    );
+    const reconciliationCases = visibleCases.filter(requiresReconciliation);
+    const submittedCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["OPEN", "ELIGIBLE"].includes(item.status));
+    const reviewCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"].includes(item.status));
+    const refundQueueCases = visibleCases.filter((item) => !requiresReconciliation(item) && item.status === "APPROVED");
+    const closedCases = visibleCases.filter((item) => !requiresReconciliation(item) && ["RESOLVED", "REJECTED", "CLOSED", "WITHDRAWN"].includes(item.status));
+    const attentionCases = visibleCases.filter((item) => requiresReconciliation(item) || item.operatorReceiptStatus === "AWAITING_RECEIPT");
+    return res.json({
+      ok: true,
+      cases: visibleCases,
+      summary: {
+        total: visibleCases.length,
+        submitted: submittedCases.length,
+        inReview: reviewCases.length,
+        refundQueue: refundQueueCases.length,
+        reconciliation: reconciliationCases.length,
+        closed: closedCases.length,
+        // Retained for older clients; new UI uses the exclusive buckets above.
+        actionRequired: submittedCases.length + reconciliationCases.length,
+        awaitingReceipt: visibleCases.filter((item) => item.operatorReceiptStatus === "AWAITING_RECEIPT").length,
+        received: visibleCases.filter((item) => item.operatorReceiptStatus === "RECEIVED").length,
+        attention: attentionCases.length,
+        cancellations: visibleCases.filter((item) => item.type === "CANCELLATION").length,
+        payoutHeld: visibleCases.filter((item) => item.booking.payoutStatus === "HELD").length,
+        resolved: closedCases.length,
+      },
+    });
+  })
+);
+
 // POST /api/agent/contract/sign
+router.get(
+  "/tour-bookings/:id/cases",
+  requireRole("AGENT") as RequestHandler,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+    const bookingId = Number(req.params.id);
+    const booking = await prisma.tourBooking.findFirst({ where: { id: bookingId, operatorAgentId: gate.agent.id }, select: { id: true, operatorAgentId: true, paymentStatus: true } });
+    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+    const cases = await prisma.tourCase.findMany({ where: { tourBookingId: booking.id }, include: { events: { orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } });
+    const visibleCases = cases.flatMap((item) => {
+      const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+      return responsibility.visible ? [{ ...item, operatorReceiptStatus: responsibility.status }] : [];
+    });
+    return res.json({ ok: true, cases: visibleCases });
+  })
+);
+
+router.post(
+  "/tour-bookings/:id/cases/:caseId/action",
+  requireRole("AGENT") as RequestHandler,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+    const bookingId = Number(req.params.id);
+    const caseId = Number(req.params.caseId);
+    const action = String(req.body?.action || "").toUpperCase();
+    const message = String(req.body?.message || "").trim().slice(0, 4000);
+    if (!["ACKNOWLEDGE", "ESCALATE", "RESOLVE", "REJECT"].includes(action) || !message) return res.status(400).json({ error: "Invalid action or message" });
+    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { customerId: true, bookingCode: true, operatorAgentId: true, paymentStatus: true } }, events: { select: { type: true } } } });
+    if (!item) return res.status(404).json({ error: "Case not found" });
+    const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: item.booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: item.booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+    if (!responsibility.visible || !responsibility.canRespond) return res.status(403).json({ error: "This case has not been delivered to this operator by NoLSAF", code: responsibility.status });
+    if (["CLOSED", "WITHDRAWN", "RESOLVED", "REJECTED"].includes(item.status)) return res.status(409).json({ error: "Case is closed" });
+    if (["CANCELLATION", "REFUND"].includes(item.type) && ["RESOLVE", "REJECT"].includes(action)) return res.status(403).json({ error: "Cancellation and refund decisions require NoLSAF review" });
+    const status = action === "ACKNOWLEDGE" ? "ACKNOWLEDGED" : action === "ESCALATE" ? "ESCALATED" : action === "RESOLVE" ? "RESOLVED" : "REJECTED";
+    const updated = await prisma.$transaction(async (tx) => {
+      const value = await tx.tourCase.update({ where: { id: item.id }, data: { status, assignedToUserId: req.user.id, resolution: ["RESOLVED", "REJECTED"].includes(status) ? message : undefined, closedAt: ["RESOLVED", "REJECTED"].includes(status) ? new Date() : undefined } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: item.id, actorUserId: req.user.id, type: action, message } });
+      return value;
+    });
+    const customerId = item.requestedByUserId || item.booking.customerId;
+    if (customerId) await notifyUser(customerId, "tour_case_operator_message", { caseId: item.id, bookingCode: item.booking.bookingCode, action, message });
+    return res.json({ ok: true, case: updated });
+  })
+);
+
+router.post(
+  "/tour-bookings/:id/cases/:caseId/cost-evidence",
+  requireRole("AGENT") as RequestHandler,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+    const bookingId = Number(req.params.id);
+    const caseId = Number(req.params.caseId);
+    const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+    const items = rawItems.slice(0, 50).map((item: any) => ({
+      kind: String(item?.kind || "NON_REFUNDABLE_COMPONENT").toUpperCase(),
+      description: String(item?.description || "").trim().slice(0, 300),
+      amount: Number(item?.amount || 0),
+      evidenceUrl: String(item?.evidenceUrl || "").trim().slice(0, 1200),
+      disclosedBeforePayment: item?.disclosedBeforePayment === true,
+    }));
+    if (!items.length || items.some((item: any) => {
+      let trustedUpload = false;
+      try {
+        const url = new URL(item.evidenceUrl);
+        trustedUpload = url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+      } catch { trustedUpload = false; }
+      return !["NON_REFUNDABLE_COMPONENT", "CONSUMED_SERVICE", "RECOVERY_COST", "SUPPLIER_COMMITTED"].includes(item.kind) || !item.description || !(item.amount > 0) || !trustedUpload;
+    })) {
+      return res.status(400).json({ error: "Every cost requires a valid kind, description, positive amount, and evidence URL" });
+    }
+    const item = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, booking: { operatorAgentId: gate.agent.id } }, include: { booking: { select: { bookingCode: true, operatorAgentId: true, paymentStatus: true } }, events: { select: { type: true } } } });
+    if (!item) return res.status(404).json({ error: "Case not found" });
+    const responsibility = classifyOperatorCaseResponsibility({ bookingOperatorAgentId: item.booking.operatorAgentId, requestingAgentId: gate.agent.id, paymentStatus: item.booking.paymentStatus, eventTypes: item.events.map((event) => event.type) });
+    if (responsibility.status !== "RECEIVED") return res.status(409).json({ error: "Acknowledge receipt of this case before submitting operator evidence", code: "CASE_NOT_RECEIVED" });
+    if (["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(item.status)) return res.status(409).json({ error: "Case is closed" });
+    const updated = await prisma.$transaction(async (tx) => {
+      const value = await tx.tourCase.update({ where: { id: item.id }, data: { status: "UNDER_REVIEW" } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: item.id, actorUserId: req.user.id, type: "OPERATOR_COST_EVIDENCE", message: String(req.body?.message || "Operator submitted documented tour costs").slice(0, 1000), data: { items } } });
+      return value;
+    });
+    await notifyAdmins("tour_cancellation_evidence_submitted", { actor: "The tour operator", caseId: item.id, bookingCode: item.booking.bookingCode, tourBookingId: bookingId });
+    return res.json({ ok: true, case: updated, submittedItems: items.length });
+  })
+);
+
 router.post(
   "/contract/sign",
   requireRole("AGENT") as RequestHandler,
@@ -1116,6 +1277,8 @@ router.patch(
       data: { operatorProfile: { ...parsed.data, ...serverOwnedFields } as any },
       select: { id: true, operatorProfile: true, updatedAt: true },
     });
+
+    await syncOperatorTourPackages(gate.agent.id, parsed.data.packageItems, "DRAFT");
 
     return res.json({ ok: true, agent: updated });
   })
@@ -1853,6 +2016,11 @@ router.post(
         payoutApprovedAt: true,
         payoutPaidAt: true,
         metadata: true,
+        paymentStatus: true,
+        paidAt: true,
+        customerConfirmedAt: true,
+        disputeWindowEndsAt: true,
+        _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"] } } } } },
       },
       orderBy: { createdAt: "desc" },
       take: 300,
@@ -1863,10 +2031,19 @@ router.post(
       return res.status(404).json({ ok: false, error: "tour_code_not_found", message: "Tour code was not found for your account" });
     }
 
-    // Disbursement Policy 1.1: eligibility arises upon customer payment
-    // confirmation and does not require completion of the tour. The findMany
-    // above is already restricted to paid bookings (paidTourBookingWhere), so
-    // any booking found here is eligible unless it was already claimed.
+    const eligibility = canClaimFinalTourPayout({
+      ...booking,
+      openCaseCount: booking._count.cases,
+    });
+
+    if (!eligibility.ok) {
+      const message = eligibility.reason === "open_case"
+        ? "Payout is held while a tour issue, change, cancellation, or refund case is open."
+        : eligibility.reason === "tour_not_completed" || eligibility.reason === "dispute_window_open"
+          ? "Final payout is available after verified tour completion and the customer dispute window."
+          : "This tour is not eligible for payout.";
+      return res.status(409).json({ ok: false, error: eligibility.reason, message });
+    }
     const payoutStatusUpper = String(booking.payoutStatus || "").toUpperCase();
     const alreadyClaimed = Boolean(
       booking.payoutRequestedAt ||
@@ -2137,12 +2314,14 @@ router.post(
       : ({} as Record<string, any>);
 
     if (progress.lockedAt) {
-      if (String(booking.status || "").toUpperCase() !== "COMPLETED") {
+      if (!["OPERATOR_COMPLETED", "COMPLETED"].includes(String(booking.status || "").toUpperCase())) {
+        const operatorCompletedAt = new Date(String(progress.lockedAt));
         await prisma.tourBooking.update({
           where: { id: booking.id },
           data: {
-            status: "COMPLETED",
-            completedAt: new Date(String(progress.lockedAt)),
+            status: "OPERATOR_COMPLETED",
+            operatorCompletedAt,
+            disputeWindowEndsAt: disputeWindowEndsAt(operatorCompletedAt),
           },
           select: { id: true },
         });
@@ -2151,8 +2330,8 @@ router.post(
         error: "Checklist is locked after full completion",
         locked: true,
         lockedAt: String(progress.lockedAt),
-        status: "COMPLETED",
-        completedAt: String(progress.lockedAt),
+        status: "OPERATOR_COMPLETED",
+        completedAt: null,
       });
     }
 
@@ -2197,14 +2376,19 @@ router.post(
 
     md.activityProgress = progress;
 
-    const shouldMarkCompleted = Boolean(progress.lockedAt)
-      && String(booking.status || "").toUpperCase() !== "COMPLETED";
+    const shouldMarkOperatorCompleted = Boolean(progress.lockedAt)
+      && !["OPERATOR_COMPLETED", "COMPLETED"].includes(String(booking.status || "").toUpperCase());
+    const operatorCompletedAt = new Date(nowIso);
 
     await prisma.tourBooking.update({
       where: { id: booking.id },
       data: {
         metadata: md as any,
-        ...(shouldMarkCompleted ? { status: "COMPLETED", completedAt: new Date(nowIso) } : {}),
+        ...(shouldMarkOperatorCompleted ? {
+          status: "OPERATOR_COMPLETED",
+          operatorCompletedAt,
+          disputeWindowEndsAt: disputeWindowEndsAt(operatorCompletedAt),
+        } : {}),
       },
       select: { id: true },
     });
@@ -2224,8 +2408,8 @@ router.post(
       updatedAt: nowIso,
       locked: Boolean(progress.lockedAt),
       lockedAt: progress.lockedAt ? String(progress.lockedAt) : null,
-      status: shouldMarkCompleted ? "COMPLETED" : booking.status,
-      completedAt: shouldMarkCompleted ? nowIso : null,
+      status: shouldMarkOperatorCompleted ? "OPERATOR_COMPLETED" : booking.status,
+      completedAt: null,
     });
   })
 );

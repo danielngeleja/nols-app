@@ -7,6 +7,7 @@ import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
+import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -289,6 +290,15 @@ router.get("/", (async (req: AuthedRequest, res) => {
         invoiceId,
         invoiceAccessToken,
         draftAvailability,
+        lifecycle: mapPropertyLifecycle({
+          bookingStatus: booking.status,
+          invoiceStatus: invoice?.status,
+          hasInvoice: Boolean(invoice),
+          receiptNumber: invoice?.receiptNumber,
+          checkInCodeStatus: booking.code?.status,
+          draftExpired: draftExpiryStatus === "EXPIRED",
+          cancellationLoaded: false,
+        }),
         createdAt: booking.createdAt,
         updatedAt: booking.updatedAt,
       };

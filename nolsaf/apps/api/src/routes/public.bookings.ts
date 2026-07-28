@@ -15,6 +15,7 @@ import { generateTransportTripCode } from "../lib/tripCode.js";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlocks.js";
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
+import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
 
 /** Sign a short-lived token proving the caller created this booking. */
 function signBookingAccessToken(bookingId: number): string {
@@ -564,6 +565,18 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         },
       });
       const conflictingBlocks = await filterPayableAvailabilityBlocks(rawConflictingBlocks, tx as any);
+      const nrmsConsumers = await getNrmsCapacityConsumers(tx, data.propertyId, checkIn, checkOut);
+      for (const row of nrmsConsumers) {
+        conflictingBlocks.push({
+          id: -row.allocationId,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          roomCode: row.roomUnitCode ?? row.roomTypeName,
+          source: "NRMS",
+          bedsBlocked: 1,
+          notes: `NRMS reservation ${row.reservationId}`,
+        } as any);
+      }
 
       // Parse roomsSpec to get room types and their capacities
       let roomTypes: Array<{ code?: string; roomCode?: string; name?: string; beds?: number; rooms?: number; roomsCount?: number }> = [];
@@ -726,7 +739,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           !isRoomIndexSelection &&
           data.roomCode &&
           isExplicitRoomUnitCode(data.roomCode) &&
-          conflictingBookings.some((b: any) => b.roomCode === data.roomCode)
+          (conflictingBookings.some((b: any) => b.roomCode === data.roomCode) || nrmsConsumers.some((row) => row.roomUnitCode === data.roomCode))
         );
 
       // Type-level capacity: when roomCode is set, the selected TYPE must have at least 1 room available
@@ -978,6 +991,18 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         },
       });
       const finalConflictingBlocks = await filterPayableAvailabilityBlocks(rawFinalConflictingBlocks, tx as any);
+      const finalNrmsConsumers = await getNrmsCapacityConsumers(tx, data.propertyId, checkIn, checkOut);
+      for (const row of finalNrmsConsumers) {
+        finalConflictingBlocks.push({
+          id: -row.allocationId,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          roomCode: row.roomUnitCode ?? row.roomTypeName,
+          source: "NRMS",
+          bedsBlocked: 1,
+          notes: `NRMS reservation ${row.reservationId}`,
+        } as any);
+      }
 
       // Fetch property to check capacity (matching availability checker logic)
       const propertyForFinalCheck = await tx.property.findUnique({
@@ -1146,7 +1171,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           !finalIsRoomIndexSelection &&
           data.roomCode &&
           isExplicitRoomUnitCode(data.roomCode) &&
-          finalConflictingBookings.some((b: any) => b.roomCode === data.roomCode)
+          (finalConflictingBookings.some((b: any) => b.roomCode === data.roomCode) || finalNrmsConsumers.some((row) => row.roomUnitCode === data.roomCode))
         );
       const finalTypeKey = data.roomCode ? findBucketKey(finalRoomCodeForBucket, finalKeys) : null;
       const finalTypeOk = data.roomCode ? !!(finalTypeKey && (finalAvailabilityByRoomType[finalTypeKey]?.availableRooms ?? 0) >= roomsQty) : true;

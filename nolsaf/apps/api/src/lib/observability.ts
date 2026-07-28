@@ -61,6 +61,14 @@ export type ImpactedUserSummary = {
   clientErrorCount: number;
   routes: string[];
   lastSeenAt: string | null;
+  // Timestamp of the most recent event that actually contributes to this
+  // item's current severity tier: the last server/client error (if any),
+  // and the last slow-but-otherwise-fine request. Tracked separately from
+  // lastSeenAt because lastSeenAt is "most recent event of any kind" and can
+  // be a benign slow-200 that arrived after the real error, which must not
+  // make an already-resolved-looking error read as "active right now".
+  lastErrorAt: string | null;
+  lastSlowAt: string | null;
   lastEvent: {
     action: string;
     route: string | null;
@@ -457,15 +465,28 @@ export async function getImpactedUsers(limit = 20): Promise<ImpactedUserSummary[
         clientErrorCount: 0,
         routes: [],
         lastSeenAt: createdAt,
+        lastErrorAt: null,
+        lastSlowAt: null,
         lastEvent: null,
         resolution: resolutions.get(key) ?? openImpactResolution(),
         attention: "none",
       } satisfies ImpactedUserSummary);
 
     existing.eventCount += 1;
-    if (row.action === "OBSERVABILITY_SLOW_REQUEST") existing.slowCount += 1;
-    if (row.action === "OBSERVABILITY_5XX_REQUEST" || row.action === "SERVER_EXCEPTION") existing.serverErrorCount += 1;
-    if (row.action === "CLIENT_ERROR") existing.clientErrorCount += 1;
+    // Rows are fetched newest-first, so the first row of a given action type
+    // seen for this key is that type's most recent occurrence.
+    if (row.action === "OBSERVABILITY_SLOW_REQUEST") {
+      existing.slowCount += 1;
+      if (!existing.lastSlowAt && createdAt) existing.lastSlowAt = createdAt;
+    }
+    if (row.action === "OBSERVABILITY_5XX_REQUEST" || row.action === "SERVER_EXCEPTION") {
+      existing.serverErrorCount += 1;
+      if (!existing.lastErrorAt && createdAt) existing.lastErrorAt = createdAt;
+    }
+    if (row.action === "CLIENT_ERROR") {
+      existing.clientErrorCount += 1;
+      if (!existing.lastErrorAt && createdAt) existing.lastErrorAt = createdAt;
+    }
     if (route && !existing.routes.includes(route)) existing.routes.push(route);
     if (!existing.lastSeenAt && createdAt) existing.lastSeenAt = createdAt;
     if (!existing.lastEvent) {
@@ -509,9 +530,20 @@ export async function getImpactedUsers(limit = 20): Promise<ImpactedUserSummary[
     .map((item) => ({ ...item, routes: item.routes.slice(0, 8), attention: computeAttention(item) }));
 }
 
+// The timestamp that should drive "is this still happening right now": the
+// last error if this item currently reads as Critical, otherwise the last
+// slow request if it currently reads as Warning. Falls back to lastSeenAt
+// only for the (practically unreachable, since every group is created by a
+// qualifying row) case where neither is set.
+function lastImpactfulEventAt(item: ImpactedUserSummary): string | null {
+  if (item.serverErrorCount > 0 || item.clientErrorCount > 0) return item.lastErrorAt ?? item.lastSeenAt;
+  if (item.slowCount > 0) return item.lastSlowAt ?? item.lastSeenAt;
+  return item.lastSeenAt;
+}
+
 function computeAttention(item: ImpactedUserSummary): ImpactedUserSummary["attention"] {
   if (item.resolution.status === "restored") return "none";
-  const lastImpactAt = Date.parse(item.lastSeenAt ?? "");
+  const lastImpactAt = Date.parse(lastImpactfulEventAt(item) ?? "");
   if (Number.isFinite(lastImpactAt) && Date.now() - lastImpactAt <= activeAttentionWindowMs) return "active";
   return "unconfirmed";
 }

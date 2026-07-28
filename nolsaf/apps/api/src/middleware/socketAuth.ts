@@ -59,7 +59,7 @@ export async function verifyToken(token: string): Promise<{ id: number; role: st
     const userId = Number(decoded.sub);
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, email: true, suspendedAt: true },
+      select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
     });
 
     if (!user) {
@@ -69,6 +69,17 @@ export async function verifyToken(token: string): Promise<{ id: number; role: st
     // Deny suspended users
     if (user.suspendedAt) {
       return null;
+    }
+
+    // Global revocation gate (mirrors HTTP auth): reject any token issued before
+    // the user's tokensValidAfter cutoff.
+    const issuedAtForCutoff = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
+    const tokensValidAfter = (user as any).tokensValidAfter as Date | string | null | undefined;
+    if (tokensValidAfter && Number.isFinite(issuedAtForCutoff)) {
+      const validAfterSec = Math.floor(new Date(tokensValidAfter).getTime() / 1000);
+      if (issuedAtForCutoff < validAfterSec) {
+        return null;
+      }
     }
 
     // Deny if all sessions have been explicitly revoked (e.g. admin demotion)

@@ -4,8 +4,9 @@
 //
 // IMPORTANT: This route never writes and never alters any per-stream collection
 // logic. It only reads the existing authoritative models (Invoice, TourBooking,
-// TransportPayout, GroupBooking) and normalizes them into one shape so a single
-// admin page can show total GMV + total NoLSAF revenue across every stream.
+// TransportPayout, GroupBooking, NrmsServicePayment/NrmsBillingStatement) and
+// normalizes them into one shape so a single admin page can show total GMV +
+// total NoLSAF revenue across every stream.
 //
 // Definitions used everywhere here:
 //   GMV            = gross transaction value flowing through the platform.
@@ -15,13 +16,15 @@
 //   Pending        = in the pipeline, not yet realized.
 //
 // Recognition signal per stream (realized):
-//   Accommodation : Invoice.status = PAID            (rev = commissionAmount)
-//   Tours         : TourBooking.paymentStatus = PAID (rev = commissionAmount)
-//   Transport     : TransportPayout.status = PAID    (rev = commissionAmount)
-//   Group stay    : GroupBooking.depositPaid = true  (rev = totalAmount - ownerAmount)
+//   Accommodation : Invoice.status = PAID              (rev = commissionAmount)
+//   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
+//   Transport     : TransportPayout.status = PAID      (rev = commissionAmount)
+//   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
+//   Subscriptions : NrmsServicePayment.status = VERIFIED (rev = amount, no partner split)
 //
-// Money of record is TZS. The only multi-currency stream is Tours, which we
-// normalize to TZS via the display-rate layer (lib/fx) for the headline totals.
+// Money of record is TZS. Tours and Subscriptions (NRMS) are the multi-currency
+// streams; both are normalized to TZS via the display-rate layer (lib/fx) for
+// the headline totals.
 
 import { Router } from "express";
 import type { RequestHandler } from "express";
@@ -211,7 +214,29 @@ router.get("/overview", async (req, res) => {
       note: "Realized at deposit; full settlement may be partial.",
     };
 
-    // ── Subscriptions (placeholder — no model yet) ───────────────────────────
+    // ── Subscriptions (NRMS PAYG) ─────────────────────────────────────────────
+    // NRMS room-night billing is NoLSAF's subscription/software-fee product:
+    // properties pay directly for the tool, so the whole amount IS NoLSAF
+    // revenue (no partner split). Realized = NrmsServicePayment.status=VERIFIED
+    // (mirrors Invoice.status=PAID elsewhere); pending = open PAYABLE statements
+    // not yet collected. Both are normalized to TZS in case a future policy
+    // currency differs (today NRMS is always TZS).
+    const subDate = dateClause();
+    const [subRealizedRows, subPendingRows] = await Promise.all([
+      prisma.nrmsServicePayment.groupBy({
+        by: ["currency"],
+        where: { status: "VERIFIED", ...(subDate ? { verifiedAt: subDate } : {}) },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      prisma.nrmsBillingStatement.groupBy({
+        by: ["currency"],
+        where: { status: "PAYABLE", ...(subDate ? { createdAt: subDate } : {}) },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+    ]);
+
     const subscriptions: StreamSummary = {
       key: "subscriptions",
       label: "Subscriptions",
@@ -221,8 +246,18 @@ router.get("/overview", async (req, res) => {
       realizedCount: 0,
       pendingRevenue: 0,
       pendingCount: 0,
-      note: "Not yet implemented.",
+      note: "NRMS property-management billing. The full amount is NoLSAF revenue (no partner split).",
     };
+    for (const row of subRealizedRows) {
+      const amount = toTzs(n(row._sum.amount), row.currency);
+      subscriptions.gmv += amount;
+      subscriptions.nolsafRevenue += amount;
+      subscriptions.realizedCount += row._count._all;
+    }
+    for (const row of subPendingRows) {
+      subscriptions.pendingRevenue += toTzs(n(row._sum.amount), row.currency);
+      subscriptions.pendingCount += row._count._all;
+    }
 
     const streams = [accommodation, tours, transport, groupStay, subscriptions];
 

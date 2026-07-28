@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import type { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@nolsaf/prisma';
-import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
+import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from '../lib/securitySettings.js';
 import { clearAuthCookie } from '../lib/sessionManager.js';
 import { touchActiveUser } from '../lib/activePresence.js';
 import { cacheAuthSession, getCachedAuthSession } from '../lib/authSessionCache.js';
@@ -15,6 +15,8 @@ interface JwtTokenPayload {
   iat?: number;
   exp?: number;
   role?: string;
+  /** Server-side session UUID. Required on normal and impersonation auth JWTs. */
+  sid?: string;
   /** Set on short-lived admin support tokens issued by the impersonate endpoints. */
   imp?: boolean;
 }
@@ -30,12 +32,17 @@ export interface AuthedUser {
   role: Role;
   email?: string;
   name?: string;
+  /** NRMS finance segregation: NONE, OPERATOR, or APPROVER. */
+  nrmsFinanceRole?: string;
   /** True when this session comes from an admin impersonation token. */
   imp?: boolean;
+  /** Exact revocable server-side session backing this token. */
+  sessionId?: string;
 }
 
 export interface AuthedRequest extends Request {
   user?: AuthedUser;
+  sessionId?: string;
 }
 
 /**
@@ -103,42 +110,33 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     if (!decoded || decoded.sub == null) return null;
 
     const userId = Number(decoded.sub);
+    const sessionId = typeof decoded.sid === "string" ? decoded.sid.trim() : "";
+    if (!sessionId) {
+      throw authError("SESSION_REVOKED", "Legacy session is no longer valid");
+    }
     const cached = await getCachedAuthSession(token);
-    if (cached && cached.id === userId) {
+    if (cached && cached.id === userId && cached.sessionId === sessionId) {
       return cached;
     }
 
-    // The common path is an active session. Fetch the session and user in one query
-    // instead of querying user + session separately on every authenticated request.
+    // Bind this JWT to its exact session. An unrelated active session must
+    // never keep a revoked device token alive.
     const activeSession = await (prisma.session as any).findFirst({
-      where: { userId, revokedAt: null },
+      where: { id: sessionId, userId, revokedAt: null },
       select: {
         id: true,
+        lastSeenAt: true,
         user: {
-          select: { id: true, role: true, email: true, suspendedAt: true },
+          select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
         },
       },
     });
 
-    let user = activeSession?.user ?? null;
-
     if (!activeSession) {
-      const [dbUser, anySession] = await Promise.all([
-        prisma.user.findUnique({
-          where: { id: userId },
-          select: { id: true, role: true, email: true, suspendedAt: true },
-        }),
-        (prisma.session as any).findFirst({
-          where: { userId },
-          select: { id: true },
-        }),
-      ]);
-      user = dbUser;
-      if (anySession) {
-        throw authError("SESSION_REVOKED", "Session revoked");
-      }
+      throw authError("SESSION_REVOKED", "Session revoked");
     }
 
+    const user = activeSession.user;
     if (!user) return null;
 
     // Check if account is suspended - suspended users cannot access their account.
@@ -155,6 +153,19 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     // This ensures that if admin reduces TTL, old tokens are also forced out.
     // Use rawRole for TTL lookup so CUSTOMER maps to sessionMaxMinutesCustomer, not USER fallback.
     const issuedAtSec = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
+
+    // Global revocation gate: reject any token issued before the user's
+    // tokensValidAfter cutoff (bumped on password reset/change and "sign out
+    // other devices"). Compared at second granularity so a token re-issued in
+    // the same second as the cutoff is never falsely rejected.
+    const tokensValidAfter = (user as any).tokensValidAfter as Date | string | null | undefined;
+    if (tokensValidAfter && Number.isFinite(issuedAtSec)) {
+      const validAfterSec = Math.floor(new Date(tokensValidAfter).getTime() / 1000);
+      if (issuedAtSec < validAfterSec) {
+        throw authError("SESSION_REVOKED", "Session revoked");
+      }
+    }
+
     if (Number.isFinite(issuedAtSec) && issuedAtSec > 0) {
       const maxMinutes = await getRoleSessionMaxMinutes(rawRole);
       const ageSec = Math.floor(Date.now() / 1000) - issuedAtSec;
@@ -162,11 +173,33 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
         throw authError("SESSION_EXPIRED", "Session expired");
       }
     }
+
+    // Enforce the configured idle timeout using the server-side activity
+    // record. Refresh at most once every five minutes to avoid a write on every
+    // authenticated request.
+    const idleMinutes = await getSessionIdleMinutes();
+    const lastSeenMs = new Date(activeSession.lastSeenAt).getTime();
+    const idleMs = Math.max(1, idleMinutes) * 60_000;
+    if (!Number.isFinite(lastSeenMs) || Date.now() - lastSeenMs > idleMs) {
+      await (prisma.session as any).updateMany({
+        where: { id: sessionId, userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }).catch(() => {});
+      throw authError("SESSION_EXPIRED", "Session expired");
+    }
+    if (Date.now() - lastSeenMs > Math.min(5 * 60_000, Math.max(60_000, idleMs / 2))) {
+      void (prisma.session as any).updateMany({
+        where: { id: sessionId, userId, revokedAt: null },
+        data: { lastSeenAt: new Date() },
+      }).catch(() => {});
+    }
     
     const authedUser: AuthedUser = {
       id: user.id,
       role,
       email: user.email || undefined,
+      nrmsFinanceRole: (user as any).nrmsFinanceRole || "NONE",
+      sessionId,
       ...(decoded.imp === true ? { imp: true } : {}),
     };
     await cacheAuthSession(token, authedUser, decoded.exp);
@@ -185,6 +218,7 @@ export const maybeAuth: RequestHandler = async (req, res, next) => {
       const user = await verifyToken(token);
       if (user) {
         (req as AuthedRequest).user = user;
+        (req as AuthedRequest).sessionId = user.sessionId;
         markPrivateNoStore(res);
         try {
           touchActiveUser(user.id, user.role);
@@ -207,6 +241,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       const user = await verifyToken(token);
       if (user) {
         (req as AuthedRequest).user = user;
+        (req as AuthedRequest).sessionId = user.sessionId;
         markPrivateNoStore(res);
         try {
           touchActiveUser(user.id, user.role);
@@ -243,6 +278,7 @@ export function requireRole(required?: Role) {
           const verified = await verifyToken(token);
           if (verified) {
             (req as AuthedRequest).user = verified;
+            (req as AuthedRequest).sessionId = verified.sessionId;
             try {
               touchActiveUser(verified.id, verified.role);
             } catch {}

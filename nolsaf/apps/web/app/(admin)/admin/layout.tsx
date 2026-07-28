@@ -7,8 +7,10 @@ import SiteHeader from "@/components/SiteHeader";
 import AdminNav from "@/components/AdminSidebar";
 import LayoutFrame from "@/components/LayoutFrame";
 import AdminNotificationListener from "@/components/AdminNotificationListener";
+import AdminReconcileAlertCard from "@/components/AdminReconcileAlertCard";
 import AdminOperationalFooter from "@/components/AdminOperationalFooter";
 import AdminNotificationDrawer from "@/components/AdminNotificationDrawer";
+import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -54,9 +56,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="admin-soft-ui min-h-screen flex flex-col bg-slate-50">
       <AdminNotificationListener />
+      <AdminReconcileAlertCard />
       <AdminNotificationDrawer />
       {/* Full-width header */}
       <SiteHeader role="ADMIN" />
+      {/* Keep the verification modal available globally without adding a banner to every admin page. */}
+      <FinanceGrantPanel showTrigger={false} />
 
       {/* Mobile sidebar drawer */}
       <div className={`md:hidden fixed inset-0 z-[70] ${sidebarOpen ? "pointer-events-auto" : "pointer-events-none"}`} aria-hidden={!sidebarOpen}>
@@ -93,8 +98,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </aside>
 
           {/* Main content: match Owner spacing and styling (no extra border/bg) */}
-          <div className={`pt-16 pb-6 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
-            <div className="admin-workspace-surface relative flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
+          <div className={`min-w-0 max-w-full overflow-x-hidden pt-16 pb-6 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
+            <div className="admin-workspace-surface relative flex h-[calc(100vh-4rem)] w-full min-w-0 max-w-full flex-col overflow-hidden">
               <div ref={mainRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <main className="min-w-0 overflow-x-hidden">
                   <div className="w-full min-w-0 overflow-x-hidden">

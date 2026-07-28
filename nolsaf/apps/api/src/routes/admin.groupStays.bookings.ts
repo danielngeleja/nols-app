@@ -3,6 +3,7 @@ import type { RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
+import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -305,7 +306,7 @@ router.get("/earnings", async (req, res) => {
     const skip = (Math.max(1, Number(page) || 1) - 1) * Math.min(Number(pageSize) || 50, 100);
     const take = Math.min(Number(pageSize) || 50, 100);
 
-    const [items, total] = await Promise.all([
+    const [items, total, aggregate] = await Promise.all([
       (prisma as any).groupBooking.findMany({
         where,
         include: {
@@ -317,6 +318,10 @@ router.get("/earnings", async (req, res) => {
         take,
       }),
       (prisma as any).groupBooking.count({ where }),
+      (prisma as any).groupBooking.aggregate({
+        where,
+        _sum: { totalAmount: true, depositAmount: true },
+      }),
     ]);
 
     // Best-effort: attach the guest's review of the confirmed property (matched by property + customer).
@@ -367,7 +372,20 @@ router.get("/earnings", async (req, res) => {
       };
     });
 
-    return res.json({ total, page: Number(page) || 1, pageSize: take, items: mapped });
+    const totalAmount = Number(aggregate?._sum?.totalAmount || 0);
+    const commissionAmount = Number(aggregate?._sum?.depositAmount || 0);
+    return res.json({
+      total,
+      page: Number(page) || 1,
+      pageSize: take,
+      items: mapped,
+      summary: {
+        bookingCount: total,
+        totalAmount: Math.round(totalAmount),
+        commissionAmount: Math.round(commissionAmount),
+        ownerCollects: Math.max(0, Math.round(totalAmount - commissionAmount)),
+      },
+    });
   } catch (err: any) {
     res.setHeader("Content-Type", "application/json");
     if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === "P2021" || err.code === "P2022")) {
@@ -490,8 +508,19 @@ router.get("/:id", async (req, res) => {
       totalAmount: booking.totalAmount != null ? Number(booking.totalAmount) : null,
       depositAmount: booking.depositAmount != null ? Number(booking.depositAmount) : null,
       depositPaid: booking.depositPaid || false,
+      depositPaidAt: booking.depositPaidAt || null,
+      depositDueAt: booking.depositDueAt || null,
       currency: booking.currency || "TZS",
       checkedInAt: booking.checkedInAt || null,
+      lifecycle: mapGroupStayLifecycle({
+        bookingStatus: booking.status,
+        depositPaid: Boolean(booking.depositPaid),
+        depositPaidAt: booking.depositPaidAt,
+        depositAmount: booking.depositAmount,
+        depositExpired: booking.status === "AWAITING_DEPOSIT" && !booking.depositPaid && Boolean(booking.depositDueAt) && new Date(booking.depositDueAt).getTime() < Date.now(),
+        confirmedPropertyId: booking.confirmedPropertyId,
+        cancellationLoaded: true,
+      }),
     };
 
     return res.json(mapped);

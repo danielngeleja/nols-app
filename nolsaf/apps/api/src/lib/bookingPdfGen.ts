@@ -8,7 +8,6 @@
  * Uses PDFKit (already a project dependency).
  */
 import PDFDocument from "pdfkit";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const QRCode = require("qrcode") as { toBuffer(data: string, opts: object): Promise<Buffer> };
 
 // ─── Brand colours (matches owner receipt UI exactly) ──────────────────────

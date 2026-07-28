@@ -17,9 +17,10 @@ type Props = {
   allowPast?: boolean;
   twoMonths?: boolean;
   variant?: "light" | "dark";
+  display?: "date" | "month" | "day-month";
 };
 
-function formatDisplay(iso?: string) {
+function formatDisplay(iso?: string, display: "date" | "month" | "day-month" = "date") {
   if (!iso) return "";
   // Accept both date-only (YYYY-MM-DD) and full ISO datetime (YYYY-MM-DDThh:mm:ss.sssZ)
   const datePart = String(iso).split("T")[0];
@@ -46,6 +47,8 @@ function formatDisplay(iso?: string) {
   const monthLabel =
     Number.isFinite(monthIndex) && monthIndex >= 1 && monthIndex <= 12 ? months[monthIndex - 1] : m;
   const day2 = String(d).padStart(2, "0");
+  if (display === "month") return `${monthLabel} ${y}`;
+  if (display === "day-month") return `${day2} ${monthLabel}`;
   return `${day2} ${monthLabel} ${y}`;
 }
 
@@ -77,6 +80,7 @@ export default function DatePickerField({
   allowPast,
   twoMonths: twoMonthsProp,
   variant = "light",
+  display = "date",
 }: Props) {
   const isDark = variant === "dark";
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -103,13 +107,20 @@ export default function DatePickerField({
     const width = twoMonths
       ? Math.min(720, Math.max(320, window.innerWidth - 32))
       : Math.min(320, window.innerWidth - 32);
-    // Always center horizontally on screen
+    const viewportPadding = 16;
+    const estimatedHeight = Math.min(twoMonths ? 470 : 430, window.innerHeight - viewportPadding * 2);
+    const belowTop = rect.bottom + 8;
+    const aboveTop = rect.top - estimatedHeight - 8;
+    const top =
+      belowTop + estimatedHeight <= window.innerHeight - viewportPadding
+        ? belowTop
+        : Math.max(viewportPadding, aboveTop);
+    // Keep the calendar centered horizontally and fully inside short viewports.
     const left = Math.max(16, (window.innerWidth - width) / 2);
-    const top = rect.bottom + 8;
     setPanelPos({ top, left, width });
   }, [twoMonths]);
 
-  const pretty = formatDisplay(value);
+  const pretty = formatDisplay(value, display);
   const isSm = size === "sm";
 
   return (
@@ -155,7 +166,7 @@ export default function DatePickerField({
                 }
                 aria-hidden
               />
-              <span className={pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400")}>{pretty || "DD Mon YYYY"}</span>
+              <span className={"whitespace-nowrap " + (pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400"))}>{pretty || (display === "month" ? "Mon YYYY" : display === "day-month" ? "DD Mon" : "DD Mon YYYY")}</span>
             </Popover.Button>
 
             {typeof document !== 'undefined' && createPortal(
@@ -171,13 +182,13 @@ export default function DatePickerField({
                   >
                     <Popover.Panel
                       static
-                      className="fixed z-[10000] rounded-2xl bg-white p-3 nolsaf-date-popper"
+                      className="fixed z-[10000] nolsaf-date-popper"
                       style={{
                         ...(panelPos
                           ? { top: panelPos.top, left: panelPos.left, width: panelPos.width }
                           : { top: 0, left: "50%", transform: "translateX(-50%)", width: twoMonths ? Math.min(720, Math.max(320, window.innerWidth - 32)) : Math.min(320, window.innerWidth - 32) }),
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)",
-                        border: "1px solid rgba(0,0,0,0.07)",
+                        maxHeight: "calc(100dvh - 32px)",
+                        overflowY: "auto",
                       }}
                     >
                       <DatePicker

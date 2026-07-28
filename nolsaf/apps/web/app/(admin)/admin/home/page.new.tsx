@@ -156,7 +156,7 @@ function MiniRing({
   return (
     <div className={"relative " + (className ?? "")} style={{ width: size, height: size }} aria-hidden>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={cx} cy={cy} r={r} stroke="rgba(255,255,255,0.22)" strokeWidth={strokeWidth} fill="none" />
+        <circle cx={cx} cy={cy} r={r} stroke="rgba(255,255,255,0.12)" strokeWidth={strokeWidth} fill="none" />
         <circle
           cx={cx}
           cy={cy}
@@ -674,26 +674,26 @@ export default function AdminHomePage() {
             " motion-safe:transition-colors motion-safe:duration-200 group-hover:border-white/20"
           }
         >
-          <div className={"relative " + (featured ? "p-5 sm:p-5 min-h-[150px]" : "p-4 min-h-[128px]")}
+          <div className={"relative " + (featured ? "min-h-[132px] p-4" : "min-h-[112px] p-3.5")}
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3 min-w-0">
                 <div
                   className={
-                    "shrink-0 border border-white/15 bg-white/10 text-white/95 flex items-center justify-center " +
-                    (featured ? "h-10 w-10 rounded-2xl" : "h-9 w-9 rounded-2xl") +
+                    "shrink-0 border border-white/10 bg-black/15 text-white/90 flex items-center justify-center " +
+                    (featured ? "h-9 w-9 rounded-xl" : "h-8 w-8 rounded-xl") +
                     " " +
                     iconWrap +
-                    " backdrop-blur-sm motion-safe:transition-transform motion-safe:duration-300 group-hover:scale-[1.03]"
+                    " motion-safe:transition-transform motion-safe:duration-300 group-hover:scale-[1.03]"
                   }
                 >
-                  <Icon className={featured ? "h-5 w-5" : "h-[18px] w-[18px]"} aria-hidden />
+                  <Icon className="h-4 w-4" aria-hidden />
                 </div>
 
                 <div className="min-w-0">
                   <div
                     className={
-                      (featured ? "text-lg sm:text-xl" : "text-base") +
+                      (featured ? "text-base sm:text-lg" : "text-sm") +
                       " font-extrabold tracking-tight text-white leading-tight min-w-0 " +
                       "[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
                     }
@@ -703,7 +703,7 @@ export default function AdminHomePage() {
                   <div
                     className={
                       "mt-1 " +
-                      (featured ? "text-sm" : "text-xs") +
+                      (featured ? "text-xs" : "text-[11px]") +
                       " text-white/75 leading-snug min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
                     }
                   >
@@ -714,7 +714,7 @@ export default function AdminHomePage() {
 
               <div className="flex items-center gap-3">
                 {showBadge ? (
-                  <div className="shrink-0 h-7 w-7 rounded-full bg-white/12 border border-white/15 text-white/90 text-[11px] font-extrabold flex items-center justify-center tabular-nums">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/15 text-[10px] font-extrabold tabular-nums text-white/85">
                     {badgeLabel}
                   </div>
                 ) : null}
@@ -730,13 +730,13 @@ export default function AdminHomePage() {
             </div>
 
             {progressPct !== null ? (
-              <div className="mt-5 flex items-center gap-4">
-                <div className="flex items-center gap-2 text-[12px] text-white/75">
+              <div className="mt-4 flex items-center gap-3">
+                <div className="flex items-center gap-2 text-[11px] text-white/65">
                   <span className="h-2 w-2 rounded-full bg-black/20 border border-white/15" aria-hidden />
                   <span className="font-medium">Activity</span>
                 </div>
                 <div className="flex-1">
-                  <div className="h-2 rounded-full bg-white/20 overflow-hidden">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-black/20">
                     <div
                       className={`h-full rounded-full bg-gradient-to-r ${progressGradient} transition-[width] duration-700`}
                       style={{ width: `${tilesInView ? progressPct : 0}%` }}
@@ -744,12 +744,12 @@ export default function AdminHomePage() {
                     />
                   </div>
                 </div>
-                <div className="text-[12px] font-semibold tabular-nums text-white/90">{progressPct}%</div>
+                <div className="text-[11px] font-semibold tabular-nums text-white/80">{progressPct}%</div>
               </div>
             ) : null}
 
             {bottomSlot ? (
-              <div className="mt-4">{bottomSlot}</div>
+              <div className="mt-3">{bottomSlot}</div>
             ) : showSparkline ? (
               <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="text-[11px] text-white/70">Trend</div>
@@ -911,9 +911,9 @@ export default function AdminHomePage() {
 
   return (
     <div className="relative min-h-screen bg-[#070B1C] text-slate-100 overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+      <div className="relative mx-auto max-w-[96rem] px-3 py-5 sm:px-4 sm:py-6 lg:px-6 lg:py-7">
         <div className="grid grid-cols-12 gap-6">
-          <main className="col-span-12 rounded-[32px] border border-white/10 bg-white/[0.02] shadow-[0_26px_110px_-70px_rgba(0,0,0,0.95)] p-5 sm:p-6 lg:p-8">
+          <main className="col-span-12 rounded-[32px] border border-white/10 bg-white/[0.02] p-4 shadow-[0_26px_110px_-70px_rgba(0,0,0,0.95)] sm:p-5 lg:p-6">
             <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
               <div>
                 <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -961,10 +961,10 @@ export default function AdminHomePage() {
 
             <div className="grid grid-cols-12 gap-6">
               <section className="col-span-12">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                  <div className="group relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 via-emerald-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 xl:gap-4">
+                  <div className="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-[#0a4038] via-[#0b332f] to-[#0a211f] p-4 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
                     <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
+                      className="hidden"
                       aria-hidden
                       style={{
                         background:
@@ -973,25 +973,25 @@ export default function AdminHomePage() {
                     />
                     <div className="relative flex items-start justify-between gap-3">
                       <div className="text-sm font-medium text-slate-200">Pending approvals</div>
-                      <div className="h-9 w-9 rounded-2xl border border-emerald-400/25 bg-emerald-500/15 flex items-center justify-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-500/15">
                         <CheckCircle2 className="h-4 w-4 text-emerald-300" aria-hidden />
                       </div>
                     </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                    <div className="relative mt-3 text-3xl font-extrabold tracking-tight text-white tabular-nums">
                       {monitoring ? Math.round(pendingApprovalsAnimated).toLocaleString() : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
                     </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{monitoring ? "Listings to review" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
+                    <div className="relative mt-1.5 text-xs text-slate-400">{monitoring ? "Listings to review" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
+                    <div className="relative mt-3 flex h-12 items-end justify-between gap-3">
+                      <div className="text-[11px] text-slate-400">
                         Share <span className="text-slate-200 font-semibold">{opsPercent(pendingApprovalsValue).toFixed(0)}%</span>
                       </div>
-                      <MiniBars values={makeSpark(pendingApprovalsValue + 11, 14)} color="rgba(34,197,94,0.95)" width={138} height={64} className="opacity-95" />
+                      <MiniBars values={makeSpark(pendingApprovalsValue + 11, 14)} color="rgba(34,197,94,0.95)" width={110} height={48} className="opacity-95" />
                     </div>
                   </div>
 
-                  <div className="group relative overflow-hidden rounded-3xl border border-sky-500/20 bg-gradient-to-br from-sky-950/50 via-sky-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
+                  <div className="group relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-[#0d4761] via-[#0c354b] to-[#0a2230] p-4 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
                     <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
+                      className="hidden"
                       aria-hidden
                       style={{
                         background:
@@ -1000,27 +1000,27 @@ export default function AdminHomePage() {
                     />
                     <div className="relative flex items-start justify-between gap-3">
                       <div className="text-sm font-medium text-slate-200">Payments waiting</div>
-                      <div className="h-9 w-9 rounded-2xl border border-sky-400/25 bg-sky-500/15 flex items-center justify-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-sky-400/25 bg-sky-500/15">
                         <CreditCard className="h-4 w-4 text-sky-300" aria-hidden />
                       </div>
                     </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                    <div className="relative mt-3 text-3xl font-extrabold tracking-tight text-white tabular-nums">
                       {paymentsWaiting != null
                         ? Math.round(paymentsWaitingAnimated).toLocaleString()
                         : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
                     </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{paymentsWaiting != null ? "Payouts & settlements" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
+                    <div className="relative mt-1.5 text-xs text-slate-400">{paymentsWaiting != null ? "Payouts & settlements" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
+                    <div className="relative mt-3 flex h-12 items-end justify-between gap-3">
+                      <div className="text-[11px] text-slate-400">
                         Share <span className="text-slate-200 font-semibold">{opsPercent(paymentsWaitingValue).toFixed(0)}%</span>
                       </div>
-                      <MiniRing percent={opsPercent(paymentsWaitingValue)} color="rgba(56,189,248,0.95)" size={76} className="opacity-95" />
+                      <MiniRing percent={opsPercent(paymentsWaitingValue)} color="rgba(56,189,248,0.95)" size={58} className="opacity-95" />
                     </div>
                   </div>
 
-                  <div className="group relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-blue-950/50 via-blue-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
+                  <div className="group relative overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-br from-[#173f70] via-[#14345b] to-[#0b223c] p-4 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
                     <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
+                      className="hidden"
                       aria-hidden
                       style={{
                         background:
@@ -1029,25 +1029,25 @@ export default function AdminHomePage() {
                     />
                     <div className="relative flex items-start justify-between gap-3">
                       <div className="text-sm font-medium text-slate-200">Bookings</div>
-                      <div className="h-9 w-9 rounded-2xl border border-blue-400/25 bg-blue-500/15 flex items-center justify-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-blue-400/25 bg-blue-500/15">
                         <CalendarDays className="h-4 w-4 text-blue-300" aria-hidden />
                       </div>
                     </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                    <div className="relative mt-3 text-3xl font-extrabold tracking-tight text-white tabular-nums">
                       {monitoring ? Math.round(bookingsAnimated).toLocaleString() : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
                     </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{monitoring ? "In the current window" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
+                    <div className="relative mt-1.5 text-xs text-slate-400">{monitoring ? "In the current window" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
+                    <div className="relative mt-3 flex h-12 items-end justify-between gap-3">
+                      <div className="text-[11px] text-slate-400">
                         Share <span className="text-slate-200 font-semibold">{opsPercent(bookingsValue).toFixed(0)}%</span>
                       </div>
-                      <MiniSparkline values={makeSpark(bookingsValue + 17, 24)} stroke="rgba(34,211,238,0.95)" width={140} height={56} className="opacity-95" />
+                      <MiniSparkline values={makeSpark(bookingsValue + 17, 24)} stroke="rgba(34,211,238,0.95)" width={112} height={44} className="opacity-95" />
                     </div>
                   </div>
 
-                  <div className="group relative overflow-hidden rounded-3xl border border-amber-500/20 bg-gradient-to-br from-amber-950/50 via-amber-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
+                  <div className="group relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-[#513219] via-[#3f2817] to-[#241b16] p-4 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
                     <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
+                      className="hidden"
                       aria-hidden
                       style={{
                         background:
@@ -1056,25 +1056,25 @@ export default function AdminHomePage() {
                     />
                     <div className="relative flex items-start justify-between gap-3">
                       <div className="text-sm font-medium text-slate-200">Drivers pending</div>
-                      <div className="h-9 w-9 rounded-2xl border border-amber-400/25 bg-amber-500/15 flex items-center justify-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-amber-400/25 bg-amber-500/15">
                         <Truck className="h-4 w-4 text-amber-300" aria-hidden />
                       </div>
                     </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                    <div className="relative mt-3 text-3xl font-extrabold tracking-tight text-white tabular-nums">
                       {driversPending != null ? driversPending : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
                     </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{driversPending != null ? "Awaiting verification" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
+                    <div className="relative mt-1.5 text-xs text-slate-400">{driversPending != null ? "Awaiting verification" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
+                    <div className="relative mt-3 flex h-12 items-end justify-between gap-3">
+                      <div className="text-[11px] text-slate-400">
                         Share <span className="text-slate-200 font-semibold">{opsPercent(driversPendingValue).toFixed(0)}%</span>
                       </div>
-                      <MiniBars values={makeSpark(driversPendingValue + 23, 14)} color="rgba(2,102,94,0.95)" width={138} height={64} className="opacity-95" />
+                      <MiniBars values={makeSpark(driversPendingValue + 23, 14)} color="rgba(2,102,94,0.95)" width={110} height={48} className="opacity-95" />
                     </div>
                   </div>
 
-                  <div className="group relative overflow-hidden rounded-3xl border border-violet-500/20 bg-gradient-to-br from-violet-950/50 via-violet-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
+                  <div className="group relative overflow-hidden rounded-2xl border border-violet-500/20 bg-gradient-to-br from-[#372566] via-[#2f2358] to-[#1e193b] p-4 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
                     <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
+                      className="hidden"
                       aria-hidden
                       style={{
                         background:
@@ -1083,19 +1083,19 @@ export default function AdminHomePage() {
                     />
                     <div className="relative flex items-start justify-between gap-3">
                       <div className="text-sm font-medium text-slate-200">New users</div>
-                      <div className="h-9 w-9 rounded-2xl border border-violet-400/25 bg-violet-500/15 flex items-center justify-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-violet-400/25 bg-violet-500/15">
                         <Users className="h-4 w-4 text-violet-300" aria-hidden />
                       </div>
                     </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                    <div className="relative mt-3 text-3xl font-extrabold tracking-tight text-white tabular-nums">
                       {usersNew != null ? usersNew : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
                     </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{usersNew != null ? "Recently joined" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
+                    <div className="relative mt-1.5 text-xs text-slate-400">{usersNew != null ? "Recently joined" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
+                    <div className="relative mt-3 flex h-12 items-end justify-between gap-3">
+                      <div className="text-[11px] text-slate-400">
                         Share <span className="text-slate-200 font-semibold">{opsPercent(usersNewValue).toFixed(0)}%</span>
                       </div>
-                      <MiniRing percent={opsPercent(usersNewValue)} color="rgba(16,185,129,0.95)" size={76} className="opacity-95" />
+                      <MiniRing percent={opsPercent(usersNewValue)} color="rgba(16,185,129,0.95)" size={58} className="opacity-95" />
                     </div>
                   </div>
                 </div>
@@ -1701,7 +1701,6 @@ export default function AdminHomePage() {
                             <div className="w-px h-7 bg-white/15 flex-shrink-0" />
                             <div className="inline-flex items-center gap-1.5">
                               <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
                                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
                               </span>
                               <p className="text-[7px] font-bold text-white/60 uppercase tracking-wide">Live</p>
@@ -1791,12 +1790,12 @@ export default function AdminHomePage() {
                     title="Approvals"
                     description="Review new properties"
                     icon={CheckCircle2}
-                    gradient="bg-[#12463f]"
-                    iconWrap="bg-brand-500/15 border-brand-300/20 text-white"
+                    gradient="bg-[#0a2f2a]"
+                    iconWrap="bg-[#123a34] border-emerald-500/20 text-emerald-100"
                     badge={monitoring ? monitoring.pendingApprovals : null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-emerald-400 to-lime-300"
+                    progressGradient="from-emerald-500 to-emerald-500"
                     index={0}
                   />
 
@@ -1805,12 +1804,12 @@ export default function AdminHomePage() {
                     title="Payments"
                     description="Payouts & settlements"
                     icon={CreditCard}
-                    gradient="bg-[#174456]"
-                    iconWrap="bg-cyan-500/15 border-cyan-200/20 text-white"
+                    gradient="bg-[#0b3040]"
+                    iconWrap="bg-[#123747] border-sky-500/20 text-sky-100"
                     badge={paymentsWaiting ?? null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-cyan-400 to-sky-300"
+                    progressGradient="from-sky-500 to-sky-500"
                     index={1}
                   />
 
@@ -1819,12 +1818,12 @@ export default function AdminHomePage() {
                     title="Bookings"
                     description="Trips, status, issues"
                     icon={CalendarDays}
-                    gradient="bg-[#193e59]"
-                    iconWrap="bg-sky-500/15 border-sky-200/20 text-white"
+                    gradient="bg-[#102d4d]"
+                    iconWrap="bg-[#173759] border-blue-500/20 text-blue-100"
                     badge={monitoring ? Math.round(bookingsAnimated) : null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-sky-400 to-blue-300"
+                    progressGradient="from-blue-500 to-blue-500"
                     index={2}
                   />
 
@@ -1833,8 +1832,8 @@ export default function AdminHomePage() {
                     title="Revenue"
                     description="Reports & breakdown"
                     icon={BarChart2}
-                    gradient="bg-[#174154]"
-                    iconWrap="bg-brand-500/15 border-brand-200/20 text-white"
+                    gradient="bg-[#0d3040]"
+                    iconWrap="bg-[#123746] border-cyan-500/20 text-cyan-100"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={3}
                     bottomSlot={
@@ -1843,16 +1842,16 @@ export default function AdminHomePage() {
                           <span>Commission</span>
                           <span className="font-semibold text-white/85 tabular-nums">{formatTsh(totalCommission)}</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-300 transition-[width] duration-700"
+                        <div className="h-1.5 rounded-full bg-black/20 overflow-hidden">
+                          <div className="h-full rounded-full bg-sky-500 transition-[width] duration-700"
                             style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalCommission / (totalCommission + totalSubscription)) * 100)}%` : "50%" }} />
                         </div>
                         <div className="flex items-center justify-between text-[10px] text-white/65 mt-0.5">
                           <span>Subscription</span>
                           <span className="font-semibold text-white/85 tabular-nums">{formatTsh(totalSubscription)}</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-300 transition-[width] duration-700"
+                        <div className="h-1.5 rounded-full bg-black/20 overflow-hidden">
+                          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-700"
                             style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalSubscription / (totalCommission + totalSubscription)) * 100)}%` : "50%" }} />
                         </div>
                       </div>
@@ -1864,8 +1863,8 @@ export default function AdminHomePage() {
                     title="Properties"
                     description="Manage listings"
                     icon={Building2}
-                    gradient="bg-[#16463d]"
-                    iconWrap="bg-emerald-500/15 border-emerald-200/20 text-white"
+                    gradient="bg-[#0c332c]"
+                    iconWrap="bg-[#123b33] border-emerald-500/20 text-emerald-100"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={4}
                     bottomSlot={
@@ -1888,8 +1887,8 @@ export default function AdminHomePage() {
                     title="Analytics"
                     description="Trends & performance"
                     icon={LineChart}
-                    gradient="bg-[#344653]"
-                    iconWrap="bg-white/10 border-white/15 text-white"
+                    gradient="bg-[#26343f]"
+                    iconWrap="bg-[#303f4a] border-slate-500/20 text-slate-100"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={5}
                     bottomSlot={
@@ -1910,8 +1909,8 @@ export default function AdminHomePage() {
                     title="Messages"
                     description="Inbox & communication"
                     icon={MessagesSquare}
-                    gradient="bg-[#243f61]"
-                    iconWrap="bg-blue-500/15 border-blue-200/20 text-white"
+                    gradient="bg-[#172f4f]"
+                    iconWrap="bg-[#203a5b] border-blue-500/20 text-blue-100"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={6}
                     bottomSlot={

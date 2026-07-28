@@ -414,7 +414,6 @@ router.put("/", async (req, res) => {
     const from = (before as any)?.[f];
     const to = (s as any)?.[f];
     // Use loose comparison so null vs undefined doesn't create noise.
-    // eslint-disable-next-line eqeqeq
     if (from != to) changes[f] = { from: from ?? null, to: to ?? null };
   }
   const sessionPolicyFields = new Set(['sessionIdleMinutes', 'maxSessionDurationHours', 'sessionMaxMinutesAdmin', 'sessionMaxMinutesOwner', 'sessionMaxMinutesDriver', 'sessionMaxMinutesCustomer', 'sessionMaxMinutesAgent']);

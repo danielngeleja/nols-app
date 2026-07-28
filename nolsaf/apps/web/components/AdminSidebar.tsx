@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -159,6 +159,24 @@ const cancellationsDetails: Item[] = [
   { href: "/admin/cancellations", label: "Dashboard", Icon: LayoutDashboard },
 ];
 
+const nrmsDetails: Item[] = [
+  { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/channels", label: "OTA Control", Icon: KeyRound },
+  { href: "/admin/nrms/billing", label: "PAYG Billing", Icon: Wallet },
+  { href: "/admin/nrms/pricing", label: "Pricing & Levers", Icon: Coins },
+  { href: "/admin/nrms/reconciliation", label: "Reconciliation", Icon: Receipt },
+  { href: "/admin/nrms/integrity", label: "Integrity Signals", Icon: Activity },
+  { href: "/admin/nrms/support", label: "Support Snapshot", Icon: Eye },
+  { href: "/admin/nrms/health", label: "System Health", Icon: Activity },
+];
+
+const salesDetails: Item[] = [
+  { href: "/admin/sales/partners", label: "Sales partners", Icon: Users },
+  { href: "/admin/sales", label: "Conversion review", Icon: ShieldCheck },
+  { href: "/admin/sales/finance", label: "Finance", Icon: Wallet },
+  { href: "/admin/sales/materials", label: "Learning materials", Icon: FileText },
+];
+
 const userDetails: Item[] = [
   { href: "/admin/users", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/users/list", label: "All Users", Icon: Users },
@@ -168,6 +186,7 @@ const userDetails: Item[] = [
 
 const managementDetails: Item[] = [
   { href: "/admin/management", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/lifecycle-health", label: "Lifecycle Health", Icon: Activity },
   { href: "/admin/observability", label: "Observability", Icon: Activity },
   { href: "/admin/impact-center", label: "Impact Center", Icon: AlertTriangle },
   { href: "/admin/management/reports", label: "Reports", Icon: FileText },
@@ -201,16 +220,21 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [groupStayOpen, setGroupStayOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
+  const [nrmsOpen, setNrmsOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
 
   const activeSection = (() => {
     if (!path) return null;
     if (path === "/admin/home") return "Home";
+    if (path.startsWith("/admin/nrms")) return "NRMS";
+    if (path.startsWith("/admin/sales")) return "Sales";
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
     if (path.startsWith("/admin/agents")) return "No4P Agents";
     if (path.startsWith("/admin/cancellations")) return "Cancellations";
     if (path.startsWith("/admin/observability")) return "Management";
+    if (path.startsWith("/admin/lifecycle-health")) return "Management";
     if (path.startsWith("/admin/impact-center")) return "Management";
     if (path.startsWith("/admin/management")) return "Management";
     if (
@@ -267,6 +291,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     const isGroupStay = path.startsWith("/admin/group-stays");
     const isAgents = path.startsWith("/admin/agents");
     const isCancellations = path.startsWith("/admin/cancellations");
+    const isNrms = path.startsWith("/admin/nrms");
+    const isSales = path.startsWith("/admin/sales");
     // Owner (admin) mini-sidebar: open when on /admin (owners dashboard) or admin child routes
     // but NOT on /admin/home (which is the admin , not owners)
     const isAdminChildRoute = (path === "/admin" ||
@@ -292,6 +318,10 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // Cancellations mini-sidebar
     if (isCancellations) setCancellationsOpen(true);
     else setCancellationsOpen(false);
+    // NRMS mini-sidebar
+    if (isNrms) setNrmsOpen(true);
+    else setNrmsOpen(false);
+    setSalesOpen(isSales);
     // Visual chevrons for Users
     setUsersOpen(isUsers);
   }, [path]);
@@ -509,6 +539,67 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
                 <SectionHeader title="No4P Agents" active={activeSection === "No4P Agents"} />
                 <div className="mt-2 space-y-2">
                   {agentsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
+                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* NRMS */}
+        {collapsed ? (
+          <Item href="/admin/nrms" label="NRMS" Icon={Hotel} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="NRMS"
+              Icon={Hotel}
+              isOpen={nrmsOpen}
+              onClick={() => setNrmsOpen(v => !v)}
+              collapsed={collapsed}
+              active={activeSection === "NRMS"}
+            />
+            <div
+              aria-hidden={!nrmsOpen}
+              className={`grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-300 ease-out ${
+                nrmsOpen
+                  ? "grid-rows-[1fr] translate-y-0 opacity-100"
+                  : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
+              }`}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="mt-2">
+                  <SectionHeader title="NRMS" active={activeSection === "NRMS"} />
+                  <div className="mt-2 space-y-2">
+                    {nrmsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
+                      <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sales partners */}
+        {collapsed ? (
+          <Item href="/admin/sales" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="Sales partners"
+              Icon={Briefcase}
+              isOpen={salesOpen}
+              onClick={() => setSalesOpen((value) => !value)}
+              collapsed={collapsed}
+              active={activeSection === "Sales"}
+            />
+            {salesOpen && (
+              <div className="mt-2">
+                <SectionHeader title="Sales partners" active={activeSection === "Sales"} />
+                <div className="mt-2 space-y-2">
+                  {salesDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
                     <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
                   ))}
                 </div>

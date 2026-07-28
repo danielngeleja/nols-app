@@ -1,7 +1,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { Request } from "express";
 
-export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any) {
+export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
   const actorId = (req as any).user?.id as number | undefined;
   let actorRole = (req as any).user?.role as string | undefined;
   // Actions taken through an admin impersonation token are attributed to the
@@ -16,7 +16,7 @@ export async function audit(req: Request, action: string, resource?: string, bef
         actorRole: actorRole ?? null, 
         action, 
         entity: resource || "SYSTEM",
-        entityId: null,
+        entityId: Number.isInteger(entityId as number) ? (entityId as number) : null,
         ip: ip || null, 
         ua: ua || null, 
         beforeJson: beforeJson ?? null, 

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import apiClient from "@/lib/apiClient";
-import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart } from "lucide-react";
+import { User, Mail, Phone, CalendarDays, Car, Users, ArrowRight, ClipboardList, Shield, CheckCircle, AlertCircle, Share2, Copy, Check, Upload, Save, MessageCircle, Heart, MapPin, IdCard, Eye, EyeOff, Info, Loader2, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -37,6 +37,11 @@ export default function AccountIndex() {
   const [success, setSuccess] = useState<string | null>(null);
   const [referralLink, setReferralLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showIdentityNumber, setShowIdentityNumber] = useState(false);
+  const [emailVerificationOpen, setEmailVerificationOpen] = useState(false);
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [sendingEmailVerification, setSendingEmailVerification] = useState(false);
+  const [confirmingEmailVerification, setConfirmingEmailVerification] = useState(false);
   const [stats, setStats] = useState<{ bookings: number; rides: number; groupStays: number; tourPackages: number; savedProperties: number }>({
     bookings: 0,
     rides: 0,
@@ -195,35 +200,49 @@ export default function AccountIndex() {
     setError(null);
     setSuccess(null);
     try {
+      const avatarFile = avatarFileInputRef.current?.files?.[0];
+      let savedAvatarUrl =
+        typeof form.avatarUrl === "string" && /^https?:\/\//i.test(form.avatarUrl.trim())
+          ? form.avatarUrl.trim()
+          : undefined;
+
+      if (avatarFile) {
+        const avatarUpload = new FormData();
+        avatarUpload.append("file", avatarFile);
+        avatarUpload.append("folder", "avatars");
+        const uploadResponse = await api.post("/api/uploads/cloudinary/upload", avatarUpload);
+        const uploadedUrl = String(uploadResponse.data?.secure_url || "").trim();
+        if (!/^https:\/\/res\.cloudinary\.com\//i.test(uploadedUrl)) {
+          throw new Error("Avatar upload did not return a valid image URL.");
+        }
+        savedAvatarUrl = uploadedUrl;
+      }
+
       const payload: any = {
         fullName: form.fullName || form.name,
-        phone: form.phone,
-        avatarUrl: form.avatarUrl,
+        address: String(form.address || "").trim(),
+        nin: String(form.nin || "").trim(),
       };
-
-      // Handle file uploads if any
-      const formData = new FormData();
-      Object.keys(payload).forEach(key => {
-        if (payload[key] !== null && payload[key] !== undefined) {
-          formData.append(key, payload[key]);
-        }
-      });
-
-      if (avatarFileInputRef.current?.files?.[0]) {
-        formData.append('avatarFile', avatarFileInputRef.current.files[0]);
+      if (savedAvatarUrl) {
+        payload.avatarUrl = savedAvatarUrl;
       }
 
-      // Use FormData if files exist, otherwise use JSON
-      if (avatarFileInputRef.current?.files?.[0]) {
-        await api.put('/account/profile', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } else {
-        await api.put('/account/profile', payload);
-      }
+      // Store one shared URL on the User record. The booking, Sales, Owner and
+      // other workspaces all read this same avatarUrl.
+      await api.put('/api/account/profile', payload);
 
       setSuccess('Profile saved successfully!');
       setUser({ ...(user ?? {}), ...payload });
+      setForm((current: any) => ({ ...current, ...payload }));
+      if (savedAvatarUrl) {
+        try {
+          window.dispatchEvent(new CustomEvent("account:avatarUrl", { detail: { avatarUrl: savedAvatarUrl } }));
+          window.dispatchEvent(new CustomEvent("nolsaf:profile-updated", { detail: { avatarUrl: savedAvatarUrl } }));
+        } catch {
+          // The profile is already persisted; cross-header refresh is best effort.
+        }
+      }
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = "";
       setTimeout(() => setSuccess(null), 3000);
       // Reload profile to get updated data
       await loadProfile();
@@ -233,6 +252,61 @@ export default function AccountIndex() {
       setTimeout(() => setError(null), 5000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const sendEmailVerificationCode = async () => {
+    const email = String(form.email || user?.email || "").trim().toLowerCase();
+    if (!email) {
+      setError("Add an email address before requesting verification.");
+      return;
+    }
+
+    setSendingEmailVerification(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.post("/api/account/contact/request-change", {
+        field: "email",
+        value: email,
+      });
+      setEmailVerificationOpen(true);
+      setEmailVerificationCode("");
+      setSuccess(`A verification code was sent to ${email}.`);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Could not send the verification code.");
+    } finally {
+      setSendingEmailVerification(false);
+    }
+  };
+
+  const confirmEmailVerificationCode = async () => {
+    const otp = emailVerificationCode.trim();
+    if (otp.length < 4) {
+      setError("Enter the verification code from your email.");
+      return;
+    }
+
+    setConfirmingEmailVerification(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await api.post("/api/account/contact/confirm-change", {
+        field: "email",
+        otp,
+      });
+      const verifiedUser = response.data?.data?.user ?? response.data?.user;
+      const verifiedAt = verifiedUser?.emailVerifiedAt ?? new Date().toISOString();
+      setUser((current: any) => ({ ...(current ?? {}), ...(verifiedUser ?? {}), emailVerifiedAt: verifiedAt }));
+      setForm((current: any) => ({ ...(current ?? {}), ...(verifiedUser ?? {}), emailVerifiedAt: verifiedAt }));
+      setEmailVerificationOpen(false);
+      setEmailVerificationCode("");
+      setSuccess("Your email address is now verified.");
+      await loadProfile();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "The verification code could not be confirmed.");
+    } finally {
+      setConfirmingEmailVerification(false);
     }
   };
 
@@ -470,33 +544,161 @@ export default function AccountIndex() {
           </div>
 
           {/* Email — read only */}
-          <div className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5 transition-colors hover:bg-slate-50/80">
-            <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
-              <Mail className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Email Address</div>
-              <div className="mt-0.5 text-sm font-semibold text-slate-900 break-all">
-                {form.email || user?.email || 'Not provided'}
+          <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-slate-50/80">
+              <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
+                <Mail className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
               </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Email Address</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-900 break-all">
+                  {form.email || user?.email || 'Not provided'}
+                </div>
+              </div>
+              {(form.email || user?.email) && (
+                form.emailVerifiedAt || user?.emailVerifiedAt ? (
+                  <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-bold text-emerald-700">
+                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                    Verified
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={sendEmailVerificationCode}
+                    disabled={sendingEmailVerification || confirmingEmailVerification}
+                    className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-3 py-2 text-xs font-bold text-[#02665e] transition hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendingEmailVerification ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {sendingEmailVerification ? "Sending…" : emailVerificationOpen ? "Resend code" : "Verify email"}
+                  </button>
+                )
+              )}
             </div>
+
+            {emailVerificationOpen && !(form.emailVerifiedAt || user?.emailVerifiedAt) && (
+              <div className="border-t border-slate-200 bg-white px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">Enter the code from your email</div>
+                    <p className="mb-0 mt-1 text-[11px] leading-5 text-slate-500">
+                      The code expires after five minutes. Check your spam folder if it is not in your inbox.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailVerificationOpen(false);
+                      setEmailVerificationCode("");
+                    }}
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close email verification"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={emailVerificationCode}
+                    onChange={(event) => setEmailVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !confirmingEmailVerification) {
+                        void confirmEmailVerificationCode();
+                      }
+                    }}
+                    placeholder="Verification code"
+                    aria-label="Email verification code"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold tracking-[0.18em] text-slate-900 outline-none transition placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmEmailVerificationCode}
+                    disabled={confirmingEmailVerification || emailVerificationCode.trim().length < 4}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#02665e] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#01534d] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {confirmingEmailVerification ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {confirmingEmailVerification ? "Verifying…" : "Confirm email"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Phone — editable */}
-          <label className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5 cursor-text transition-all duration-200 hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+          <div className="flex items-center gap-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3.5">
             <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
               <Phone className="h-5 w-5 text-[#02665e]" strokeWidth={2} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Phone</div>
+              <div className="mt-0.5 text-sm font-semibold text-slate-900">{form.phone || "Not provided"}</div>
+            </div>
+            <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0">VERIFIED CONTACT</span>
+          </div>
+
+          <div className="pt-3">
+            <div className="flex items-start gap-3 border-l-2 border-[#02665e] px-3 py-1">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" />
+              <div>
+                <h3 className="m-0 text-xs font-bold text-slate-900">Additional information</h3>
+                <p className="mb-0 mt-1 text-[11px] leading-5 text-slate-500">
+                  You can add or update these optional profile details at any time.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-4 rounded-xl border border-slate-200 px-4 py-3 transition-all hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+            <MapPin className="h-5 w-5 shrink-0 text-[#02665e]" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Residential or business address</div>
               <input
-                className="mt-0.5 text-sm font-semibold text-slate-900 bg-transparent border-none outline-none w-full placeholder:text-slate-300 focus:text-[#02665e] transition-colors"
-                value={form.phone || ''}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                placeholder="Add phone number"
+                className="mt-0.5 w-full border-none bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
+                value={form.address || ""}
+                onChange={(event) => setForm({ ...form, address: event.target.value })}
+                maxLength={500}
+                autoComplete="street-address"
+                placeholder="Add your address"
               />
             </div>
-            <span className="text-[10px] text-teal-500 font-semibold flex-shrink-0">EDIT</span>
+          </label>
+
+          <label className="flex items-center gap-4 rounded-xl border border-slate-200 px-4 py-3 transition-all hover:border-teal-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-100">
+            <IdCard className="h-5 w-5 shrink-0 text-[#02665e]" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">National ID or passport number</div>
+              <input
+                type={showIdentityNumber ? "text" : "password"}
+                className="mt-0.5 w-full border-none bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
+                value={form.nin || ""}
+                onChange={(event) => setForm({ ...form, nin: event.target.value })}
+                maxLength={50}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Add an ID or passport number"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                setShowIdentityNumber((current) => !current);
+              }}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-[#02665e]"
+              aria-label={showIdentityNumber ? "Hide identity number" : "Show identity number"}
+            >
+              {showIdentityNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
           </label>
         </div>
 
