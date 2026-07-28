@@ -56,7 +56,16 @@ const nextConfig: NextConfig = {
       ]),
     ],
   },
-  turbopack: {},
+  turbopack: {
+    // ExcelJS exposes a browser bundle, but Turbopack can otherwise follow its
+    // Node entrypoint into `unzipper`. That package contains an optional S3
+    // adapter with a static `@aws-sdk/client-s3` require, which is intentionally
+    // absent from the web-only Vercel install. Force the browser-safe bundle so
+    // client-side report exports do not pull Node archive/storage dependencies.
+    resolveAlias: {
+      exceljs: 'exceljs/dist/exceljs.min.js',
+    },
+  },
   async rewrites() {
     return {
       // beforeFiles: rewrites run before filesystem/page checks.
