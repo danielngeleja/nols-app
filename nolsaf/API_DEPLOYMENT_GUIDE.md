@@ -307,12 +307,24 @@ The migration count must match the local migration count from the QA step. If
 the schema or migrations are missing, exit and redeploy with
 `scripts/deploy-eb.ps1`.
 
-Load the production URL without printing it and create a temporary Prisma 7
-configuration:
+Load the production URL without printing it. Prisma's schema engine does not
+use the API's MariaDB driver TLS settings, so also download the official AWS RDS
+CA bundle and append strict TLS settings only to the temporary CLI URL:
 
 ```bash
 export DATABASE_URL="$(/opt/elasticbeanstalk/bin/get-config environment -k DATABASE_URL)"
 test -n "$DATABASE_URL"
+
+curl --fail --silent --show-error --location \
+  --proto '=https' --tlsv1.2 \
+  https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  -o /tmp/rds-global-bundle.pem
+test -s /tmp/rds-global-bundle.pem
+
+case "$DATABASE_URL" in
+  *\?*) export DATABASE_URL="${DATABASE_URL}&sslcert=/tmp/rds-global-bundle.pem&sslaccept=strict" ;;
+  *) export DATABASE_URL="${DATABASE_URL}?sslcert=/tmp/rds-global-bundle.pem&sslaccept=strict" ;;
+esac
 
 cat >/tmp/prisma-production.config.cjs <<'EOF'
 const { defineConfig } = require('/var/app/current/node_modules/prisma/config');
@@ -363,7 +375,7 @@ Database schema is up to date!
 Clean the temporary configuration and leave SSH:
 
 ```bash
-rm -f /tmp/prisma-production.config.cjs
+rm -f /tmp/prisma-production.config.cjs /tmp/rds-global-bundle.pem
 exit
 ```
 
@@ -608,8 +620,10 @@ Before repairing an index:
 3. Compare the live index columns and uniqueness with
    `information_schema.STATISTICS`.
 4. Create and verify a fresh RDS snapshot.
-5. Add a new migration that drops and recreates the same index; never edit the
-   already-applied rename migration.
+5. Add a new migration that drops and recreates the same index using separate
+   `ALTER TABLE ... DROP INDEX` and `ALTER TABLE ... ADD INDEX` statements.
+   MariaDB can optimize a drop/add pair in one `ALTER TABLE` without physically
+   rebuilding the index. Never edit an already-applied migration.
 6. Use the snapshot-clone procedure above when the affected tables are large.
 7. Apply the repair with the normal `prisma migrate deploy` procedure.
 8. Repeat the forced-index read and production endpoint checks.
