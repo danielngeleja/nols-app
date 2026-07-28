@@ -623,7 +623,9 @@ Before repairing an index:
 5. Add a new migration that drops and recreates the same index using separate
    `ALTER TABLE ... DROP INDEX` and `ALTER TABLE ... ADD INDEX` statements.
    MariaDB can optimize a drop/add pair in one `ALTER TABLE` without physically
-   rebuilding the index. Never edit an already-applied migration.
+   rebuilding the index. If the target index supports a foreign key, create a
+   temporary compatible index before the drop and remove it only after the
+   rebuilt index exists. Never edit an already-applied migration.
 6. Use the snapshot-clone procedure above when the affected tables are large.
 7. Apply the repair with the normal `prisma migrate deploy` procedure.
 8. Repeat the forced-index read and production endpoint checks.
