@@ -1,6 +1,12 @@
 -- One durable appeal/reference ledger for every temporary marketplace and
 -- NRMS restriction. Business tables remain authoritative for access checks.
-CREATE TABLE `platform_restriction_case` (
+ALTER TABLE `owner_payg_account`
+  ADD COLUMN IF NOT EXISTS `freezePreviousStatus` VARCHAR(30) NULL,
+  ADD COLUMN IF NOT EXISTS `frozenAt` DATETIME(3) NULL,
+  ADD COLUMN IF NOT EXISTS `frozenByAdminId` INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS `frozenReason` VARCHAR(300) NULL;
+
+CREATE TABLE IF NOT EXISTS `platform_restriction_case` (
   `id` INTEGER NOT NULL AUTO_INCREMENT,
   `referenceCode` VARCHAR(48) NOT NULL,
   `activeKey` VARCHAR(80) NULL,
@@ -34,7 +40,7 @@ CREATE TABLE `platform_restriction_case` (
 -- Preserve currently active restrictions so every pre-existing freeze also
 -- receives a reference after this migration. These records are intentionally
 -- marked as migrated and do not claim that an email was sent historically.
-INSERT INTO `platform_restriction_case`
+INSERT IGNORE INTO `platform_restriction_case`
   (`referenceCode`, `activeKey`, `scope`, `status`, `ownerId`, `targetId`, `propertyId`, `reason`, `appliedByAdminId`, `appliedAt`, `createdAt`, `updatedAt`)
 SELECT CONCAT('NLS-MKT-', `id`, '-LEGACY'), CONCAT('MARKETPLACE_PROPERTY:', `id`), 'MARKETPLACE_PROPERTY', 'OPEN',
   `ownerId`, `id`, `id`,
@@ -43,7 +49,7 @@ SELECT CONCAT('NLS-MKT-', `id`, '-LEGACY'), CONCAT('MARKETPLACE_PROPERTY:', `id`
 FROM `property`
 WHERE `status` = 'SUSPENDED';
 
-INSERT INTO `platform_restriction_case`
+INSERT IGNORE INTO `platform_restriction_case`
   (`referenceCode`, `activeKey`, `scope`, `status`, `ownerId`, `targetId`, `propertyId`, `reason`, `appliedByAdminId`, `appliedAt`, `createdAt`, `updatedAt`)
 SELECT CONCAT('NLS-NRA-', `ownerId`, '-LEGACY'), CONCAT('NRMS_ENROLLMENT:', `ownerId`), 'NRMS_ENROLLMENT', 'OPEN',
   `ownerId`, `ownerId`, NULL,
@@ -52,7 +58,7 @@ SELECT CONCAT('NLS-NRA-', `ownerId`, '-LEGACY'), CONCAT('NRMS_ENROLLMENT:', `own
 FROM `owner_service_enrollment`
 WHERE `status` = 'SUSPENDED';
 
-INSERT INTO `platform_restriction_case`
+INSERT IGNORE INTO `platform_restriction_case`
   (`referenceCode`, `activeKey`, `scope`, `status`, `ownerId`, `targetId`, `propertyId`, `reason`, `appliedByAdminId`, `appliedAt`, `createdAt`, `updatedAt`)
 SELECT CONCAT('NLS-NRP-', `propertyId`, '-LEGACY'), CONCAT('NRMS_PROPERTY:', `propertyId`), 'NRMS_PROPERTY', 'OPEN',
   `ownerId`, `propertyId`, `propertyId`,
@@ -61,7 +67,7 @@ SELECT CONCAT('NLS-NRP-', `propertyId`, '-LEGACY'), CONCAT('NRMS_PROPERTY:', `pr
 FROM `owner_payg_account`
 WHERE `status` = 'FROZEN';
 
-INSERT INTO `platform_restriction_case`
+INSERT IGNORE INTO `platform_restriction_case`
   (`referenceCode`, `activeKey`, `scope`, `status`, `ownerId`, `targetId`, `propertyId`, `reason`, `appliedByAdminId`, `appliedAt`, `createdAt`, `updatedAt`)
 SELECT CONCAT('NLS-QR-', `id`, '-LEGACY'), CONCAT('NRMS_QR_ORDERING:', `id`), 'NRMS_QR_ORDERING', 'OPEN',
   `ownerId`, `id`, `id`,

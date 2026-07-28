@@ -35,31 +35,31 @@ ALTER TABLE `room_unit` ALTER COLUMN `updatedAt` DROP DEFAULT;
 ALTER TABLE `service_plan` ALTER COLUMN `updatedAt` DROP DEFAULT;
 
 -- AddForeignKey
-ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_jobId_fkey` FOREIGN KEY (`jobId`) REFERENCES `job`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_jobId_fkey` FOREIGN KEY IF NOT EXISTS (`jobId`) REFERENCES `job`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_reviewedBy_fkey` FOREIGN KEY (`reviewedBy`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_reviewedBy_fkey` FOREIGN KEY IF NOT EXISTS (`reviewedBy`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_agentId_fkey` FOREIGN KEY (`agentId`) REFERENCES `agent`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `jobapplication` ADD CONSTRAINT `jobapplication_agentId_fkey` FOREIGN KEY IF NOT EXISTS (`agentId`) REFERENCES `agent`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `savedproperty` ADD CONSTRAINT `savedproperty_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `savedproperty` ADD CONSTRAINT `savedproperty_userId_fkey` FOREIGN KEY IF NOT EXISTS (`userId`) REFERENCES `user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `savedproperty` ADD CONSTRAINT `savedproperty_propertyId_fkey` FOREIGN KEY (`propertyId`) REFERENCES `property`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `savedproperty` ADD CONSTRAINT `savedproperty_propertyId_fkey` FOREIGN KEY IF NOT EXISTS (`propertyId`) REFERENCES `property`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `propertyavailabilityblock` ADD CONSTRAINT `propertyavailabilityblock_propertyId_fkey` FOREIGN KEY (`propertyId`) REFERENCES `property`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `propertyavailabilityblock` ADD CONSTRAINT `propertyavailabilityblock_propertyId_fkey` FOREIGN KEY IF NOT EXISTS (`propertyId`) REFERENCES `property`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `propertyavailabilityblock` ADD CONSTRAINT `propertyavailabilityblock_ownerId_fkey` FOREIGN KEY (`ownerId`) REFERENCES `user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `propertyavailabilityblock` ADD CONSTRAINT `propertyavailabilityblock_ownerId_fkey` FOREIGN KEY IF NOT EXISTS (`ownerId`) REFERENCES `user`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `trip_estimates` ADD CONSTRAINT `trip_estimates_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `trip_estimates` ADD CONSTRAINT `trip_estimates_userId_fkey` FOREIGN KEY IF NOT EXISTS (`userId`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `trip_estimates` ADD CONSTRAINT `trip_estimates_bookingId_fkey` FOREIGN KEY (`bookingId`) REFERENCES `booking`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `trip_estimates` ADD CONSTRAINT `trip_estimates_bookingId_fkey` FOREIGN KEY IF NOT EXISTS (`bookingId`) REFERENCES `booking`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- RenameIndex
 ALTER TABLE `adminaudit` RENAME INDEX `AdminAudit_action_idx` TO `adminaudit_action_idx`;
