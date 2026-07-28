@@ -70,9 +70,12 @@ apiClient.interceptors.response.use(
       window.dispatchEvent(new CustomEvent("nrms-property-frozen", { detail: error.response.data }));
     }
     const isMutation = MUTATION_METHODS.has(String(config?.method || "").toLowerCase());
+    const csrfFailure =
+      error?.response?.data?.error === "Invalid CSRF token"
+      || error?.response?.data?.code === "CSRF_TOKEN_MISSING";
     if (
       status === 403
-      && error?.response?.data?.error === "Invalid CSRF token"
+      && csrfFailure
       && isMutation
       && config
       && !config.__csrfRetried

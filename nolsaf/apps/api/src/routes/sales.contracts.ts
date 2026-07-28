@@ -7,7 +7,7 @@
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { type AuthedRequest, blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins, notifyUser } from "../lib/notifications.js";
@@ -209,7 +209,7 @@ async function findOwnContract(userId: number, contractId: number) {
  * Consumes a login-bound invitation. The raw token is never stored and does
  * not authorize signing; ownership still comes from the authenticated user.
  */
-router.post("/contracts/invitation/resolve", limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
+router.post("/contracts/invitation/resolve", blockImpersonated, limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const parsed = invitationSchema.safeParse(req.body);
   if (!parsed.success) return invalid(res, "Invalid agreement invitation");
 
@@ -325,7 +325,7 @@ router.get("/contracts/:id", limitSalesContractRead as any, asyncHandler(async (
 }) as RequestHandler);
 
 /** POST /api/sales/contracts/:id/view */
-router.post("/contracts/:id/view", limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
+router.post("/contracts/:id/view", blockImpersonated, limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const parsed = idSchema.safeParse(req.params);
   if (!parsed.success) return invalid(res, "Invalid contract id");
   const { partner, contract } = await findOwnContract(req.user!.id, parsed.data.id);
@@ -348,7 +348,7 @@ router.post("/contracts/:id/view", limitSalesContractAccept as any, asyncHandler
 }) as RequestHandler);
 
 /** POST /api/sales/contracts/:id/accept */
-router.post("/contracts/:id/accept", limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
+router.post("/contracts/:id/accept", blockImpersonated, limitSalesContractAccept as any, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const params = idSchema.safeParse(req.params);
   const body = acceptSchema.safeParse(req.body);
   if (!params.success) return invalid(res, "Invalid contract id");

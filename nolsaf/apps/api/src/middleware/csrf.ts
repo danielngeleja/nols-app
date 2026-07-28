@@ -250,6 +250,10 @@ export async function csrfProtection(req: Request, res: Response, next: NextFunc
     return next();
   }
 
+  // This response can vary based on browser-supplied request context.
+  res.vary("Sec-Fetch-Site");
+  res.vary("Origin");
+
   const sessionId = getSessionId(req);
   const token = req.headers["x-csrf-token"] as string;
 
@@ -265,16 +269,25 @@ export async function csrfProtection(req: Request, res: Response, next: NextFunc
 
   const secFetchSite = String(req.get("sec-fetch-site") || "").toLowerCase();
   const explicitlyCrossSite = secFetchSite === "cross-site";
+  const explicitlySameOrigin = secFetchSite === "same-origin";
   const hasOriginHeaders = Boolean(req.get("origin") || req.get("referer"));
+  const hasTrustedOrigin = hasOriginHeaders && isTrustedOrigin(req);
+  const hasOriginConflict = hasOriginHeaders && !hasTrustedOrigin;
 
-  if (explicitlyCrossSite || (hasOriginHeaders && !isTrustedOrigin(req))) {
-    return res.status(403).json({
-      error: "CSRF token missing",
-      message: "Cross-site cookie-auth requests must include X-CSRF-Token.",
-    });
+  // Compatibility fallback for older call sites that do not yet attach the
+  // synchronizer token: accept only when the browser positively proves a
+  // same-origin request. Missing metadata is ambiguous and must fail closed.
+  // `same-site` is intentionally insufficient because a compromised sibling
+  // subdomain can still initiate a same-site cross-origin request.
+  if (!explicitlyCrossSite && !hasOriginConflict && (explicitlySameOrigin || hasTrustedOrigin)) {
+    return next();
   }
 
-  next();
+  return res.status(403).json({
+    error: "CSRF token missing",
+    code: "CSRF_TOKEN_MISSING",
+    message: "Cookie-authenticated mutations must include X-CSRF-Token or verifiable same-origin metadata.",
+  });
 }
 
 /**

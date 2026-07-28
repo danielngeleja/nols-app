@@ -6,7 +6,7 @@
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { requireAuth } from "../middleware/auth.js";
+import { blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import {
   partnerIdFor,
@@ -298,7 +298,7 @@ router.get("/leads", limitSalesLeadRead as any, asyncHandler(async (req: SalesAu
 }));
 
 /** POST /api/sales/leads */
-router.post("/leads", limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+router.post("/leads", blockImpersonated, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (invalid(res, parsed)) return;
   const scopedPartnerId = partnerId(req, res);
@@ -408,7 +408,7 @@ router.get("/leads/:id", limitSalesLeadRead as any, asyncHandler(async (req: Sal
 }));
 
 /** PATCH /api/sales/leads/:id */
-router.patch("/leads/:id", limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+router.patch("/leads/:id", blockImpersonated, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
   const params = idSchema.safeParse(req.params);
   const parsed = updateSchema.safeParse(req.body);
   if (invalid(res, params) || invalid(res, parsed)) return;
@@ -490,7 +490,7 @@ router.patch("/leads/:id", limitSalesLeadWrite as any, asyncHandler(async (req: 
 }));
 
 /** POST /api/sales/leads/:id/activities */
-router.post("/leads/:id/activities", limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+router.post("/leads/:id/activities", blockImpersonated, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
   const params = idSchema.safeParse(req.params);
   const parsed = activitySchema.safeParse(req.body);
   if (invalid(res, params) || invalid(res, parsed)) return;
@@ -555,7 +555,7 @@ router.post("/leads/:id/activities", limitSalesLeadWrite as any, asyncHandler(as
 }));
 
 /** POST /api/sales/leads/:id/request-conversion */
-router.post("/leads/:id/request-conversion", limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+router.post("/leads/:id/request-conversion", blockImpersonated, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
   const parsed = idSchema.safeParse(req.params);
   if (invalid(res, parsed)) return;
   const scopedPartnerId = partnerId(req, res);

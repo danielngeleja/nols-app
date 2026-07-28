@@ -15,6 +15,23 @@ describe("invoice access authorization", () => {
 });
 
 describe("CSRF proxy handling", () => {
+  function createResponseCapture() {
+    let statusCode: number | undefined;
+    let payload: unknown;
+    const variedHeaders: string[] = [];
+    const res: any = {
+      vary(name: string) { variedHeaders.push(name); return this; },
+      status(code: number) { statusCode = code; return this; },
+      json(body: unknown) { payload = body; return this; },
+    };
+    return {
+      res,
+      get statusCode() { return statusCode; },
+      get payload() { return payload; },
+      variedHeaders,
+    };
+  }
+
   it("binds CSRF to the same auth cookie regardless of Cookie header order", async () => {
     let issuedToken = "";
     const getReq: any = {
@@ -35,10 +52,105 @@ describe("CSRF proxy handling", () => {
       socket: { remoteAddress: "127.0.0.1" },
       get: () => "",
     };
-    const postRes: any = { status() { return this; }, json() { return this; } };
+    const postRes: any = { vary() { return this; }, status() { return this; }, json() { return this; } };
     let nextCalled = false;
     await csrfProtection(postReq, postRes, () => { nextCalled = true; });
     expect(nextCalled).toBe(true);
+  });
+
+  it("fails closed when a cookie-authenticated mutation has neither a token nor origin metadata", async () => {
+    const req: any = {
+      method: "POST",
+      path: "/api/account/profile",
+      headers: { cookie: "nolsaf_token=test-token" },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get: () => "",
+    };
+    const capture = createResponseCapture();
+    let nextCalled = false;
+
+    await csrfProtection(req, capture.res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(false);
+    expect(capture.statusCode).toBe(403);
+    expect(capture.payload).toMatchObject({
+      error: "CSRF token missing",
+      code: "CSRF_TOKEN_MISSING",
+    });
+    expect(capture.variedHeaders).toEqual(["Sec-Fetch-Site", "Origin"]);
+  });
+
+  it("allows a tokenless mutation only with positive same-origin browser metadata", async () => {
+    const req: any = {
+      method: "POST",
+      path: "/api/account/profile",
+      headers: { cookie: "nolsaf_token=test-token" },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get(name: string) {
+        const headers: Record<string, string> = {
+          "sec-fetch-site": "same-origin",
+          host: "app.nolsaf.test",
+        };
+        return headers[name.toLowerCase()] || "";
+      },
+    };
+    const capture = createResponseCapture();
+    let nextCalled = false;
+
+    await csrfProtection(req, capture.res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(capture.statusCode).toBeUndefined();
+  });
+
+  it("allows the Origin/Referer fallback only when it exactly matches the target origin", async () => {
+    const req: any = {
+      method: "POST",
+      path: "/api/account/profile",
+      headers: { cookie: "nolsaf_token=test-token" },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get(name: string) {
+        const headers: Record<string, string> = {
+          origin: "https://app.nolsaf.test",
+          host: "app.nolsaf.test",
+        };
+        return headers[name.toLowerCase()] || "";
+      },
+    };
+    const capture = createResponseCapture();
+    let nextCalled = false;
+
+    await csrfProtection(req, capture.res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(capture.statusCode).toBeUndefined();
+  });
+
+  it("does not trust same-site metadata without a matching Origin or Referer", async () => {
+    const req: any = {
+      method: "POST",
+      path: "/api/account/profile",
+      headers: { cookie: "nolsaf_token=test-token" },
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      get(name: string) {
+        const headers: Record<string, string> = {
+          "sec-fetch-site": "same-site",
+          host: "app.nolsaf.test",
+        };
+        return headers[name.toLowerCase()] || "";
+      },
+    };
+    const capture = createResponseCapture();
+    let nextCalled = false;
+
+    await csrfProtection(req, capture.res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(false);
+    expect(capture.statusCode).toBe(403);
   });
 
   it("does not let a proxy marker bypass cross-site cookie CSRF protection", async () => {
@@ -60,18 +172,13 @@ describe("CSRF proxy handling", () => {
         return headers[name.toLowerCase()] || "";
       },
     };
-    let statusCode: number | undefined;
-    let payload: unknown;
-    const res: any = {
-      status(code: number) { statusCode = code; return this; },
-      json(body: unknown) { payload = body; return this; },
-    };
+    const capture = createResponseCapture();
     let nextCalled = false;
 
-    await csrfProtection(req, res, () => { nextCalled = true; });
+    await csrfProtection(req, capture.res, () => { nextCalled = true; });
 
     expect(nextCalled).toBe(false);
-    expect(statusCode).toBe(403);
-    expect(payload).toMatchObject({ error: "CSRF token missing" });
+    expect(capture.statusCode).toBe(403);
+    expect(capture.payload).toMatchObject({ error: "CSRF token missing" });
   });
 });
