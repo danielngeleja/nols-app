@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  Activity,
   ArrowRight,
   Bell,
   Building2,
   CalendarClock,
   CheckCircle2,
-  FileSignature,
+  CircleDollarSign,
   Layers3,
   Loader2,
+  Percent,
   TrendingUp,
   Wallet,
   WalletCards,
@@ -28,7 +30,7 @@ import {
   YAxis,
 } from "recharts";
 import apiClient from "@/lib/apiClient";
-import { initialsOf, statusTone, type SalesMe } from "@/components/SalesShell";
+import { statusTone, type SalesMe } from "@/components/SalesShell";
 
 type DashboardMe = SalesMe & {
   payout?: {
@@ -108,14 +110,6 @@ function money(value: number, currency = "TZS"): string {
   return `${currency === "TZS" ? "TSh" : currency} ${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 }
 
-function shortDate(value: string): string {
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 function relativeTime(value: string): string {
   const difference = Date.now() - new Date(value).getTime();
   const minutes = Math.max(1, Math.floor(difference / 60_000));
@@ -139,25 +133,45 @@ function KpiCard({
   tone: "green" | "blue" | "violet" | "amber" | "teal";
 }) {
   const tones = {
-    green: "border-emerald-100 bg-emerald-50/45 text-emerald-700",
-    blue: "border-sky-100 bg-sky-50/45 text-sky-700",
-    violet: "border-violet-100 bg-violet-50/45 text-violet-700",
-    amber: "border-amber-100 bg-amber-50/45 text-amber-700",
-    teal: "border-teal-100 bg-teal-50/45 text-teal-700",
+    green: {
+      icon: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+      dot: "bg-emerald-500",
+    },
+    blue: {
+      icon: "bg-sky-50 text-sky-700 ring-sky-100",
+      dot: "bg-sky-500",
+    },
+    violet: {
+      icon: "bg-violet-50 text-violet-700 ring-violet-100",
+      dot: "bg-violet-500",
+    },
+    amber: {
+      icon: "bg-amber-50 text-amber-700 ring-amber-100",
+      dot: "bg-amber-500",
+    },
+    teal: {
+      icon: "bg-teal-50 text-teal-700 ring-teal-100",
+      dot: "bg-teal-500",
+    },
   };
+  const style = tones[tone];
+
   return (
-    <div className={`min-w-0 border p-4 ${tones[tone]}`}>
-      <div className="flex items-start gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/80 shadow-sm">
-          <Icon className="h-5 w-5" />
-        </span>
+    <article className="group min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_18px_38px_-30px_rgba(8,127,104,0.35)]">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="m-0 truncate text-xl font-black tracking-tight text-slate-950">{value}</p>
-          <p className="mb-0 mt-0.5 text-xs font-bold text-slate-700">{label}</p>
-          <p className="mb-0 mt-1 truncate text-[10px] text-slate-400">{note}</p>
+          <p className="m-0 truncate text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
+          <p className="mb-0 mt-2 truncate text-[clamp(1.1rem,1.7vw,1.4rem)] font-black tracking-[-0.035em] text-slate-950">{value}</p>
         </div>
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ring-1 ${style.icon}`}>
+          <Icon className="h-4.5 w-4.5" />
+        </span>
       </div>
-    </div>
+      <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${style.dot}`} />
+        <p className="m-0 truncate text-[10px] font-medium text-slate-500">{note}</p>
+      </div>
+    </article>
   );
 }
 
@@ -265,7 +279,6 @@ export default function SalesOverviewDashboard() {
   }
 
   const { me, summary, properties, notifications } = data;
-  const contract = me.contract;
   const conversionRate = data.totalLeads > 0 ? Math.round((data.convertedLeads / data.totalLeads) * 100) : 0;
   const averageEarnings = data.totalProperties > 0 ? summary.totalEarned / data.totalProperties : 0;
   const otherEarnings =
@@ -281,58 +294,30 @@ export default function SalesOverviewDashboard() {
 
   return (
     <div id="sales-overview-dashboard" className="space-y-4">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(440px,1fr)]">
-        <div className="flex min-w-0 items-center gap-4 border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.55)]">
-          {me.partner.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={me.partner.avatarUrl} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-emerald-50" />
-          ) : (
-            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-50 text-xl font-black text-emerald-800 ring-4 ring-emerald-50">
-              {initialsOf(me.partner.name)}
-            </span>
-          )}
-          <div className="min-w-0">
-            <p className="m-0 text-xs text-slate-500">Welcome back,</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h1 className="m-0 truncate text-2xl font-black tracking-tight text-slate-950">{me.partner.name || "Sales partner"}</h1>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-800">{me.level.benefits.badge}</span>
-            </div>
-            <p className="mb-0 mt-2 text-xs text-slate-600">Partner ID: <strong>{me.partner.agentCode}</strong></p>
-            <p className="mb-0 mt-1 text-xs text-slate-500">{me.partner.region || "Region not assigned"}{me.partner.territory ? ` · ${me.partner.territory}` : ""}</p>
-          </div>
-        </div>
-
-        <Link href="/sales/contract" className="group grid min-w-0 gap-4 border border-slate-200 bg-white p-5 text-left no-underline shadow-[0_16px_40px_-34px_rgba(15,23,42,0.55)] sm:grid-cols-[auto_1fr_auto] sm:items-center">
-          <span className="grid h-12 w-12 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><FileSignature className="h-5 w-5" /></span>
-          <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold text-slate-500">Agreement status</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${statusTone(contract?.status || "PENDING")}`}>{contract?.status || "Pending"}</span></span>
-            <span className="mt-2 block text-sm font-bold text-slate-900">{contract ? `${shortDate(contract.startsAt)} – ${shortDate(contract.expiresAt)}` : "Agreement not available"}</span>
-            <span className="mt-1 block text-xs text-slate-500">{contract ? `${contract.nrmsCommissionRate}% NRMS · ${contract.marketplaceRevenueRate}% marketplace` : "Open agreement details"}</span>
-          </span>
-          <span className="border-l border-slate-100 pl-4 text-right">
-            <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">Expires</span>
-            <span className="mt-1 block text-base font-black text-slate-950">{contract ? shortDate(contract.expiresAt) : "—"}</span>
-            <span className={`mt-1 block text-[11px] font-bold ${(contract?.daysRemaining || 0) <= 30 ? "text-red-600" : "text-emerald-700"}`}>{contract ? `${contract.daysRemaining} days remaining` : "No active term"}</span>
-          </span>
-        </Link>
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard icon={Building2} label="Total properties" value={data.totalProperties} note="Verified portfolio" tone="green" />
-        <KpiCard icon={Layers3} label="NRMS properties" value={data.nrmsProperties} note="Attributed product" tone="blue" />
-        <KpiCard icon={TrendingUp} label="Marketplace properties" value={data.marketplaceProperties} note="Attributed product" tone="violet" />
-        <KpiCard icon={CalendarClock} label="Conversion requests" value={data.conversionRequests} note="Awaiting review" tone="amber" />
-        <KpiCard icon={WalletCards} label="Total earnings" value={money(summary.totalEarned, summary.currency)} note="All verified records" tone="teal" />
-        <KpiCard icon={Wallet} label="Available payout" value={money(summary.available, summary.currency)} note="Ready to request" tone="green" />
+        <KpiCard icon={Layers3} label="NRMS properties" value={data.nrmsProperties} note="Active NRMS attribution" tone="blue" />
+        <KpiCard icon={TrendingUp} label="Marketplace properties" value={data.marketplaceProperties} note="Marketplace attribution" tone="violet" />
+        <KpiCard icon={CalendarClock} label="Conversion requests" value={data.conversionRequests} note="Pending admin review" tone="amber" />
+        <KpiCard icon={WalletCards} label="Total earnings" value={money(summary.totalEarned, summary.currency)} note="Verified commission ledger" tone="teal" />
+        <KpiCard icon={Wallet} label="Available payout" value={money(summary.available, summary.currency)} note="Eligible to request" tone="green" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.8fr)_minmax(280px,0.55fr)]">
-        <article className="min-w-0 border border-slate-200 bg-white p-4 shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)_minmax(290px,0.72fr)]">
+        <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
           <div className="flex items-center justify-between gap-3">
-            <div><h2 className="m-0 text-sm font-black text-slate-900">Earnings overview</h2><p className="mb-0 mt-1 text-[11px] text-slate-400">Cumulative recorded earnings this month</p></div>
-            <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-slate-600">This month</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+                  <TrendingUp className="h-4 w-4" />
+                </span>
+                <h2 className="m-0 text-sm font-black text-slate-900">Earnings overview</h2>
+              </div>
+              <p className="mb-0 mt-2 text-[11px] text-slate-400">Cumulative verified earnings</p>
+            </div>
+            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[10px] font-bold text-slate-600">This month</span>
           </div>
-          <div className="mt-4 h-64">
+          <div className="mt-4 h-52">
             {cumulativeChart.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={cumulativeChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -349,45 +334,103 @@ export default function SalesOverviewDashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="grid h-full place-items-center text-center"><div><TrendingUp className="mx-auto h-7 w-7 text-slate-200" /><p className="mb-0 mt-2 text-xs font-bold text-slate-500">No earnings recorded this month</p></div></div>
+              <div className="grid h-full place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 text-center">
+                <div>
+                  <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-white text-slate-300 shadow-sm">
+                    <TrendingUp className="h-5 w-5" />
+                  </span>
+                  <p className="mb-0 mt-3 text-xs font-bold text-slate-600">No earnings this month</p>
+                  <p className="mb-0 mt-1 text-[10px] text-slate-400">Verified transactions will appear here.</p>
+                </div>
+              </div>
             )}
           </div>
         </article>
 
-        <article className="min-w-0 border border-slate-200 bg-white p-4 shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
-          <h2 className="m-0 text-sm font-black text-slate-900">Earnings breakdown</h2>
-          <p className="mb-0 mt-1 text-[11px] text-slate-400">All verified earning streams</p>
-          <div className="mt-3 grid items-center gap-2 sm:grid-cols-[150px_1fr] xl:grid-cols-1 2xl:grid-cols-[150px_1fr]">
-            <div className="relative h-40">
-              {pieData.length ? (
-                <>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart><Pie data={pieData} dataKey="value" nameKey="label" innerRadius={45} outerRadius={68} strokeWidth={0}>{pieData.map((item) => <Cell key={item.key} fill={item.color} />)}</Pie></PieChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><p className="m-0 text-[10px] text-slate-400">Total</p><p className="mb-0 mt-0.5 text-xs font-black text-slate-900">{money(summary.totalEarned, summary.currency)}</p></div></div>
-                </>
-              ) : <div className="grid h-full place-items-center text-xs text-slate-400">No earnings</div>}
+        <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                  <CircleDollarSign className="h-4 w-4" />
+                </span>
+                <h2 className="m-0 text-sm font-black text-slate-900">Earnings breakdown</h2>
+              </div>
+              <p className="mb-0 mt-2 text-[11px] text-slate-400">Verified earning streams</p>
             </div>
-            <div className="space-y-3">
-              {STREAMS.map((stream) => {
-                const value = stream.key === "OTHER" ? otherEarnings : Number(summary.byStream?.[stream.key] || 0);
-                return <div key={stream.key} className="flex items-start gap-2"><span className="mt-1 h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: stream.color }} /><div className="min-w-0"><p className="m-0 text-[11px] font-bold text-slate-700">{stream.label}</p><p className="mb-0 mt-0.5 text-[11px] text-slate-500">{money(value, summary.currency)}</p></div></div>;
-              })}
+            <span className="text-right">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">Total</span>
+              <span className="mt-1 block text-xs font-black text-slate-900">{money(summary.totalEarned, summary.currency)}</span>
+            </span>
+          </div>
+
+          {pieData.length ? (
+            <div className="relative mx-auto mt-3 h-32 max-w-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" nameKey="label" innerRadius={38} outerRadius={56} strokeWidth={0}>
+                    {pieData.map((item) => <Cell key={item.key} fill={item.color} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+                <span className="text-[10px] font-bold text-slate-500">{pieData.length} streams</span>
+              </div>
             </div>
+          ) : (
+            <div className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 p-3.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-300 shadow-sm">
+                <CircleDollarSign className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="m-0 text-xs font-bold text-slate-600">No verified earnings yet</p>
+                <p className="mb-0 mt-1 text-[10px] text-slate-400">Streams will populate automatically.</p>
+              </div>
+            </div>
+          )}
+
+          <div className={`${pieData.length ? "mt-2" : "mt-4"} divide-y divide-slate-100`}>
+            {STREAMS.map((stream) => {
+              const value = stream.key === "OTHER" ? otherEarnings : Number(summary.byStream?.[stream.key] || 0);
+              return (
+                <div key={stream.key} className="flex items-center justify-between gap-3 py-2.5">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stream.color }} />
+                    <span className="truncate text-[11px] font-bold text-slate-600">{stream.label}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-black text-slate-900">{money(value, summary.currency)}</span>
+                </div>
+              );
+            })}
           </div>
         </article>
 
-        <article className="border border-slate-200 bg-white p-4 shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
-          <h2 className="m-0 text-sm font-black text-slate-900">Performance snapshot</h2>
-          <div className="mt-3 divide-y divide-slate-100 border border-slate-100">
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+          <div className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-100">
+              <Activity className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="m-0 text-sm font-black text-slate-900">Performance snapshot</h2>
+              <p className="mb-0 mt-1 text-[10px] text-slate-400">Live workspace totals</p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2">
             {[
-              ["Conversion rate", `${conversionRate}%`, `${data.convertedLeads} of ${data.totalLeads} leads`],
-              ["Average earnings / property", money(averageEarnings, summary.currency), "Verified portfolio"],
-              ["Earning events", summary.count.toLocaleString(), "Recorded ledger entries"],
-              ["Active attributions", me.level.activeProperties.toLocaleString(), "Currently earning"],
-            ].map(([label, value, note]) => (
-              <div key={label} className="flex items-center justify-between gap-3 px-3 py-3">
-                <div className="min-w-0"><p className="m-0 text-[11px] font-bold text-slate-700">{label}</p><p className="mb-0 mt-0.5 truncate text-[10px] text-slate-400">{note}</p></div>
+              { label: "Conversion rate", value: `${conversionRate}%`, note: `${data.convertedLeads} of ${data.totalLeads} leads`, Icon: Percent, tone: "bg-violet-50 text-violet-700" },
+              { label: "Average / property", value: money(averageEarnings, summary.currency), note: "Verified portfolio", Icon: WalletCards, tone: "bg-teal-50 text-teal-700" },
+              { label: "Earning events", value: summary.count.toLocaleString(), note: "Commission entries", Icon: Activity, tone: "bg-amber-50 text-amber-700" },
+              { label: "Active attributions", value: me.level.activeProperties.toLocaleString(), note: "Currently earning", Icon: Building2, tone: "bg-emerald-50 text-emerald-700" },
+            ].map(({ label, value, note, Icon, tone }) => (
+              <div key={label} className="flex items-center gap-3 rounded-xl bg-slate-50/75 px-3 py-2.5">
+                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 truncate text-[11px] font-bold text-slate-700">{label}</p>
+                  <p className="mb-0 mt-0.5 truncate text-[9px] text-slate-400">{note}</p>
+                </div>
                 <span className="shrink-0 text-xs font-black text-slate-950">{value}</span>
               </div>
             ))}
