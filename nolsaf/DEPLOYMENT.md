@@ -1,4 +1,4 @@
-# Deployment (Vercel + Render + AWS RDS)
+# Deployment (Vercel + AWS Elastic Beanstalk + AWS RDS)
 
 This repo is a Node.js monorepo (workspaces) with:
 - **Web**: `apps/web` (Next.js)
@@ -8,7 +8,8 @@ This repo is a Node.js monorepo (workspaces) with:
 ## Target architecture
 
 - **Frontend**: Vercel (best for Next.js)
-- **Backend**: Render (Docker, supports Socket.IO)
+- **Production backend**: AWS Elastic Beanstalk (supports Socket.IO)
+- **Legacy or staging backend**: Render, when explicitly configured
 - **Database**: AWS RDS (MySQL 8+)
 
 ## CI/CD flow (recommended)
@@ -94,90 +95,28 @@ migration instead. For the existing Aiven staging database, use
 `npm run prisma:migrate:staging`; it safely reconciles the repository's known
 legacy aliases before running the standard deploy command.
 
-### AWS Elastic Beanstalk Prisma runbook
+### AWS Elastic Beanstalk production runbook
 
-For the production AWS API, deploys are run from `apps/api`, but the Prisma source of truth stays at repo root:
+[`API_DEPLOYMENT_GUIDE.md`](API_DEPLOYMENT_GUIDE.md) is the authoritative,
+copy-ready AWS production runbook. It covers:
 
-- `prisma/schema.prisma`
-- `prisma/migrations/`
+- staging QA and promotion to `main`;
+- RDS snapshot creation and verification;
+- Elastic Beanstalk bundle validation and deployment;
+- production-safe Prisma migrations over EB SSH;
+- post-deployment health checks;
+- failed-migration recovery and snapshot-clone testing;
+- application rollback and troubleshooting.
 
-Use the deploy script for normal API releases. It builds the API/workspace packages, stages the root Prisma schema and migrations into `apps/api/prisma`, runs `eb deploy`, then cleans the temporary staged files:
-
-```powershell
-cd D:\nolsapp2.1\nolsaf\apps\api
-powershell -ExecutionPolicy Bypass -File scripts\deploy-eb.ps1
-```
-
-Do not use raw `eb deploy` unless `apps/api/prisma/schema.prisma` and `apps/api/prisma/migrations/` are already staged.
-
-After the API deploy succeeds, SSH into the EB instance:
+For a normal API release, never use raw `eb deploy`. The required entry point is:
 
 ```powershell
 cd D:\nolsapp2.1\nolsaf\apps\api
-eb ssh
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-eb.ps1
 ```
 
-On the instance:
-
-```bash
-cd /var/app/current
-ls -la prisma
-ls -la prisma/migrations
-```
-
-If `prisma/migrations` is missing, stop and redeploy with `scripts\deploy-eb.ps1`.
-
-Load the EB database URL and create a temporary Prisma 7 config:
-
-```bash
-export DATABASE_URL="$(/opt/elasticbeanstalk/bin/get-config environment -k DATABASE_URL)"
-export NODE_PATH="/var/app/current/node_modules"
-
-cat > /tmp/prisma.config.cjs <<'EOF'
-const { defineConfig } = require("prisma/config")
-
-module.exports = defineConfig({
-  schema: "/var/app/current/prisma/schema.prisma",
-  migrations: {
-    path: "/var/app/current/prisma/migrations",
-  },
-  datasource: {
-    url: process.env.DATABASE_URL || "",
-  },
-})
-EOF
-```
-
-Check pending migrations:
-
-```bash
-NODE_PATH="/var/app/current/node_modules" ./node_modules/.bin/prisma migrate status --config /tmp/prisma.config.cjs
-```
-
-If migrations are pending, confirm a recent RDS snapshot/backup first, then apply:
-
-```bash
-NODE_PATH="/var/app/current/node_modules" ./node_modules/.bin/prisma migrate deploy --config /tmp/prisma.config.cjs
-```
-
-Verify:
-
-```bash
-NODE_PATH="/var/app/current/node_modules" ./node_modules/.bin/prisma migrate status --config /tmp/prisma.config.cjs
-```
-
-Expected final result:
-
-```text
-Database schema is up to date!
-```
-
-Production rules:
-
-- Do **not** run `prisma db push` in production.
-- Do **not** run `prisma migrate dev` in production.
-- EB does not install Prisma globally; use `./node_modules/.bin/prisma`.
-- If `migrate status` says `No migration found`, stop. The deployment bundle is missing migrations.
+Create and verify the RDS snapshot before running the Prisma migration section
+of the authoritative runbook.
 
 ## Render setup (API)
 

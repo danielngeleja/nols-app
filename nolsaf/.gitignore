@@ -60,9 +60,11 @@ Thumbs.db
 .ebignore
 .platform/
 
-# AWS / Deployment guides with credentials
-API_DEPLOYMENT_GUIDE.md
+# Local deployment guides that may contain credentials
 *DEPLOYMENT_GUIDE*.md
+
+# Sanitized, authoritative AWS production runbook
+!API_DEPLOYMENT_GUIDE.md
 
 # Local payment-provider integration notes
 docs/CORAL_COMMERCE_HOSTED_CHECKOUT_JSON.md

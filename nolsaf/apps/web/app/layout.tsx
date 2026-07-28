@@ -85,7 +85,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const nonce = (await headers()).get("x-nonce") || undefined;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       {/* suppressHydrationWarning on <body> prevents browser-extension text/attribute
            injection (Grammarly, LastPass, etc.) from throwing React error #418. */}
       <body suppressHydrationWarning>

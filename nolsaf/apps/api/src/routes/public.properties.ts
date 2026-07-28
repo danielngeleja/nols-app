@@ -573,7 +573,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   FROM \`property\` p
                   LEFT JOIN (
                     SELECT entityId, MAX(createdAt) AS approvedAt
-                    FROM \`auditlog\`
+                    FROM \`auditlog\` FORCE INDEX (\`idx_AuditLog_entity_entityId_id\`)
                     WHERE entity = 'PROPERTY'
                       AND action IN ('PROPERTY_APPROVE', 'PROPERTY_UNSUSPEND')
                     GROUP BY entityId
@@ -1112,7 +1112,7 @@ const homeSummary: RequestHandler = async (_req, res) => {
                   FROM \`property\` p
                   LEFT JOIN (
                     SELECT entityId, MAX(createdAt) AS approvedAt
-                    FROM \`auditlog\`
+                    FROM \`auditlog\` FORCE INDEX (\`idx_AuditLog_entity_entityId_id\`)
                     WHERE entity = 'PROPERTY'
                       AND action IN ('PROPERTY_APPROVE', 'PROPERTY_UNSUSPEND')
                     GROUP BY entityId
