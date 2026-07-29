@@ -34,8 +34,14 @@ remain available.
 
 ## Non-negotiable production rules
 
-- Test shared changes on `staging` before merging them into `main`.
+- Treat `staging` as the single QA source of truth. Complete all functional,
+  authenticated workflow, responsive UI, regression, migration-rehearsal, and
+  schema-drift testing there or on a disposable/restored snapshot clone before
+  merging into `main`.
 - Deploy production only from a clean `main` branch that matches `origin/main`.
+- Treat AWS Elastic Beanstalk and production RDS as deployment targets only.
+  Never run test suites, generated test data, load tests, seed scripts, schema
+  experiments, or exploratory QA against production.
 - Use `apps/api/scripts/deploy-eb.ps1`; do not use raw `eb deploy` for a normal
   release.
 - Create and verify an RDS snapshot before applying production migrations.
@@ -414,8 +420,12 @@ git rev-parse origin/main
 
 Git status must be empty and the two commit hashes must match.
 
-Perform focused smoke tests for the features included in the release. Monitor
-EB events and application logs immediately after the release:
+Do not repeat feature QA or execute functional test suites against production.
+The feature behavior has already been accepted on the exact staging commit.
+Limit post-deployment production verification to health/readiness, migration
+status, observability, and pre-approved read-only canary requests that cannot
+create or mutate business data. Monitor EB events and application logs
+immediately after the release:
 
 ```powershell
 Set-Location $ApiDir
