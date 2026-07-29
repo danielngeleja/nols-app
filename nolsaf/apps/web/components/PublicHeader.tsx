@@ -527,11 +527,10 @@ export default function PublicHeader({
                   <>
                     <Link
                       href="/account/login"
-                      className="hidden sm:inline-flex items-center justify-center rounded-full no-underline transition-all duration-300 hover:scale-105 active:scale-95 font-medium text-white/85 hover:text-white bg-white/[0.09] hover:bg-white/[0.15] ring-1 ring-white/[0.12]"
+                      className="hidden items-center justify-center rounded-full bg-white/95 font-semibold text-slate-900 no-underline shadow-[0_6px_20px_rgba(15,23,42,0.18)] ring-1 ring-white transition-all duration-300 hover:scale-105 hover:bg-white hover:text-emerald-800 active:scale-95 sm:inline-flex"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
-                        textShadow: '0 1px 3px rgba(0,0,0,0.35)',
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >

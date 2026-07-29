@@ -1962,15 +1962,30 @@ select[title="Room type"] {
     .nolsaf-date-popper {
       left: 0 !important;
       right: 0 !important;
-      bottom: 0 !important;
+      bottom: calc(62px + env(safe-area-inset-bottom, 0px)) !important;
       top: auto !important;
       width: 100% !important;
       max-width: 100% !important;
-      /* for bottom-sheet on mobile, round the top corners to make it appear like a sheet */
-      border-top-left-radius: 14px !important;
-      border-top-right-radius: 14px !important;
-      border-bottom-left-radius: 0 !important;
-      border-bottom-right-radius: 0 !important;
+      max-height: calc(100dvh - 70px - env(safe-area-inset-bottom, 0px)) !important;
+      overflow: auto !important;
+      overscroll-behavior: contain;
+      z-index: 70 !important;
+      border-radius: 14px !important;
+      scrollbar-width: thin;
+    }
+
+    .nolsaf-date-popper > div:last-child {
+      width: min(20rem, calc(100vw - 1rem)) !important;
+      max-height: calc(100dvh - 78px - env(safe-area-inset-bottom, 0px)) !important;
+      margin-inline: auto !important;
+      padding: 0.75rem !important;
+      overflow-y: auto !important;
+      border-radius: 14px !important;
+    }
+
+    .nolsaf-date-popper button.aspect-square {
+      border: 0 !important;
+      box-shadow: none;
     }
   }
 
@@ -2146,6 +2161,29 @@ select[title="Room type"] {
     border: 1px solid rgba(15,23,42,0.06) !important;
   }
 
+  @media (max-width: 767px) {
+    .nolsaf-guest-popper {
+      left: 8px !important;
+      right: 8px !important;
+      top: auto !important;
+      bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      z-index: 70 !important;
+      border-radius: 16px !important;
+      box-shadow: 0 14px 36px rgba(2,6,23,0.18) !important;
+    }
+
+    .nolsaf-guest-popper .p-3 {
+      padding: 0.875rem !important;
+    }
+
+    .nolsaf-guest-popper .space-y-3 > * + * {
+      margin-top: 0.65rem !important;
+    }
+  }
+
   .nolsaf-guest-popper .p-3 {
     padding: 1rem 1.25rem !important;
   }
@@ -2205,6 +2243,16 @@ select[title="Room type"] {
 
   /* Make helper text slightly more prominent and readable */
   .nolsaf-guest-popper #preg-help { color: #475569 !important; font-size: 0.8rem !important; }
+
+  @media (max-width: 767px) {
+    .nolsaf-guest-popper .p-3 {
+      padding: 0.875rem !important;
+    }
+
+    .nolsaf-guest-popper .space-y-3 > * + * {
+      margin-top: 0.65rem !important;
+    }
+  }
 
   /* Pregnancy toggle: make a compact accessible switch with a clear hit target and smooth knob movement */
   .nolsaf-preg-toggle {
