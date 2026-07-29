@@ -192,21 +192,21 @@ function SalesOperationalFooter() {
   return (
     <footer
       aria-label="Sales workspace resources"
-      className="mx-3 mb-3 mt-2 shrink-0 rounded-2xl border border-neutral-200 bg-white px-3.5 py-2 shadow-sm sm:px-5"
+      className="mx-3 mb-3 mt-2 min-h-[3.75rem] shrink-0 rounded-2xl border border-neutral-200 bg-white px-4 py-2 shadow-sm sm:px-5"
     >
-      <div className="flex items-center justify-between gap-3 text-xs font-bold text-neutral-500">
+      <div className="grid min-h-[2.5rem] grid-cols-3 items-center gap-2 text-xs font-bold sm:text-sm">
         <Link
           href="/sales/contract"
-          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 no-underline transition-colors hover:text-neutral-900 hover:no-underline"
+          className="inline-flex items-center justify-self-start gap-1.5 rounded-lg px-1 py-1 text-violet-800 no-underline transition-colors hover:text-violet-950 hover:no-underline"
         >
-          <FileSignature className="h-3.5 w-3.5" aria-hidden />
+          <FileSignature className="h-4 w-4" aria-hidden />
           Contract
         </Link>
 
         <span
           title={statusTitle}
           aria-label={`${statusLabel}. ${statusTitle}`}
-          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1"
+          className="inline-flex items-center justify-self-center gap-1.5 rounded-lg px-1 py-1 text-neutral-500"
         >
           <span className="relative flex h-4 w-4 items-center justify-center" aria-hidden>
             <span className={`absolute h-2 w-2 rounded-full ${statusDot}`} />
@@ -221,9 +221,9 @@ function SalesOperationalFooter() {
 
         <Link
           href="/sales/support"
-          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 no-underline transition-colors hover:text-neutral-900 hover:no-underline"
+          className="inline-flex items-center justify-self-end gap-1.5 rounded-lg px-1 py-1 text-blue-700 no-underline transition-colors hover:text-blue-900 hover:no-underline"
         >
-          <Headphones className="h-3.5 w-3.5" aria-hidden />
+          <Headphones className="h-4 w-4" aria-hidden />
           Help
         </Link>
       </div>

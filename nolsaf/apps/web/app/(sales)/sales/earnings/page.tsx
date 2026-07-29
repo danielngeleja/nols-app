@@ -137,30 +137,30 @@ export default function SalesEarningsPage() {
           </p>
         ) : null}
 
-        <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="Earnings summary">
+        <section className="mt-5 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-5" aria-label="Earnings summary">
           {summary ? (
             summaryCards.map(({ label, value, note, Icon, icon }) => (
               <article
                 key={label}
-                className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)]"
+                className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)] sm:rounded-2xl sm:p-4"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-2 sm:gap-3">
                   <div className="min-w-0">
-                    <p className="m-0 truncate text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
-                    <p className="mb-0 mt-2 truncate text-lg font-black tracking-[-0.03em] text-slate-950">
+                    <p className="m-0 min-h-6 text-[9px] font-black uppercase leading-3 tracking-[0.08em] text-slate-400 sm:min-h-0 sm:truncate sm:text-[10px] sm:leading-normal sm:tracking-[0.1em]">{label}</p>
+                    <p className="mb-0 mt-1.5 truncate text-base font-black tracking-[-0.03em] text-slate-950 sm:mt-2 sm:text-lg">
                       {money(value, summary.currency)}
                     </p>
                   </div>
-                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ring-1 ${icon}`}>
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1 sm:h-9 sm:w-9 sm:rounded-xl ${icon}`}>
                     <Icon className="h-4 w-4" />
                   </span>
                 </div>
-                <p className="mb-0 mt-3 border-t border-slate-100 pt-2.5 text-[10px] font-medium text-slate-500">{note}</p>
+                <p className="mb-0 mt-2.5 line-clamp-2 border-t border-slate-100 pt-2 text-[9px] font-medium leading-3.5 text-slate-500 sm:mt-3 sm:truncate sm:pt-2.5 sm:text-[10px] sm:leading-normal">{note}</p>
               </article>
             ))
           ) : (
             Array.from({ length: 5 }).map((_, index) => (
-              <div key={index} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4">
+              <div key={index} className="animate-pulse rounded-xl border border-slate-200 bg-white p-3 sm:rounded-2xl sm:p-4">
                 <span className="block h-3 w-24 rounded bg-slate-100" />
                 <span className="mt-3 block h-6 w-36 max-w-full rounded bg-slate-200" />
                 <span className="mt-4 block h-3 w-28 rounded bg-slate-100" />
@@ -220,19 +220,40 @@ export default function SalesEarningsPage() {
           </div>
 
           {loading ? (
-            <div className="divide-y divide-slate-100" role="status" aria-label="Loading earnings">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="grid animate-pulse grid-cols-[minmax(220px,1.4fr)_110px_150px_70px_150px_110px_44px] gap-4 px-5 py-4">
-                  <span className="h-4 rounded bg-slate-200" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-200" />
-                  <span className="h-5 rounded-full bg-slate-100" />
-                  <span className="h-8 w-8 rounded-lg bg-slate-100" />
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="space-y-3 bg-slate-50/60 p-3 md:hidden" role="status" aria-label="Loading earnings">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <span className="block h-4 w-3/4 rounded bg-slate-200" />
+                        <span className="block h-3 w-2/5 rounded bg-slate-100" />
+                      </div>
+                      <span className="h-6 w-20 rounded-full bg-slate-100" />
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      {Array.from({ length: 4 }).map((__, itemIndex) => (
+                        <span key={itemIndex} className="h-10 rounded-xl bg-slate-100" />
+                      ))}
+                    </div>
+                    <span className="mt-4 block h-10 rounded-xl bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+              <div className="hidden divide-y divide-slate-100 md:block" role="status" aria-label="Loading earnings table">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="grid animate-pulse grid-cols-[minmax(220px,1.4fr)_110px_150px_70px_150px_110px_44px] gap-4 px-5 py-4">
+                    <span className="h-4 rounded bg-slate-200" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-200" />
+                    <span className="h-5 rounded-full bg-slate-100" />
+                    <span className="h-8 w-8 rounded-lg bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+            </>
           ) : earnings.length === 0 ? (
             <div className="grid min-h-64 place-items-center px-6 py-12 text-center">
               <div>
@@ -244,7 +265,115 @@ export default function SalesEarningsPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="space-y-3 bg-slate-50/60 p-3 md:hidden">
+                {earnings.map((item) => {
+                  const open = expanded === item.id;
+                  const deductions = item.taxAmount + item.processingFeeAmount + item.refundAmount + item.discountAmount;
+                  return (
+                    <article
+                      key={item.id}
+                      className={`overflow-hidden rounded-2xl border bg-white shadow-[0_16px_36px_-30px_rgba(15,23,42,0.45)] transition ${
+                        open ? "border-emerald-300 ring-2 ring-emerald-100" : "border-slate-200"
+                      }`}
+                    >
+                      <div className={`h-1 ${open ? "bg-emerald-600" : "bg-slate-200"}`} aria-hidden />
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="m-0 truncate text-sm font-black text-slate-950">
+                              {item.property?.title || "Programme earning"}
+                            </p>
+                            <p className="mb-0 mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                              {formatLabel(item.type)}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${statusTone(item.status)}`}>
+                            {formatLabel(item.status)}
+                          </span>
+                        </div>
+
+                        <dl className="mb-0 mt-4 grid grid-cols-2 gap-2">
+                          {[
+                            ["Earned", shortDate(item.earnedAt)],
+                            ["Eligible revenue", money(item.eligibleNetRevenue, item.currency)],
+                            ["Partner rate", `${item.commissionRate}%`],
+                            ["Your commission", money(item.commissionAmount, item.currency)],
+                          ].map(([label, value], index) => (
+                            <div
+                              key={label}
+                              className={`rounded-xl px-3 py-2.5 ${
+                                index === 3 ? "bg-emerald-50 ring-1 ring-emerald-100" : "bg-slate-50"
+                              }`}
+                            >
+                              <dt className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</dt>
+                              <dd className={`m-0 mt-1 break-words text-[11px] leading-4 ${index === 3 ? "font-black text-emerald-900" : "font-bold text-slate-800"}`}>
+                                {value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(open ? null : item.id)}
+                          aria-expanded={open}
+                          aria-controls={`mobile-earning-calculation-${item.id}`}
+                          className={`mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border text-xs font-black transition ${
+                            open
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-800"
+                          }`}
+                        >
+                          <Eye className="h-4 w-4" />
+                          {open ? "Hide calculation" : "View calculation"}
+                        </button>
+                      </div>
+
+                      {open ? (
+                        <div id={`mobile-earning-calculation-${item.id}`} className="border-t border-emerald-100 bg-emerald-50/35 p-4">
+                          <div className="flex items-center gap-2">
+                            <span className="grid h-8 w-8 place-items-center rounded-lg bg-white text-emerald-700 shadow-sm">
+                              <CircleDollarSign className="h-4 w-4" />
+                            </span>
+                            <div>
+                              <p className="m-0 text-xs font-black text-slate-900">Commission calculation</p>
+                              <p className="mb-0 mt-0.5 break-all text-[9px] text-slate-400">Reference {item.sourceKey}</p>
+                            </div>
+                          </div>
+                          <dl className="mb-0 mt-3 space-y-2 text-[11px]">
+                            {[
+                              ["Gross NoLSAF revenue", money(item.grossAmount, item.currency)],
+                              ["Tax", `- ${money(item.taxAmount, item.currency)}`],
+                              ["Processing fees", `- ${money(item.processingFeeAmount, item.currency)}`],
+                              ["Refunds and discounts", `- ${money(item.refundAmount + item.discountAmount, item.currency)}`],
+                              ["Total deductions", money(deductions, item.currency)],
+                            ].map(([label, value]) => (
+                              <div key={label} className="flex items-center justify-between gap-3">
+                                <dt className="text-slate-500">{label}</dt>
+                                <dd className="m-0 shrink-0 font-bold text-slate-700">{value}</dd>
+                              </div>
+                            ))}
+                            <div className="flex items-center justify-between gap-3 border-t border-emerald-100 pt-2">
+                              <dt className="font-bold text-slate-700">Eligible revenue</dt>
+                              <dd className="m-0 shrink-0 font-black text-slate-950">{money(item.eligibleNetRevenue, item.currency)}</dd>
+                            </div>
+                            <div className="flex items-center justify-between gap-3 rounded-lg bg-emerald-700 px-3 py-2.5 text-white">
+                              <dt className="font-bold">Partner share ({item.commissionRate}%)</dt>
+                              <dd className="m-0 shrink-0 font-black">{money(item.commissionAmount, item.currency)}</dd>
+                            </div>
+                          </dl>
+                          <p className="mb-0 mt-3 text-[10px] text-slate-500">
+                            Validation ends {shortDate(item.eligibleAt)}
+                          </p>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[1050px] border-collapse text-left">
                 <thead className="bg-slate-50/80">
                   <tr className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
@@ -362,7 +491,8 @@ export default function SalesEarningsPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
 
           {!loading && earnings.length > 0 ? (
