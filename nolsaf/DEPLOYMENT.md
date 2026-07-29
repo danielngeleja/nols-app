@@ -1,5 +1,9 @@
 # Deployment (Vercel + AWS Elastic Beanstalk + AWS RDS)
 
+For production-stability gates, immutable migration rules, physical schema
+verification, Redis/worker topology, and the AWS release sequence, follow
+[`docs/PRODUCTION_STABILITY_RUNBOOK.md`](docs/PRODUCTION_STABILITY_RUNBOOK.md).
+
 This repo is a Node.js monorepo (workspaces) with:
 - **Web**: `apps/web` (Next.js)
 - **API**: `apps/api` (Express + Socket.IO)

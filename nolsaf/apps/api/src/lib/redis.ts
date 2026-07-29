@@ -2,11 +2,28 @@ import Redis from 'ioredis';
 
 let client: Redis | null = null;
 let connectionAttempts = 0;
+let missingProductionConfigurationLogged = false;
 const MAX_CONNECTION_ATTEMPTS = 3;
 const CONNECTION_TIMEOUT = 5000; // 5 seconds
 
-function createRedisClient(): Redis {
-  const url = process.env.REDIS_URL || 'redis://localhost:6379';
+function resolveRedisUrl(): string | null {
+  const configured = String(process.env.REDIS_URL || "").trim();
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!missingProductionConfigurationLogged) {
+      console.error(
+        "[REDIS] REDIS_URL is not configured in production. Shared cache and worker leasing are unavailable.",
+      );
+      missingProductionConfigurationLogged = true;
+    }
+    return null;
+  }
+
+  return "redis://localhost:6379";
+}
+
+function createRedisClient(url: string): Redis {
   return new Redis(url, {
     connectTimeout: CONNECTION_TIMEOUT,
     lazyConnect: true, // Connection happens automatically on first command
@@ -27,7 +44,9 @@ function createRedisClient(): Redis {
 export function getRedis(): Redis | null {
   if (!client) {
     try {
-      client = createRedisClient();
+      const url = resolveRedisUrl();
+      if (!url) return null;
+      client = createRedisClient(url);
       connectionAttempts = 0;
       
       // Set up event handlers (only once when client is created)

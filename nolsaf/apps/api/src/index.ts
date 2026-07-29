@@ -1,4 +1,7 @@
 import "./env";
+// Express 4 promise rejection containment must be installed before route modules
+// are evaluated and create their Router layers.
+import "./middleware/asyncRouteContainment";
 import express from "express";
 import http from "http";
 import morgan from "morgan";
