@@ -5,8 +5,9 @@
   "scripts": {
     "predev": "npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
     "dev": "tsx watch src/index.ts",
-    "prebuild": "npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
+    "prebuild": "node scripts/prepare-eb-package-lock.mjs --validate && npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
     "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
+    "eb:lock:validate": "node scripts/prepare-eb-package-lock.mjs --validate",
     "start": "node dist/src/index.js",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -13,7 +13,8 @@
     "build": "npm --prefix ../../packages/shared run build && node scripts/run-next-build.mjs && node scripts/collect-private-source-maps.mjs",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test middleware.auth-login-redirect.test.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",

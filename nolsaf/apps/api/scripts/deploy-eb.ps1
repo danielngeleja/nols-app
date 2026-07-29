@@ -18,14 +18,38 @@ $ApiDir = $PSScriptRoot | Split-Path -Parent
 $RepoRoot = $ApiDir | Split-Path -Parent | Split-Path -Parent
 $VendorRoot = "$ApiDir\_workspace"
 $SchemaDir = "$ApiDir\prisma"
+$DocsDir = "$ApiDir\docs"
 $PkgJsonPath = "$ApiDir\package.json"
 $PkgJsonBackup = "$ApiDir\package.json.predeploy-bak"
+$PkgLockPath = "$ApiDir\package-lock.json"
+$EbLockArtifact = "$ApiDir\scripts\eb-package-lock.json"
+$EbLockScript = "$ApiDir\scripts\prepare-eb-package-lock.mjs"
 $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\bin\tsc"
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
 
+$RuntimeArtifacts = @(
+    [PSCustomObject]@{
+        Source = "$RepoRoot\docs\NoLSAF_Sales_Partner_Agreement.md"
+        Destination = "$DocsDir\NoLSAF_Sales_Partner_Agreement.md"
+    },
+    [PSCustomObject]@{
+        Source = "$RepoRoot\docs\NoLSAF_Sales_Partner_Agreement.fields.json"
+        Destination = "$DocsDir\NoLSAF_Sales_Partner_Agreement.fields.json"
+    },
+    [PSCustomObject]@{
+        Source = "$RepoRoot\docs\NoLSAF_Operator_Mutual_NDA.md"
+        Destination = "$DocsDir\NoLSAF_Operator_Mutual_NDA.md"
+    },
+    [PSCustomObject]@{
+        Source = "$RepoRoot\docs\NoLSAF_Operator_Mutual_NDA.fields.json"
+        Destination = "$DocsDir\NoLSAF_Operator_Mutual_NDA.fields.json"
+    }
+)
+
 $VendorCreated = $false
 $SchemaCreated = $false
+$DocsCreated = $false
 $PackageBackupCreated = $false
 
 function Assert-CommandSucceeded {
@@ -54,7 +78,7 @@ Write-Host "=== [deploy-eb] API dir  : $ApiDir"
 Write-Host "=== [deploy-eb] Repo root: $RepoRoot"
 
 try {
-    foreach ($temporaryPath in @($VendorRoot, $SchemaDir, $PkgJsonBackup)) {
+    foreach ($temporaryPath in @($VendorRoot, $SchemaDir, $DocsDir, $PkgJsonBackup, $PkgLockPath)) {
         if (Test-Path -LiteralPath $temporaryPath) {
             throw "Temporary deployment path already exists: $temporaryPath. Inspect and remove the stale path before retrying."
         }
@@ -92,47 +116,18 @@ try {
         Copy-Item "$src\dist" -Destination $dst -Recurse -Force
     }
 
-    # 3. Patch apps/api/package.json to install the vendored packages.
-    # These dependencies are not present in the source manifest, so replacing
-    # existing file: entries is insufficient. Add or overwrite them explicitly.
-    Write-Host "-- Patching package.json ..."
+    # 3. Materialize the deterministic EB-only package manifest and lock.
+    Write-Host "-- Materializing deterministic EB package manifest and lock ..."
     Copy-Item $PkgJsonPath $PkgJsonBackup -Force
     $PackageBackupCreated = $true
-
-    $packageJson = Get-Content $PkgJsonPath -Raw | ConvertFrom-Json
-    if ($null -eq $packageJson.dependencies) {
-        $packageJson | Add-Member -MemberType NoteProperty -Name dependencies -Value ([PSCustomObject]@{})
-    }
-
-    $vendoredDependencies = [ordered]@{
-        "@nolsaf/prisma" = "file:./_workspace/@nolsaf/prisma"
-        "@nolsaf/shared" = "file:./_workspace/@nolsaf/shared"
-    }
-
-    foreach ($dependency in $vendoredDependencies.GetEnumerator()) {
-        $existingProperty = $packageJson.dependencies.PSObject.Properties[$dependency.Key]
-        if ($null -eq $existingProperty) {
-            $packageJson.dependencies | Add-Member -MemberType NoteProperty -Name $dependency.Key -Value $dependency.Value
-        } else {
-            $existingProperty.Value = $dependency.Value
-        }
-    }
-
-    $patchedContent = ($packageJson | ConvertTo-Json -Depth 100) + [Environment]::NewLine
-    [System.IO.File]::WriteAllText($PkgJsonPath, $patchedContent, [System.Text.UTF8Encoding]::new($false))
-
-    $patchedPackageJson = Get-Content $PkgJsonPath -Raw | ConvertFrom-Json
-    foreach ($dependency in $vendoredDependencies.GetEnumerator()) {
-        if ($patchedPackageJson.dependencies.PSObject.Properties[$dependency.Key].Value -ne $dependency.Value) {
-            throw "Failed to wire $($dependency.Key) to $($dependency.Value)."
-        }
-    }
+    node $EbLockScript --materialize
+    Assert-CommandSucceeded "Materializing deterministic EB package manifest and lock"
 
     # 4. Build the API (TypeScript to dist).
     Write-Host "`n-- Building @nolsaf/api ..."
     Invoke-InDirectory $ApiDir {
         Remove-Item "$ApiDir\dist" -Recurse -Force -ErrorAction SilentlyContinue
-        node $ApiTypeScriptCompiler -p tsconfig.json
+        node $ApiTypeScriptCompiler -p tsconfig.build.json
         Assert-CommandSucceeded "Building @nolsaf/api"
         node scripts/fix-esm-imports.mjs
         Assert-CommandSucceeded "Fixing API ESM imports"
@@ -156,7 +151,21 @@ try {
     Copy-Item $SchemaSrc -Destination "$SchemaDir\schema.prisma" -Force
     Copy-Item $MigrationsSrc -Destination "$SchemaDir\migrations" -Recurse -Force
 
-    # 6. Validate every deployment-critical artifact before invoking EB.
+    # 6. Stage every controlled runtime document into the EB bundle.
+    foreach ($runtimeArtifact in $RuntimeArtifacts) {
+        if (-not (Test-Path -LiteralPath $runtimeArtifact.Source -PathType Leaf)) {
+            throw "Runtime source artifact not found: $($runtimeArtifact.Source)"
+        }
+    }
+
+    Write-Host "-- Staging controlled runtime documents into $DocsDir ..."
+    New-Item -ItemType Directory -Path $DocsDir -Force | Out-Null
+    $DocsCreated = $true
+    foreach ($runtimeArtifact in $RuntimeArtifacts) {
+        Copy-Item $runtimeArtifact.Source -Destination $runtimeArtifact.Destination -Force
+    }
+
+    # 7. Validate every deployment-critical artifact before invoking EB.
     Write-Host "-- Validating deployment bundle ..."
     $requiredFiles = @(
         "$ApiDir\dist\src\index.js",
@@ -164,8 +173,11 @@ try {
         "$VendorRoot\@nolsaf\prisma\dist\index.js",
         "$VendorRoot\@nolsaf\shared\package.json",
         "$SchemaDir\schema.prisma",
+        $PkgLockPath,
+        $EbLockArtifact,
         "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh"
     )
+    $requiredFiles += @($RuntimeArtifacts | ForEach-Object { $_.Destination })
     foreach ($requiredFile in $requiredFiles) {
         if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
             throw "Deployment bundle is missing required file: $requiredFile"
@@ -178,10 +190,29 @@ try {
     }
     Write-Host "   Bundle contains $($migrationFiles.Count) Prisma migration files."
 
+    $compiledJavaScript = @(Get-ChildItem "$ApiDir\dist\src" -Filter "*.js" -File -Recurse)
+    if ($compiledJavaScript.Count -eq 0) {
+        throw "Deployment bundle contains no compiled API JavaScript files."
+    }
+    $missingSourceMaps = @(
+        $compiledJavaScript | Where-Object {
+            -not (Test-Path -LiteralPath "$($_.FullName).map" -PathType Leaf)
+        }
+    )
+    if ($missingSourceMaps.Count -gt 0) {
+        throw "Deployment bundle is missing $($missingSourceMaps.Count) adjacent API source maps."
+    }
+    foreach ($excludedBuildPath in @("$ApiDir\dist\src\__tests__", "$ApiDir\dist\src\dev", "$ApiDir\dist\scripts")) {
+        if (Test-Path -LiteralPath $excludedBuildPath) {
+            throw "Production API build contains excluded test/development output: $excludedBuildPath"
+        }
+    }
+    Write-Host "   Bundle contains $($compiledJavaScript.Count) production JavaScript files with adjacent source maps."
+
     if ($ValidateOnly) {
         Write-Host "`n-- ValidateOnly selected; skipping Elastic Beanstalk deployment."
     } else {
-        # 7. Deploy explicitly to the production environment.
+        # 8. Deploy explicitly to the production environment.
         Write-Host "`n-- Deploying to Elastic Beanstalk environment $EnvironmentName ..."
         Invoke-InDirectory $ApiDir {
             $ebCmd = Get-Command eb -ErrorAction SilentlyContinue
@@ -206,6 +237,11 @@ try {
         Move-Item $PkgJsonBackup $PkgJsonPath -Force
     }
 
+    if (Test-Path -LiteralPath $PkgLockPath -PathType Leaf) {
+        Write-Host "-- Cleaning staged package-lock.json ..."
+        Remove-Item $PkgLockPath -Force
+    }
+
     if ($VendorCreated -and (Test-Path -LiteralPath $VendorRoot -PathType Container)) {
         Write-Host "-- Cleaning vendor dir ..."
         Remove-Item $VendorRoot -Recurse -Force
@@ -214,6 +250,11 @@ try {
     if ($SchemaCreated -and (Test-Path -LiteralPath $SchemaDir -PathType Container)) {
         Write-Host "-- Cleaning staged Prisma schema ..."
         Remove-Item $SchemaDir -Recurse -Force
+    }
+
+    if ($DocsCreated -and (Test-Path -LiteralPath $DocsDir -PathType Container)) {
+        Write-Host "-- Cleaning staged runtime documents ..."
+        Remove-Item $DocsDir -Recurse -Force
     }
 }
 

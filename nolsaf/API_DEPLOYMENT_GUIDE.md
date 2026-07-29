@@ -213,9 +213,11 @@ Do not continue to production migrations while the snapshot is `creating`.
 
 ## 5. Validate the Elastic Beanstalk bundle locally
 
-The deployment script builds the workspace packages and API, vendors required
-workspace packages, stages the root Prisma schema and migrations, validates the
-bundle, and cleans its temporary files.
+The deployment script builds the production-only API with private source maps,
+vendors required workspace packages, materializes a runtime-only package
+manifest from the repository-pinned EB lock, stages the root Prisma schema and
+migrations plus all controlled contract artifacts, validates the bundle, and
+cleans its temporary files.
 
 ```powershell
 Set-Location $ApiDir
@@ -237,10 +239,12 @@ Set-Location $RepoRoot
 git status --short
 Test-Path "$ApiDir\_workspace"
 Test-Path "$ApiDir\package.json.predeploy-bak"
+Test-Path "$ApiDir\package-lock.json"
 Test-Path "$ApiDir\prisma"
+Test-Path "$ApiDir\docs"
 ```
 
-Git status must be empty and all three `Test-Path` commands must return `False`.
+Git status must be empty and all five `Test-Path` commands must return `False`.
 
 ## 6. Deploy the API bundle
 
@@ -305,12 +309,22 @@ cd /var/app/current
 test -f prisma/schema.prisma
 test -d prisma/migrations
 test -x node_modules/.bin/prisma
+test -f package-lock.json
+test -f docs/NoLSAF_Sales_Partner_Agreement.md
+test -f docs/NoLSAF_Sales_Partner_Agreement.fields.json
+test -f docs/NoLSAF_Operator_Mutual_NDA.md
+test -f docs/NoLSAF_Operator_Mutual_NDA.fields.json
 
 find prisma/migrations -name migration.sql -type f | wc -l
+test "$(find dist/src -name '*.js' -type f | wc -l)" \
+  -eq "$(find dist/src -name '*.js.map' -type f | wc -l)"
+test ! -d dist/src/__tests__
+test ! -d dist/src/dev
 ```
 
-The migration count must match the local migration count from the QA step. If
-the schema or migrations are missing, exit and redeploy with
+The migration count must match the local migration count from the QA step. The
+JavaScript and source-map counts must match, and test/development output must be
+absent. If any required artifact is missing, exit and redeploy with
 `scripts/deploy-eb.ps1`.
 
 Load the production URL without printing it. Prisma's schema engine does not
@@ -587,8 +601,9 @@ git status --short
 ```
 
 The deployment script normally restores `package.json` and removes
-`apps/api/_workspace`, `apps/api/prisma`, and
-`apps/api/package.json.predeploy-bak` in its `finally` block.
+`apps/api/_workspace`, `apps/api/prisma`, `apps/api/docs`,
+`apps/api/package-lock.json`, and `apps/api/package.json.predeploy-bak` in its
+`finally` block.
 
 ### EB deploy fails
 

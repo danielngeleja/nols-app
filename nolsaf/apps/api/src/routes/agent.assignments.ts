@@ -1,7 +1,5 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireRole } from "../middleware/auth.js";
@@ -20,6 +18,7 @@ import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
 import { canClaimFinalTourPayout, disputeWindowEndsAt } from "../lib/tourLifecycle.js";
 import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
 import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
+import { loadOperatorContractTemplate } from "../lib/operatorContract.js";
 import {
   buildContractWorkflowSeed,
   readContractWorkflow,
@@ -31,35 +30,6 @@ import {
 const router = Router();
 
 const RATING_DECIMAL_PLACES = 1;
-
-const CONTRACT_TEMPLATE_FILE = "docs/NoLSAF_Operator_Mutual_NDA.md";
-let contractTemplateCache: string | null = null;
-
-function loadContractTemplate(): string {
-  if (contractTemplateCache) return contractTemplateCache;
-
-  const candidates = [
-    resolve(process.cwd(), CONTRACT_TEMPLATE_FILE),
-    resolve(process.cwd(), "..", CONTRACT_TEMPLATE_FILE),
-    resolve(process.cwd(), "..", "..", CONTRACT_TEMPLATE_FILE),
-  ];
-
-  for (const file of candidates) {
-    if (existsSync(file)) {
-      contractTemplateCache = readFileSync(file, "utf8");
-      return contractTemplateCache;
-    }
-  }
-
-  contractTemplateCache = [
-    "# Partnership Contract",
-    "",
-    "The contract template file could not be loaded from disk.",
-    "Please contact NoLSAF support.",
-  ].join("\n");
-
-  return contractTemplateCache;
-}
 
 function formatAddress(parts: Array<unknown>): string {
   const filtered = parts.map((v) => String(v || "").trim()).filter(Boolean);
@@ -786,7 +756,7 @@ router.get(
     }
 
     const workflow = await ensureAgentContractWorkflow(gate.agent);
-    const template = loadContractTemplate();
+    const template = loadOperatorContractTemplate();
     const rendered = fillContractTemplate(template, buildAgentContractPlaceholders(gate.agent, workflow));
 
     return res.json({

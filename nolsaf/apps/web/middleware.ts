@@ -1,6 +1,10 @@
 // apps/web/middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import {
+  buildAuthLoginRedirect,
+  isSafeRelativeLoginTarget,
+} from "./lib/authLoginRedirect";
 
 function buildContentSecurityPolicy(nonce: string): string {
   const isProduction = process.env.NODE_ENV === "production";
@@ -99,6 +103,29 @@ export function middleware(req: NextRequest) {
   const tokenRole = decodeRoleFromToken(token);
   const cookieRole = req.cookies.get("role")?.value || "";
   const role = tokenRole || cookieRole;
+
+  // Preserve the existing signed-in /login behavior before normalizing legacy
+  // login aliases. Unauthenticated aliases are redirected at the HTTP layer so
+  // React never hydrates an async redirect page.
+  if (path === "/login" && role) {
+    const next = url.searchParams.get("next");
+    if (next && isSafeRelativeLoginTarget(next)) {
+      return NextResponse.redirect(new URL(next, req.url));
+    }
+    if (role === "ADMIN") url.pathname = "/admin/home";
+    else if (role === "OWNER") url.pathname = "/owner";
+    else if (role === "DRIVER") url.pathname = "/driver";
+    else if (role === "AGENT") url.pathname = "/account/agent";
+    else url.pathname = "/account";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  const authLoginRedirect = buildAuthLoginRedirect(url);
+  if (authLoginRedirect) {
+    return NextResponse.redirect(authLoginRedirect);
+  }
+
   const isPublicNrmsGuestRoute =
     path.startsWith("/nrms/book/") ||
     path.startsWith("/nrms/guest/payment/") ||
@@ -188,20 +215,6 @@ export function middleware(req: NextRequest) {
         return NextResponse.redirect(url);
       }
     }
-  }
-
-  // If logged in and on /login, honor a safe next target, else bounce to role home
-  if (path === "/login" && role) {
-    const next = url.searchParams.get("next") || "";
-    if (next.startsWith("/") && !next.startsWith("//")) {
-      return NextResponse.redirect(new URL(next, req.url));
-    }
-    if (role === "ADMIN") url.pathname = "/admin/home";
-    else if (role === "OWNER") url.pathname = "/owner";
-    else if (role === "DRIVER") url.pathname = "/driver";
-    else if (role === "AGENT") url.pathname = "/account/agent";
-    else url.pathname = "/account";
-    return NextResponse.redirect(url);
   }
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
