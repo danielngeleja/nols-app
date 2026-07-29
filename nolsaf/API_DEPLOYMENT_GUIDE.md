@@ -214,8 +214,9 @@ Do not continue to production migrations while the snapshot is `creating`.
 ## 5. Validate the Elastic Beanstalk bundle locally
 
 The deployment script builds the workspace packages and API, vendors required
-workspace packages, stages the root Prisma schema and migrations, validates the
-bundle, and cleans its temporary files.
+workspace packages, stages the root Prisma schema and migrations plus the sales
+agreement runtime artifacts, validates the bundle, and cleans its temporary
+files.
 
 ```powershell
 Set-Location $ApiDir
@@ -238,9 +239,10 @@ git status --short
 Test-Path "$ApiDir\_workspace"
 Test-Path "$ApiDir\package.json.predeploy-bak"
 Test-Path "$ApiDir\prisma"
+Test-Path "$ApiDir\docs"
 ```
 
-Git status must be empty and all three `Test-Path` commands must return `False`.
+Git status must be empty and all four `Test-Path` commands must return `False`.
 
 ## 6. Deploy the API bundle
 
@@ -305,6 +307,8 @@ cd /var/app/current
 test -f prisma/schema.prisma
 test -d prisma/migrations
 test -x node_modules/.bin/prisma
+test -f docs/NoLSAF_Sales_Partner_Agreement.md
+test -f docs/NoLSAF_Sales_Partner_Agreement.fields.json
 
 find prisma/migrations -name migration.sql -type f | wc -l
 ```
@@ -587,7 +591,7 @@ git status --short
 ```
 
 The deployment script normally restores `package.json` and removes
-`apps/api/_workspace`, `apps/api/prisma`, and
+`apps/api/_workspace`, `apps/api/prisma`, `apps/api/docs`, and
 `apps/api/package.json.predeploy-bak` in its `finally` block.
 
 ### EB deploy fails

@@ -18,14 +18,18 @@ $ApiDir = $PSScriptRoot | Split-Path -Parent
 $RepoRoot = $ApiDir | Split-Path -Parent | Split-Path -Parent
 $VendorRoot = "$ApiDir\_workspace"
 $SchemaDir = "$ApiDir\prisma"
+$DocsDir = "$ApiDir\docs"
 $PkgJsonPath = "$ApiDir\package.json"
 $PkgJsonBackup = "$ApiDir\package.json.predeploy-bak"
+$AgreementTemplateSrc = "$RepoRoot\docs\NoLSAF_Sales_Partner_Agreement.md"
+$AgreementDictionarySrc = "$RepoRoot\docs\NoLSAF_Sales_Partner_Agreement.fields.json"
 $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\bin\tsc"
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
 
 $VendorCreated = $false
 $SchemaCreated = $false
+$DocsCreated = $false
 $PackageBackupCreated = $false
 
 function Assert-CommandSucceeded {
@@ -54,7 +58,7 @@ Write-Host "=== [deploy-eb] API dir  : $ApiDir"
 Write-Host "=== [deploy-eb] Repo root: $RepoRoot"
 
 try {
-    foreach ($temporaryPath in @($VendorRoot, $SchemaDir, $PkgJsonBackup)) {
+    foreach ($temporaryPath in @($VendorRoot, $SchemaDir, $DocsDir, $PkgJsonBackup)) {
         if (Test-Path -LiteralPath $temporaryPath) {
             throw "Temporary deployment path already exists: $temporaryPath. Inspect and remove the stale path before retrying."
         }
@@ -156,7 +160,20 @@ try {
     Copy-Item $SchemaSrc -Destination "$SchemaDir\schema.prisma" -Force
     Copy-Item $MigrationsSrc -Destination "$SchemaDir\migrations" -Recurse -Force
 
-    # 6. Validate every deployment-critical artifact before invoking EB.
+    # 6. Stage runtime sales agreement artifacts into the EB bundle.
+    foreach ($agreementArtifact in @($AgreementTemplateSrc, $AgreementDictionarySrc)) {
+        if (-not (Test-Path -LiteralPath $agreementArtifact -PathType Leaf)) {
+            throw "Sales agreement source artifact not found: $agreementArtifact"
+        }
+    }
+
+    Write-Host "-- Staging sales agreement artifacts into $DocsDir ..."
+    New-Item -ItemType Directory -Path $DocsDir -Force | Out-Null
+    $DocsCreated = $true
+    Copy-Item $AgreementTemplateSrc -Destination "$DocsDir\NoLSAF_Sales_Partner_Agreement.md" -Force
+    Copy-Item $AgreementDictionarySrc -Destination "$DocsDir\NoLSAF_Sales_Partner_Agreement.fields.json" -Force
+
+    # 7. Validate every deployment-critical artifact before invoking EB.
     Write-Host "-- Validating deployment bundle ..."
     $requiredFiles = @(
         "$ApiDir\dist\src\index.js",
@@ -164,6 +181,8 @@ try {
         "$VendorRoot\@nolsaf\prisma\dist\index.js",
         "$VendorRoot\@nolsaf\shared\package.json",
         "$SchemaDir\schema.prisma",
+        "$DocsDir\NoLSAF_Sales_Partner_Agreement.md",
+        "$DocsDir\NoLSAF_Sales_Partner_Agreement.fields.json",
         "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh"
     )
     foreach ($requiredFile in $requiredFiles) {
@@ -181,7 +200,7 @@ try {
     if ($ValidateOnly) {
         Write-Host "`n-- ValidateOnly selected; skipping Elastic Beanstalk deployment."
     } else {
-        # 7. Deploy explicitly to the production environment.
+        # 8. Deploy explicitly to the production environment.
         Write-Host "`n-- Deploying to Elastic Beanstalk environment $EnvironmentName ..."
         Invoke-InDirectory $ApiDir {
             $ebCmd = Get-Command eb -ErrorAction SilentlyContinue
@@ -214,6 +233,11 @@ try {
     if ($SchemaCreated -and (Test-Path -LiteralPath $SchemaDir -PathType Container)) {
         Write-Host "-- Cleaning staged Prisma schema ..."
         Remove-Item $SchemaDir -Recurse -Force
+    }
+
+    if ($DocsCreated -and (Test-Path -LiteralPath $DocsDir -PathType Container)) {
+        Write-Host "-- Cleaning staged sales agreement artifacts ..."
+        Remove-Item $DocsDir -Recurse -Force
     }
 }
 
