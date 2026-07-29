@@ -99,7 +99,9 @@ export default function AccountIndex() {
       const role = String(data?.role || '').toUpperCase();
       const isCustomer = role === 'CUSTOMER' || role === 'USER' || role === 'TRAVELLER' || role === '';
       const hasName = !!(data?.name || data?.fullName);
-      if (isCustomer && !hasName && typeof window !== 'undefined') {
+      const hasPhone = Boolean(String(data?.phone || '').trim());
+      const hasPassword = data?.hasPassword !== false;
+      if (isCustomer && (!hasName || !hasPhone || !hasPassword) && typeof window !== 'undefined') {
         window.location.href = '/account/onboard/traveller';
         return;
       }
@@ -643,7 +645,18 @@ export default function AccountIndex() {
               <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Phone</div>
               <div className="mt-0.5 text-sm font-semibold text-slate-900">{form.phone || "Not provided"}</div>
             </div>
-            <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0">VERIFIED CONTACT</span>
+            {form.phone ? (
+              form.phoneVerifiedAt || user?.phoneVerifiedAt ? (
+                <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-[10px] font-bold text-emerald-700">
+                  <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                  VERIFIED
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">LINKED</span>
+              )
+            ) : (
+              <span className="text-[10px] font-semibold text-red-600 flex-shrink-0">REQUIRED</span>
+            )}
           </div>
 
           <div className="pt-3">
