@@ -291,11 +291,41 @@ export default function AdminNrmsDirectoryPage() {
             {Object.keys(ACCOUNT_BADGE).map((s) => <option key={s} value={s}>{s.replaceAll("_", " ")}</option>)}
           </select>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[64rem] border-collapse text-left">
-            <thead>
-              <tr className="border-b border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400">
-                <th className="px-4 py-2.5 sm:px-5">Property</th><th className="px-4 py-2.5">Owner</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Trial ends</th><th className="px-4 py-2.5 text-right">Balance / limit</th><th className="px-4 py-2.5 text-right">Rooms</th><th className="px-4 py-2.5 text-right">Staff</th><th className="px-4 py-2.5 text-right">Outlets</th><th className="px-4 py-2.5 text-right">QR points</th><th className="px-4 py-2.5">Last order</th><th className="px-4 py-2.5">Last audit</th><th className="px-4 py-2.5 sm:px-5" />
+        <div
+          className="w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]"
+          role="region"
+          aria-label="Activated properties table"
+          tabIndex={0}
+        >
+          <table className="w-full min-w-[92rem] table-fixed border-collapse text-left">
+            <colgroup>
+              <col className="w-[14rem]" />
+              <col className="w-[11rem]" />
+              <col className="w-[9rem]" />
+              <col className="w-[7rem]" />
+              <col className="w-[10rem]" />
+              <col className="w-[5.5rem]" />
+              <col className="w-[5.5rem]" />
+              <col className="w-[6rem]" />
+              <col className="w-[7rem]" />
+              <col className="w-[8rem]" />
+              <col className="w-[8rem]" />
+              <col className="w-[5rem]" />
+            </colgroup>
+            <thead className="bg-neutral-50/90">
+              <tr className="border-b border-neutral-200 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">
+                <th className="sticky left-0 z-10 whitespace-nowrap bg-neutral-50 px-4 py-3 shadow-[1px_0_0_0_rgb(229,229,229)] sm:px-5">Property</th>
+                <th className="whitespace-nowrap px-4 py-3">Owner</th>
+                <th className="whitespace-nowrap px-4 py-3">Status</th>
+                <th className="whitespace-nowrap px-4 py-3">Trial ends</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Balance / limit</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Rooms</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Staff</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">Outlets</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right">QR points</th>
+                <th className="whitespace-nowrap px-4 py-3">Last order</th>
+                <th className="whitespace-nowrap px-4 py-3">Last audit</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right sm:px-5"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -303,19 +333,22 @@ export default function AdminNrmsDirectoryPage() {
                 const owner = ownerById.get(p.ownerId);
                 const nearLimit = p.unpaidLimit > 0 && p.unpaidBalance / p.unpaidLimit >= 0.8;
                 return (
-                  <tr key={p.accountId} className={`border-b border-neutral-50 text-xs transition last:border-0 hover:bg-emerald-50/70 ${index % 2 === 1 ? "bg-emerald-50/40" : "bg-white"}`}>
-                    <td className="px-4 py-3 sm:px-5"><span className="font-bold text-neutral-800">{p.title}</span>{p.region && <span className="ml-1.5 text-[10px] text-neutral-400">{p.region}</span>}</td>
-                    <td className="px-4 py-3 text-neutral-500">{owner ? ownerName(owner) : `Owner #${p.ownerId}`}</td>
-                    <td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${ACCOUNT_BADGE[p.accountStatus] ?? "border-neutral-200 bg-neutral-100 text-neutral-500"}`}>{p.accountStatus.replaceAll("_", " ")}</span></td>
-                    <td className="px-4 py-3 text-neutral-500">{p.accountStatus === "TRIAL" ? shortDate(p.trialEndsAt) : "n/a"}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums ${nearLimit ? "font-bold text-red-600" : "text-neutral-600"}`}>{p.unpaidBalance.toLocaleString()} / {p.unpaidLimit.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-neutral-600">{p.rooms}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-neutral-600">{p.activeStaff}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-neutral-600">{p.activeOutlets}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-neutral-600">{p.activeOrderPoints}</td>
-                    <td className="px-4 py-3 text-neutral-500">{shortDate(p.lastOrderAt)}</td>
-                    <td className="px-4 py-3 text-neutral-500">{shortDate(p.lastNightAuditAt)}</td>
-                    <td className="px-4 py-3 text-right sm:px-5"><Link href={`/admin/nrms/${p.propertyId}`} className="rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">View</Link></td>
+                  <tr key={p.accountId} className={`group border-b border-neutral-100 text-xs transition last:border-0 hover:bg-emerald-50/70 ${index % 2 === 1 ? "bg-neutral-50/55" : "bg-white"}`}>
+                    <td className={`sticky left-0 z-[5] px-4 py-3.5 shadow-[1px_0_0_0_rgb(245,245,245)] transition-colors group-hover:bg-emerald-50 sm:px-5 ${index % 2 === 1 ? "bg-[#fafafa]" : "bg-white"}`}>
+                      <span className="block truncate font-bold text-neutral-900" title={p.title}>{p.title}</span>
+                      <span className="mt-0.5 block truncate text-[10px] uppercase tracking-wide text-neutral-400">{p.region || "Region unavailable"}</span>
+                    </td>
+                    <td className="truncate px-4 py-3.5 font-medium text-neutral-600" title={owner ? ownerName(owner) : `Owner #${p.ownerId}`}>{owner ? ownerName(owner) : `Owner #${p.ownerId}`}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5"><span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-bold ${ACCOUNT_BADGE[p.accountStatus] ?? "border-neutral-200 bg-neutral-100 text-neutral-500"}`}>{p.accountStatus.replaceAll("_", " ")}</span></td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{p.accountStatus === "TRIAL" ? shortDate(p.trialEndsAt) : "n/a"}</td>
+                    <td className={`whitespace-nowrap px-4 py-3.5 text-right tabular-nums ${nearLimit ? "font-bold text-red-600" : "text-neutral-600"}`}>{p.unpaidBalance.toLocaleString()} / {p.unpaidLimit.toLocaleString()}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.rooms}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.activeStaff}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.activeOutlets}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.activeOrderPoints}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{shortDate(p.lastOrderAt)}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{shortDate(p.lastNightAuditAt)}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right sm:px-5"><Link href={`/admin/nrms/${p.propertyId}`} className="inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-100">View</Link></td>
                   </tr>
                 );
               })}
