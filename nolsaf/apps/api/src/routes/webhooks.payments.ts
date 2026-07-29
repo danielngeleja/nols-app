@@ -29,7 +29,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { safeEq } from "../lib/signature.js";
 import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
-import { markNrmsPaymentFailed, reconcileNrmsPayment } from "../lib/nrmsBilling.js";
+import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 
 const router = Router();
@@ -1180,13 +1180,13 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
 
     if (nrmsPaymentToken && normalizedStatus === "SUCCESS") {
       try {
-        await prisma.$transaction((tx: any) => reconcileNrmsPayment(tx, {
+        await reconcileNrmsPaymentAndAccrue(prisma, {
           token: nrmsPaymentToken.token,
           provider: "AZAMPAY",
           providerRef: eventId.toString(),
           idempotencyKey: `AZAMPAY:${eventId}`.slice(0, 120),
           amount,
-        }));
+        }, "AzamPay NRMS");
       } catch (nrmsError: any) {
         const message = String(nrmsError?.message || "");
         if (!message.includes("AMOUNT_MISMATCH")) console.error("[Webhook] NRMS reconciliation failed:", message || nrmsError);

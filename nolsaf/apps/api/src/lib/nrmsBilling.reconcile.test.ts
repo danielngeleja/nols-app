@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { markNrmsPaymentFailed, reconcileNrmsPayment } from "./nrmsBilling.js";
+import {
+  markNrmsPaymentFailed,
+  reconcileNrmsPayment,
+  reconcileNrmsPaymentAndAccrue,
+} from "./nrmsBilling.js";
 
 // Both functions receive the transaction client as an argument, so the whole
 // settlement engine is provable with a plain mock: no database, no provider.
@@ -56,10 +60,11 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
 
   it("settles the statement, verifies the payment and reopens the account without any manual step", async () => {
     tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow());
-    const payment = await reconcileNrmsPayment(tx, reconcileInput);
+    const settled = await reconcileNrmsPayment(tx, reconcileInput);
 
     expect(tx.nrmsBillingStatement.updateMany).toHaveBeenCalledWith({ where: { id: 5, status: "PAYABLE" }, data: expect.objectContaining({ status: "PAID" }) });
-    expect(payment).toEqual(expect.objectContaining({ provider: "AZAMPAY", providerRef: "evt-1", status: "VERIFIED", amount: 62400 }));
+    expect(settled.payment).toEqual(expect.objectContaining({ provider: "AZAMPAY", providerRef: "evt-1", status: "VERIFIED", amount: 62400 }));
+    expect(settled.statementId).toBe(5);
     expect(tx.nrmsServicePaymentToken.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { status: "PAID" } });
     // Balance paid in full and the sticky PAYMENT_PENDING state is exited:
     // the recompute must land on ACTIVE, not stay pending.
@@ -78,7 +83,7 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
   it("is idempotent: a repeated provider callback returns the existing payment and writes nothing", async () => {
     const existing = { id: 99, status: "VERIFIED" };
     tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow({ payment: existing }));
-    await expect(reconcileNrmsPayment(tx, reconcileInput)).resolves.toBe(existing);
+    await expect(reconcileNrmsPayment(tx, reconcileInput)).resolves.toEqual({ payment: existing, statementId: 5 });
     expect(tx.nrmsBillingStatement.updateMany).not.toHaveBeenCalled();
     expect(tx.nrmsServicePayment.create).not.toHaveBeenCalled();
     expect(tx.ownerPaygAccount.update).not.toHaveBeenCalled();
@@ -101,6 +106,37 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
     await expect(reconcileNrmsPayment(tx, reconcileInput)).rejects.toThrow("NRMS_STATEMENT_NOT_PAYABLE");
     expect(tx.nrmsServicePayment.create).not.toHaveBeenCalled();
     expect(tx.ownerPaygAccount.update).not.toHaveBeenCalled();
+  });
+
+  it("commits payment settlement before starting best-effort commission accrual", async () => {
+    const order: string[] = [];
+    tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow());
+    const client = {
+      ...tx,
+      $transaction: vi.fn(async (callback: any) => {
+        order.push("transaction-start");
+        const result = await callback(tx);
+        order.push("commit");
+        return result;
+      }),
+      salesCommission: {
+        findUnique: vi.fn(async () => {
+          order.push("commission");
+          throw new Error("simulated slow commission dependency");
+        }),
+      },
+    };
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(reconcileNrmsPaymentAndAccrue(client, reconcileInput, "test")).resolves.toEqual(
+      expect.objectContaining({ id: 77, status: "VERIFIED" }),
+    );
+    expect(order).toEqual(["transaction-start", "commit", "commission"]);
+    expect(warning).toHaveBeenCalledWith(
+      "[sales commission] test accrual deferred:",
+      "simulated slow commission dependency",
+    );
+    warning.mockRestore();
   });
 });
 

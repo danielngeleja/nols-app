@@ -7,7 +7,7 @@ import { requireFinanceGrant, requireNrmsFinanceApprover } from "../middleware/f
 import { notifyOwner } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
-import { accrueNrmsSalesCommission } from "../lib/salesCommission.js";
+import { accrueNrmsSalesCommissionAfterCommit } from "../lib/nrmsBilling.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
@@ -91,11 +91,9 @@ router.post("/tokens/:tokenId/reconcile", requireNrmsFinanceApprover as RequestH
     await tx.nrmsServicePaymentToken.update({ where: { id: token.id }, data: { status: "PAID" } });
     await tx.nrmsServicePaymentToken.updateMany({ where: { statementId: token.statementId, id: { not: token.id }, status: { not: "PAID" } }, data: { status: "VOID" } });
     await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt } });
-    await accrueNrmsSalesCommission(tx, token.statementId).catch((error: any) => {
-      console.warn("[sales commission] Manual NRMS accrual deferred:", error?.message || String(error));
-    });
     return created;
   });
+  await accrueNrmsSalesCommissionAfterCommit(db, token.statementId, "Manual NRMS");
   await audit(req.user!.id, "NRMS_PAYMENT_MANUAL_RECONCILE", account.ownerId, { propertyId: account.propertyId, tokenId: token.id, statementId: token.statementId, paymentId: payment.id, providerRef: parsed.data.providerRef, reason: parsed.data.reason });
   await notifyOwner(account.ownerId, "nrms_payment_reconciled", { propertyTitle: account.property.title, reason: parsed.data.reason });
   res.json({ payment: { id: payment.id, status: payment.status }, unpaidBalance: balance });
