@@ -25,7 +25,7 @@ import {
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
 import { markInvoicePaid, markGroupBookingDepositPaid, markTourBookingPaid } from "./webhooks.payments.js";
-import { markNrmsPaymentFailed, reconcileNrmsPayment } from "../lib/nrmsBilling.js";
+import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 
 const router = Router();
 const coralFormParser = multer().none();
@@ -541,13 +541,13 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
   }
 
   if (isSuccess && nrmsPaymentToken) {
-    await prisma.$transaction((tx: any) => reconcileNrmsPayment(tx, {
+    await reconcileNrmsPaymentAndAccrue(prisma, {
       token: nrmsPaymentToken.token,
       provider: "CORALCOMMERCE",
       providerRef: eventId,
       idempotencyKey: `CORAL:${eventId}`.slice(0, 120),
       amount,
-    }));
+    }, "CoralCommerce NRMS");
   }
   if (isFailure && nrmsPaymentToken) {
     await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));

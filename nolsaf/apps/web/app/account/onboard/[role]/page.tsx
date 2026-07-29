@@ -91,6 +91,10 @@ export default function OnboardRole() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
   const [accountPhone, setAccountPhone] = useState<string>(''); // set from /api/account/me, used for auto-verify
+  const [accountEmailLocked, setAccountEmailLocked] = useState(false);
+  const [accountPhoneLocked, setAccountPhoneLocked] = useState(false);
+  const [accountPhoneVerified, setAccountPhoneVerified] = useState(false);
+  const [checkingAccountPhone, setCheckingAccountPhone] = useState(false);
   const [kycFieldApprovals, setKycFieldApprovals] = useState<Record<string, 'approved' | 'flagged'>>({});
   const [uploadedDriverDocs, setUploadedDriverDocs] = useState<DriverDocumentRecord[]>([]);
   const [docUploadState, setDocUploadState] = useState<{ type: string; label: string } | null>(null);
@@ -182,14 +186,20 @@ export default function OnboardRole() {
 
         const hasDisplayName = Boolean(String(me?.fullName ?? me?.name ?? '').trim());
         const hasEmail = Boolean(String(me?.email ?? '').trim());
-        if (requestedRole !== 'DRIVER' && hasDisplayName && hasEmail) {
+        const hasPhone = Boolean(String(me?.phone ?? '').trim());
+        if (requestedRole !== 'DRIVER' && hasDisplayName && hasEmail && hasPhone) {
           router.replace(getDefaultRouteForRole(requestedRole));
           return;
         }
 
         setCheckingAuth(false);
         setNeedsPasswordSetup(me?.hasPassword === false);
-        if (me?.phone) setAccountPhone(me.phone);
+        if (me?.phone) {
+          setAccountPhone(me.phone);
+        }
+        setAccountEmailLocked(Boolean(me?.email && me?.emailVerifiedAt));
+        setAccountPhoneLocked(Boolean(me?.phone && me?.phoneVerifiedAt));
+        setAccountPhoneVerified(Boolean(me?.phoneVerifiedAt));
         if (me?.kycFieldApprovals && typeof me.kycFieldApprovals === 'object') {
           setKycFieldApprovals(me.kycFieldApprovals as Record<string, 'approved' | 'flagged'>);
         }
@@ -241,14 +251,14 @@ export default function OnboardRole() {
   // Auto-verify payment phone when it matches the account registration phone
   // (that phone was already OTP-verified at sign-up, so no second code is needed)
   useEffect(() => {
-    if (!accountPhone || !paymentPhone.trim()) return;
+    if (!accountPhoneVerified || !accountPhone || !paymentPhone.trim()) return;
     if (normalizePhone(paymentPhone.trim()) === normalizePhone(accountPhone)) {
       setPaymentVerified(true);
       setPaymentSent(false);
       setPaymentMessage(null);
     }
     // Note: we do NOT reset to false here — resetting happens only in onChange
-  }, [paymentPhone, accountPhone]);
+  }, [paymentPhone, accountPhone, accountPhoneVerified]);
   const help = role === 'driver'
     ? 'Please provide driver details, vehicle information, and verification documents.'
     : role === 'owner'
@@ -366,9 +376,10 @@ export default function OnboardRole() {
     setError(null);
     setErrorReasons(null);
     setSuccess(null);
-    // Basic validation: require name/email at minimum
-    if (!name || !email) {
-      setError('Please provide both name and email');
+    // Every completed profile must carry both contact identifiers. Accounts
+    // created by email add their phone here; phone-created accounts are prefilled.
+    if (!name || !email || !accountPhone.trim()) {
+      setError('Please provide your name, email, and phone number');
       return;
     }
     // First-time onboarding: require setting a password before redirecting.
@@ -409,6 +420,7 @@ export default function OnboardRole() {
       fd.append('role', role);
       fd.append('name', name);
       fd.append('email', email);
+      fd.append('phone', accountPhone);
       if (needsPasswordSetup && password.trim()) fd.append('password', password);
       if (referralCode) {
         fd.append('referralCode', referralCode);
@@ -431,7 +443,49 @@ export default function OnboardRole() {
       fd.append('submitForReview', 'true');
       }
 
-      await apiClient.post('/api/auth/profile', fd);
+      const saveResponse = await apiClient.post('/api/auth/profile', fd);
+
+      // Never leave onboarding based only on a 2xx response. Older API
+      // processes accepted the form while silently ignoring the new phone
+      // field, which caused /account to redirect straight back here.
+      let persistedPhone = String(saveResponse.data?.user?.phone || '').trim();
+      let persistedEmail = String(saveResponse.data?.user?.email || '').trim().toLowerCase();
+      if (
+        !persistedPhone ||
+        normalizePhone(persistedPhone) !== normalizePhone(accountPhone.trim()) ||
+        !persistedEmail ||
+        persistedEmail !== email.trim().toLowerCase()
+      ) {
+        try {
+          const meResponse = await apiClient.get('/api/account/me');
+          const savedAccount = meResponse.data?.data ?? meResponse.data;
+          persistedPhone = String(savedAccount?.phone || '').trim();
+          persistedEmail = String(savedAccount?.email || '').trim().toLowerCase();
+        } catch {
+          persistedPhone = '';
+          persistedEmail = '';
+        }
+      }
+
+      if (!persistedPhone || normalizePhone(persistedPhone) !== normalizePhone(accountPhone.trim())) {
+        const message = 'Your phone number was not saved. Please remain on this page and try again.';
+        setStepIndex(1);
+        setTouched(prev => ({ ...prev, accountPhone: true }));
+        setFieldErrors(prev => ({ ...prev, accountPhone: message }));
+        setError(message);
+        window.setTimeout(() => accountPhoneRef.current?.focus(), 80);
+        return;
+      }
+      if (!persistedEmail || persistedEmail !== email.trim().toLowerCase()) {
+        const message = 'Your email address was not saved. Please remain on this page and try again.';
+        setStepIndex(1);
+        setTouched(prev => ({ ...prev, email: true }));
+        setFieldErrors(prev => ({ ...prev, email: message }));
+        setError(message);
+        window.setTimeout(() => emailRef.current?.focus(), 80);
+        return;
+      }
+
       setSuccess(role === 'driver' ? 'Application submitted for professional review.' : 'Profile saved');
       // navigate to role dashboard or public account area
       setTimeout(() => {
@@ -449,6 +503,29 @@ export default function OnboardRole() {
       }
       if (apiErr?.error === 'role_mismatch') {
         setError(apiErr?.message || `You're signed in with a different account role and can't complete onboarding for “${role}”. Please sign in with the correct role account.`);
+        return;
+      }
+      if (apiErr?.error === 'phone_already_registered') {
+        const message = apiErr?.message || 'This phone number already has an account. Please login or use forgot password to access it.';
+        setStepIndex(1);
+        setTouched(prev => ({ ...prev, accountPhone: true }));
+        setFieldErrors(prev => ({ ...prev, accountPhone: message }));
+        setError(message);
+        window.setTimeout(() => accountPhoneRef.current?.focus(), 80);
+        return;
+      }
+      if (apiErr?.error === 'email_already_registered') {
+        const message = apiErr?.message || 'This email address already has an account. Please login or use forgot password to access it.';
+        setStepIndex(1);
+        setTouched(prev => ({ ...prev, email: true }));
+        setFieldErrors(prev => ({ ...prev, email: message }));
+        setError(message);
+        window.setTimeout(() => emailRef.current?.focus(), 80);
+        return;
+      }
+      if (apiErr?.error === 'email_change_requires_verification' || apiErr?.error === 'phone_change_requires_verification') {
+        setStepIndex(1);
+        setError(apiErr?.message || 'Verified contact details cannot be changed during onboarding.');
         return;
       }
       setError(apiErr?.message || apiErr?.error || err?.message || 'Failed to save profile');
@@ -472,12 +549,12 @@ export default function OnboardRole() {
   const isStepValid = () => {
     if (role !== 'driver') {
       if (stepIndex === 1) {
-        const baseValid = name.trim().length > 0 && emailRe.test(email.trim());
+        const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
         if (needsPasswordSetup) return baseValid && password.trim().length >= 1 && confirmPassword === password;
         return baseValid;
       }
       if (stepIndex === 2) {
-        const baseValid = name.trim().length > 0 && emailRe.test(email.trim());
+        const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
         if (needsPasswordSetup) return baseValid && password.trim().length >= 1 && confirmPassword === password;
         return baseValid;
       }
@@ -486,9 +563,9 @@ export default function OnboardRole() {
     switch (stepIndex) {
       case 1:
         if (needsPasswordSetup) {
-          return name.trim().length > 0 && emailRe.test(email.trim()) && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password;
+          return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password;
         }
-        return name.trim().length > 0 && emailRe.test(email.trim()) && dateOfBirth.trim().length > 0;
+        return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
       case 2:
         return licenseNumber.trim().length > 0 && vehicleType.trim().length > 0 && plateNumber.trim().length > 0 && driverRegion.trim().length > 0 && driverDistrict.trim().length > 0 && operationArea.trim().length > 0;
       case 3:
@@ -505,8 +582,8 @@ export default function OnboardRole() {
     if (role !== 'driver') return true;
     if (step === 1) {
       return needsPasswordSetup
-        ? name.trim().length > 0 && emailRe.test(email.trim()) && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password
-        : name.trim().length > 0 && emailRe.test(email.trim()) && dateOfBirth.trim().length > 0;
+        ? name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password
+        : name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
     }
     if (step === 2) {
       return licenseNumber.trim().length > 0 && vehicleType.trim().length > 0 && plateNumber.trim().length > 0 && driverRegion.trim().length > 0 && driverDistrict.trim().length > 0 && operationArea.trim().length > 0;
@@ -532,7 +609,7 @@ export default function OnboardRole() {
     if (role !== 'driver') return true;
     
     // Step 1: Personal Details
-    const step1Valid = name.trim().length > 0 && emailRe.test(email.trim()) && dateOfBirth.trim().length > 0;
+    const step1Valid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
     
     // Step 2: Driving Details
     const step2Valid = licenseNumber.trim().length > 0 && 
@@ -557,6 +634,7 @@ export default function OnboardRole() {
   const [touched, setTouched] = useState<Record<string, boolean>>({
     name: false,
     email: false,
+    accountPhone: false,
     dateOfBirth: false,
     password: false,
     confirmPassword: false,
@@ -573,6 +651,7 @@ export default function OnboardRole() {
   // Refs to focus the first invalid input when progressing
   const nameRef = useRef<HTMLInputElement | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
+  const accountPhoneRef = useRef<HTMLInputElement | null>(null);
   const passwordRef = useRef<HTMLInputElement | null>(null);
   const confirmPasswordRef = useRef<HTMLInputElement | null>(null);
   const licenseRef = useRef<HTMLInputElement | null>(null);
@@ -590,6 +669,8 @@ export default function OnboardRole() {
         return name.trim() ? '' : 'Full name is required';
       case 'email':
         return email.trim() ? (emailRe.test(email.trim()) ? '' : 'Enter a valid email') : 'Email is required';
+      case 'accountPhone':
+        return accountPhone.trim().length >= 5 ? '' : 'Phone number is required';
       case 'dateOfBirth':
         return dateOfBirth.trim() ? '' : 'Date of birth is required';
       case 'password':
@@ -621,8 +702,49 @@ export default function OnboardRole() {
 
   const maxSteps = role === 'driver' ? 5 : 2; // Traveller and owner have 2 steps
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (isStepValid()) {
+      if (stepIndex === 1) {
+        setCheckingAccountPhone(true);
+        setError(null);
+        try {
+          const response = await apiClient.post('/api/auth/onboarding-contact-check', {
+            phone: accountPhone.trim(),
+            email: email.trim(),
+          });
+          if (response.data?.available !== true) {
+            throw new Error('These contact details are not available.');
+          }
+          setFieldErrors(prev => ({ ...prev, accountPhone: '', email: '' }));
+        } catch (err: any) {
+          const apiError = err?.response?.data;
+          const phoneTaken = apiError?.error === 'phone_already_registered';
+          const emailTaken = apiError?.error === 'email_already_registered';
+          const invalidPhone = apiError?.error === 'invalid_phone';
+          const invalidEmail = apiError?.error === 'invalid_email';
+          const message = phoneTaken
+            ? 'This phone number already has an account. Please login or use forgot password to access it.'
+            : emailTaken
+              ? 'This email address already has an account. Please login or use forgot password to access it.'
+              : invalidPhone || invalidEmail
+              ? apiError?.message || 'Enter a valid phone number.'
+              : 'The account service is unavailable. Please try again.';
+
+          setFieldErrors(prev => ({
+            ...prev,
+            accountPhone: phoneTaken || invalidPhone ? message : '',
+            email: emailTaken || invalidEmail ? message : '',
+          }));
+          if (phoneTaken || invalidPhone) setTouched(prev => ({ ...prev, accountPhone: true }));
+          if (emailTaken || invalidEmail) setTouched(prev => ({ ...prev, email: true }));
+          setError(message);
+          if (phoneTaken || invalidPhone) accountPhoneRef.current?.focus();
+          else if (emailTaken || invalidEmail) emailRef.current?.focus();
+          return;
+        } finally {
+          setCheckingAccountPhone(false);
+        }
+      }
       setStepIndex(i => Math.min(maxSteps, i + 1));
       return;
     }
@@ -631,13 +753,15 @@ export default function OnboardRole() {
     if (stepIndex === 1) {
       const nameErr = validateField('name');
       const emailErr = validateField('email');
+      const accountPhoneErr = validateField('accountPhone');
       const dobErr = validateField('dateOfBirth');
       const pwErr = needsPasswordSetup ? validateField('password') : '';
       const cpwErr = needsPasswordSetup ? validateField('confirmPassword') : '';
-      setTouched(prev => ({ ...prev, name: true, email: true, dateOfBirth: true, ...(needsPasswordSetup ? { password: true, confirmPassword: true } : {}) }));
-      setFieldErrors(prev => ({ ...prev, name: nameErr, email: emailErr, dateOfBirth: dobErr, ...(needsPasswordSetup ? { password: pwErr, confirmPassword: cpwErr } : {}) }));
+      setTouched(prev => ({ ...prev, name: true, email: true, accountPhone: true, dateOfBirth: true, ...(needsPasswordSetup ? { password: true, confirmPassword: true } : {}) }));
+      setFieldErrors(prev => ({ ...prev, name: nameErr, email: emailErr, accountPhone: accountPhoneErr, dateOfBirth: dobErr, ...(needsPasswordSetup ? { password: pwErr, confirmPassword: cpwErr } : {}) }));
       if (nameErr) { nameRef.current?.focus(); return; }
       if (emailErr) { emailRef.current?.focus(); return; }
+      if (accountPhoneErr) { accountPhoneRef.current?.focus(); return; }
       if (dobErr) { return; }
       if (needsPasswordSetup) {
         if (pwErr) { passwordRef.current?.focus(); return; }
@@ -684,7 +808,7 @@ export default function OnboardRole() {
   const sendPaymentOtp = async () => {
     setPaymentMessage(null);
     // If the entered phone matches the account phone, auto-verify without sending a code
-    if (accountPhone && normalizePhone(paymentPhone.trim()) === normalizePhone(accountPhone)) {
+    if (accountPhoneVerified && accountPhone && normalizePhone(paymentPhone.trim()) === normalizePhone(accountPhone)) {
       setPaymentVerified(true);
       setPaymentSent(false);
       return;
@@ -1029,27 +1153,107 @@ export default function OnboardRole() {
                     </div>
 
                     {/* Email */}
-                    <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
-                      <label htmlFor="onboard-email" className="block text-sm font-medium text-slate-700">
-                        Email address <span className="text-red-500">*</span>
-                      </label>
+                    <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="onboard-email" className="block text-sm font-medium text-slate-700">
+                          Email address <span className="text-red-500">*</span>
+                        </label>
+                        {accountEmailLocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#02665e]">
+                            <Lock className="h-3 w-3" />
+                            Verified contact
+                          </span>
+                        )}
+                      </div>
                       <input
                         id="onboard-email"
                         ref={emailRef}
                         type="email"
                         value={email}
-                        onChange={e => setEmail(e.target.value)}
+                        onChange={(event) => {
+                          if (!accountEmailLocked) {
+                            setEmail(event.target.value);
+                            setFieldErrors(prev => ({ ...prev, email: '' }));
+                            setError(null);
+                          }
+                        }}
                         onBlur={() => { setTouched(prev => ({ ...prev, email: true })); setFieldErrors(prev => ({ ...prev, email: validateField('email') })); }}
-                        className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
+                        readOnly={accountEmailLocked}
+                        aria-readonly={accountEmailLocked}
+                        className={`mt-1 w-full rounded-md px-3 py-2 border text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none transition-colors ${
                           touched.email && fieldErrors.email
-                            ? 'border-red-300'
-                            : 'border-slate-200 hover:border-slate-300 focus:border-[#02665e]'
+                            ? 'border-red-300 bg-white focus:ring-2 focus:ring-red-100'
+                            : accountEmailLocked
+                              ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-600'
+                              : 'border-slate-200 bg-white hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-emerald-200'
                         }`}
                         placeholder="you@example.com"
                       />
                       {touched.email && fieldErrors.email && (
                         <p className="mt-1.5 flex items-center gap-1 text-[11px] text-red-600">
                           <AlertCircle className="h-3 w-3" />{fieldErrors.email}
+                        </p>
+                      )}
+                      {accountEmailLocked && !fieldErrors.email && (
+                        <p className="mt-1.5 text-[11px] text-slate-500">
+                          Verified during registration. Change it later from Account Security.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Phone is collected during registration even when email receives the OTP. */}
+                    <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="onboard-phone" className="block text-sm font-medium text-slate-700">
+                          Phone number <span className="text-red-500">*</span>
+                        </label>
+                        {accountPhoneLocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#02665e]">
+                            <Lock className="h-3 w-3" />
+                            Verified contact
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        id="onboard-phone"
+                        ref={accountPhoneRef}
+                        type="tel"
+                        value={accountPhone}
+                        onChange={(event) => {
+                          if (!accountPhoneLocked) {
+                            setAccountPhone(event.target.value);
+                            setFieldErrors(prev => ({ ...prev, accountPhone: '' }));
+                            setError(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          setTouched(prev => ({ ...prev, accountPhone: true }));
+                          setFieldErrors(prev => ({ ...prev, accountPhone: validateField('accountPhone') }));
+                        }}
+                        readOnly={accountPhoneLocked}
+                        aria-readonly={accountPhoneLocked}
+                        placeholder="+255 712 345 678"
+                        className={`mt-1 w-full rounded-md border px-3 py-2 text-sm text-slate-700 outline-none ${
+                          touched.accountPhone && fieldErrors.accountPhone
+                            ? 'border-red-300 bg-white focus:border-red-500 focus:ring-2 focus:ring-red-100'
+                            : accountPhoneLocked
+                              ? 'border-slate-200 bg-slate-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-emerald-200'
+                        }`}
+                      />
+                      {touched.accountPhone && fieldErrors.accountPhone ? (
+                        <div
+                          role="alert"
+                          className="mt-3 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-500" />
+                          <span className="min-w-0 flex-1 break-words">{fieldErrors.accountPhone}</span>
+                        </div>
+                      ) : (
+                        <p className="mt-1.5 text-[11px] text-slate-500">
+                          {accountPhoneLocked
+                            ? 'Change this later from Account security with verification.'
+                            : 'Required because this account was created with email.'}
                         </p>
                       )}
                     </div>
@@ -1279,15 +1483,24 @@ export default function OnboardRole() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      disabled={!isStepValid()}
+                      disabled={!isStepValid() || checkingAccountPhone}
                       className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold transition-all active:scale-[0.97] sm:w-auto ${
-                        isStepValid()
+                        isStepValid() && !checkingAccountPhone
                           ? 'bg-[#02665e] text-white shadow-[0_4px_20px_rgba(2,102,94,0.35)] hover:bg-[#014e47] hover:shadow-[0_6px_24px_rgba(2,102,94,0.45)]'
                           : 'cursor-not-allowed bg-slate-100 text-slate-400'
                       }`}
                     >
-                      Next
-                      <ChevronRight className="h-4 w-4" />
+                      {checkingAccountPhone ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Checking details...
+                        </>
+                      ) : (
+                        <>
+                          Next
+                          <ChevronRight className="h-4 w-4" />
+                        </>
+                      )}
                     </button>
                   ) : (
                     <button
@@ -1518,15 +1731,31 @@ export default function OnboardRole() {
                         Email
                         <span className="text-red-500">*</span>
                         <FieldBadge fk="email" />
+                        {accountEmailLocked && (
+                          <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold text-[#02665e]">
+                            <Lock className="h-3 w-3" />
+                            Verified
+                          </span>
+                        )}
                       </label>
                       <input 
                         ref={emailRef} 
                         type="email" 
                         value={email} 
-                        disabled={isApproved('email')}
-                        onChange={e => setEmail(e.target.value)} 
+                        disabled={isApproved('email') || accountEmailLocked}
+                        onChange={(event) => {
+                          if (!accountEmailLocked) {
+                            setEmail(event.target.value);
+                            setFieldErrors(prev => ({ ...prev, email: '' }));
+                            setError(null);
+                          }
+                        }}
                         onBlur={() => { setTouched(prev => ({ ...prev, email: true })); setFieldErrors(prev => ({ ...prev, email: validateField('email') })); }} 
-                        className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${fieldBorderClass('email', Boolean(touched.email && fieldErrors.email))} bg-white shadow-sm hover:shadow-md text-sm`}
+                        className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${
+                          accountEmailLocked
+                            ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-600'
+                            : `${fieldBorderClass('email', Boolean(touched.email && fieldErrors.email))} bg-white shadow-sm hover:shadow-md`
+                        } text-sm`}
                         placeholder="you@example.com"
                       />
                       {touched.email && fieldErrors.email && (
@@ -1535,6 +1764,63 @@ export default function OnboardRole() {
                           {fieldErrors.email}
                         </div>
                       )}
+                      {accountEmailLocked && !fieldErrors.email && (
+                        <p className="mt-1.5 text-[11px] text-slate-500">
+                          Verified during registration. Change it later from Account Security.
+                        </p>
+                      )}
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Phone className="h-3.5 w-3.5 text-slate-500" />
+                      Phone number
+                      <span className="text-red-500">*</span>
+                      {accountPhoneLocked && (
+                        <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold text-[#02665e]">
+                          <Lock className="h-3 w-3" />
+                          Verified
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      ref={accountPhoneRef}
+                      type="tel"
+                      value={accountPhone}
+                      onChange={(event) => {
+                        if (!accountPhoneLocked) {
+                          setAccountPhone(event.target.value);
+                          setFieldErrors(prev => ({ ...prev, accountPhone: '' }));
+                          setError(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTouched(prev => ({ ...prev, accountPhone: true }));
+                        setFieldErrors(prev => ({ ...prev, accountPhone: validateField('accountPhone') }));
+                      }}
+                      readOnly={accountPhoneLocked}
+                      aria-readonly={accountPhoneLocked}
+                      placeholder="+255 712 345 678"
+                      className={`w-full rounded-lg border-2 px-3 py-2.5 text-sm outline-none transition ${
+                        touched.accountPhone && fieldErrors.accountPhone
+                          ? 'border-red-300 bg-white focus:border-red-500 focus:ring-2 focus:ring-red-100'
+                          : accountPhoneLocked
+                            ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-600'
+                            : 'border-slate-200 bg-white hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10'
+                      }`}
+                    />
+                    {touched.accountPhone && fieldErrors.accountPhone ? (
+                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-none text-red-500" />
+                        <span>{fieldErrors.accountPhone}</span>
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-[11px] text-slate-500">
+                        {accountPhoneLocked
+                          ? 'Verified during registration. Change it later from Account Security.'
+                          : 'Required when registration was completed by email.'}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1889,7 +2175,7 @@ export default function OnboardRole() {
                               setPaymentPhone(val);
                               // Reset verification unless the new value already matches the account phone
                               // (the auto-verify useEffect will re-set it to true if they match)
-                              if (!accountPhone || normalizePhone(val.trim()) !== normalizePhone(accountPhone)) {
+                              if (!accountPhoneVerified || !accountPhone || normalizePhone(val.trim()) !== normalizePhone(accountPhone)) {
                                 setPaymentVerified(false);
                                 setPaymentSent(false);
                               }
@@ -2030,7 +2316,7 @@ export default function OnboardRole() {
                     )}
 
                     {paymentVerified && (
-                      accountPhone && normalizePhone(paymentPhone.trim()) === normalizePhone(accountPhone) ? (
+                      accountPhoneVerified && accountPhone && normalizePhone(paymentPhone.trim()) === normalizePhone(accountPhone) ? (
                         <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg flex items-start gap-3">
                           <CheckCircle2 className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
                           <div className="flex-1">
@@ -2739,16 +3025,25 @@ export default function OnboardRole() {
                       <button
                         type="button"
                         onClick={handleNext}
-                      disabled={!isStepValid()}
+                      disabled={!isStepValid() || checkingAccountPhone}
                       className={`px-6 py-2.5 rounded-lg font-semibold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 text-sm ${
-                        isStepValid() 
+                        isStepValid() && !checkingAccountPhone
                           ? 'bg-[#02665e] hover:bg-[#014e47] text-white' 
                           : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                       }`}
                     >
                       <span className="flex items-center gap-1.5">
-                        Next
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        {checkingAccountPhone ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Checking details...
+                          </>
+                        ) : (
+                          <>
+                            Next
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </>
+                        )}
                       </span>
                       </button>
                     ) : (

@@ -353,7 +353,17 @@ docker system prune -a
 
 ## Deployment Commands
 
+> **Production boundary:** `staging` is the only shared integration and QA
+> branch. Run functional, database, migration-rehearsal, browser, load, and
+> regression testing on staging or a disposable/restored snapshot clone. AWS
+> Elastic Beanstalk and production RDS are deployment targets only. Do not run
+> the generic commands below against AWS production. Production releases must
+> follow `nolsaf/API_DEPLOYMENT_GUIDE.md` from an approved, clean `main` commit.
+
 ### Production Build & Start
+
+The following sequence is for a controlled local or self-managed environment.
+It is not the AWS production deployment procedure.
 
 ```bash
 # 1. Install dependencies

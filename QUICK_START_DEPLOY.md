@@ -1,217 +1,125 @@
-# Quick Start: Deploy to Development Now
+# Quick Start: Staging-First Release Flow
 
-This is a step-by-step guide to deploy your completed work (health endpoints, deployment infrastructure) to a development environment while keeping your unfinished work separate.
+This repository uses `staging` as the single shared integration and QA source of
+truth. `main` is reserved for code that has already passed staging QA and is
+approved for production.
 
-## Current Situation
+## Environment boundary
 
-✅ **Completed & Ready to Deploy:**
-- Health check endpoints
-- Deployment infrastructure
-- Docker files
-- CI/CD pipeline
-- Documentation
+| Environment | Branch | Purpose |
+| --- | --- | --- |
+| Local/disposable | Feature branch | Development and focused checks |
+| Staging | `staging` | Integration, functional QA, authenticated workflows, responsive UI, regression, migrations, and release acceptance |
+| Production | `main` | Deployment of approved staging commits only |
 
-🚧 **In Progress (Don't Deploy Yet):**
-- Other features you're still working on
+AWS Elastic Beanstalk and production RDS are deployment targets, not test
+environments. Never run test suites, test-data generators, seed scripts, load
+tests, schema experiments, `prisma migrate dev`, or `prisma db push` against
+production.
 
----
+## 1. Integrate completed work into staging
 
-## Step-by-Step: Deploy Now
+Commit only the intended files on a feature branch, review the staged diff, and
+push the feature branch:
 
-### Step 1: Commit Current Completed Work
-
-```bash
-# Stage the completed deployment work
-cd d:\nolsapp2.1
-git add OPERATIONS.md GIT_WORKFLOW.md
-git add nolsaf/apps/api/src/routes/health.ts
-git add nolsaf/apps/api/src/index.ts
-git add nolsaf/apps/web/Dockerfile
-git add .github/workflows/ci.yml
-git add DEPLOYMENT.md
-
-# Commit
-git commit -m "Add operations guide and Git workflow documentation"
+```powershell
+git status --short
+git add -- <reviewed-files>
+git diff --cached
+git commit -m "Describe the completed change"
+git push -u origin <feature-branch>
 ```
 
-**What it does:** Saves your completed deployment infrastructure.
+Merge the reviewed feature commit into `staging` using the repository's normal
+review process. Never force-push the shared staging branch.
 
-### Step 2: Create Develop Branch
+## 2. Validate the exact staging commit
 
-```bash
-# Make sure you're on main and up to date
-git checkout main
-git pull origin main
+Start from a clean staging checkout:
 
-# Create develop branch from current main
-git checkout -b develop
-
-# Push develop branch to remote
-git push -u origin develop
+```powershell
+git switch staging
+git pull --ff-only origin staging
+git status --short
 ```
 
-**What it does:** Creates a separate branch for development deployments.
+The status must be empty. Run the required release checks:
 
-### Step 3: Deploy Develop Branch
-
-Now your CI/CD will automatically deploy when you push to develop:
-
-```bash
-# Push to develop (triggers deployment)
-git push origin develop
+```powershell
+npm ci
+npm run lint
+npm run typecheck
+npm --workspace=@nolsaf/api test
+npm run build
 ```
 
-**What it does:** Deploys all completed work to your development environment.
+When Prisma changes, also run the immutable migration and schema checks:
 
-### Step 4: Continue Working on Unfinished Features
-
-```bash
-# Create a feature branch for unfinished work
-git checkout -b feature/unfinished-work
-
-# Or if you have existing uncommitted changes
-git checkout -b feature/wip-changes
-git add .
-git commit -m "WIP: Work in progress"
-git push -u origin feature/wip-changes
+```powershell
+npm run migrations:checksums
+npm run migrations:coverage
+npm run schema:check:staging
+npm run schema:check:clone
+npm run migration:validate:reconciliation
 ```
 
-**What it does:** Keeps your unfinished work separate and undeployed.
+Database-dependent and functional testing must use the isolated staging
+database or a disposable/restored production snapshot clone. Record the exact
+staging commit SHA and the QA results.
 
----
+## 3. Staging QA approval
 
-## Alternative: Deploy Without Creating Develop Branch
+The exact staging commit must pass:
 
-If you want to deploy immediately without setting up a develop branch:
+- CI, lint, typecheck, API tests, and builds;
+- API and authenticated workflow checks;
+- responsive web UI checks on supported screen sizes;
+- migration rehearsal and physical schema checks when Prisma changes;
+- regression testing for affected product areas;
+- Redis/worker validation when background processing changes;
+- explicit QA and release approval.
 
-### Option A: Deploy Current Main to Development
+Any failure remains a staging issue. Fix it on a feature branch, integrate it
+into `staging`, and repeat the affected checks. Do not troubleshoot by testing
+the change against AWS production.
 
-```bash
-# Push main (if your CI/CD deploys main to development)
-git push origin main
+## 4. Promote staging to main
+
+Only after staging approval:
+
+```powershell
+git switch staging
+git pull --ff-only origin staging
+git status --short
+
+git switch main
+git pull --ff-only origin main
+git merge --no-ff staging -m "release: promote staging to production"
 ```
 
-**What it does:** Deploys everything in main to development.
+Run the critical release checks again on the exact merge commit. Push `main`
+only when the checkout is clean and every required check passes.
 
-### Option B: Create a Deployment Branch
+## 5. Deploy production
 
-```bash
-# Create a deployment branch with only completed work
-git checkout main
-git checkout -b deploy-to-dev
+Follow the authoritative AWS runbook:
 
-# Remove any unfinished work (if needed)
-# ... selectively add only completed files ...
+- [`nolsaf/API_DEPLOYMENT_GUIDE.md`](nolsaf/API_DEPLOYMENT_GUIDE.md)
+- [`nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md`](nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md)
 
-git push -u origin deploy-to-dev
-```
+Production verification is limited to health/readiness, migration status,
+observability, and pre-approved read-only canary requests. Do not run feature
+QA, generated tests, load tests, or schema experiments on AWS production.
 
-**What it does:** Creates a branch specifically for this deployment.
+## Stop conditions
 
----
+Stop promotion or deployment when:
 
-## Recommended: Full Setup
-
-### 1. Complete Current Work
-
-```bash
-# Commit all completed work
-git add .
-git commit -m "Complete: Deployment infrastructure and health endpoints"
-
-# Push to main
-git push origin main
-```
-
-### 2. Create Develop Branch
-
-```bash
-git checkout -b develop
-git push -u origin develop
-```
-
-### 3. Configure CI/CD for Develop
-
-Update `.github/workflows/ci.yml` to add development deployment:
-
-```yaml
-  deploy-dev:
-    name: Deploy to Development
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: github.ref == 'refs/heads/develop'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Deploy to Development
-        run: |
-          echo "Deploying to development environment..."
-          # Add your deployment commands here
-          # e.g., SSH to server, run deployment script, etc.
-```
-
-### 4. Deploy
-
-```bash
-git push origin develop
-# ✅ Automatically deploys to development
-```
-
-### 5. Continue Development
-
-```bash
-# Work on new features
-git checkout -b feature/new-feature
-# ... make changes ...
-# This won't deploy until merged to develop
-```
-
----
-
-## What Happens Next?
-
-### After Deploying to Development:
-
-1. ✅ **Completed features are live** in development environment
-2. 🚧 **Unfinished work stays** in feature branches
-3. 🔄 **You can continue** working on other features
-4. ✅ **Test completed features** in development
-5. 🚀 **Merge to main** when ready for production
-
-### Workflow Going Forward:
-
-```
-1. Work on feature → feature/my-feature branch
-2. Complete feature → Merge to develop → Deploys to dev
-3. Test in dev → If good, merge to main → Deploys to production
-4. Continue other features → Stay in feature branches
-```
-
----
-
-## Quick Commands Reference
-
-```bash
-# Deploy completed work to development
-git checkout develop
-git merge main
-git push origin develop
-
-# Continue working on unfinished features
-git checkout -b feature/my-feature
-# ... work normally ...
-
-# Deploy specific feature when ready
-git checkout develop
-git merge feature/my-feature
-git push origin develop
-```
-
----
-
-## Need Help?
-
-- See `GIT_WORKFLOW.md` for detailed workflow explanations
-- See `OPERATIONS.md` for all commands and troubleshooting
-- See `DEPLOYMENT.md` for deployment-specific instructions
+- staging CI, QA, builds, or migration checks are incomplete or failing;
+- the exact staging commit was not approved;
+- the working tree is dirty or branch SHAs are not the expected values;
+- staging or snapshot-clone physical schema checks report drift;
+- a migration was edited after being shared or applied;
+- a production snapshot is required but not verified;
+- production health is not green and ready;
+- any command would point testing or test data at AWS production.

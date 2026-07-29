@@ -31,6 +31,23 @@ API/web/runtime level:
 - shared contracts for auth, booking, payments, pricing, availability, rides,
   payouts, notifications, and user data
 
+### QA ownership and production boundary
+
+- All integration QA, functional testing, authenticated browser testing,
+  migration rehearsal, schema-drift checks, seed/test data, load testing, and
+  release acceptance belong on `staging` or a disposable/restored production
+  snapshot clone.
+- A change is not eligible for `main` until the exact staging commit has passed
+  the required CI, database, API, web, responsive UI, and regression checks and
+  has explicit QA approval.
+- AWS Elastic Beanstalk and production RDS are deployment targets only. Do not
+  run functional suites, test generators, load tests, schema experiments,
+  `prisma migrate dev`, or `prisma db push` against production.
+- After deployment, production checks are limited to health/readiness,
+  observability, migration status, and narrowly scoped read-only canaries.
+  Unexpected results trigger a stop or rollback; they do not start exploratory
+  testing on production.
+
 When API behavior, database schema, or deployable shared package behavior changes,
 commit it to `staging` first. Then merge or rebase `staging` into the app branch
 that needs the change.

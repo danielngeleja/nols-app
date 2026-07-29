@@ -185,12 +185,20 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   return result;
 }
 
-export async function reconcileNrmsPayment(tx: any, input: { token: string; provider: string; providerRef: string; idempotencyKey: string; amount: number }) {
+export type NrmsPaymentReconcileInput = {
+  token: string;
+  provider: string;
+  providerRef: string;
+  idempotencyKey: string;
+  amount: number;
+};
+
+export async function reconcileNrmsPayment(tx: any, input: NrmsPaymentReconcileInput) {
   const token = await tx.nrmsServicePaymentToken.findUnique({ where: { token: input.token }, include: { statement: { include: { account: { include: { policy: true } } } }, payment: true } });
   if (!token) throw new Error("NRMS_TOKEN_NOT_FOUND");
   // A repeated callback for the token that already won is idempotent. It must
   // never create another payment or reduce the account balance twice.
-  if (token.payment) return token.payment;
+  if (token.payment) return { payment: token.payment, statementId: token.statementId };
   const tokenStatus = String(token.status || "").toUpperCase();
   if (!["PENDING", "PROCESSING"].includes(tokenStatus)) throw new Error("NRMS_TOKEN_INVALID_STATUS");
   if (token.expiresAt <= new Date()) throw new Error("NRMS_TOKEN_EXPIRED");
@@ -220,12 +228,35 @@ export async function reconcileNrmsPayment(tx: any, input: { token: string; prov
   const balance = Math.max(0, Number(account.unpaidBalance) - input.amount);
   const dunning = evaluateNrmsDunning({ balance, reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, trialEndsAt: account.trialEndsAt });
   await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt, reminderNotifiedAt: balance < Number(account.policy.reminderAmount) ? null : undefined, warningNotifiedAt: balance < Number(account.policy.warningAmount) ? null : undefined, freezeNotifiedAt: balance < Number(account.unpaidLimit) ? null : undefined } });
-  await accrueNrmsSalesCommission(tx, token.statementId).catch((error: any) => {
-    // Payment settlement remains authoritative while the migration is rolling
-    // out. The idempotent reconciliation pass can fill a deferred commission.
-    console.warn("[sales commission] NRMS accrual deferred:", error?.message || String(error));
-  });
-  return payment;
+  return { payment, statementId: token.statementId };
+}
+
+export async function accrueNrmsSalesCommissionAfterCommit(
+  client: any,
+  statementId: number,
+  context = "NRMS",
+) {
+  try {
+    return await accrueNrmsSalesCommission(client, statementId);
+  } catch (error: any) {
+    // Payment settlement remains authoritative. Commission accrual is
+    // idempotent and the lifecycle worker can retry a deferred attempt.
+    console.warn(`[sales commission] ${context} accrual deferred:`, error?.message || String(error));
+    return null;
+  }
+}
+
+export async function reconcileNrmsPaymentAndAccrue(
+  client: any,
+  input: NrmsPaymentReconcileInput,
+  context = "NRMS",
+) {
+  // Keep the authoritative payment transaction short. Commission attribution
+  // performs several independent reads and must never consume the transaction's
+  // timeout or poison its commit when that secondary work is slow.
+  const settled = await client.$transaction((tx: any) => reconcileNrmsPayment(tx, input));
+  await accrueNrmsSalesCommissionAfterCommit(client, settled.statementId, context);
+  return settled.payment;
 }
 
 export async function markNrmsPaymentFailed(tx: any, tokenValue: string) {

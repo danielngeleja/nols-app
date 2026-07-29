@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { reconcileNrmsPayment } from "../lib/nrmsBilling.js";
+import { reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 
 export const router = Router();
 const callbackSchema = z.object({ token: z.string().min(10), provider: z.string().min(2).max(30), providerRef: z.string().min(2).max(120), idempotencyKey: z.string().min(8).max(120), amount: z.number().positive() });
@@ -16,7 +16,7 @@ router.post("/callback", (async (req, res) => {
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid payment callback", details: parsed.error.flatten() });
   try {
-    const payment = await prisma.$transaction((tx: any) => reconcileNrmsPayment(tx, parsed.data));
+    const payment = await reconcileNrmsPaymentAndAccrue(prisma, parsed.data, "NRMS callback");
     res.json({ accepted: true, paymentId: payment.id, status: payment.status });
   } catch (error: any) {
     if (error?.code === "P2002") return res.json({ accepted: true, duplicate: true });
