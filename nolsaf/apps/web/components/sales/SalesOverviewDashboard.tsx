@@ -110,6 +110,13 @@ function money(value: number, currency = "TZS"): string {
   return `${currency === "TZS" ? "TSh" : currency} ${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 }
 
+function formatLabel(value: string): string {
+  return String(value || "")
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function relativeTime(value: string): string {
   const difference = Date.now() - new Date(value).getTime();
   const minutes = Math.max(1, Math.floor(difference / 60_000));
@@ -157,19 +164,19 @@ function KpiCard({
   const style = tones[tone];
 
   return (
-    <article className="group min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_18px_38px_-30px_rgba(8,127,104,0.35)]">
-      <div className="flex items-start justify-between gap-3">
+    <article className="group min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_18px_38px_-30px_rgba(8,127,104,0.35)] sm:rounded-2xl sm:p-4">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0">
-          <p className="m-0 truncate text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
-          <p className="mb-0 mt-2 truncate text-[clamp(1.1rem,1.7vw,1.4rem)] font-black tracking-[-0.035em] text-slate-950">{value}</p>
+          <p className="m-0 min-h-6 text-[9px] font-black uppercase leading-3 tracking-[0.08em] text-slate-400 sm:min-h-0 sm:truncate sm:text-[10px] sm:leading-normal sm:tracking-[0.1em]">{label}</p>
+          <p className="mb-0 mt-1.5 truncate text-base font-black tracking-[-0.035em] text-slate-950 sm:mt-2 sm:text-[clamp(1.1rem,1.7vw,1.4rem)]">{value}</p>
         </div>
-        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ring-1 ${style.icon}`}>
-          <Icon className="h-4.5 w-4.5" />
+        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1 sm:h-9 sm:w-9 sm:rounded-xl ${style.icon}`}>
+          <Icon className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
         </span>
       </div>
-      <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+      <div className="mt-2.5 flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-2 sm:mt-3 sm:gap-2 sm:pt-2.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${style.dot}`} />
-        <p className="m-0 truncate text-[10px] font-medium text-slate-500">{note}</p>
+        <p className="m-0 line-clamp-2 text-[9px] font-medium leading-3.5 text-slate-500 sm:truncate sm:text-[10px] sm:leading-normal">{note}</p>
       </div>
     </article>
   );
@@ -294,7 +301,7 @@ export default function SalesOverviewDashboard() {
 
   return (
     <div id="sales-overview-dashboard" className="space-y-4">
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard icon={Building2} label="Total properties" value={data.totalProperties} note="Verified portfolio" tone="green" />
         <KpiCard icon={Layers3} label="NRMS properties" value={data.nrmsProperties} note="Active NRMS attribution" tone="blue" />
         <KpiCard icon={TrendingUp} label="Marketplace properties" value={data.marketplaceProperties} note="Marketplace attribution" tone="violet" />
@@ -442,7 +449,43 @@ export default function SalesOverviewDashboard() {
         <article className="min-w-0 overflow-hidden border border-slate-200 bg-white shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5"><h2 className="m-0 text-sm font-black text-slate-900">Attributed properties</h2><Link href="/sales/properties" className="text-[11px] font-bold text-emerald-700 no-underline hover:underline">View all properties</Link></div>
           {properties.length ? (
-            <div className="overflow-x-auto">
+            <>
+              <div className="divide-y divide-slate-100 md:hidden">
+                {properties.slice(0, 5).map((property) => {
+                  const location = property.city || property.district || property.regionName || "Location not recorded";
+                  const products = property.salesAttributions.map((item) => formatLabel(item.productType)).join(" + ");
+                  return (
+                    <Link
+                      key={property.id}
+                      href={`/sales/properties/${property.id}`}
+                      className="group block px-4 py-3.5 no-underline transition hover:bg-emerald-50/40 hover:no-underline"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="m-0 truncate text-xs font-black text-slate-900">{property.title}</p>
+                          <p className="mb-0 mt-1 truncate text-[10px] text-slate-400">
+                            {location}{products ? ` · ${products}` : ""}
+                          </p>
+                        </div>
+                        <span className="max-w-[45%] shrink-0 text-right text-[11px] font-black leading-4 text-slate-950">
+                          {money(property.totalEarnings, property.currency)}
+                        </span>
+                      </div>
+                      <div className="mt-2.5 flex items-center justify-between gap-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone(property.status)}`}>
+                          {formatLabel(property.status)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                          Open
+                          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[660px] border-collapse text-left">
                 <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-2.5">Property</th><th className="px-3 py-2.5">Location</th><th className="px-3 py-2.5">Products</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5 text-right">Earnings</th><th className="w-8" /></tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -458,7 +501,8 @@ export default function SalesOverviewDashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           ) : <div className="grid min-h-48 place-items-center text-center"><div><Building2 className="mx-auto h-7 w-7 text-slate-200" /><p className="mb-0 mt-2 text-xs font-bold text-slate-500">No attributed properties yet</p></div></div>}
         </article>
 

@@ -213,18 +213,42 @@ export default function SalesPropertiesPage() {
           </div>
 
           {loading ? (
-            <div className="divide-y divide-slate-100" role="status" aria-label="Loading attributed properties">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="grid animate-pulse grid-cols-[minmax(190px,1.4fr)_120px_minmax(190px,1fr)_80px_130px_40px] gap-4 px-5 py-4">
-                  <span className="h-4 rounded bg-slate-200" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-100" />
-                  <span className="h-4 rounded bg-slate-200" />
-                  <span className="h-8 w-8 rounded-lg bg-slate-100" />
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="space-y-3 bg-slate-50/60 p-3 md:hidden" role="status" aria-label="Loading attributed properties">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <span className="block h-4 w-3/4 rounded bg-slate-200" />
+                        <span className="block h-3 w-1/2 rounded bg-slate-100" />
+                      </div>
+                      <span className="h-6 w-16 rounded-full bg-slate-100" />
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <span className="h-7 w-24 rounded-lg bg-slate-100" />
+                      <span className="h-7 w-28 rounded-lg bg-slate-100" />
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <span className="h-11 rounded-xl bg-slate-100" />
+                      <span className="h-11 rounded-xl bg-slate-100" />
+                    </div>
+                    <span className="mt-4 block h-11 rounded-xl bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+              <div className="hidden divide-y divide-slate-100 md:block" role="status" aria-label="Loading attributed properties table">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="grid animate-pulse grid-cols-[minmax(190px,1.4fr)_120px_minmax(190px,1fr)_80px_130px_40px] gap-4 px-5 py-4">
+                    <span className="h-4 rounded bg-slate-200" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-100" />
+                    <span className="h-4 rounded bg-slate-200" />
+                    <span className="h-8 w-8 rounded-lg bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+            </>
           ) : properties.length === 0 ? (
             <div className="grid min-h-64 place-items-center px-6 py-12 text-center">
               <div>
@@ -252,7 +276,77 @@ export default function SalesPropertiesPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="space-y-3 bg-slate-50/60 p-3 md:hidden">
+                {properties.map((property) => {
+                  const location = [property.city, property.district, property.regionName].filter(Boolean).join(", ") || "Location not recorded";
+                  return (
+                    <article
+                      key={property.id}
+                      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_36px_-30px_rgba(15,23,42,0.45)]"
+                    >
+                      <div className="h-1 bg-emerald-600" aria-hidden />
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="m-0 truncate text-sm font-black text-slate-950">{property.title}</h3>
+                            <p className="mb-0 mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-slate-400">
+                              <MapPin className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{location}</span>
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-lg bg-slate-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-slate-600">
+                            {formatLabel(property.type)}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {property.salesAttributions.map((attribution) => (
+                            <span
+                              key={attribution.id}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-100 bg-white px-2 py-1 shadow-sm"
+                            >
+                              <span className="text-[9px] font-black text-slate-700">{formatLabel(attribution.productType)}</span>
+                              <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase ${statusTone(attribution.status)}`}>
+                                {formatLabel(attribution.status)}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+
+                        <dl className="mb-0 mt-4 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                            <dt className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                              <BedDouble className="h-3 w-3" />
+                              Rooms
+                            </dt>
+                            <dd className="m-0 mt-1 text-xs font-black text-slate-800">{property.totalBedrooms ?? "—"}</dd>
+                          </div>
+                          <div className="rounded-xl bg-emerald-50 px-3 py-2.5 ring-1 ring-emerald-100">
+                            <dt className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                              <WalletCards className="h-3 w-3" />
+                              Earnings
+                            </dt>
+                            <dd className="m-0 mt-1 break-words text-[11px] font-black leading-4 text-emerald-900">
+                              {money(property.totalEarnings, property.currency)}
+                            </dd>
+                          </div>
+                        </dl>
+
+                        <Link
+                          href={`/sales/properties/${property.id}`}
+                          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073c35] px-4 text-xs font-black text-white no-underline shadow-[0_12px_24px_-18px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800 hover:text-white hover:no-underline"
+                        >
+                          View property
+                          <Eye className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[920px] border-collapse text-left">
                 <thead className="bg-slate-50/80">
                   <tr className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
@@ -324,7 +418,8 @@ export default function SalesPropertiesPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
 
           {!loading && properties.length > 0 ? (

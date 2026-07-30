@@ -269,18 +269,22 @@ export default function SalesLeadDetailPage() {
               title={lead.propertyName}
               description={lead.location || lead.region || "Location not recorded"}
               actions={(
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className={`inline-flex min-h-9 items-center rounded-full px-3 text-[10px] font-black uppercase tracking-wide ${statusTone(lead.status)}`}>
+                <div
+                  role="toolbar"
+                  aria-label="Lead actions"
+                  className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:justify-end"
+                >
+                  <span className={`inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-full px-3 text-[10px] font-black uppercase tracking-wide ${statusTone(lead.status)}`}>
                     {formatLabel(lead.status)}
                   </span>
                   {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? (
-                    <span className="inline-flex min-h-9 items-center rounded-full bg-amber-50 px-3 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                    <span className="inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-full bg-amber-50 px-3 text-[10px] font-black uppercase tracking-wide text-amber-800">
                       Duplicate review
                     </span>
                   ) : null}
                   <Link
                     href="/sales/leads"
-                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
+                    className="inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
                   >
                     <ArrowLeft className="h-4 w-4" />
                     Leads
@@ -288,7 +292,7 @@ export default function SalesLeadDetailPage() {
                   <button
                     type="button"
                     onClick={() => setEditing((value) => !value)}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                    className="inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                   >
                     {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                     {editing ? "Close editor" : "Edit lead"}
@@ -297,7 +301,7 @@ export default function SalesLeadDetailPage() {
                     <button
                       type="button"
                       onClick={() => setConversionConfirm(true)}
-                      className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:bg-emerald-800"
+                      className="inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:bg-emerald-800"
                     >
                       <Send className="h-4 w-4" />
                       Request conversion

@@ -398,7 +398,7 @@ export default function SalesSupportPage() {
         </section>
 
         <section className="border-t border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-6" aria-label="Support categories">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-6">
             {categories.map((category) => {
               const Icon = category.icon;
               const isActive = activeCategory === category.id;
@@ -408,7 +408,7 @@ export default function SalesSupportPage() {
                   type="button"
                   onClick={() => { setActiveCategory(category.id); setQuery(""); }}
                   aria-pressed={isActive}
-                  className={`flex min-h-11 items-center gap-2.5 rounded-xl border px-3 text-left transition ${
+                  className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border px-2.5 text-left transition sm:gap-2.5 sm:px-3 ${
                     isActive
                       ? "border-emerald-300 bg-emerald-700 text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-800"

@@ -19,7 +19,7 @@ export default function SalesPageHeader({
   return (
     <header className="relative overflow-hidden rounded-[26px] border border-emerald-100/80 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-5 shadow-[0_16px_45px_-40px_rgba(3,73,61,0.55)] sm:px-6">
       <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-emerald-100/45 blur-2xl" />
-      <div className="relative flex flex-wrap items-center justify-between gap-4">
+      <div className="relative flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#087f68] text-white shadow-[0_12px_28px_-18px_rgba(8,127,104,0.9)]">
             <Icon className="h-5 w-5" />
@@ -36,7 +36,7 @@ export default function SalesPageHeader({
             </p>
           </div>
         </div>
-        {actions ? <div className="shrink-0">{actions}</div> : null}
+        {actions ? <div className="w-full min-w-0 max-w-full sm:w-auto">{actions}</div> : null}
       </div>
     </header>
   );

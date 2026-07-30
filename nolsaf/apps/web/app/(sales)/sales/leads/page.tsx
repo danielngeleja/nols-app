@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Eye, Plus, UsersRound } from "lucide-react";
+import { ArrowRight, Eye, Plus, UsersRound } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
@@ -224,17 +224,30 @@ export default function SalesLeadsPage() {
 
               <div className="divide-y divide-gray-100 md:hidden">
                 {leads.map((lead) => (
-                  <Link key={lead.id} href={`/sales/leads/${lead.id}`} className="block p-4 hover:bg-gray-50">
+                  <Link
+                    key={lead.id}
+                    href={`/sales/leads/${lead.id}`}
+                    className="group block p-4 no-underline transition hover:bg-emerald-50/40 hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400"
+                  >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-gray-900">{lead.propertyName}</p>
-                        <p className="mt-1 text-xs text-gray-500">{lead.location || "No location recorded"}</p>
+                      <div className="min-w-0">
+                        <p className="m-0 truncate text-sm font-black text-slate-900">{lead.propertyName}</p>
+                        <p className="mb-0 mt-1 truncate text-xs text-slate-500">{lead.location || "No location recorded"}</p>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-xs ${statusTone(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span>
+                      <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${statusTone(lead.status)}`}>
+                        {lead.status.replaceAll("_", " ")}
+                      </span>
                     </div>
-                    <div className="mt-3 flex justify-between text-xs text-gray-600">
-                      <span>{lead.proposedProduct.replaceAll("_", " ")}</span>
-                      <span>Follow-up: {shortDate(lead.nextFollowUpAt)}</span>
+                    <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <span className="shrink-0 whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 font-bold text-slate-600">
+                        {lead.proposedProduct.replaceAll("_", " ")}
+                      </span>
+                      <span className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600">
+                        Follow-up {shortDate(lead.nextFollowUpAt)}
+                      </span>
+                      <span className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700 transition group-hover:bg-emerald-100">
+                        <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                      </span>
                     </div>
                   </Link>
                 ))}

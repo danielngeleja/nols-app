@@ -256,7 +256,7 @@ export default function SalesNotificationsPage() {
                         {actionHref && (
                           <Link
                             href={actionHref}
-                            className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs font-bold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+                            className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:no-underline"
                           >
                             View details
                             <ArrowUpRight className="h-3.5 w-3.5" />

@@ -14,7 +14,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test middleware.auth-login-redirect.test.mjs"
+    "test": "node --experimental-strip-types --test middleware.auth-login-redirect.test.mjs public-mobile-navigation.test.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
