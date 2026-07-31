@@ -3,7 +3,7 @@ import "@/styles/globals.css";
 import "@/styles/admin-soft-ui.css";
 import { useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import SiteHeader from "@/components/SiteHeader";
+import AdminSiteHeader from "@/components/AdminSiteHeader";
 import AdminNav from "@/components/AdminSidebar";
 import LayoutFrame from "@/components/LayoutFrame";
 import AdminNotificationListener from "@/components/AdminNotificationListener";
@@ -54,12 +54,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [sidebarOpen]);
 
   return (
-    <div className="admin-soft-ui min-h-screen flex flex-col bg-slate-50">
+    <div className="admin-soft-ui min-h-screen flex flex-col bg-neutral-100">
       <AdminNotificationListener />
       <AdminReconcileAlertCard />
       <AdminNotificationDrawer />
-      {/* Full-width header */}
-      <SiteHeader role="ADMIN" />
+      {/* Full-width header. Fixed, and taller than the old bar because it carries
+          an identity row plus a primary tab row (see AdminSiteHeader). The
+          top-40 / pt-40 offsets below are measured against it. */}
+      <AdminSiteHeader />
       {/* Keep the verification modal available globally without adding a banner to every admin page. */}
       <FinanceGrantPanel showTrigger={false} />
 
@@ -70,12 +72,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           onClick={() => setSidebarOpen(false)}
         />
         <aside
-          className={`absolute left-3 top-3 bottom-3 w-[18.5rem] max-w-[85vw] bg-gradient-to-b from-[#0b1220] via-[#0a1624] to-[#070f1a] border border-white/10 rounded-3xl overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.48),0_0_40px_rgba(2,102,94,0.18)] transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-[110%]"}`}
+          className={`absolute left-3 top-3 bottom-3 w-[18.5rem] max-w-[85vw] bg-[#082f2a] text-white border border-emerald-950/70 rounded-2xl overflow-hidden shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-[110%]"}`}
         >
-          <div className="h-16 flex items-center px-4 border-b border-white/10">
-            <div className="text-sm font-semibold text-slate-100">Admin</div>
+          <div className="min-h-[5rem] flex items-center px-4 border-0 border-b border-solid border-white/10">
+            <div className="text-base font-bold tracking-[-0.01em] text-white">Admin</div>
           </div>
-          <div className="p-4 overflow-y-auto h-[calc(100%-4rem)]">
+          <div className="px-2.5 py-3 overflow-y-auto h-[calc(100%-5rem)]">
             <AdminNav variant="dark" collapsed={false} />
           </div>
         </aside>
@@ -90,16 +92,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {/* Sidebar inside the frame container on md+; collapsed shows icons only */}
           <aside
             ref={sidebarRef}
-            className={`absolute left-3 top-16 text-slate-100 border border-white/10 transition-all duration-300 ease-in-out hidden md:block ${sidebarOpen ? "w-56 p-4" : "w-20 p-2"} bg-gradient-to-b from-[#0b1220] via-[#0a1624] to-[#070f1a] h-[calc(100vh-4rem)] overflow-y-auto rounded-3xl overflow-hidden shadow-[0_18px_50px_rgba(0,0,0,0.30),0_0_46px_rgba(2,102,94,0.20)]`}
+            className={`box-border absolute left-3 top-40 text-white border border-emerald-950/70 transition-all duration-300 ease-in-out hidden md:flex md:flex-col ${sidebarOpen ? "w-56 px-2.5 py-3" : "w-20 px-2 py-3"} bg-[#082f2a] h-[calc(100vh-10rem)] overflow-hidden rounded-2xl shadow-[0_14px_34px_rgba(8,47,42,0.18)]`}
           >
-            <div className="sidebar-scroll">
+            <div className="flex min-h-0 flex-1 flex-col">
               <AdminNav variant="dark" collapsed={!sidebarOpen} />
             </div>
           </aside>
 
           {/* Main content: match Owner spacing and styling (no extra border/bg) */}
-          <div className={`min-w-0 max-w-full overflow-x-hidden pt-16 pb-6 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
-            <div className="admin-workspace-surface relative flex h-[calc(100vh-4rem)] w-full min-w-0 max-w-full flex-col overflow-hidden">
+          <div className={`min-w-0 max-w-full overflow-x-hidden pt-40 transition-all duration-300 ease-in-out ${sidebarOpen ? 'owner-content-gap' : 'md:ml-20'}`}>
+            <div className="admin-workspace-surface box-border relative flex h-[calc(100vh-10rem)] w-full min-w-0 max-w-full flex-col overflow-hidden">
               <div ref={mainRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <main className="min-w-0 overflow-x-hidden">
                   <div className="w-full min-w-0 overflow-x-hidden">

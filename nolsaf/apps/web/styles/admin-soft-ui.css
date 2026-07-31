@@ -8,6 +8,16 @@
   --admin-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
 }
 
+/* The admin shell reuses .public-container, which is sized for marketing pages
+   (max-width 80rem, then 96rem at >=1536px). With a fixed 14rem sidebar inside
+   it, that cap centres the whole dashboard and leaves large dead gutters on wide
+   monitors. A dashboard should be fluid, so the cap is lifted for admin only.
+   Scoped to .admin-soft-ui, which is on the admin layout root and nowhere else,
+   so the other 75 files using .public-container are unaffected. */
+.admin-soft-ui .public-container {
+  max-width: none;
+}
+
 .admin-workspace-surface,
 .admin-drawer-surface {
   border: 1px solid var(--admin-border);
