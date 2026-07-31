@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -33,38 +33,50 @@ function Item({
   const active = path === href || path?.startsWith(href + "/");
   const dark = variant === "dark";
 
+  // Dark variant mirrors the NRMS workspace sidebar exactly (see
+  // app/(owner)/owner/nrms/layout.tsx): no icon border, tile tints only, and the
+  // glyph inherits the row's text colour instead of a fixed teal.
   const iconWrapClass = dark
     ? active
-      ? "bg-white/10 border-white/15"
-      : "bg-white/5 border-white/10"
+      ? "bg-emerald-950/10"
+      : "bg-white/[0.04] group-hover:bg-white/[0.08]"
     : active
-      ? "bg-[#02665e]/10 border-[#02665e]/15"
-      : "bg-[#02665e]/5 border-[#02665e]/10";
+      ? "bg-[#02665e]/10 border border-[#02665e]/15"
+      : "bg-[#02665e]/5 border border-[#02665e]/10";
 
-  const iconClass = dark
-    ? "text-teal-200"
-    : "text-[#02665e]";
+  const iconClass = dark ? "" : "text-[#02665e]";
   
   if (collapsed) {
     return (
       <Link
         href={href}
         title={label}
-        className={`group relative no-underline flex items-center justify-center rounded-2xl p-3 text-sm font-medium transition-colors duration-200
-          ${dark ? "bg-white/5 border border-white/10" : "bg-white/70 border shadow-sm backdrop-blur-[2px]"}
-          ${dark
-            ? active
-              ? "text-slate-100 bg-white/10 border-white/15"
-              : "text-slate-200 hover:bg-white/10 hover:border-white/15"
-            : active
+        className={dark
+          ? `group relative no-underline hover:no-underline flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition
+            ${active
+              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20`
+          : `group relative no-underline flex items-center justify-center rounded-2xl p-3 text-sm font-medium transition-colors duration-200
+            bg-white/70 border shadow-sm backdrop-blur-[2px]
+            ${active
               ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
               : "text-[#02665e] border-[#02665e]/10 hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-          focus:outline-none focus-visible:ring-2 ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25`}
       >
         {Icon ? (
-          <span className={`grid place-items-center rounded-xl h-12 w-12 border ${iconWrapClass}`}>
-            <Icon className={`h-6 w-6 ${iconClass}`} aria-hidden />
-          </span>
+          dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-12 w-12 ${iconWrapClass}`}>
+              <Icon className={`h-6 w-6 ${iconClass}`} aria-hidden />
+            </span>
+          )
         ) : null}
         {/* Tooltip for collapsed state */}
         <span className={`absolute left-full ml-2 px-2 py-1 text-xs font-medium rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity duration-200 ${dark ? "text-white bg-black/70 border border-white/10" : "text-white bg-gray-900"}`}>
@@ -78,31 +90,46 @@ function Item({
     <Link
       href={href}
       title={label}
-      className={`group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
-        transition-colors duration-200 border
-        ${dark ? "bg-white/5 border-white/10" : "bg-white/90 shadow-sm border-[#02665e]/10"}
-        ${dark
-          ? active
-            ? "text-slate-100 bg-white/10 border-white/15"
-            : "text-slate-200 hover:bg-white/10 hover:border-white/15"
-          : active
+      className={dark
+        ? `group relative no-underline hover:no-underline flex min-h-9 items-center gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition
+          ${active
+            ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+            : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+          ${isSubItem ? "ml-3 pl-3" : ""}`
+        : `group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
+          transition-colors duration-200 border bg-white/90 shadow-sm
+          ${active
             ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
             : "text-[#02665e] border-[#02665e]/10 hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-        focus:outline-none focus-visible:ring-2 ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}
-        ${isSubItem ? "ml-3 pl-3" : ""}`}
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25
+          ${isSubItem ? "ml-3 pl-3" : ""}`}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        {Icon ? (
-          <span className={`grid place-items-center rounded-xl h-9 w-9 border ${iconWrapClass}`}>
-            <Icon className={`h-4 w-4 ${iconClass}`} aria-hidden />
-          </span>
-        ) : null}
-        <span className={`${isSubItem ? "text-[13px]" : ""} truncate whitespace-nowrap`}>{label}</span>
-      </div>
-      <ChevronRight
-        className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-85" : "group-hover:opacity-85"}`}
-        aria-hidden
-      />
+      {dark ? (
+        <>
+          {Icon ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 min-w-0">
+            {Icon ? (
+              <span className={`grid place-items-center rounded-xl h-9 w-9 ${iconWrapClass}`}>
+                <Icon className={`h-4 w-4 ${iconClass}`} aria-hidden />
+              </span>
+            ) : null}
+            <span className={`${isSubItem ? "text-[13px]" : ""} truncate whitespace-nowrap`}>{label}</span>
+          </div>
+          <ChevronRight
+            className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity text-[#02665e] ${active ? "opacity-85" : "group-hover:opacity-85"}`}
+            aria-hidden
+          />
+        </>
+      )}
     </Link>
   );
 }
@@ -255,23 +282,41 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     return null;
   })();
 
-  const SectionHeader = ({ title, active }: { title: string; active: boolean }) => (
-    <div className="px-1">
-      <div className="flex items-center gap-3 px-3">
-        <span className={`h-1.5 w-1.5 rounded-full ${dark ? (active ? "bg-teal-200" : "bg-white/25") : (active ? "bg-[#02665e]" : "bg-[#02665e]/35")}`} />
-        <div className={`text-[10px] font-semibold tracking-[0.22em] uppercase ${dark ? "text-white/45" : "text-[#02665e]/55"}`}>
+  // Dark variant uses the NRMS group label: plain uppercase text, no leading dot
+  // and no hairline rule.
+  const SectionHeader = ({ title, active }: { title: string; active: boolean }) => {
+    if (dark) {
+      return (
+        <p className="mb-1.5 mt-0 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">
           {title}
+        </p>
+      );
+    }
+    return (
+      <div className="px-1">
+        <div className="flex items-center gap-3 px-3">
+          <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#02665e]" : "bg-[#02665e]/35"}`} />
+          <div className="text-[10px] font-semibold tracking-[0.22em] uppercase text-[#02665e]/55">
+            {title}
+          </div>
+          <div className="h-px flex-1 bg-[#02665e]/10" />
         </div>
-        <div className={`h-px flex-1 ${dark ? "bg-white/10" : "bg-[#02665e]/10"}`} />
       </div>
-    </div>
-  );
+    );
+  };
 
   const GroupHeader = ({ title }: { title: string }) => {
     if (collapsed) return null;
+    if (dark) {
+      return (
+        <p className="mb-1.5 mt-2 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">
+          {title}
+        </p>
+      );
+    }
     return (
       <div className="pt-2">
-        <div className={`px-3 text-[10px] font-semibold tracking-[0.26em] uppercase ${dark ? "text-white/35" : "text-[#02665e]/45"}`}>
+        <div className="px-3 text-[10px] font-semibold tracking-[0.26em] uppercase text-[#02665e]/45">
           {title}
         </div>
       </div>
@@ -347,22 +392,30 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         <button
           onClick={onClick}
           title={label}
-          className={`group relative w-full flex items-center justify-center rounded-2xl p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
-            ${dark ? "text-slate-200 bg-white/5 border-white/10" : "text-[#02665e] bg-white/70 border-[#02665e]/10"}
-            ${dark
-              ? active
-                ? "bg-white/10 border-white/15"
-                : "hover:bg-white/10 hover:border-white/15"
-              : active
+          className={dark
+            ? `group relative w-full appearance-none flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+              ${active
+                ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+                // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
+            : `group relative w-full flex items-center justify-center rounded-2xl p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+              text-[#02665e] bg-white/70 border-[#02665e]/10
+              ${active
                 ? "bg-[#02665e]/6 border-[#02665e]/25"
                 : "hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-            ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+              focus-visible:ring-[#02665e]/25`}
         >
-          <span
-            className={`grid place-items-center rounded-xl h-12 w-12 border ${dark ? (active ? "bg-white/10 border-white/15" : "bg-white/5 border-white/10") : (active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10")}`}
-          >
-            <Icon className={`h-6 w-6 ${dark ? "text-teal-200" : "text-[#02665e]"}`} aria-hidden />
-          </span>
+          {dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-12 w-12 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+              <Icon className="h-6 w-6 text-[#02665e]" aria-hidden />
+            </span>
+          )}
           {/* Tooltip for collapsed state */}
           <span className={`absolute left-full ml-2 px-2 py-1 text-xs font-medium rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity duration-200 ${dark ? "text-white bg-black/70 border border-white/10" : "text-white bg-gray-900"}`}>
             {label}
@@ -375,27 +428,37 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
       <button
         onClick={onClick}
         title={label}
-        className={`group w-full flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
-          ${dark ? "text-slate-200 bg-white/5 border-white/10" : "text-[#02665e] bg-white/90 border-[#02665e]/10 shadow-sm"}
-          ${dark
-            ? active
-              ? "bg-white/10 border-white/15"
-              : "hover:bg-white/10 hover:border-white/15"
-            : active
+        className={dark
+          ? `group w-full appearance-none flex min-h-9 items-center justify-between gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+            ${active
+              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
+          : `group w-full flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+            text-[#02665e] bg-white/90 border-[#02665e]/10 shadow-sm
+            ${active
               ? "bg-[#02665e]/6 border-[#02665e]/25"
               : "hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-          ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+            focus-visible:ring-[#02665e]/25`}
       >
-        <span className="flex items-center gap-3 min-w-0">
-          <span className={`grid place-items-center rounded-xl h-9 w-9 border ${dark ? (active ? "bg-white/10 border-white/15" : "bg-white/5 border-white/10") : (active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10")}`}>
-            <Icon className={`h-4 w-4 ${dark ? "text-teal-200" : "text-[#02665e]"}`} aria-hidden />
-          </span>
-          <span className={`${dark ? "text-slate-100" : ""} truncate whitespace-nowrap`}>{label}</span>
+        <span className={`flex min-w-0 items-center ${dark ? "gap-2.5" : "gap-3"}`}>
+          {dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-9 w-9 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+              <Icon className="h-4 w-4 text-[#02665e]" aria-hidden />
+            </span>
+          )}
+          <span className="truncate whitespace-nowrap">{label}</span>
         </span>
         {isOpen ? (
-          <ChevronDown className={`h-4 w-4 ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
         ) : (
-          <ChevronRight className={`h-4 w-4 ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
         )}
       </button>
     );
@@ -405,11 +468,14 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     <div
       className={
         dark
-          ? `rounded-3xl border border-white/10 bg-gradient-to-b from-[#0b1220] via-[#0a1624] to-[#070f1a] shadow-[0_20px_60px_rgba(0,0,0,0.35)] ${collapsed ? "p-2" : "p-3"}`
+          // The NRMS sidebar panel is the <aside> itself. This wrapper must stay
+          // transparent or it paints a second panel inside the green rail.
+          // h-full lets the nav scroll internally while the footer stays pinned.
+          ? "flex h-full min-h-0 flex-col"
           : `rounded-3xl border border-[#02665e]/10 shadow-[0_12px_30px_rgba(2,102,94,0.08)] ${collapsed ? "p-2 bg-gradient-to-b from-white via-white to-[#02665e]/[0.09]" : "p-3 bg-white"}`
       }
     >
-      <div className={`space-y-2 ${collapsed ? "space-y-1" : ""}`}>
+      <div className={dark ? "sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto" : `space-y-2 ${collapsed ? "space-y-1" : ""}`}>
         <GroupHeader title="PAGES" />
 
         {/* Home */}
@@ -663,6 +729,23 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         )}
 
       </div>
+
+      {/* Collapse control, mirroring the NRMS sidebar footer. The admin layout owns
+          the open/closed state and already listens for this event, so no prop
+          plumbing is needed. Hidden below md because the rail itself is md-and-up. */}
+      {dark && (
+        <div className="mt-3 shrink-0 border-0 border-t border-solid border-white/10 bg-black/5 p-2.5">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("toggle-admin-sidebar"))}
+            className={`hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white md:flex ${collapsed ? "justify-center" : "justify-between px-2.5"}`}
+            aria-label={collapsed ? "Expand admin sidebar" : "Collapse admin sidebar"}
+          >
+            {!collapsed && "Collapse sidebar"}
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

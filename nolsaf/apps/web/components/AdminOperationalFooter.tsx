@@ -163,7 +163,7 @@ export default function AdminOperationalFooter() {
   return (
     <footer
       aria-label="Admin workspace status and resources"
-      className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1424] px-3 py-2 sm:px-4"
+      className="relative z-10 mx-3 mb-3 mt-2 shrink-0 rounded-2xl border border-white/10 bg-[#0b1424] px-3.5 py-2 shadow-[0_10px_24px_rgba(8,20,36,0.16)] sm:px-5"
     >
       <div className="flex min-h-9 items-center justify-between gap-3">
         <Link
