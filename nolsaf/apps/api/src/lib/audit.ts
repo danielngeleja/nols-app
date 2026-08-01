@@ -1,5 +1,6 @@
 import { prisma } from "@nolsaf/prisma";
 import { Request } from "express";
+import { auditRetentionFields } from "./auditRetention.js";
 
 export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
   const actorId = (req as any).user?.id as number | undefined;
@@ -10,6 +11,7 @@ export async function audit(req: Request, action: string, resource?: string, bef
   const ip = req.headers["x-forwarded-for"]?.toString()?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
   const ua = req.headers["user-agent"] || "";
   try {
+    const createdAt = new Date();
     await prisma.auditLog.create({
       data: { 
         actorId: actorId ?? null, 
@@ -20,7 +22,9 @@ export async function audit(req: Request, action: string, resource?: string, bef
         ip: ip || null, 
         ua: ua || null, 
         beforeJson: beforeJson ?? null, 
-        afterJson: afterJson ?? null 
+        afterJson: afterJson ?? null,
+        createdAt,
+        ...auditRetentionFields(action, resource || "SYSTEM", createdAt),
       },
     });
   } catch {
@@ -41,6 +45,7 @@ export async function auditLog(params: {
 }) {
   try {
     // write to the general AuditLog model for structured change history
+    const createdAt = new Date();
     const created = await prisma.auditLog.create({
       data: {
         actorId: params.actorId,
@@ -52,6 +57,8 @@ export async function auditLog(params: {
         afterJson: params.after ?? null,
         ip: params.ip ?? null,
         ua: params.ua ?? null,
+        createdAt,
+        ...auditRetentionFields(params.action, params.entity, createdAt),
       },
     });
     console.log(`[audit] Created audit log: ${params.action} for ${params.entity} #${params.entityId} by ${params.actorRole} #${params.actorId}`);

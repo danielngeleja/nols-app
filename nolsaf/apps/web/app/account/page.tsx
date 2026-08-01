@@ -127,10 +127,12 @@ export default function AccountIndex() {
 
   const loadStats = async () => {
     try {
-      // Fetch bookings count — count ALL bookings the customer can see: drafts
-      // (unpaid invoices), valid, and expired. (No paidOnly flag so drafts count too.)
+      // Count confirmed stays plus drafts that can still be paid. Expired unpaid
+      // drafts remain in Booking history but stop affecting the dashboard immediately.
       try {
-        const bookingsRes = await api.get("/api/customer/bookings?page=1&pageSize=1");
+        const bookingsRes = await api.get(
+          "/api/customer/bookings?page=1&pageSize=1&activeDraftsOnly=1"
+        );
         setStats((prev) => ({ ...prev, bookings: bookingsRes.data?.total || 0 }));
       } catch {}
 

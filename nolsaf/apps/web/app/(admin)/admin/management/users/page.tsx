@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
 import { Users, ChevronLeft, ChevronRight, Eye, Search, X, Check, CheckCircle2 } from "lucide-react";
@@ -67,6 +67,7 @@ export default function Page() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [auditRows, setAuditRows] = useState<UserAuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const deepLinkedUserIdRef = useRef<number | null>(null);
 
   const hasPendingConfirmation = pendingReset2FA || pendingDisableUser;
 
@@ -151,6 +152,34 @@ export default function Page() {
     setPendingDisableUser(false);
     setAckDisableUser(false);
   };
+
+  useEffect(() => {
+    const requestedId = Number(new URLSearchParams(window.location.search).get("userId"));
+    if (!Number.isInteger(requestedId) || requestedId <= 0 || deepLinkedUserIdRef.current === requestedId) return;
+    deepLinkedUserIdRef.current = requestedId;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get(`/api/admin/users/${requestedId}`);
+        const requestedUser = response.data?.user as UserRow | undefined;
+        if (cancelled || !requestedUser) return;
+        setRole(String(requestedUser.role || "ADMIN").toUpperCase());
+        openEdit(requestedUser);
+      } catch {
+        if (cancelled) return;
+        setNotice({
+          tone: "error",
+          title: "Account could not be opened",
+          message: `User #${requestedId} is unavailable or you no longer have access.`,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function saveEdit() {
     if (!editing) return;

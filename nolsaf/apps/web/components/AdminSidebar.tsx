@@ -215,7 +215,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/lifecycle-health", label: "Lifecycle Health", Icon: Activity },
   { href: "/admin/observability", label: "Observability", Icon: Activity },
-  { href: "/admin/impact-center", label: "Impact Center", Icon: AlertTriangle },
+  { href: "/admin/impact-center", label: "Technical Impact", Icon: AlertTriangle },
   { href: "/admin/management/reports", label: "Reports", Icon: FileText },
   { href: "/admin/management/audit-log", label: "Audit Log", Icon: ShieldCheck },
   { href: "/admin/management/no4p-otp", label: "No4P OTP", Icon: KeyRound },
@@ -253,6 +253,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const activeSection = (() => {
     if (!path) return null;
     if (path === "/admin/home") return "Home";
+    if (path.startsWith("/admin/action-center")) return "Action Center";
     if (path.startsWith("/admin/nrms")) return "NRMS";
     if (path.startsWith("/admin/sales")) return "Sales";
     if (path.startsWith("/admin/drivers")) return "Drivers";
@@ -480,6 +481,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Home */}
         <Item href="/admin/home" label="Home" Icon={Home} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
+        <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Admin/Owners */}
         {collapsed ? (

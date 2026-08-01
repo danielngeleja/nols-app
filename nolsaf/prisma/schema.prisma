@@ -215,6 +215,8 @@ model User {
 
   // Admin audits performed by this user (if admin)
   adminAudits          AdminAudit[]          @relation("AdminAudits")
+  // Persisted Action Center work claimed by this administrator.
+  assignedAdminWorkItems AdminWorkItem[] @relation("AdminWorkItemAssignee")
   // Group booking audits performed by this admin
   groupBookingAudits   GroupBookingAudit[]   @relation("GroupBookingAudits")
   // Group booking messages sent by this user/admin
@@ -705,17 +707,21 @@ model AdminIpAllow {
 //  AUDIT LOG MODEL
 // =========================================================
 model AuditLog {
-  id         BigInt   @id @default(autoincrement())
-  actorId    Int?
-  actorRole  String? // ADMIN, OWNER, CUSTOMER, DRIVER
-  action     String   @db.VarChar(80) // e.g., PROPERTY_APPROVE
-  entity     String   @db.VarChar(200) // e.g., PROPERTY, BOOKING, INVOICE or OTP:PHONE:+255xxx:sha256hash
-  entityId   Int?
-  beforeJson Json?
-  afterJson  Json?
-  ip         String?  @db.VarChar(64)
-  ua         String?  @db.VarChar(255)
-  createdAt  DateTime @default(now())
+  id              BigInt    @id @default(autoincrement())
+  actorId         Int?
+  actorRole       String? // ADMIN, OWNER, CUSTOMER, DRIVER
+  action          String    @db.VarChar(80) // e.g., PROPERTY_APPROVE
+  entity          String    @db.VarChar(200) // e.g., PROPERTY, BOOKING, INVOICE or OTP:PHONE:+255xxx:sha256hash
+  entityId        Int?
+  beforeJson      Json?
+  afterJson       Json?
+  ip              String?   @db.VarChar(64)
+  ua              String?   @db.VarChar(255)
+  retentionClass  String    @default("OPERATIONAL") @db.VarChar(20)
+  expiresAt       DateTime?
+  legalHoldAt     DateTime?
+  legalHoldReason String?   @db.VarChar(500)
+  createdAt       DateTime  @default(now())
 
   // Relations
   actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
@@ -724,6 +730,8 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([entity, entityId, id], map: "idx_AuditLog_entity_entityId_id")
   @@index([createdAt])
+  @@index([expiresAt, legalHoldAt])
+  @@index([retentionClass, expiresAt])
   @@map("auditlog")
 }
 
@@ -731,22 +739,79 @@ model AuditLog {
 //  ADMIN AUDIT MODEL - For admin action tracking
 // =========================================================
 model AdminAudit {
-  id           Int      @id @default(autoincrement())
-  adminId      Int // Admin who performed the action
-  targetUserId Int? // User being acted upon (optional)
-  performedBy  Int? // Alternative field name (alias for adminId in some cases)
-  action       String   @db.VarChar(80) // e.g., SUSPEND_DRIVER, GRANT_BONUS, KYC_APPROVE
-  details      Json? // JSON object or string details
-  createdAt    DateTime @default(now())
+  id              Int       @id @default(autoincrement())
+  adminId         Int? // Admin who performed the action; preserved as null if the account is removed
+  targetUserId    Int? // User being acted upon (optional)
+  performedBy     Int? // Alternative field name (alias for adminId in some cases)
+  action          String    @db.VarChar(80) // e.g., SUSPEND_DRIVER, GRANT_BONUS, KYC_APPROVE
+  details         Json? // JSON object or string details
+  retentionClass  String    @default("OPERATIONAL") @db.VarChar(20)
+  expiresAt       DateTime?
+  legalHoldAt     DateTime?
+  legalHoldReason String?   @db.VarChar(500)
+  createdAt       DateTime  @default(now())
 
   // Relations
-  admin User @relation("AdminAudits", fields: [adminId], references: [id], onDelete: Cascade)
+  admin User? @relation("AdminAudits", fields: [adminId], references: [id], onDelete: SetNull)
 
   @@index([adminId])
   @@index([targetUserId])
   @@index([action])
   @@index([createdAt])
+  @@index([expiresAt, legalHoldAt])
+  @@index([retentionClass, expiresAt])
   @@map("adminaudit")
+}
+
+/// Durable workflow and SLA state for Action Center records. Business source
+/// tables remain authoritative; this model stores operational ownership,
+/// response timing, and resolution evidence across those different domains.
+model AdminWorkItem {
+  id                      Int       @id @default(autoincrement())
+  sourceType              String    @db.VarChar(60)
+  sourceId                String    @db.VarChar(120)
+  category                String    @db.VarChar(40)
+  title                   String    @db.VarChar(240)
+  summary                 String    @db.Text
+  subject                 String    @db.VarChar(240)
+  detailHref              String    @db.VarChar(500)
+  actionLabel             String    @db.VarChar(80)
+  severity                String    @db.VarChar(20)
+  status                  String    @default("OPEN") @db.VarChar(20) // OPEN, ACKNOWLEDGED, RESOLVED
+  slaPolicyVersion        String    @default("2026-08") @db.VarChar(20)
+  responseTargetMinutes   Int
+  resolutionTargetMinutes Int
+  openedAt                DateTime
+  responseDueAt           DateTime
+  resolutionDueAt         DateTime
+  operationalDueAt        DateTime?
+  acknowledgedAt          DateTime?
+  acknowledgedById        Int?
+  assignedToId            Int?
+  assignedTeam            String?   @db.VarChar(80)
+  resolvedAt              DateTime?
+  resolvedById            Int?
+  resolutionNote          String?   @db.VarChar(1000)
+  retentionClass          String    @default("OPERATIONAL") @db.VarChar(20)
+  expiresAt               DateTime?
+  legalHoldAt             DateTime?
+  legalHoldReason         String?   @db.VarChar(500)
+  lastObservedAt          DateTime
+  metadata                Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  assignedTo User? @relation("AdminWorkItemAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceType, sourceId])
+  @@index([status, severity])
+  @@index([assignedTeam, status])
+  @@index([assignedToId, status])
+  @@index([responseDueAt, status])
+  @@index([resolutionDueAt, status])
+  @@index([lastObservedAt])
+  @@index([expiresAt, legalHoldAt])
+  @@map("admin_work_item")
 }
 
 /// Immutable reference and lifecycle record for administrative restrictions.

@@ -42,6 +42,7 @@ import {
   LogOut,
   Menu,
   RefreshCw,
+  Siren,
   Settings,
   Shield,
   User,
@@ -51,6 +52,7 @@ import { fetchAccountSession } from "@/lib/accountSession";
 
 const PRIMARY_TABS = [
   { href: "/admin/home", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/admin/action-center", label: "Actions", icon: Siren },
   { href: "/admin/properties/previews", label: "Approvals", icon: CheckCircle2 },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
   { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },

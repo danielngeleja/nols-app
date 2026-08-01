@@ -58,6 +58,8 @@ type Booking = {
 };
 
 const isDraftBooking = (b: Booking) => String(b.dashboardBucket || "").toUpperCase() === "DRAFT";
+const isExpiredDraftBooking = (b: Booking) =>
+  isDraftBooking(b) && String(b.draftExpiryStatus || "").toUpperCase() === "EXPIRED";
 
 function canRequestCancellation(b: Booking): boolean {
   if (!b.bookingCode) return false;
@@ -157,20 +159,22 @@ export default function MyBookingsPage() {
   };
   const isActive = (b: Booking) => !isExpired(b);
 
-  // Drafts (unpaid) vs confirmed paid stays.
-  const drafts = bookings.filter(isDraftBooking);
+  // Payable drafts, expired drafts, and confirmed paid stays.
+  const drafts = bookings.filter((booking) => isDraftBooking(booking) && !isExpiredDraftBooking(booking));
+  const expiredDrafts = bookings.filter(isExpiredDraftBooking);
   const paidStays = bookings.filter((b) => !isDraftBooking(b));
 
   const filteredBookings = bookings.filter((booking) => {
-    if (filter === "draft") return isDraftBooking(booking);
-    if (isDraftBooking(booking)) return filter === "all"; // drafts only show under All/Draft
+    if (filter === "draft") return isDraftBooking(booking) && !isExpiredDraftBooking(booking);
+    if (isExpiredDraftBooking(booking)) return filter === "all" || filter === "expired";
+    if (isDraftBooking(booking)) return filter === "all";
     if (filter === "active") return isActive(booking);
     if (filter === "expired") return isExpired(booking);
     return true; // "all"
   });
 
   const activeCount = paidStays.filter(isActive).length;
-  const expiredCount = paidStays.filter(isExpired).length;
+  const expiredCount = paidStays.filter(isExpired).length + expiredDrafts.length;
   const draftCount = drafts.length;
 
   // Time-left helper for draft payment windows.
@@ -347,7 +351,7 @@ export default function MyBookingsPage() {
           </div>
           <div className="text-lg font-black text-slate-900">No bookings found</div>
           <div className="mt-1.5 text-sm text-slate-500 max-w-xs mx-auto">
-            {filter === "active" ? "You have no active bookings right now." : filter === "expired" ? "No past bookings yet." : filter === "draft" ? "No unpaid drafts. Bookings awaiting payment appear here." : "When you book a stay, it will appear here."}
+            {filter === "active" ? "You have no active bookings right now." : filter === "expired" ? "No past or expired bookings yet." : filter === "draft" ? "No unpaid drafts. Bookings awaiting payment appear here." : "When you book a stay, it will appear here."}
           </div>
           {filter === "all" && (
             <div className="mt-6 flex justify-center">
@@ -475,6 +479,15 @@ export default function MyBookingsPage() {
                         >
                           <CreditCard className="h-3.5 w-3.5" />
                           Complete Payment
+                        </Link>
+                      )}
+                      {expired && (
+                        <Link
+                          href={reselectHref}
+                          className="no-underline inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-[12px] font-bold text-teal-800 transition-colors hover:bg-teal-100"
+                        >
+                          <ArrowRight className="h-3.5 w-3.5" />
+                          Book again
                         </Link>
                       )}
                     </div>
