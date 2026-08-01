@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import ClientErrorBoundary from "@/components/ClientErrorBoundary";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 
 const LegalModal = dynamic(() => import("@/components/LegalModal"), { ssr: false });
 
@@ -379,7 +380,7 @@ export default function DriverSiteHeader({ unreadMessages = 0 }: { unreadMessage
                       <span className="font-medium">Setting</span>
                     </Link>
 
-                    <div className="my-1 mx-2 h-px bg-gray-200" />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" />
 
                     <button
                       onClick={async () => {

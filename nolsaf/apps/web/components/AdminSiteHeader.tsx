@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 
 const PRIMARY_TABS = [
   { href: "/admin/home", label: "Overview", icon: LayoutDashboard, exact: true },
@@ -439,7 +440,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
                       </Link>
                     ))}
 
-                    <span className="mx-3 my-2 block h-px bg-white/10" aria-hidden />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" variant="menu-dark" />
 
                     <button
                       type="button"
