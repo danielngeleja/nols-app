@@ -403,7 +403,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           currentWorkspace="SALES"
           variant="sales-sidebar"
           collapsed={sidebarCollapsed}
-          onSwitchStart={(_workspace, destination) => setNavigation({ href: destination, label: "NoLSAF workspace" })}
+          onSwitchStart={(_workspace, destination) => setNavigation({ href: destination, label: "NoLSAF Dashboard" })}
           onSwitchError={() => setNavigation(null)}
         />
         <button

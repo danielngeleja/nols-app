@@ -126,7 +126,12 @@ export default function WorkspaceSwitcher({
     ? targetIsPending
       ? "Review Sales agreement"
       : "Open Sales workspace"
-    : "Open NoLSAF workspace";
+    : "NoLSAF Dashboard";
+  const compactLabel = targetIsSales
+    ? targetIsPending
+      ? "Sales agreement"
+      : "Sales workspace"
+    : "NoLSAF Dashboard";
 
   if (variant === "sales-sidebar") {
     return (
@@ -164,21 +169,16 @@ export default function WorkspaceSwitcher({
 
   if (variant === "menu-dark") {
     return (
-      <div className="my-2 border-y border-white/10 py-1.5">
-        <button
-          type="button"
-          onClick={switchWorkspace}
-          disabled={switching}
-          className="group flex w-full items-center gap-3 border-0 bg-emerald-400/[0.08] px-4 py-2.5 text-left text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/[0.14] disabled:opacity-60"
-        >
-          {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4 text-emerald-300" />}
-          <span className="min-w-0 flex-1">
-            <span className="block">{label}</span>
-            <span className="block truncate text-[10px] font-medium text-emerald-100/55">No sign in required</span>
-          </span>
-          <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-200/55 transition group-hover:rotate-180" />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={switchWorkspace}
+        disabled={switching}
+        className="group flex w-full items-center gap-3 border-0 bg-transparent px-4 py-2.5 text-left text-sm font-medium text-emerald-200 transition hover:bg-emerald-400/10 hover:text-emerald-100 disabled:opacity-60"
+      >
+        {switching ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Icon className="h-4 w-4 shrink-0 text-emerald-300" />}
+        <span className="min-w-0 flex-1 truncate">{compactLabel}</span>
+        <ArrowLeftRight className="h-3.5 w-3.5 shrink-0 text-emerald-300/60 transition group-hover:rotate-180" />
+      </button>
     );
   }
 
@@ -197,20 +197,15 @@ export default function WorkspaceSwitcher({
   }
 
   return (
-    <div className="my-1.5 border-y border-gray-100 py-1.5">
-      <button
-        type="button"
-        onClick={switchWorkspace}
-        disabled={switching}
-        className="group flex w-full items-center gap-3 border-0 bg-emerald-50/70 px-4 py-2.5 text-left text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-60"
-      >
-        {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4 text-emerald-700" />}
-        <span className="min-w-0 flex-1">
-          <span className="block">{label}</span>
-          <span className="block truncate text-[10px] font-medium text-emerald-700/65">No sign in required</span>
-        </span>
-        <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-600/60 transition group-hover:rotate-180" />
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={switchWorkspace}
+      disabled={switching}
+      className="group flex w-full items-center gap-3 border-0 bg-transparent px-4 py-2.5 text-left text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-60"
+    >
+      {switching ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Icon className="h-4 w-4 shrink-0 text-emerald-700" />}
+      <span className="min-w-0 flex-1 truncate">{compactLabel}</span>
+      <ArrowLeftRight className="h-3.5 w-3.5 shrink-0 text-emerald-600/60 transition group-hover:rotate-180" />
+    </button>
   );
 }
