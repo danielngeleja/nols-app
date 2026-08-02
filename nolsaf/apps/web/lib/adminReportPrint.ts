@@ -192,11 +192,7 @@ export function openAdminReportPrintWindow() {
   return printWindow;
 }
 
-export async function renderAndPrintAdminReport(printWindow: Window, html: string) {
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-
+export async function printPreparedAdminReportWindow(printWindow: Window) {
   const images = Array.from(printWindow.document.images);
   await Promise.all(images.map((image) => {
     if (image.complete) return Promise.resolve();
@@ -208,4 +204,11 @@ export async function renderAndPrintAdminReport(printWindow: Window, html: strin
   await new Promise<void>((resolve) => printWindow.requestAnimationFrame(() => printWindow.requestAnimationFrame(() => resolve())));
   printWindow.focus();
   printWindow.print();
+}
+
+export async function renderAndPrintAdminReport(printWindow: Window, html: string) {
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  await printPreparedAdminReportWindow(printWindow);
 }

@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
 import apiClient from "@/lib/apiClient";
+import { openAdminReportPrintWindow, printPreparedAdminReportWindow } from "@/lib/adminReportPrint";
 import DatePickerField from "@/components/DatePickerField";
 import { buildReportWorkbook, renderReportCharts, type WorkbookIdentity, type WorkbookInput } from "@/lib/nrmsReportWorkbook";
 import {
@@ -438,6 +439,45 @@ function buildReportNumber(data: ReportsResponse, generatedAt: Date): string {
   return `NRMS-R${property}-${from}-${to}-${reportTimeKey(generatedAt)}-${reportNonce()}`;
 }
 
+function prepareNrmsPrintWindow(printWindow: Window): HTMLElement {
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preparing NRMS report</title>
+  <style>
+    @page { size: A4 portrait; margin: 8mm 10mm 10mm 10mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #fff; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #nrms-print-root { width: 718px; margin: 0 auto; background: #fff; }
+    #nrms-print-root .pdf-metric,
+    #nrms-print-root .pdf-panel,
+    #nrms-print-root .pdf-grid-2,
+    #nrms-print-root .pdf-section-title,
+    #nrms-print-root .pdf-certification-head,
+    #nrms-print-root tr { break-inside: avoid; page-break-inside: avoid; }
+    #nrms-print-root thead { display: table-header-group; }
+    @media screen {
+      body { padding: 18px; background: #eef2f0; }
+      #nrms-print-root { box-shadow: 0 24px 70px rgba(7, 60, 53, .14); }
+    }
+    @media print {
+      body { padding: 0; }
+      #nrms-print-root { width: 718px; margin: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body><div id="nrms-print-root"></div></body>
+</html>`);
+  printWindow.document.close();
+  const root = printWindow.document.getElementById("nrms-print-root");
+  if (!root) throw new Error("The NRMS report preview could not be created.");
+  return root;
+}
+
 function PdfEmptyRow({ columns, text }: { columns: number; text: string }) {
   return <tr><td colSpan={columns} className="pdf-empty">{text}</td></tr>;
 }
@@ -798,9 +838,9 @@ export default function NrmsReportsPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [activePdfSelection, setActivePdfSelection] = useState<PdfPackSelection | null>(null);
-  // Browser print renders the same markup as vector text instead of a bitmap. When set, the report
-  // is portalled to document.body so the print stylesheet can isolate it from the rest of the page.
-  const [printMode, setPrintMode] = useState(false);
+  // NRMS uses the same isolated report-window lifecycle as Admin Reports. The live application body
+  // is never hidden or modified while the browser prepares its native A4 output.
+  const [pdfPortalTarget, setPdfPortalTarget] = useState<HTMLElement | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const pdfRef = useRef<HTMLDivElement | null>(null);
@@ -940,14 +980,15 @@ export default function NrmsReportsPage() {
 
   const generatePdf = async (selection: PdfPackSelection) => {
     if (!data || !financeData || !currencyReport || pdfBusy) return;
+    const printWindow = openAdminReportPrintWindow();
+    if (!printWindow) {
+      setPdfError("Unable to open the report preview. Please allow pop-ups and try again.");
+      return;
+    }
     setPrintDialogOpen(false);
     setActivePdfSelection(selection);
-    // Both printing and saving now use the browser's native A4 PDF engine. This
-    // preserves vector text and avoids the quality loss from canvas rasterisation.
-    setPrintMode(true);
     setPdfBusy(true);
     setPdfError(null);
-    const previousDocumentTitle = document.title;
     try {
       const generatedAt = new Date();
       let reportNumber = buildReportNumber(data, generatedAt);
@@ -1027,41 +1068,29 @@ export default function NrmsReportsPage() {
         qrDataUrl,
         verificationMode: verificationToken ? "SEALED" : "REFERENCE",
       };
+      if (printWindow.closed) throw new Error("The report preview was closed before it was ready.");
+      const portalTarget = prepareNrmsPrintWindow(printWindow);
+      setPdfPortalTarget(portalTarget);
       setPdfIdentity(identity);
 
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       if (!pdfRef.current) throw new Error("The printable report could not be prepared.");
-      await Promise.all(Array.from(pdfRef.current.querySelectorAll("img")).map((image) => image.complete ? Promise.resolve() : image.decode()));
 
       const propertyName = data.property.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "property";
-      // Chromium and other browsers use document.title as the suggested PDF
-      // filename, while still allowing the user to select a physical printer.
-      document.title = `NRMS-${propertyName}-${selection.key}-${reportNumber}`;
-      document.body.classList.add("nrms-printing");
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          window.removeEventListener("afterprint", finish);
-          window.clearTimeout(fallback);
-          resolve();
-        };
-        // Most browsers block on print() and then fire afterprint, but neither is guaranteed,
-        // so the timeout makes sure the print class and title are always restored.
-        const fallback = window.setTimeout(finish, 60_000);
-        window.addEventListener("afterprint", finish);
-        window.print();
-      });
+      printWindow.document.title = `NRMS-${propertyName}-${selection.key}-${reportNumber}`;
+      await printPreparedAdminReportWindow(printWindow);
+
+      // Keep the completed preview visible after React releases its portal, matching Admin Reports.
+      const frozenReport = portalTarget.cloneNode(true);
+      portalTarget.replaceWith(frozenReport);
     } catch (pdfGenerationError) {
       console.error("NRMS PDF generation failed", pdfGenerationError);
       setPdfError(pdfGenerationError instanceof Error ? pdfGenerationError.message : "Unable to generate the PDF report. Please try again.");
+      if (!printWindow.closed) printWindow.close();
     } finally {
-      document.title = previousDocumentTitle;
-      document.body.classList.remove("nrms-printing");
+      setPdfPortalTarget(null);
       setPdfIdentity(null);
       setActivePdfSelection(null);
-      setPrintMode(false);
       setPdfBusy(false);
     }
   };
@@ -1087,35 +1116,9 @@ export default function NrmsReportsPage() {
 
       {exportError && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{exportError}</span><button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
 
-      {/* Mounted only while a print is in flight, so the existing plain Ctrl+P behaviour of this
-          page and its `print:` utility classes are left completely untouched. */}
-      {printMode && <style>{`
-        /* The report body is 718px, which is exactly the printable width of A4 at 96dpi with 10mm
-           side margins, so the print layout maps 1:1 with no browser scaling. */
-        @page { size: A4 portrait; margin: 8mm 10mm 10mm 10mm; }
-        @media print {
-          body.nrms-printing > *:not(#nrms-print-root) { display: none !important; }
-          body.nrms-printing #nrms-print-root { display: block !important; }
-          body.nrms-printing { background: #fff !important; }
-          #nrms-print-root .pdf-metric,
-          #nrms-print-root .pdf-panel,
-          #nrms-print-root .pdf-grid-2,
-          #nrms-print-root .pdf-section-title,
-          #nrms-print-root .pdf-certification-head,
-          #nrms-print-root tr { break-inside: avoid; page-break-inside: avoid; }
-          #nrms-print-root thead { display: table-header-group; }
-        }
-        /* Keeps the report off the screen in the moment between mounting it and the dialog opening. */
-        #nrms-print-root { display: none; }
-      `}</style>}
-
-      {pdfIdentity && activePdfSelection && data && financeData && currencyReport && (() => {
+      {pdfPortalTarget && pdfIdentity && activePdfSelection && data && financeData && currencyReport && (() => {
         const reportNode = <div ref={pdfRef}><ConsolidatedPdfReport data={data} finance={financeData} currencyReport={currencyReport} identity={pdfIdentity} money={money} selection={activePdfSelection} /></div>;
-        // Printing needs the report as a direct child of body so the stylesheet above can hide its
-        // siblings; the download path keeps rendering it offscreen exactly as before.
-        return printMode && typeof document !== "undefined"
-          ? createPortal(<div id="nrms-print-root">{reportNode}</div>, document.body)
-          : <div className="pointer-events-none fixed left-[-12000px] top-0 z-[-1]" aria-hidden="true">{reportNode}</div>;
+        return createPortal(reportNode, pdfPortalTarget);
       })()}
 
       <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection) => void generatePdf(selection)} />
