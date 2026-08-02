@@ -137,18 +137,17 @@ export default function LivePerformancePulse() {
   const lastUpdated = overview?.lastUpdated ? new Date(overview.lastUpdated) : null;
 
   return (
-    <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_60px_-36px_rgba(15,23,42,0.35)]">
-      <div className="flex flex-col gap-5 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
+    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-neutral-100 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-400">Live Performance</div>
-          <div className="mt-1.5 text-lg font-black text-slate-950">Revenue and operations pulse</div>
-          <div className="mt-1 text-sm text-slate-500">
+          <div className="text-sm font-bold text-neutral-950">Revenue and operations pulse</div>
+          <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">
             Company revenue trend, booking movement, pending approvals, and active sessions.
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+          <div className="inline-flex h-8 items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
             <TrendingUp className="h-3.5 w-3.5" aria-hidden />
             {previousRevenue > 0 ? `${revenueChange >= 0 ? "+" : ""}${revenueChange.toFixed(1)}% vs yesterday` : "Live data"}
           </div>
@@ -156,7 +155,7 @@ export default function LivePerformancePulse() {
             type="button"
             onClick={() => load(true)}
             disabled={refreshing}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-60"
+            className="inline-flex h-8 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-neutral-700 transition-colors hover:border-emerald-200 hover:bg-emerald-50 disabled:opacity-60"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
             Refresh
@@ -164,15 +163,15 @@ export default function LivePerformancePulse() {
         </div>
       </div>
 
-      <div className="grid gap-0 lg:grid-cols-[1fr_18rem]">
-        <div className="min-w-0 px-4 py-4 sm:px-5">
+      <div className="flex flex-col">
+        <div className="order-2 min-w-0 px-3 py-3 sm:px-4">
           {error ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
               {error}
             </div>
           ) : null}
 
-          <svg viewBox={`0 0 ${chart.W} ${chart.H}`} className="w-full" style={{ height: 260 }} role="img" aria-label="Live company revenue trend">
+          <svg viewBox={`0 0 ${chart.W} ${chart.H}`} className="block h-auto w-full max-w-full" style={{ height: 205 }} role="img" aria-label="Live company revenue trend">
             <defs>
               <linearGradient id="live-revenue-line" x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stopColor="#0284c7" />
@@ -227,14 +226,14 @@ export default function LivePerformancePulse() {
             })}
           </svg>
 
-          <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-1 pt-4 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-4 border-t border-neutral-100 px-1 pt-3 text-[10px] text-neutral-500">
             <span>{range.from} to {range.to}</span>
             <span>Total revenue: <strong className="font-bold text-slate-800">{formatMoney(totalRevenue)} TZS</strong></span>
             {lastUpdated ? <span>Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
           </div>
         </div>
 
-        <div className="grid border-t border-slate-200 bg-slate-50/70 lg:border-l lg:border-t-0">
+        <div className="order-1 grid grid-cols-2 border-b border-neutral-200 bg-neutral-50/70 sm:grid-cols-3 xl:grid-cols-5">
           <PulseKpi icon={Wallet} label="Company revenue (TZS)" value={`${formatMoney(toNumber(overview?.companyRevenue))} TZS`} helper="Property + transport commission" />
           <PulseKpi icon={TrendingUp} label={`Tour commission (${overview?.companyRevenueTourCurrency || "USD"})`} value={`${overview?.companyRevenueTourCurrency || "USD"} ${formatMoney(toNumber(overview?.companyRevenueTour))}`} helper="USD. Reported separately, never summed with TZS" />
           <PulseKpi icon={CalendarCheck} label="Bookings 24h" value={formatNumber(toNumber(summary?.bookings))} helper="Real booking movement" />
@@ -244,11 +243,11 @@ export default function LivePerformancePulse() {
       </div>
 
       {loading ? (
-        <div className="border-t border-slate-200 bg-white px-6 py-3 text-xs font-medium text-slate-500">
+        <div className="border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">
           Loading live performance data...
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -264,15 +263,15 @@ function PulseKpi({
   helper: string;
 }) {
   return (
-    <div className="border-b border-slate-200 px-5 py-4 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-[#02665e]">
-          <Icon className="h-4 w-4" aria-hidden />
+    <div className="min-w-0 border-r border-b border-neutral-200 px-3 py-3 last:border-r-0 xl:border-b-0">
+      <div className="flex items-start gap-2.5">
+        <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-neutral-200">
+          <Icon className="h-3.5 w-3.5" aria-hidden />
         </div>
         <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{label}</div>
-          <div className="mt-1 text-base font-black text-slate-950">{value}</div>
-          <div className="mt-0.5 text-xs text-slate-500">{helper}</div>
+          <div className="truncate text-[8px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</div>
+          <div className="mt-1 truncate text-sm font-bold tabular-nums text-neutral-950">{value}</div>
+          <div className="mt-0.5 line-clamp-2 text-[9px] leading-3.5 text-neutral-500">{helper}</div>
         </div>
       </div>
     </div>
