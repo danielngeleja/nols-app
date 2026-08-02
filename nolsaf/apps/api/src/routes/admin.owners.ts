@@ -6,6 +6,7 @@ import { signUserJwt } from "../lib/sessionManager.js";
 import { Prisma } from "@prisma/client";
 import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -424,6 +425,7 @@ router.post("/:id/suspend", async (req, res) => {
   await prisma.adminAudit.create({
     data: { adminId: me, targetUserId: id, action: "SUSPEND_OWNER", details: reason },
   });
+  await revokeUserAuthorization(id);
 
   req.app.get("io")?.emit?.("admin:owner:updated", { ownerId: id });
   res.json({ ok: true, ownerId: updated.id, suspendedAt: updated.suspendedAt });

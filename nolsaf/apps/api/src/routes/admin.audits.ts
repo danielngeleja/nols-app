@@ -24,7 +24,7 @@ const CSV_FIELDS = ["id", "adminId", "targetUserId", "action", "details", "creat
 // ============================================================
 interface AuditLogResponse {
   id: number;
-  adminId: number;
+  adminId: number | null;
   targetUserId: number | null;
   action: string;
   details: any;

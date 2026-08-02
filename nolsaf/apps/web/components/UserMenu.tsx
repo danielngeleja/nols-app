@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clearAuthToken } from "@/lib/apiClient";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { 
   User, 
   Calendar, 
@@ -154,8 +155,7 @@ export default function UserMenu({ variant = "dark" }: { variant?: "light" | "da
               );
             })}
 
-            {/* Divider */}
-            <div className="my-1.5 mx-4 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+            <WorkspaceSwitcher currentWorkspace="NORMAL" />
 
             {/* Settings Items */}
             {settingsItems.map((item, idx) => {

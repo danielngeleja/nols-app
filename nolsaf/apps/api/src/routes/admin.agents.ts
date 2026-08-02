@@ -15,6 +15,7 @@ import { sendMail } from "../lib/mailer.js";
 import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileApprovedEmail, getOperatorProfileRejectedEmail } from "../lib/authEmailTemplates.js";
 import { signUserJwt } from "../lib/sessionManager.js";
 import crypto from "crypto";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 
 // ============================================================
 // Constants
@@ -1567,7 +1568,6 @@ router.post(
           details: `Agent note added: ${cleanText.substring(0, 100)}${cleanText.length > 100 ? "..." : ""}`,
         },
       });
-
       await audit(req as AuthedRequest, "AGENT_NOTE_ADDED", `agent:${agent.id}`, null, {
         text: cleanText.substring(0, 300),
       });
@@ -2138,6 +2138,7 @@ router.post(
           details: { reason, caseRef },
         },
       });
+      await revokeUserAuthorization(existing.userId);
 
       // Non-blocking notification email
       const recipientEmail = (updated as any).user?.email;

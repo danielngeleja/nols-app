@@ -10,6 +10,7 @@ import { sendMail } from "../lib/mailer.js";
 import { baseEmail, infoCard, calloutBox, ctaButton, BRAND_TEAL, BRAND_DARK } from "../lib/emailBase.js";
 import { buildDriverCaseRef } from "../lib/driverCaseRef.js";
 import { isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -4783,6 +4784,7 @@ router.post("/:id/suspend", async (req, res) => {
 
   const updated = await prisma.user.update({ where: { id }, data: { suspendedAt: new Date() } });
   await prisma.adminAudit.create({ data: { adminId: me, targetUserId: id, action: "SUSPEND_DRIVER", details: reason } });
+  await revokeUserAuthorization(id);
 
   req.app.get("io")?.emit?.("admin:driver:updated", { driverId: id });
   res.json({ ok: true, driverId: updated.id, suspendedAt: updated.suspendedAt });

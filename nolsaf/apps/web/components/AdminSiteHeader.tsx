@@ -42,15 +42,18 @@ import {
   LogOut,
   Menu,
   RefreshCw,
+  Siren,
   Settings,
   Shield,
   User,
 } from "lucide-react";
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 
 const PRIMARY_TABS = [
   { href: "/admin/home", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/admin/action-center", label: "Actions", icon: Siren },
   { href: "/admin/properties/previews", label: "Approvals", icon: CheckCircle2 },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
   { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },
@@ -437,7 +440,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
                       </Link>
                     ))}
 
-                    <span className="mx-3 my-2 block h-px bg-white/10" aria-hidden />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" variant="menu-dark" />
 
                     <button
                       type="button"

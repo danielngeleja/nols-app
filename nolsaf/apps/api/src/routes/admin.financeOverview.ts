@@ -18,9 +18,10 @@
 // Recognition signal per stream (realized):
 //   Accommodation : Invoice.status = PAID              (rev = commissionAmount)
 //   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
-//   Transport     : TransportPayout.status = PAID      (rev = commissionAmount)
+//   Transport     : TransportBooking.paymentStatus = PAID (rev = commissionAmount)
 //   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
-//   Subscriptions : NrmsServicePayment.status = VERIFIED (rev = amount, no partner split)
+//   Subscriptions : NrmsServicePayment.status = VERIFIED or MANUALLY_VERIFIED
+//                   (rev = amount, no partner split)
 //
 // Money of record is TZS. Tours and Subscriptions (NRMS) are the multi-currency
 // streams; both are normalized to TZS via the display-rate layer (lib/fx) for
@@ -155,15 +156,36 @@ router.get("/overview", async (req, res) => {
     }
 
     // ── Transport (TransportPayout) ──────────────────────────────────────────
+    // Customer payment realizes GMV and NoLSAF commission. Driver payout is a
+    // separate liability lifecycle, so only a PAID payout contributes to the
+    // global "Paid to partners" value.
     const txDate = dateClause();
-    const [txRealized, txPending] = await Promise.all([
+    const [txCollected, txPartnerPaid, txPending] = await Promise.all([
       prisma.transportPayout.aggregate({
-        where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
-        _sum: { grossAmount: true, commissionAmount: true, netPaid: true },
+        where: {
+          booking: {
+            paymentStatus: "PAID",
+            ...(txDate ? { updatedAt: txDate } : {}),
+          },
+        },
+        _sum: { grossAmount: true, commissionAmount: true },
         _count: { _all: true },
       }),
       prisma.transportPayout.aggregate({
-        where: { status: { in: ["PENDING", "APPROVED"] }, ...(txDate ? { createdAt: txDate } : {}) },
+        where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
+        _sum: { netPaid: true },
+      }),
+      prisma.transportPayout.aggregate({
+        where: {
+          status: { in: ["PENDING", "APPROVED"] },
+          booking: {
+            OR: [
+              { paymentStatus: null },
+              { paymentStatus: { not: "PAID" } },
+            ],
+            ...(txDate ? { updatedAt: txDate } : {}),
+          },
+        },
         _sum: { commissionAmount: true },
         _count: { _all: true },
       }),
@@ -172,10 +194,10 @@ router.get("/overview", async (req, res) => {
     const transport: StreamSummary = {
       key: "transport",
       label: "Transport",
-      gmv: n(txRealized._sum.grossAmount),
-      nolsafRevenue: n(txRealized._sum.commissionAmount),
-      partnerNet: n(txRealized._sum.netPaid),
-      realizedCount: txRealized._count._all,
+      gmv: n(txCollected._sum.grossAmount),
+      nolsafRevenue: n(txCollected._sum.commissionAmount),
+      partnerNet: n(txPartnerPaid._sum.netPaid),
+      realizedCount: txCollected._count._all,
       pendingRevenue: n(txPending._sum.commissionAmount),
       pendingCount: txPending._count._all,
     };
@@ -217,15 +239,19 @@ router.get("/overview", async (req, res) => {
     // ── Subscriptions (NRMS PAYG) ─────────────────────────────────────────────
     // NRMS room-night billing is NoLSAF's subscription/software-fee product:
     // properties pay directly for the tool, so the whole amount IS NoLSAF
-    // revenue (no partner split). Realized = NrmsServicePayment.status=VERIFIED
-    // (mirrors Invoice.status=PAID elsewhere); pending = open PAYABLE statements
-    // not yet collected. Both are normalized to TZS in case a future policy
-    // currency differs (today NRMS is always TZS).
+    // revenue (no partner split). Realized includes both provider-verified and
+    // administrator-reconciled payments. The reconciliation route records the
+    // latter as MANUALLY_VERIFIED, and both represent collected money. Pending
+    // means open PAYABLE statements not yet collected. Both are normalized to
+    // TZS in case a future policy currency differs (today NRMS is always TZS).
     const subDate = dateClause();
     const [subRealizedRows, subPendingRows] = await Promise.all([
       prisma.nrmsServicePayment.groupBy({
         by: ["currency"],
-        where: { status: "VERIFIED", ...(subDate ? { verifiedAt: subDate } : {}) },
+        where: {
+          status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] },
+          ...(subDate ? { verifiedAt: subDate } : {}),
+        },
         _sum: { amount: true },
         _count: { _all: true },
       }),

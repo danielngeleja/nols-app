@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSocket } from "@/hooks/useSocket";
 import { fetchAccountSession } from "@/lib/accountSession";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import {
   BarChart3,
   Bell,
@@ -360,7 +361,7 @@ export default function AgentPortalHeader() {
                       <span className="flex-1">My Documents</span>
                       <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
                     </Link>
-                    <div className="my-2 mx-4 h-px bg-white/10" />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" variant="menu-dark" />
 
                     <button
                       type="button"

@@ -3,6 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import apiClient, { saveAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
+import {
+  normalizeAccountRole,
+  roleHomePath,
+  shouldResolveWorkspaceSelection,
+  validatedPostAuthTarget,
+} from "@/lib/postAuthRouting";
 import { AlertCircle, Check, UserPlus, Lock, LogIn, User, Truck, Building2, Mail, ArrowLeft, Phone, Eye, EyeOff, Shield, Fingerprint, ShieldX, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useRouter, useSearchParams } from "next/navigation";
 import LogoSpinner from "@/components/LogoSpinner";
@@ -365,15 +371,15 @@ export default function RegisterPage() {
         body: JSON.stringify({ sessionId, response: assertion }),
         credentials: 'include',
       });
+      const verifyData = await verifyRes.json().catch(() => ({}));
       if (!verifyRes.ok) {
-        const d = await verifyRes.json().catch(() => ({}));
-        const serverError = (d as any)?.error;
-        const serverDetails = (d as any)?.details;
+        const serverError = (verifyData as any)?.error;
+        const serverDetails = (verifyData as any)?.details;
         const composed = [serverError, serverDetails].filter(Boolean).join(': ');
         throw new Error(composed || 'Passkey verification failed');
       }
 
-      await redirectAfterAuth();
+      await redirectAfterAuth((verifyData as any)?.user?.role);
     } catch (e: any) {
       if (e?.name === 'NotAllowedError') {
         setError('You dont have the Passkey try signing with another option and add passkey after login');
@@ -422,44 +428,51 @@ export default function RegisterPage() {
     return `${mm}:${ss}`;
   };
 
-  const resolveRoleHome = async () => {
+  const resolveRoleHome = async (authenticatedRole: unknown) => {
+    const roleHome = roleHomePath(authenticatedRole);
+    if (roleHome !== '/account') return roleHome;
+
+    // Preserve the existing NRMS staff chooser for accounts assigned to one
+    // or more property workspaces.
     try {
-      const me = await fetchAccountSession();
-      const role = String(me.data?.role || '').toUpperCase();
-      if (role === 'ADMIN') return '/admin/home';
-      if (role === 'OWNER') return '/owner';
-      if (role === 'DRIVER') return '/driver';
-      if (role === 'AGENT') return '/account/agent';
-      // Preserve the existing NRMS staff chooser for accounts assigned to one
-      // or more property workspaces.
-      try {
-        const nrms = await apiClient.get<any>('/api/nrms/operations/me');
-        if (Array.isArray(nrms.data?.properties) && nrms.data.properties.length > 0) return '/nrms/choose';
-      } catch {
-        // Not NRMS staff or the check failed.
-      }
-      return '/account';
+      const nrms = await apiClient.get<any>('/api/nrms/operations/me');
+      if (Array.isArray(nrms.data?.properties) && nrms.data.properties.length > 0) return '/nrms/choose';
     } catch {
-      return '/account';
+      // Not NRMS staff or the check failed.
     }
+    return '/account';
   };
 
-  const resolvePostAuthDestination = async () => {
-    const safeNext = safeNextPath(nextParamRaw);
+  const resolvePostAuthDestination = async (loginResponseRole?: unknown) => {
+    // Password, OTP, and passkey responses all return the database role. Keep
+    // it as a fallback in case the cookie-backed session endpoint is delayed.
+    let authenticatedRole = normalizeAccountRole(loginResponseRole);
+    try {
+      const session = await fetchAccountSession({ cache: 'no-store' });
+      authenticatedRole = normalizeAccountRole(session.data?.role) || authenticatedRole;
+    } catch {
+      // A missing session must never make a protected URL hint authoritative.
+    }
+
+    const safeNext = validatedPostAuthTarget(nextParamRaw, roleParam, authenticatedRole);
     if (safeNext) return safeNext;
-    try {
-      const workspaces = await apiClient.get('/api/me/workspaces');
-      if (workspaces.data?.requiresSelection) return '/workspace/select';
-    } catch {
-      // Preserve the existing role-based login destination if discovery fails.
+    // Workspace selection belongs to ordinary partner/customer accounts. It
+    // must not pull an Admin, Owner, Driver, or Agent away from its role home.
+    if (shouldResolveWorkspaceSelection(authenticatedRole)) {
+      try {
+        const workspaces = await apiClient.get('/api/me/workspaces');
+        if (workspaces.data?.requiresSelection) return '/workspace/select';
+      } catch {
+        // Preserve the existing role-based login destination if discovery fails.
+      }
     }
-    return await resolveRoleHome();
+    return await resolveRoleHome(authenticatedRole);
   };
 
-  const redirectAfterAuth = async () => {
+  const redirectAfterAuth = async (loginResponseRole?: unknown) => {
     // Give the browser a moment to persist the httpOnly cookie
     await new Promise((r) => setTimeout(r, 100));
-    const dest = await resolvePostAuthDestination();
+    const dest = await resolvePostAuthDestination(loginResponseRole);
     window.location.href = dest;
   };
 
@@ -1058,7 +1071,7 @@ export default function RegisterPage() {
                   ) : (
                     <User className="h-3.5 w-3.5" />
                   )}
-                  <span className="capitalize">{roleParam}</span>
+                  <span className="capitalize">{roleParam} portal</span>
                 </span>
               )}
             </div>
@@ -1313,7 +1326,7 @@ export default function RegisterPage() {
                           setLockoutTotalSeconds(0);
                           setLockoutMessage(null);
                           saveAuthToken(data.token);
-                          await redirectAfterAuth();
+                          await redirectAfterAuth((data as any)?.user?.role);
                         } catch (e: any) {
                           setError(e?.message || 'Failed to sign in');
                         } finally {
@@ -1411,7 +1424,7 @@ export default function RegisterPage() {
                           if (response.status === 200) {
                             saveAuthToken(response.data?.token);
                             // Auth cookie is set httpOnly by the API; redirect to authenticated area.
-                            await redirectAfterAuth();
+                            await redirectAfterAuth(response.data?.user?.role);
                           }
                         } catch (err: any) {
                           const data = err?.response?.data;

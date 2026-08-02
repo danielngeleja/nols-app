@@ -1837,7 +1837,7 @@ router.get("/order-points/:orderPointId/qr.png", (async (req: AuthedRequest, res
   if (!point.active) return res.status(410).json({ error: "This order point is deactivated" });
   const png = await makeOrderPointQR(point.token);
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "private, max-age=300");
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
   res.end(png);
 }) as RequestHandler);
 

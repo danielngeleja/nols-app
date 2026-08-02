@@ -1242,7 +1242,7 @@ export default function SystemSettingsPage(){
                     </div>
                   </div>
                   <div className="mt-3 rounded-[12px] border border-slate-200 bg-white p-3 text-xs text-slate-500">
-                    Reducing a role TTL forces re-login on the next request.
+                    Reducing a role TTL forces re-login on the next authenticated request and disconnects expired live sessions.
                   </div>
                 </div>
 

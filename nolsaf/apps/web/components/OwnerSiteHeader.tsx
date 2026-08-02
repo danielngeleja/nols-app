@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import ClientErrorBoundary from "@/components/ClientErrorBoundary";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 
@@ -346,7 +347,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
                       <span className="font-medium">Settings</span>
                     </Link>
 
-                    <div className="my-2 mx-3 h-px bg-gray-200" />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" />
 
                     <button
                       onClick={async () => {

@@ -6,6 +6,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { ChevronDown, ChevronRight, MapPin, Menu, X } from 'lucide-react';
 import { REGIONS } from '@/lib/tzRegions';
 import UserMenu from '@/components/UserMenu';
+import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
 
 import GlobalPicker from "@/components/GlobalPicker";
 import { usePathname } from "next/navigation";
@@ -628,6 +629,13 @@ export default function PublicHeader({
                 <ChevronRight className="w-3.5 h-3.5 text-white/35" />
               </button>
             </div>
+            {authed && (
+              <WorkspaceSwitcher
+                currentWorkspace="NORMAL"
+                variant="mobile-dark"
+                onSwitchStart={() => setMobileMenuOpen(false)}
+              />
+            )}
             {!authed && (
               <div className="pt-1.5 border-t border-white/[0.07] mt-0.5 flex flex-col gap-1.5 px-1 pb-2">
                 <Link

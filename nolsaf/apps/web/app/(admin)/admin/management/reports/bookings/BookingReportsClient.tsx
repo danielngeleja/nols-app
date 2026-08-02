@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Fragment, useRef } from "react";
-import { createPortal } from "react-dom";
-import Link from "next/link";
-import { AlertTriangle, ArrowLeft, ClipboardList, FileText, Printer, RefreshCw, Sliders, Users } from "lucide-react";
-import { Popover, Transition } from "@headlessui/react";
+import { AlertTriangle, ClipboardList, FileText, Printer, RefreshCw, Users } from "lucide-react";
 
 import Chart from "@/components/Chart";
 import DatePickerField from "@/components/DatePickerField";
+import NoLSAFReportsFrame, { NoLSAFReportTitle } from "@/components/admin/reports/NoLSAFReportsFrame";
+import {
+  adminReportPrintStyles,
+  buildAdminReportFooter,
+  buildAdminReportHeader,
+  openAdminReportPrintWindow,
+  renderAndPrintAdminReport,
+} from "@/lib/adminReportPrint";
 import { escapeAttr, escapeHtml } from "@/utils/html";
 
 function formatDate(d: Date) {
@@ -149,13 +153,11 @@ function normalizeCount(v: number | null | undefined) {
 function RangePill({
   label,
   hint,
-  accentClassName,
   active,
   onClick,
 }: {
   label: string;
   hint: string;
-  accentClassName: string;
   active: boolean;
   onClick: () => void;
 }) {
@@ -166,14 +168,12 @@ function RangePill({
       title={hint}
       aria-label={hint}
       className={
-        "relative h-12 px-4 rounded-xl border text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
-        (active ? "border-[#02665e]/30 text-[#02665e] bg-[#02665e]/[0.07]" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm")
+        "group relative h-9 w-full snap-start overflow-hidden rounded-md border px-3 text-[10px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 " +
+        (active ? "border-emerald-800 bg-gradient-to-b from-emerald-700 to-emerald-800 text-white shadow-emerald-900/15" : "border-neutral-200 bg-gradient-to-b from-white to-neutral-50 text-neutral-600 hover:border-emerald-300 hover:text-emerald-800")
       }
     >
-      <span className="inline-flex items-center gap-2">
-        <span className={"h-2 w-2 rounded-sm " + accentClassName} aria-hidden />
-        <span>{label}</span>
-      </span>
+      <span className="relative z-10">{label}</span>
+      <span className={`absolute inset-x-2 bottom-0 h-0.5 transition ${active ? "bg-emerald-300" : "bg-transparent group-hover:bg-emerald-300"}`} aria-hidden />
 
       <span
         role="tooltip"
@@ -185,131 +185,7 @@ function RangePill({
   );
 }
 
-function PopoverPositioner({ open, computePos }: { open: boolean; computePos: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    if (typeof window === "undefined") return;
-
-    computePos();
-    window.addEventListener("resize", computePos);
-    window.addEventListener("scroll", computePos, true);
-    return () => {
-      window.removeEventListener("resize", computePos);
-      window.removeEventListener("scroll", computePos, true);
-    };
-  }, [open, computePos]);
-
-  return null;
-}
-
 type MoreRangeKey = "3m" | "6m" | "ytd" | "12m";
-
-function MoreRangesPopover({
-  mounted,
-  moreRanges,
-  onSelectRange,
-}: {
-  mounted: boolean;
-  moreRanges: Array<{ key: MoreRangeKey; label: string; hint: string; accent: string }>;
-  onSelectRange: (k: MoreRangeKey) => void;
-}) {
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  const computePos = useCallback(() => {
-    const el = buttonRef.current;
-    if (!el) return;
-    if (typeof window === "undefined") return;
-    const rect = el.getBoundingClientRect();
-    const width = 256;
-    const rawLeft = rect.right - width;
-    const left = Math.max(12, Math.min(rawLeft, window.innerWidth - 12 - width));
-    const top = rect.bottom + 8;
-    setPos({ top, left, width });
-  }, []);
-
-  return (
-    <Popover className="relative shrink-0">
-      {({ open, close }) => (
-        <>
-          <PopoverPositioner open={open} computePos={computePos} />
-
-          <Popover.Button
-            ref={buttonRef}
-            type="button"
-            className={
-              "h-12 w-12 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-[#02665e] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
-              (open ? "ring-1 ring-[#02665e]/20 border-[#02665e]/30 text-[#02665e]" : "")
-            }
-            title="More ranges"
-            aria-label="More ranges"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                setTimeout(() => {
-                  try {
-                    computePos();
-                  } catch {
-                    // ignore
-                  }
-                }, 0);
-              }
-            }}
-          >
-            <Sliders className="h-4 w-4" aria-hidden />
-          </Popover.Button>
-
-          {mounted
-            ? createPortal(
-                <Transition
-                  as={Fragment}
-                  show={open}
-                  enter="transition ease-out duration-150"
-                  enterFrom="opacity-0 translate-y-1"
-                  enterTo="opacity-100 translate-y-0"
-                  leave="transition ease-in duration-120"
-                  leaveFrom="opacity-100 translate-y-0"
-                  leaveTo="opacity-0 translate-y-1"
-                >
-                  <Popover.Panel
-                    static
-                    className="fixed z-[10000] w-64 rounded-[18px] border border-slate-200 bg-white shadow-[0_16px_48px_-12px_rgba(0,0,0,0.18)] overflow-hidden"
-                    style={pos ? { top: pos.top, left: pos.left, width: pos.width } : undefined}
-                  >
-                    <div className="p-1.5">
-                      <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">More ranges</div>
-                      {moreRanges.map((p) => (
-                        <button
-                          key={p.key}
-                          type="button"
-                          onClick={() => {
-                            onSelectRange(p.key);
-                            close();
-                          }}
-                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
-                          title={p.hint}
-                        >
-                          <span className={"h-2.5 w-2.5 rounded-sm " + p.accent} aria-hidden />
-                          <div className="min-w-0 text-left">
-                            <div className="font-bold leading-5 text-slate-800">{p.label}</div>
-                            <div className="text-[11px] text-slate-400 leading-4 truncate">{p.hint}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="px-3 py-2 border-t border-slate-100 text-[11px] text-slate-400">
-                      Max range: <span className="font-semibold">12 months</span>
-                    </div>
-                  </Popover.Panel>
-                </Transition>,
-                document.body
-              )
-            : null}
-        </>
-      )}
-    </Popover>
-  );
-}
 
 async function fetchAllPages<T>(baseUrl: URL, maxItems = 20000): Promise<{ items: T[]; total: number }>
 {
@@ -403,11 +279,6 @@ export default function BookingReportsClient() {
   const [from, setFrom] = useState(() => formatDate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [to, setTo] = useState(() => formatDate(today));
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totals, setTotals] = useState<TotalsState>({
@@ -422,13 +293,6 @@ export default function BookingReportsClient() {
 
   const [ownerChartCanvas, setOwnerChartCanvas] = useState<HTMLCanvasElement | null>(null);
   const [tourChartCanvas, setTourChartCanvas] = useState<HTMLCanvasElement | null>(null);
-
-  const applyQuickRange = useCallback((daysBackInclusive: number) => {
-    const end = startOfTodayUtc();
-    const start = addDaysUtc(end, -daysBackInclusive);
-    setFrom(formatDate(start));
-    setTo(formatDate(end));
-  }, []);
 
   const getMoreRange = useCallback((k: MoreRangeKey) => {
     const end = startOfTodayUtc();
@@ -627,7 +491,15 @@ export default function BookingReportsClient() {
   );
 
   async function printReport() {
-    const reportId = new Date().toISOString();
+    const printWindow = openAdminReportPrintWindow();
+    if (!printWindow) {
+      alert("Unable to open the report preview. Please allow popups and try again.");
+      return;
+    }
+    const now = new Date();
+    const reportId = now.toISOString();
+    const pad2 = (value: number) => String(value).padStart(2, "0");
+    const reportFilename = `NoLSAF-BOOKING-RPT-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}_${from}_${to}`;
 
     const ownerStatusImg = ownerChartCanvas ? ownerChartCanvas.toDataURL("image/png") : null;
     const tourStatusImg = tourChartCanvas ? tourChartCanvas.toDataURL("image/png") : null;
@@ -694,20 +566,29 @@ export default function BookingReportsClient() {
         .join("") +
       "</tr></thead>";
 
-    const groupDetailHead =
+    const groupOverviewHead =
       "<thead><tr>" +
       [
         "Name",
         "Phone",
-        "Gender",
-        "Nationality",
         "Status",
-        "Accepted Amount",
-        "Confirmed Amount",
-        "Currency",
+        "Stay",
         "Accepted Property",
         "Confirmed Property",
-        "Check-in & out",
+        "Currency",
+      ]
+        .map((h) => `<th>${escapeHtml(h)}</th>`)
+        .join("") +
+      "</tr></thead>";
+
+    const groupFinanceHead =
+      "<thead><tr>" +
+      [
+        "Name",
+        "Gender",
+        "Nationality",
+        "Accepted Amount",
+        "Confirmed Amount",
         "Created",
         "Accepted",
         "Confirmed",
@@ -754,34 +635,38 @@ export default function BookingReportsClient() {
       })
       .join("\n");
 
-    const groupDetailRows = groupItems
+    const groupOverviewRows = groupItems
       .map((b) => {
         const name = b.leadPassenger?.name || b.user?.name || "—";
         const phone = b.leadPassenger?.phone || b.user?.phone || "—";
-        const gender = b.leadPassenger?.gender || "—";
-        const nationality = b.leadPassenger?.nationality || "—";
         const status = b.status || "—";
-        const acceptedAmount = fmtAmount(b.acceptedTotalAmount ?? null);
-        const confirmedAmount = fmtAmount(b.confirmedTotalAmount ?? null);
         const currency = b.currency || "—";
         const acceptedProperty = b.acceptedProperty?.title || "—";
         const confirmedProperty = b.confirmedProperty?.title || "—";
         const stay = `${fmtDateOnly(b.checkIn)} → ${fmtDateOnly(b.checkOut)}`;
+        const cells = [name, phone, status, stay, acceptedProperty, confirmedProperty, currency]
+          .map((v) => `<td>${escapeHtml(String(v ?? "—"))}</td>`)
+          .join("");
+        return `<tr>${cells}</tr>`;
+      })
+      .join("\n");
+
+    const groupFinanceRows = groupItems
+      .map((b) => {
+        const name = b.leadPassenger?.name || b.user?.name || "—";
+        const gender = b.leadPassenger?.gender || "—";
+        const nationality = b.leadPassenger?.nationality || "—";
+        const acceptedAmount = fmtAmount(b.acceptedTotalAmount ?? null);
+        const confirmedAmount = fmtAmount(b.confirmedTotalAmount ?? null);
         const created = b.createdAt ? fmtDateTime(b.createdAt) : "—";
         const accepted = b.acceptedAt ? fmtDateTime(b.acceptedAt) : "—";
         const confirmed = b.confirmedAt ? fmtDateTime(b.confirmedAt) : "—";
         const cells = [
           name,
-          phone,
           gender,
           nationality,
-          status,
           acceptedAmount,
           confirmedAmount,
-          currency,
-          acceptedProperty,
-          confirmedProperty,
-          stay,
           created,
           accepted,
           confirmed,
@@ -871,16 +756,16 @@ export default function BookingReportsClient() {
 
           if (pct > 0) {
             return `
-              <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-                <div style="width:120px;font-size:10px;font-weight:700;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(
+              <div style="display:flex;align-items:center;gap:8px;margin-top:5px;">
+                <div style="width:86px;font-size:7.5px;font-weight:700;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(
                   r.label
                 )}</div>
                 <div style="flex:1;">
-                  <div style="height:40px;background:#f3f4f6;border-radius:6px;overflow:hidden;">
-                    <div style="height:40px;width:${pct}%;min-width:76px;background:${escapeAttr(
+                  <div style="height:22px;background:#f3f4f6;border-radius:4px;overflow:hidden;">
+                    <div style="height:22px;width:${pct}%;min-width:42px;background:${escapeAttr(
                       color
                     )};display:flex;align-items:center;justify-content:flex-end;">
-                      <div style="height:40px;display:flex;align-items:center;padding:0 12px;color:#fff;font-weight:900;border-left:2px solid rgba(255,255,255,0.85);clip-path:${escapeAttr(
+                      <div style="height:22px;display:flex;align-items:center;padding:0 7px;color:#fff;font-size:7px;font-weight:900;border-left:1px solid rgba(255,255,255,0.85);clip-path:${escapeAttr(
                         clip
                       )};">${pct}%</div>
                     </div>
@@ -890,13 +775,13 @@ export default function BookingReportsClient() {
           }
 
           return `
-            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-              <div style="width:120px;font-size:10px;font-weight:700;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(
+            <div style="display:flex;align-items:center;gap:8px;margin-top:5px;">
+              <div style="width:86px;font-size:7.5px;font-weight:700;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(
                 r.label
               )}</div>
               <div style="flex:1;">
-                <div style="height:40px;background:#f3f4f6;border-radius:6px;overflow:hidden;display:flex;align-items:center;padding:0 8px;">
-                  <div style="height:32px;display:flex;align-items:center;padding:0 12px;background:#fff;border:1px solid #e5e7eb;color:#334155;font-weight:900;clip-path:${escapeAttr(
+                <div style="height:22px;background:#f3f4f6;border-radius:4px;overflow:hidden;display:flex;align-items:center;padding:0 4px;">
+                  <div style="height:16px;display:flex;align-items:center;padding:0 7px;background:#fff;border:1px solid #e5e7eb;color:#334155;font-size:7px;font-weight:900;clip-path:${escapeAttr(
                     clip
                   )};">0%</div>
                 </div>
@@ -910,7 +795,7 @@ export default function BookingReportsClient() {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Booking Reports</title>
+  <title>${escapeHtml(reportFilename)}</title>
   <style>
     :root { --ink:#0b1220; --muted:#5b6472; --line:#e5e7eb; --brand:#02665e; }
     * { box-sizing: border-box; }
@@ -949,212 +834,100 @@ export default function BookingReportsClient() {
     .qrTitle { font-weight: 900; color: var(--ink); letter-spacing: 0.14em; text-transform: uppercase; font-size: 9px; }
     .qrNote { margin-top: 5px; color: var(--muted); font-size: 10px; max-width: 420px; line-height: 1.55; }
     @media print { @page { size: A4; margin: 12mm; } .page { padding: 0; } .sheet { border-radius: 14px; padding: 12px; } }
+    ${adminReportPrintStyles("landscape")}
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="sheet">
-      <div class="company">
-        <div class="company-left">
-          <img class="logo" src="${escapeAttr(logoUrl)}" alt="NoLSAF" />
-          <div style="min-width:0">
-            <div class="co-name">NoLS Africa Co Ltd</div>
-            <div class="co-meta">
-              <div>P.O BOX 23091 | Dar es Salaam-Tanzania</div>
-              <div>finance@nolsaf.com | +255736766726</div>
-            </div>
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;color:var(--muted)">Report ID</div>
-          <div style="font-weight:900;font-size:11px">${escapeHtml(reportId)}</div>
-          ${reportIdBarcode ? `<img class="idbar" src="${escapeAttr(reportIdBarcode)}" alt="Report reference barcode" /><div class="idbarRef">${escapeHtml(reportRef)}</div>` : ""}
-        </div>
-      </div>
+  <div class="reportPage">
+    <main class="reportDocument">
+      ${buildAdminReportHeader({
+        logoUrl,
+        eyebrow: "NoLSAF operations control",
+        title: "Booking operations report",
+        description: "Owner property bookings, group stays, and tour bookings presented as separate operational registers.",
+        reportId,
+        reportRef,
+        barcodeDataUrl: reportIdBarcode,
+        from,
+        to,
+        generatedAt: fmtDateTime(reportId),
+        classification: "Operations and management use",
+      })}
 
-      <div class="title">
-        <div>
-          <h1>Management Booking Reports</h1>
-          <div class="sub">Range: ${escapeHtml(from)} → ${escapeHtml(to)} • Generated: ${escapeHtml(fmtDateTime(reportId))}</div>
-          <div class="sub">Owner bookings = standard property bookings (not Group stays, not Tour bookings).</div>
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>Totals</h2>
-        <div class="grid">
-          <div class="card"><div style="color:var(--muted); font-size:10px;">Owner bookings</div><div style="margin-top:2px; font-size:15px; font-weight:900; color: var(--brand);">${escapeHtml(fmt(kpiSingle))}</div></div>
-          <div class="card"><div style="color:var(--muted); font-size:10px;">Group stays</div><div style="margin-top:2px; font-size:15px; font-weight:900; color: var(--brand);">${escapeHtml(fmt(kpiGroup))}</div></div>
-          <div class="card"><div style="color:var(--muted); font-size:10px;">Tour bookings</div><div style="margin-top:2px; font-size:15px; font-weight:900; color: var(--brand);">${escapeHtml(fmt(kpiTour))}</div></div>
-        </div>
+      <div class="metricGrid">
+        <div class="metricCard metricCardGood"><span class="metricLabel">Owner bookings</span><strong>${escapeHtml(fmt(kpiSingle))}</strong><small>Standard bookings connected to NoLSAF properties.</small></div>
+        <div class="metricCard"><span class="metricLabel">Group stays</span><strong>${escapeHtml(fmt(kpiGroup))}</strong><small>Group requests and confirmed group accommodation.</small></div>
+        <div class="metricCard"><span class="metricLabel">Tour bookings</span><strong>${escapeHtml(fmt(kpiTour))}</strong><small>Booked tour activities recorded for this period.</small></div>
       </div>
 
       ${
         ownerStatusImg || tourStatusImg || true
           ? `
-      <div class="section">
-        <h2>Visual summary</h2>
-        <div class="grid">
-          <div class="card">
-            <div style="color:var(--muted); font-size:10px; margin-bottom:6px;">Owner bookings by status</div>
-            ${ownerStatusImg ? `<img class="chartImg" src="${escapeAttr(ownerStatusImg)}" alt="Owner bookings chart" />` : ""}
+      <section class="reportSection">
+        <div class="sectionHead"><span class="sectionNumber">01</span><div><h2>Booking flow summary</h2><p>Operational position across owner bookings, group stays, and tours.</p></div></div>
+        <div class="panelGrid">
+          <div class="reportPanel">
+            <div class="panelTitle">Owner bookings by status</div><div class="panelBody">
+            ${ownerStatusImg ? `<img class="chartImage" src="${escapeAttr(ownerStatusImg)}" alt="Owner bookings chart" />` : `<div class="emptyState">Owner booking chart is not available.</div>`}</div>
           </div>
-          <div class="card">
-            <div style="color:var(--muted); font-size:10px; margin-bottom:6px;">Group stays KPIs</div>
-            ${groupBarsHtml}
+          <div class="reportPanel">
+            <div class="panelTitle">Group stays by status</div><div class="panelBody">
+            ${groupBarsHtml}</div>
           </div>
-          <div class="card">
-            <div style="color:var(--muted); font-size:10px; margin-bottom:6px;">Tour bookings by status</div>
-            ${tourStatusImg ? `<img class="chartImg" src="${escapeAttr(tourStatusImg)}" alt="Tour bookings chart" />` : ""}
+          <div class="reportPanel">
+            <div class="panelTitle">Tour bookings by status</div><div class="panelBody">
+            ${tourStatusImg ? `<img class="chartImage" src="${escapeAttr(tourStatusImg)}" alt="Tour bookings chart" />` : `<div class="emptyState">Tour booking chart is not available.</div>`}</div>
           </div>
         </div>
-      </div>`
+      </section>`
           : ""
       }
 
-      <div class="section">
-        <h2>Owner bookings details</h2>
-        <table>${ownerDetailHead}<tbody>${ownerDetailRows}</tbody></table>
-      </div>
+      <section class="reportSection">
+        <div class="sectionHead"><span class="sectionNumber">02</span><div><h2>Owner booking register</h2><p>Guest, stay, property, payment, and rating details for standard property bookings.</p></div></div>
+        <div class="tableWrap"><table>${ownerDetailHead}<tbody>${ownerDetailRows || `<tr><td colspan="8" class="emptyState">No owner bookings were recorded in this period.</td></tr>`}</tbody></table></div>
+      </section>
 
-      <div class="divider"></div>
+      <section class="reportSection">
+        <div class="sectionHead"><span class="sectionNumber">03</span><div><h2>Group stay register</h2><p>Operational placement and financial progression are separated to keep every field readable.</p></div></div>
+        <div class="reportPanel"><div class="panelTitle">Stay and property placement</div><div class="tableWrap"><table>${groupOverviewHead}<tbody>${groupOverviewRows || `<tr><td colspan="7" class="emptyState">No group stays were recorded in this period.</td></tr>`}</tbody></table></div></div>
+        <div class="reportPanel" style="margin-top:8px"><div class="panelTitle">Value and workflow timeline</div><div class="tableWrap"><table>${groupFinanceHead}<tbody>${groupFinanceRows || `<tr><td colspan="8" class="emptyState">No group stay finance records were recorded in this period.</td></tr>`}</tbody></table></div></div>
+      </section>
 
-      <div class="section">
-        <h2>Group stays details</h2>
-        <table>${groupDetailHead}<tbody>${groupDetailRows}</tbody></table>
-      </div>
+      <section class="reportSection">
+        <div class="sectionHead"><span class="sectionNumber">04</span><div><h2>Tour booking register</h2><p>Operator, destination, traveler, value, commission, and status detail.</p></div></div>
+        <div class="tableWrap"><table>${tourDetailHead}<tbody>${tourDetailRows || `<tr><td colspan="10" class="emptyState">No tour bookings were recorded in this period.</td></tr>`}</tbody></table></div>
+      </section>
 
-      <div class="divider"></div>
-
-      <div class="section">
-        <h2>Tour bookings details</h2>
-        <table>${tourDetailHead}<tbody>${tourDetailRows}</tbody></table>
-      </div>
-
-      ${
-        verifyQrDataUrl
-          ? `
-      <div class="section">
-        <h2>Verify</h2>
-        <div class="verify">
-          <div class="refBox">
-            <img src="${escapeAttr(verifyQrDataUrl)}" alt="Scan to verify this report" />
-            <div class="refLabel">Ref: ${escapeHtml(reportRef)}</div>
-          </div>
-          <div class="verifyText">
-            <div class="qrTitle">Authenticity and compliance</div>
-            <div class="qrNote">Scan the QR to verify this report on the public NoLSAF page (no login). It shows the sealed figures, so any tampering is detectable. Confidential. For authorized operations, audit, and compliance use.</div>
-          </div>
-        </div>
-      </div>`
-          : ""
-      }
-    </div>
+      ${buildAdminReportFooter({
+        reportRef,
+        qrDataUrl: verifyQrDataUrl,
+        purpose: "Scan the QR code to confirm the sealed booking totals on the public NoLSAF verification page.",
+        signatureLabel: "Operations authorization",
+      })}
+    </main>
   </div>
 </body>
 </html>`;
 
-    const w = window.open("", "_blank");
-    if (!w) {
-      alert("Unable to open print window. Please allow popups");
-      return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    setTimeout(() => {
-      w.focus();
-      w.print();
-    }, 450);
+    await renderAndPrintAdminReport(printWindow, html);
   }
 
   return (
-    <div className="bg-slate-50 min-h-screen">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="py-6 sm:py-8 space-y-5">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_10px_40px_-16px_rgba(2,6,23,0.18)]">
-            {/* Header band */}
-            <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-[#02665e]/[0.08] via-white to-white px-6 py-6 sm:px-8 sm:py-7">
-              <div className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-[#02665e]/10 blur-3xl" aria-hidden />
-              <div className="pointer-events-none absolute -left-10 bottom-0 h-32 w-32 rounded-full bg-sky-400/10 blur-3xl" aria-hidden />
-
-              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <Link
-                    href="/admin/management/reports"
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-bold text-slate-700 no-underline shadow-sm backdrop-blur transition hover:border-slate-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-                    Back to reports
-                  </Link>
-
-                  <div className="mt-5 flex items-center gap-3.5">
-                    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#02665e] text-white shadow-[0_8px_20px_-6px_rgba(2,102,94,0.6)] ring-1 ring-white/20">
-                      <FileText className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="inline-flex items-center gap-1.5 rounded-full border border-[#02665e]/20 bg-[#02665e]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#02665e]">
-                        Operational Export
-                      </div>
-                      <h2 className="mt-1.5 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Booking Reports</h2>
-                    </div>
-                  </div>
-
-                  <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                    Print ready booking statistics across owner property bookings, group stays, and tour bookings.
-                  </p>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={printReport}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-[#02665e] px-5 text-sm font-semibold text-white shadow-[0_8px_22px_-6px_rgba(2,102,94,0.55)] transition hover:brightness-110 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
-                  >
-                    <Printer className="mr-2 h-4 w-4" aria-hidden />
-                    Print
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div className="px-6 py-5 sm:px-8 sm:py-6">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                      <ClipboardList className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-700">Owner bookings</div>
-                  </div>
-                  <p className="mt-2.5 text-[13px] leading-5 text-slate-500">
-                    Standard property bookings, excluding group stays and tour bookings.
-                  </p>
-                </div>
-                <div className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                      <Users className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-700">Group stays</div>
-                  </div>
-                  <p className="mt-2.5 text-[13px] leading-5 text-slate-500">
-                    Group or special arrangement booking requests.
-                  </p>
-                </div>
-                <div className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
-                      <Sliders className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-700">Tour bookings</div>
-                  </div>
-                  <p className="mt-2.5 text-[13px] leading-5 text-slate-500">
-                    Tour packages from operators, with platform commission tracked per booking.
-                  </p>
-                </div>
-              </div>
+    <NoLSAFReportsFrame
+      actions={
+        <button type="button" onClick={printReport} className="inline-flex h-9 items-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-emerald-800">
+          <Printer className="h-3.5 w-3.5" aria-hidden />
+          Print / PDF
+        </button>
+      }
+    >
+      <NoLSAFReportTitle
+        icon="bookings"
+        eyebrow="Operational performance"
+        title="Booking operations report"
+        text="Owner property bookings, group stays, and tour activity with status and detailed registers."
+      />
 
               {error ? (
                 <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -1167,111 +940,100 @@ export default function BookingReportsClient() {
               ) : null}
 
               {/* Controls toolbar */}
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
-                <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-                  <div className="w-[180px] shrink-0">
-                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">From</div>
-                    <DatePickerField label="From date" value={from} max={to} onChangeAction={(nextIso) => setFrom(nextIso)} widthClassName="w-full" />
+              <section className="grid min-w-0 gap-4 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,360px)_1px_minmax(0,1fr)] lg:items-end" aria-label="Booking report controls">
+                <div className="min-w-0">
+                  <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Reporting period</div>
+                  <div className="mt-2 grid min-w-0 gap-2 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[9px] font-semibold text-neutral-500">From</div>
+                      <DatePickerField label="From date" value={from} max={to} onChangeAction={(nextIso) => setFrom(nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[9px] font-semibold text-neutral-500">To</div>
+                      <DatePickerField label="To date" value={to} min={from} onChangeAction={(nextIso) => setTo(nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
+                    </div>
                   </div>
+                </div>
 
-                  <div className="w-[180px] shrink-0">
-                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">To</div>
-                    <DatePickerField label="To date" value={to} min={from} onChangeAction={(nextIso) => setTo(nextIso)} widthClassName="w-full" />
-                  </div>
+                <div className="hidden self-stretch bg-neutral-200 lg:block" aria-hidden />
 
-                  <div className="hidden self-stretch border-l border-slate-200 sm:block" aria-hidden />
-
-                  <div className="shrink-0">
-                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Range</div>
-                    <div className="flex flex-nowrap items-center gap-2">
+                <div className="min-w-0">
+                  <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Quick range</div>
+                  <div className="mt-2 flex min-w-0 items-center gap-2">
+                    <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <div className="grid w-max min-w-full grid-flow-col auto-cols-[minmax(88px,1fr)] items-center gap-1.5 p-0.5" aria-label="Quick report periods">
                       {(
                         [
-                          { key: "today" as const, label: "Today", hint: "Today", accent: "bg-emerald-500", days: 0 },
-                          { key: "7d" as const, label: "7D", hint: "Last 7 days", accent: "bg-sky-500", days: 6 },
-                          { key: "30d" as const, label: "1M", hint: "Last 30 days", accent: "bg-violet-500", days: 29 },
+                          { key: "today" as const, label: "Today", hint: "Today", days: 0 },
+                          { key: "7d" as const, label: "7 days", hint: "Last 7 days", days: 6 },
+                          { key: "30d" as const, label: "30 days", hint: "Last 30 days", days: 29 },
+                          { key: "3m" as const, label: "3 months", hint: "Last 3 months" },
+                          { key: "6m" as const, label: "6 months", hint: "Last 6 months" },
+                          { key: "ytd" as const, label: "YTD", hint: "Year to date" },
+                          { key: "12m" as const, label: "12 months", hint: "Last 12 months" },
                         ] as const
                       ).map((p) => {
-                        const r = getQuickRange(p.days);
+                        const r = "days" in p ? getQuickRange(p.days) : getMoreRange(p.key);
                         const active = from === r.from && to === r.to;
                         return (
                           <RangePill
                             key={p.key}
                             label={p.label}
                             hint={p.hint}
-                            accentClassName={p.accent}
                             active={active}
-                            onClick={() => applyQuickRange(p.days)}
+                            onClick={() => {
+                              setFrom(r.from);
+                              setTo(r.to);
+                            }}
                           />
                         );
                       })}
 
-                      <MoreRangesPopover
-                        mounted={mounted}
-                        moreRanges={[
-                          { key: "3m", label: "3M", hint: "Last 3 months", accent: "bg-indigo-500" },
-                          { key: "6m", label: "6M", hint: "Last 6 months", accent: "bg-amber-500" },
-                          { key: "ytd", label: "YTD", hint: "Year to date", accent: "bg-teal-500" },
-                          { key: "12m", label: "12M", hint: "Last 12 months (max)", accent: "bg-slate-600" },
-                        ]}
-                        onSelectRange={(k) => {
-                          const r = getMoreRange(k);
-                          setFrom(r.from);
-                          setTo(r.to);
-                        }}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => void load()}
-                        className="inline-flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-[#02665e] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
-                        title="Refresh"
-                        aria-label="Refresh"
-                      >
-                        <RefreshCw className="h-4 w-4" aria-hidden />
-                      </button>
-                    </div>
+                      </div>
                   </div>
+                  <button type="button" onClick={() => void load()} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" title="Refresh" aria-label="Refresh">
+                    <RefreshCw className="h-4 w-4" aria-hidden />
+                  </button>
                 </div>
-              </div>
-            </div>
-          </div>
+                </div>
+              </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-[#02665e]/10 flex items-center justify-center"><FileText className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /></span>
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Owner bookings</div>
               </div>
-              <div className="mt-2.5 text-3xl font-black text-slate-900 tracking-tight">{fmtInt(kpiSingle)}</div>
+              <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiSingle)}</div>
             </div>
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-sky-50 flex items-center justify-center"><Users className="h-3.5 w-3.5 text-sky-500" aria-hidden /></span>
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Group stays</div>
               </div>
-              <div className="mt-2.5 text-3xl font-black text-slate-900 tracking-tight">{fmtInt(kpiGroup)}</div>
+              <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiGroup)}</div>
             </div>
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-amber-50 flex items-center justify-center"><ClipboardList className="h-3.5 w-3.5 text-amber-500" aria-hidden /></span>
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Tour bookings</div>
               </div>
-              <div className="mt-2.5 text-3xl font-black text-slate-900 tracking-tight">{fmtInt(kpiTour)}</div>
+              <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiTour)}</div>
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] px-6 py-5">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <div className="text-base font-black text-slate-900 tracking-tight">Visual Summary</div>
-                <div className="text-xs text-slate-500 mt-0.5">Status breakdown charts for the selected range.</div>
+                <div className="text-sm font-bold text-neutral-950">Visual summary</div>
+                <div className="mt-0.5 text-[10px] text-neutral-500">Status breakdown across the three booking streams.</div>
               </div>
               {loading ? <div className="text-xs text-slate-400 font-medium">Loading…</div> : null}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="rounded-[16px] border border-slate-100 bg-slate-50/60 p-4">
-                <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 mb-3">Owner bookings by status</div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Owner bookings by status</div>
                 <Chart
                   type="pie"
                   data={ownerStatusChartData as any}
@@ -1287,13 +1049,13 @@ export default function BookingReportsClient() {
                       tooltip: { enabled: true },
                     },
                   } as any}
-                  height={210}
+                  height={190}
                   onCanvas={setOwnerChartCanvas}
                 />
               </div>
 
-              <div className="rounded-[16px] border border-slate-100 bg-slate-50/60 p-4">
-                <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 mb-3">Group stays status</div>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Group stays status</div>
                 <div className="grid grid-cols-1 gap-2">
                   {groupStayBars.map((row) => (
                     <PercentBarRow key={row.key} label={row.label} pct={row.pct} colorClassName={row.color} />
@@ -1301,8 +1063,8 @@ export default function BookingReportsClient() {
                 </div>
               </div>
 
-              <div className="rounded-[16px] border border-slate-100 bg-slate-50/60 p-4">
-                <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 mb-3">Tour bookings by status</div>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Tour bookings by status</div>
                 <Chart
                   type="doughnut"
                   data={tourStatusChartData as any}
@@ -1319,15 +1081,15 @@ export default function BookingReportsClient() {
                       tooltip: { enabled: true },
                     },
                   } as any}
-                  height={210}
+                  height={190}
                   onCanvas={setTourChartCanvas}
                 />
               </div>
             </div>
-          </div>
+          </section>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-[#02665e]/10 flex items-center justify-center"><FileText className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Owner bookings</div>
@@ -1349,7 +1111,7 @@ export default function BookingReportsClient() {
               </div>
             </div>
 
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-sky-50 flex items-center justify-center"><Users className="h-3.5 w-3.5 text-sky-500" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Group stays</div>
@@ -1371,7 +1133,7 @@ export default function BookingReportsClient() {
               </div>
             </div>
 
-            <div className="bg-white rounded-[18px] border border-slate-200 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.07)] px-5 py-4">
+            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-amber-50 flex items-center justify-center"><ClipboardList className="h-3.5 w-3.5 text-amber-500" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Tour bookings</div>
@@ -1395,9 +1157,9 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] px-6 py-5">
-            <div className="text-base font-black text-slate-900 tracking-tight pb-3 border-b border-slate-100">Owner bookings (details)</div>
-            <div className="mt-3 overflow-x-auto">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Owner booking register</div>
+            <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
@@ -1449,9 +1211,9 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] px-6 py-5">
-            <div className="text-base font-black text-slate-900 tracking-tight pb-3 border-b border-slate-100">Group stays (details)</div>
-            <div className="mt-3 overflow-x-auto">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Group stay register</div>
+            <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
@@ -1519,9 +1281,9 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] px-6 py-5">
-            <div className="text-base font-black text-slate-900 tracking-tight pb-3 border-b border-slate-100">Tour bookings (details)</div>
-            <div className="mt-3 overflow-x-auto">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Tour booking register</div>
+            <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
@@ -1578,8 +1340,6 @@ export default function BookingReportsClient() {
           </div>
 
           {loading ? <div className="text-xs text-slate-400 font-medium text-center py-2">Loading…</div> : null}
-        </div>
-      </div>
-    </div>
+    </NoLSAFReportsFrame>
   );
 }

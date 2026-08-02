@@ -17,9 +17,8 @@ import {
 } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
-  ArrowLeftRight,
   Bell,
   BookOpen,
   Building2,
@@ -37,8 +36,8 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import apiClient from "@/lib/apiClient";
 import { useSalesWorkspace } from "@/components/sales/SalesWorkspaceContext";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 export type { SalesMe } from "@/components/sales/SalesWorkspaceContext";
 
 const NAV = [
@@ -233,7 +232,6 @@ function SalesOperationalFooter() {
 
 export default function SalesShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { me, loading, denied } = useSalesWorkspace();
   const [navigation, setNavigation] = useState<{ href: string; label: string } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -263,16 +261,6 @@ export default function SalesShell({ children }: { children: ReactNode }) {
       return next;
     });
   }, []);
-
-  const switchToNormal = useCallback(async () => {
-    setNavigation({ href: "/account", label: "NoLSAF workspace" });
-    try {
-      await apiClient.post("/api/me/workspace/select", { workspace: "NORMAL" });
-    } catch {
-      // Selection is a preference. If it fails, still navigate.
-    }
-    router.push("/account");
-  }, [router]);
 
   useEffect(() => {
     if (!navigation) return;
@@ -329,13 +317,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center">
           <h1 className="text-lg font-semibold text-gray-900">Sales workspace unavailable</h1>
           <p className="mt-2 text-sm text-gray-600">{denied || "Could not load your sales workspace."}</p>
-          <button
-            type="button"
-            onClick={switchToNormal}
-            className="mt-5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-          >
-            Go to NoLSAF
-          </button>
+          <WorkspaceSwitcher currentWorkspace="SALES" variant="standalone" />
         </div>
       </div>
     );
@@ -417,21 +399,13 @@ export default function SalesShell({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="shrink-0 border-t border-white/10 bg-black/5 p-2.5">
-        <button
-          type="button"
-          onClick={switchToNormal}
-          title={sidebarCollapsed ? "Switch workspace" : undefined}
-          className={`flex min-h-9 w-full items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[12px] font-semibold text-amber-100 transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 ${
-            sidebarCollapsed ? "justify-center" : "gap-2.5 px-2.5"
-          }`}
-        >
-          {navigation?.href === "/account" ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-          ) : (
-            <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-          )}
-          {!sidebarCollapsed ? "Switch workspace" : null}
-        </button>
+        <WorkspaceSwitcher
+          currentWorkspace="SALES"
+          variant="sales-sidebar"
+          collapsed={sidebarCollapsed}
+          onSwitchStart={(_workspace, destination) => setNavigation({ href: destination, label: "NoLSAF Dashboard" })}
+          onSwitchError={() => setNavigation(null)}
+        />
         <button
           type="button"
           onClick={toggleCollapsed}

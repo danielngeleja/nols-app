@@ -124,6 +124,10 @@
     "20260728230000_rebuild_unusable_case_renamed_indexes": "c9c75de76935dfdb7003b8ce27c530a7d75d749deeaab3db31c78b89b9ef2038",
     "20260728235500_force_physical_rebuild_unusable_indexes": "3821600557a32a615a655184b5a499f6dc72272c9001e1363339ae115ca8fbab",
     "20260729010000_add_user_nrms_finance_role": "f5c18ad3a641a01fd31d249eba6b41c9af8cbbd551f06077fa3bdf156ded277b",
-    "20260729020000_reconcile_confirmed_schema_drift": "a97dfd876fcfa265a106de83e8081e87bfc00e485fe480eb9ae9e004a1f4c04a"
+    "20260729020000_reconcile_confirmed_schema_drift": "a97dfd876fcfa265a106de83e8081e87bfc00e485fe480eb9ae9e004a1f4c04a",
+    "20260801120000_add_admin_work_item_sla": "466be2dcb1c75af2d605fa03e7d9be0735541cd24b6224a0c62cdd7d1bc1e8f2",
+    "20260801160000_add_audit_retention_policy": "925e440f8b73bddc4ff4a04ba081176e96d8bca509867c9345659ce33a82d93d",
+    "20260801163000_add_audit_retention_rollout_grace": "9bf1e51f18d950a3e51869601f09b1542c6ba2979ebcd44dc97d895a6ff38feb",
+    "20260801170000_fix_audit_retention_enforcement": "d7eccb0b87746af6b1d2c10ef875cf251aa313b5fd014788483e28a3edf42d62"
   }
 }
