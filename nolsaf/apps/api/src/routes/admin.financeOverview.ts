@@ -18,7 +18,7 @@
 // Recognition signal per stream (realized):
 //   Accommodation : Invoice.status = PAID              (rev = commissionAmount)
 //   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
-//   Transport     : TransportPayout.status = PAID      (rev = commissionAmount)
+//   Transport     : TransportBooking.paymentStatus = PAID (rev = commissionAmount)
 //   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
 //   Subscriptions : NrmsServicePayment.status = VERIFIED or MANUALLY_VERIFIED
 //                   (rev = amount, no partner split)
@@ -156,15 +156,36 @@ router.get("/overview", async (req, res) => {
     }
 
     // ── Transport (TransportPayout) ──────────────────────────────────────────
+    // Customer payment realizes GMV and NoLSAF commission. Driver payout is a
+    // separate liability lifecycle, so only a PAID payout contributes to the
+    // global "Paid to partners" value.
     const txDate = dateClause();
-    const [txRealized, txPending] = await Promise.all([
+    const [txCollected, txPartnerPaid, txPending] = await Promise.all([
       prisma.transportPayout.aggregate({
-        where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
-        _sum: { grossAmount: true, commissionAmount: true, netPaid: true },
+        where: {
+          booking: {
+            paymentStatus: "PAID",
+            ...(txDate ? { updatedAt: txDate } : {}),
+          },
+        },
+        _sum: { grossAmount: true, commissionAmount: true },
         _count: { _all: true },
       }),
       prisma.transportPayout.aggregate({
-        where: { status: { in: ["PENDING", "APPROVED"] }, ...(txDate ? { createdAt: txDate } : {}) },
+        where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
+        _sum: { netPaid: true },
+      }),
+      prisma.transportPayout.aggregate({
+        where: {
+          status: { in: ["PENDING", "APPROVED"] },
+          booking: {
+            OR: [
+              { paymentStatus: null },
+              { paymentStatus: { not: "PAID" } },
+            ],
+            ...(txDate ? { updatedAt: txDate } : {}),
+          },
+        },
         _sum: { commissionAmount: true },
         _count: { _all: true },
       }),
@@ -173,10 +194,10 @@ router.get("/overview", async (req, res) => {
     const transport: StreamSummary = {
       key: "transport",
       label: "Transport",
-      gmv: n(txRealized._sum.grossAmount),
-      nolsafRevenue: n(txRealized._sum.commissionAmount),
-      partnerNet: n(txRealized._sum.netPaid),
-      realizedCount: txRealized._count._all,
+      gmv: n(txCollected._sum.grossAmount),
+      nolsafRevenue: n(txCollected._sum.commissionAmount),
+      partnerNet: n(txPartnerPaid._sum.netPaid),
+      realizedCount: txCollected._count._all,
       pendingRevenue: n(txPending._sum.commissionAmount),
       pendingCount: txPending._count._all,
     };

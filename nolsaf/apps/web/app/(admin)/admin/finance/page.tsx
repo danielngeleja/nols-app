@@ -258,7 +258,7 @@ export default function AdminFinancePage() {
                             <span>{s.realizedCount} transactions</span>
                             {s.pendingRevenue > 0 ? <span>{fmt(s.pendingRevenue)} pending</span> : null}
                           </span>
-                          <span className="font-bold tabular-nums" style={{ color: meta.bar }}>{Math.round(share * 100)}% of revenue</span>
+                          <span className="font-bold tabular-nums" style={{ color: meta.bar }}>{(share * 100).toFixed(1)}% of revenue</span>
                         </div>
                         {s.note && <div className="mt-1 text-[11px] text-slate-500">{s.note}</div>}
                       </div>
