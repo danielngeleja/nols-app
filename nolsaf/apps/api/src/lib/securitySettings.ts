@@ -24,11 +24,25 @@ let cachedSessionPolicy: {
   sessionMaxMinutesAgent: null,
 };
 
-const SESSION_POLICY_CACHE_TTL_MS = 60 * 1000; // 60s
+// Session-policy reductions are security controls and must be visible on the
+// next authenticated request, including on other API instances. Do not keep a
+// process-local TTL cache by default. Deployments may opt into a very short
+// cache explicitly if they accept the corresponding enforcement delay.
+const SESSION_POLICY_CACHE_TTL_MS = Math.max(
+  0,
+  Number(process.env.SESSION_POLICY_CACHE_TTL_MS ?? 0) || 0,
+);
+
+export function invalidateSessionPolicyCache(): void {
+  cachedSessionPolicy.lastUpdate = 0;
+}
 
 async function getSessionPolicyCached() {
   const now = Date.now();
-  if (now - cachedSessionPolicy.lastUpdate <= SESSION_POLICY_CACHE_TTL_MS) return cachedSessionPolicy;
+  if (
+    SESSION_POLICY_CACHE_TTL_MS > 0
+    && now - cachedSessionPolicy.lastUpdate <= SESSION_POLICY_CACHE_TTL_MS
+  ) return cachedSessionPolicy;
 
   try {
     let settings: any = null;
@@ -86,7 +100,7 @@ function normalizeSessionRole(role?: string | null): SessionRole {
   if (r === 'OWNER') return 'OWNER';
   if (r === 'DRIVER') return 'DRIVER';
   if (r === 'AGENT') return 'AGENT';
-  if (r === 'CUSTOMER') return 'CUSTOMER';
+  if (r === 'CUSTOMER' || r === 'USER' || r === 'TRAVELLER' || r === 'TRAVELER') return 'CUSTOMER';
   return 'USER';
 }
 

@@ -4,7 +4,7 @@ import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import { prisma } from "@nolsaf/prisma";
-import { socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
+import { monitorSocketSessionPolicy, socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
 import { touchActiveUser } from "../lib/activePresence.js";
 import {
   getProtectedDriverAccessDenial,
@@ -180,6 +180,7 @@ function registerSocketHandlers(io: SocketServer): void {
         }
         socket.data.user = verified;
         user = verified;
+        monitorSocketSessionPolicy(socket);
         try { touchActiveUser(verified.id, verified.role); } catch {}
         await joinAuthenticatedRooms(socket, verified);
         if (callback) callback({ status: "ok", userId: verified.id, role: verified.role });

@@ -1,5 +1,6 @@
 // Socket.io authentication middleware
 import { Socket } from "socket.io";
+import type { Server as SocketServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { getRoleSessionMaxMinutes } from "../lib/securitySettings.js";
@@ -11,6 +12,10 @@ export interface AuthenticatedSocket extends Socket {
       id: number;
       role: string;
       email?: string | null;
+      /** Raw database role used for TTL policy lookup (CUSTOMER stays CUSTOMER). */
+      sessionRole?: string;
+      /** JWT issuance time used for dynamic policy enforcement. */
+      sessionIssuedAtSec?: number;
     };
   };
 }
@@ -41,7 +46,9 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
   return out;
 }
 
-export async function verifyToken(token: string): Promise<{ id: number; role: string; email?: string | null } | null> {
+export async function verifyToken(
+  token: string,
+): Promise<NonNullable<AuthenticatedSocket["data"]["user"]> | null> {
   try {
     const secret =
       process.env.JWT_SECRET ||
@@ -98,7 +105,7 @@ export async function verifyToken(token: string): Promise<{ id: number; role: st
     // Enforce dynamic per-role TTL based on token issuance time
     const issuedAtSec = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
     if (Number.isFinite(issuedAtSec) && issuedAtSec > 0) {
-      const maxMinutes = await getRoleSessionMaxMinutes(mappedRole);
+      const maxMinutes = await getRoleSessionMaxMinutes(role);
       const ageSec = Math.floor(Date.now() / 1000) - issuedAtSec;
       if (ageSec > maxMinutes * 60) {
         return null;
@@ -109,10 +116,76 @@ export async function verifyToken(token: string): Promise<{ id: number; role: st
       id: user.id,
       role: mappedRole,
       email: user.email || null,
+      sessionRole: role,
+      sessionIssuedAtSec: Number.isFinite(issuedAtSec) ? issuedAtSec : undefined,
     };
   } catch (error) {
     return null;
   }
+}
+
+const socketPolicyTimers = new WeakMap<Socket, ReturnType<typeof setInterval>>();
+const SOCKET_POLICY_RECHECK_MS = Math.max(
+  5_000,
+  Number(process.env.SOCKET_SESSION_POLICY_RECHECK_MS ?? 30_000) || 30_000,
+);
+
+async function socketExceedsCurrentPolicy(socket: AuthenticatedSocket): Promise<boolean> {
+  const user = socket.data.user;
+  const issuedAtSec = Number(user?.sessionIssuedAtSec);
+  if (!user || !Number.isFinite(issuedAtSec) || issuedAtSec <= 0) return false;
+  const maxMinutes = await getRoleSessionMaxMinutes(user.sessionRole || user.role);
+  return Math.floor(Date.now() / 1000) - issuedAtSec > maxMinutes * 60;
+}
+
+async function expireSocketIfNeeded(socket: AuthenticatedSocket): Promise<boolean> {
+  if (!(await socketExceedsCurrentPolicy(socket))) return false;
+  socket.data.user = undefined;
+  try {
+    socket.emit("session:expired", { code: "SESSION_EXPIRED", message: "Session expired" });
+  } catch {}
+  try {
+    socket.disconnect(true);
+  } catch {}
+  return true;
+}
+
+/** Re-arm continuous TTL enforcement after handshake or late authentication. */
+export function monitorSocketSessionPolicy(socket: AuthenticatedSocket): void {
+  const existing = socketPolicyTimers.get(socket);
+  if (existing) clearInterval(existing);
+  if (!socket.data.user?.sessionIssuedAtSec) return;
+
+  const timer = setInterval(() => {
+    void expireSocketIfNeeded(socket).catch(() => {});
+  }, SOCKET_POLICY_RECHECK_MS);
+  timer.unref?.();
+  socketPolicyTimers.set(socket, timer);
+  socket.once("disconnect", () => {
+    clearInterval(timer);
+    if (socketPolicyTimers.get(socket) === timer) socketPolicyTimers.delete(socket);
+  });
+}
+
+/**
+ * Apply a changed session policy to every currently connected socket. With the
+ * Redis adapter, fetchSockets also reaches sockets owned by other API workers.
+ */
+export async function enforceSocketSessionPolicy(io: SocketServer): Promise<number> {
+  const sockets = await io.fetchSockets();
+  let expired = 0;
+  await Promise.all(sockets.map(async (socket: any) => {
+    const data = socket.data as AuthenticatedSocket["data"];
+    const user = data?.user;
+    const issuedAtSec = Number(user?.sessionIssuedAtSec);
+    if (!user || !Number.isFinite(issuedAtSec) || issuedAtSec <= 0) return;
+    const maxMinutes = await getRoleSessionMaxMinutes(user.sessionRole || user.role);
+    if (Math.floor(Date.now() / 1000) - issuedAtSec <= maxMinutes * 60) return;
+    expired += 1;
+    try { socket.emit("session:expired", { code: "SESSION_EXPIRED", message: "Session expired" }); } catch {}
+    try { socket.disconnect(true); } catch {}
+  }));
+  return expired;
 }
 
 function getTokenFromSocket(socket: Socket): string | null {
@@ -158,6 +231,7 @@ export function socketAuthMiddleware(socket: AuthenticatedSocket, next: (err?: E
 
       // Attach user to socket data
       socket.data.user = user;
+      monitorSocketSessionPolicy(socket);
       try {
         touchActiveUser(user.id, user.role);
       } catch {}

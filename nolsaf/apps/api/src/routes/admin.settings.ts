@@ -3,6 +3,8 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 import { resolveTierLadder, defaultTierLadderConfig, validateTierLadder } from "../lib/agentLevel.js";
+import { invalidateSessionPolicyCache } from "../lib/securitySettings.js";
+import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 
 /** Convert a resolved tier-spec list back to the editable {TIER:{thresholds}} config. */
 function tierLadderToConfig(raw: unknown) {
@@ -419,6 +421,19 @@ router.put("/", async (req, res) => {
   const sessionPolicyFields = new Set(['sessionIdleMinutes', 'maxSessionDurationHours', 'sessionMaxMinutesAdmin', 'sessionMaxMinutesOwner', 'sessionMaxMinutesDriver', 'sessionMaxMinutesCustomer', 'sessionMaxMinutesAgent']);
   const touchedSessionPolicy = Object.keys(changes).some((k) => sessionPolicyFields.has(k));
   const action = touchedSessionPolicy ? 'ADMIN_SESSION_POLICY_UPDATE' : 'ADMIN_SETTINGS_UPDATE';
+
+  if (touchedSessionPolicy) {
+    // Make the new limits effective before this request returns. HTTP checks
+    // will read the fresh policy, and already-connected sockets that are now
+    // over their role limit are disconnected immediately.
+    invalidateSessionPolicyCache();
+    const io = req.app.get("io");
+    if (io) {
+      await enforceSocketSessionPolicy(io).catch((err: any) => {
+        console.error("[admin.settings] Socket session policy enforcement failed:", err?.message ?? err);
+      });
+    }
+  }
 
   // Write audit directly so errors surface instead of being swallowed silently.
   try {

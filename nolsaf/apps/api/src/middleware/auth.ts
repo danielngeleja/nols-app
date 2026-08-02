@@ -116,6 +116,17 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     }
     const cached = await getCachedAuthSession(token);
     if (cached && cached.id === userId && cached.sessionId === sessionId) {
+      // Cached identity data must not bypass a newly reduced role TTL. The JWT
+      // role is signed and preserves CUSTOMER for Traveller accounts even
+      // though the public AuthedUser role is normalized to USER.
+      const issuedAtSec = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
+      if (Number.isFinite(issuedAtSec) && issuedAtSec > 0) {
+        const maxMinutes = await getRoleSessionMaxMinutes(decoded.role || cached.role);
+        const ageSec = Math.floor(Date.now() / 1000) - issuedAtSec;
+        if (ageSec > maxMinutes * 60) {
+          throw authError("SESSION_EXPIRED", "Session expired");
+        }
+      }
       return cached;
     }
 
