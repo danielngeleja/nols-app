@@ -99,43 +99,52 @@ export default function AdminFinancePage() {
       <div className="relative mx-auto box-border w-full max-w-full min-w-0 space-y-4 overflow-x-clip px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
         {/* Header */}
         <div
-          className="relative w-full max-w-full overflow-hidden rounded-[28px] shadow-2xl"
+          className="relative w-full max-w-full overflow-hidden rounded-2xl border border-white/10"
           style={{
-            background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
-            boxShadow: "0 22px 55px -20px rgba(2,102,94,0.45)",
+            background: "linear-gradient(135deg, #0b255f 0%, #07556b 48%, #075f58 100%)",
+            boxShadow: "0 16px 38px -26px rgba(2,102,94,0.55)",
           }}
         >
-          <div className="pointer-events-none absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)", backgroundSize: "26px 26px" }} aria-hidden />
-          <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" aria-hidden />
-          <div className="pointer-events-none absolute -bottom-28 -right-20 h-80 w-80 rounded-full bg-emerald-300/10 blur-3xl" aria-hidden />
+          <div className="pointer-events-none absolute inset-0 opacity-[0.045]" style={{ backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)", backgroundSize: "24px 24px" }} aria-hidden />
+          <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-emerald-200/10 blur-3xl" aria-hidden />
 
-          <div className="relative z-10 flex flex-col items-center px-5 py-9 text-center sm:px-8 sm:py-12">
-            <div className="relative mb-5 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-white/20 bg-white/10 shadow-[0_0_0_8px_rgba(255,255,255,0.05)] backdrop-blur-sm">
-              <span className="absolute inset-0 rounded-2xl bg-white/10 blur-md" aria-hidden />
-              <Wallet className="relative h-7 w-7 text-white" aria-hidden />
-            </div>
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
-              <span>Finance overview</span>
-              {data && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-emerald-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_6px_2px_rgba(110,231,183,0.5)]" />
-                  {data.range.allTime ? "All time" : "Filtered range"}
+          <div className="relative z-10 flex flex-col gap-4 px-5 py-5 sm:px-6 sm:py-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/65">
+                  <Wallet className="h-3.5 w-3.5 text-teal-200" aria-hidden /> Finance overview
                 </span>
-              )}
-            </div>
-            <h1 className="mt-3 text-[28px] font-extrabold leading-tight tracking-tight text-white sm:text-4xl">
-              NoLSAF Revenue <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-sky-200 bg-clip-text text-transparent">across all streams</span>
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60 sm:text-base">
-              GMV and NoLSAF revenue rolled up across accommodation, tours, transport, group stay and subscriptions.
-              Read only. Each stream stays managed on its own page.
-            </p>
-            {takeRate !== null && (
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3.5 py-1.5 text-xs font-bold text-white/80 backdrop-blur-sm">
-                <Sparkles className="h-3.5 w-3.5 text-emerald-300" />
-                {takeRate.toFixed(1)}% blended take rate across GMV
+                {data ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-100">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_6px_rgba(110,231,183,0.8)]" />
+                    {data.range.allTime ? "All time" : "Filtered range"}
+                  </span>
+                ) : null}
               </div>
-            )}
+              <h1 className="mt-2.5 text-xl font-extrabold leading-tight tracking-tight text-white sm:text-2xl">
+                NoLSAF revenue <span className="text-teal-200">across all streams</span>
+              </h1>
+              <p className="mt-1.5 max-w-3xl text-xs leading-5 text-white/60 sm:text-sm">
+                A read only view of GMV and NoLSAF revenue from accommodation, tours, transport, group stay and subscriptions.
+              </p>
+            </div>
+
+            <div className="flex min-w-0 shrink-0 items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3.5 py-3 backdrop-blur-sm lg:min-w-[12rem]">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-300/10 text-emerald-200">
+                <Sparkles className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">Blended take rate</div>
+                {takeRate !== null ? (
+                  <div className="mt-0.5 flex items-baseline gap-1.5">
+                    <span className="text-xl font-extrabold leading-none tabular-nums text-white">{takeRate.toFixed(1)}%</span>
+                    <span className="text-[10px] text-white/45">of GMV</span>
+                  </div>
+                ) : (
+                  <div className="mt-1.5 h-5 w-20 animate-pulse rounded bg-white/10" />
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -146,9 +155,8 @@ export default function AdminFinancePage() {
         )}
 
         {/* Hero KPIs */}
-        <div className="grid w-full max-w-full grid-cols-12 gap-4">
+        <div className="grid w-full max-w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <HeroCard
-            className="col-span-12 sm:col-span-6 xl:col-span-3"
             label="NoLSAF revenue"
             sublabel="Realized platform take"
             icon={TrendingUp}
@@ -161,7 +169,6 @@ export default function AdminFinancePage() {
             badge={takeRate !== null ? `${takeRate.toFixed(1)}% of GMV` : undefined}
           />
           <HeroCard
-            className="col-span-12 sm:col-span-6 xl:col-span-3"
             label="Total GMV"
             sublabel="Gross value transacted"
             icon={Wallet}
@@ -173,7 +180,6 @@ export default function AdminFinancePage() {
             loading={loading}
           />
           <HeroCard
-            className="col-span-12 sm:col-span-6 xl:col-span-3"
             label="Paid to partners"
             sublabel="Owners, operators, drivers"
             icon={HandCoins}
@@ -185,7 +191,6 @@ export default function AdminFinancePage() {
             loading={loading}
           />
           <HeroCard
-            className="col-span-12 sm:col-span-6 xl:col-span-3"
             label="Pending revenue"
             sublabel={totals ? `${totals.pendingCount} in pipeline` : "In pipeline"}
             icon={Hourglass}
@@ -289,7 +294,6 @@ export default function AdminFinancePage() {
 const HERO_NF = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
 function HeroCard({
-  className,
   label,
   sublabel,
   icon: Icon,
@@ -301,7 +305,6 @@ function HeroCard({
   loading,
   badge,
 }: {
-  className?: string;
   label: string;
   sublabel: string;
   icon: any;
@@ -315,30 +318,30 @@ function HeroCard({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl border ${border} bg-white/[0.04] p-4 transition-transform duration-200 hover:-translate-y-0.5 sm:p-5 ${className ?? ""}`}
+      className={`group relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border ${border} bg-white/[0.04] px-3 py-3 shadow-[0_10px_28px_-24px_rgba(0,0,0,0.9)] transition-colors hover:bg-white/[0.065]`}
     >
-      <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full blur-2xl" style={{ background: glow }} aria-hidden />
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="text-xs font-bold text-slate-200 sm:text-sm">{label}</div>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
-          <Icon className={`h-[18px] w-[18px] ${iconTone}`} />
+      <div className="pointer-events-none absolute -left-5 top-1/2 h-20 w-20 -translate-y-1/2 rounded-full blur-2xl" style={{ background: glow }} aria-hidden />
+      <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06]">
+        <Icon className={`h-4 w-4 ${iconTone}`} />
+      </div>
+      <div className="relative min-w-0 flex-1">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="truncate text-[11px] font-bold text-slate-300">{label}</span>
+          {badge && !loading ? <span className="shrink-0 rounded-full bg-white/[0.07] px-1.5 py-0.5 text-[9px] font-bold text-slate-300">{badge}</span> : null}
         </div>
-      </div>
-      <div className="relative mt-3 flex min-h-7 items-baseline gap-1.5 whitespace-nowrap sm:mt-4 sm:gap-2">
-        {loading ? (
-          <span className="inline-block h-7 w-32 rounded bg-white/10 animate-pulse" />
-        ) : (
-          <>
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{currency}</span>
-            <span className="text-xl font-extrabold tabular-nums tracking-tight text-white leading-none sm:text-2xl">
-              {value === null ? "0" : HERO_NF.format(Math.round(value))}
-            </span>
-          </>
-        )}
-      </div>
-      <div className="relative mt-1.5 flex items-center justify-between gap-2 sm:mt-2">
-        <span className="text-[11px] text-slate-400 sm:text-xs">{sublabel}</span>
-        {badge && !loading && <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold text-slate-300">{badge}</span>}
+        <div className="mt-1 flex min-h-5 items-baseline gap-1.5 whitespace-nowrap">
+          {loading ? (
+            <span className="inline-block h-5 w-24 animate-pulse rounded bg-white/10" />
+          ) : (
+            <>
+              <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{currency}</span>
+              <span className="text-[17px] font-extrabold leading-none tabular-nums tracking-tight text-white">
+                {value === null ? "0" : HERO_NF.format(Math.round(value))}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="mt-1 truncate text-[10px] text-slate-500" title={sublabel}>{sublabel}</div>
       </div>
     </div>
   );

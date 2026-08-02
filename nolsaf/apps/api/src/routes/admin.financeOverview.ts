@@ -20,7 +20,8 @@
 //   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
 //   Transport     : TransportPayout.status = PAID      (rev = commissionAmount)
 //   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
-//   Subscriptions : NrmsServicePayment.status = VERIFIED (rev = amount, no partner split)
+//   Subscriptions : NrmsServicePayment.status = VERIFIED or MANUALLY_VERIFIED
+//                   (rev = amount, no partner split)
 //
 // Money of record is TZS. Tours and Subscriptions (NRMS) are the multi-currency
 // streams; both are normalized to TZS via the display-rate layer (lib/fx) for
@@ -217,15 +218,19 @@ router.get("/overview", async (req, res) => {
     // ── Subscriptions (NRMS PAYG) ─────────────────────────────────────────────
     // NRMS room-night billing is NoLSAF's subscription/software-fee product:
     // properties pay directly for the tool, so the whole amount IS NoLSAF
-    // revenue (no partner split). Realized = NrmsServicePayment.status=VERIFIED
-    // (mirrors Invoice.status=PAID elsewhere); pending = open PAYABLE statements
-    // not yet collected. Both are normalized to TZS in case a future policy
-    // currency differs (today NRMS is always TZS).
+    // revenue (no partner split). Realized includes both provider-verified and
+    // administrator-reconciled payments. The reconciliation route records the
+    // latter as MANUALLY_VERIFIED, and both represent collected money. Pending
+    // means open PAYABLE statements not yet collected. Both are normalized to
+    // TZS in case a future policy currency differs (today NRMS is always TZS).
     const subDate = dateClause();
     const [subRealizedRows, subPendingRows] = await Promise.all([
       prisma.nrmsServicePayment.groupBy({
         by: ["currency"],
-        where: { status: "VERIFIED", ...(subDate ? { verifiedAt: subDate } : {}) },
+        where: {
+          status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] },
+          ...(subDate ? { verifiedAt: subDate } : {}),
+        },
         _sum: { amount: true },
         _count: { _all: true },
       }),

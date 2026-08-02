@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -332,6 +333,8 @@ export default function AdminActionCenterPage() {
     const available = Object.keys(data.summary.byCategory);
     return ["ALL", ...Object.keys(categoryDetails).filter((key) => key !== "ALL" && available.includes(key))];
   }, [data.summary.byCategory]);
+  const selectedCategoryDetail = categoryDetails[category] || { label: category, Icon: Activity };
+  const SelectedCategoryIcon = selectedCategoryDetail.Icon;
 
   function applySearch(event: FormEvent) {
     event.preventDefault();
@@ -430,7 +433,26 @@ export default function AdminActionCenterPage() {
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 bg-slate-50/80 p-4 sm:p-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 flex-wrap gap-2">
+            <div className="relative min-w-0 lg:hidden">
+              <SelectedCategoryIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#02665e]" aria-hidden />
+              <select
+                value={category}
+                onChange={(event) => { setCategory(event.target.value); setPage(1); }}
+                className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+                aria-label="Action category"
+              >
+                {categories.map((key) => {
+                  const detail = categoryDetails[key] || { label: key, Icon: Activity };
+                  const count = key === "ALL" ? data.summary.total : data.summary.byCategory[key] || 0;
+                  return <option key={key} value={key}>{detail.label} ({count})</option>;
+                })}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            </div>
+            <div
+              className="scrollbar-hide hidden min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x lg:flex xl:flex-1"
+              aria-label="Action categories"
+            >
               {categories.map((key) => {
                 const detail = categoryDetails[key] || { label: key, Icon: Activity };
                 const count = key === "ALL" ? data.summary.total : data.summary.byCategory[key] || 0;
@@ -440,7 +462,7 @@ export default function AdminActionCenterPage() {
                     key={key}
                     type="button"
                     onClick={() => { setCategory(key); setPage(1); }}
-                    className={`inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-bold transition ${active ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-600 hover:border-[#02665e]/30 hover:text-[#02665e]"}`}
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-bold transition ${active ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-600 hover:border-[#02665e]/30 hover:text-[#02665e]"}`}
                   >
                     <detail.Icon className="h-3.5 w-3.5" />
                     {detail.label}
