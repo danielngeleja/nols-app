@@ -525,6 +525,27 @@ function getIo(): SocketServer | null {
   return ioRef;
 }
 
+/**
+ * Immediately terminate every live socket for an account whose authorization
+ * changed. With the Redis adapter, fetchSockets reaches every API instance.
+ * The periodic database recheck remains the fail-safe when no adapter exists.
+ */
+export async function disconnectUserSockets(
+  userId: number,
+  code = "AUTHORIZATION_CHANGED",
+  message = "Account authorization changed. Sign in again.",
+): Promise<number> {
+  if (!Number.isSafeInteger(userId) || userId <= 0) return 0;
+  const io = getIo();
+  if (!io) return 0;
+  const sockets = await io.in(`user:${userId}`).fetchSockets();
+  await Promise.all(sockets.map(async (socket: any) => {
+    try { socket.emit("session:expired", { code, message }); } catch {}
+    try { socket.disconnect(true); } catch {}
+  }));
+  return sockets.length;
+}
+
 export function emitReferralUpdate(driverId: string | number, referralData: any): void {
   const io = getIo();
   if (!io) {

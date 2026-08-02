@@ -7,6 +7,8 @@
 
 import { prisma } from "@nolsaf/prisma";
 import { getRedis } from "./redis.js";
+import { createHash } from "node:crypto";
+import { requireTenantId } from "./tenantIsolation.js";
 
 // Security constants
 const MAX_METRICS_SIZE = 10000; // Maximum metrics entries before eviction
@@ -23,6 +25,62 @@ const queryMetrics = new Map<string, { count: number; totalTime: number; avgTime
 
 // Track logged patterns to avoid spam (with size limit)
 const loggedMissingRedisPatterns = new Set<string>();
+
+declare const scopedCacheKeyBrand: unique symbol;
+export type ScopedCacheKey = string & { readonly [scopedCacheKeyBrand]: true };
+export type TenantCacheScope =
+  | "user"
+  | "owner"
+  | "property"
+  | "driver"
+  | "agent"
+  | "sales_partner"
+  | "nrms_property";
+
+function stableCacheParams(params: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(params).sort()) sorted[key] = params[key];
+  return JSON.stringify(sorted);
+}
+
+function safeResourceName(resource: string): string {
+  const safe = String(resource || "").trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+  if (!safe) throw new Error("Cache resource name is required");
+  return safe;
+}
+
+function paramDigest(params: Record<string, unknown>): string {
+  return createHash("sha256").update(stableCacheParams(params)).digest("hex").slice(0, 24);
+}
+
+/** Public data only. Never use this namespace for personalized responses. */
+export function publicCacheKey(resource: string, params: Record<string, unknown> = {}): ScopedCacheKey {
+  return `public:${safeResourceName(resource)}:${paramDigest(params)}` as ScopedCacheKey;
+}
+
+/** Platform-wide data that is reachable only behind the ADMIN role gate. */
+export function adminCacheKey(resource: string, params: Record<string, unknown> = {}): ScopedCacheKey {
+  return `admin:${safeResourceName(resource)}:${paramDigest(params)}` as ScopedCacheKey;
+}
+
+/**
+ * The only supported key builder for private tenant data. Requiring both the
+ * tenancy dimension and its authoritative id prevents cross-account key reuse.
+ */
+export function tenantCacheKey(
+  scope: TenantCacheScope,
+  tenantId: number,
+  resource: string,
+  params: Record<string, unknown> = {},
+): ScopedCacheKey {
+  const id = requireTenantId(tenantId, `${scope} tenant ID`);
+  return `tenant:${scope}:${id}:${safeResourceName(resource)}:${paramDigest(params)}` as ScopedCacheKey;
+}
+
+function hasValidCacheNamespace(key: string): boolean {
+  if (/^(public|admin):[a-zA-Z0-9._-]+:[a-f0-9]{24}$/.test(key)) return true;
+  return /^tenant:(user|owner|property|driver|agent|sales_partner|nrms_property):[1-9]\d*:[a-zA-Z0-9._-]+:[a-f0-9]{24}$/.test(key);
+}
 
 /**
  * Sanitize cache key to prevent injection attacks while preserving existing keys
@@ -148,7 +206,7 @@ export function clearPerformanceMetrics() {
  * Enhanced caching wrapper with TTL and invalidation support
  */
 export async function withCache<T>(
-  key: string,
+  key: ScopedCacheKey,
   producer: () => Promise<T>,
   options: {
     ttl?: number; // Time to live in seconds (default: 300 = 5 minutes)
@@ -156,6 +214,13 @@ export async function withCache<T>(
     skipCache?: boolean; // Skip cache (force refresh)
   } = {}
 ): Promise<T> {
+  // A private cache entry without an explicit tenant namespace is a data-leak
+  // risk. Fail safely to the producer rather than accepting legacy/raw keys.
+  if (!hasValidCacheNamespace(key)) {
+    console.warn(`[CACHE] Unscoped cache key rejected: ${logSafeKey(key)}`);
+    return producer();
+  }
+
   // Validate and sanitize inputs
   let sanitizedKey: string;
   try {
@@ -474,7 +539,7 @@ export const cacheKeys = {
     if (!Number.isFinite(id) || id < 0) {
       throw new Error(`Invalid property ID: ${id}`);
     }
-    return `property:${id}`;
+    return publicCacheKey("property", { id });
   },
   propertyList: (params: Record<string, any>) => {
     // Sanitize params before JSON.stringify to prevent injection
@@ -493,50 +558,29 @@ export const cacheKeys = {
         sanitized[safeKey] = safeArray;
       }
     }
-    // Create a stable, sorted JSON string
-    const sortedKeys = Object.keys(sanitized).sort();
-    const sorted = JSON.stringify(sortedKeys.reduce((acc, k) => ({ ...acc, [k]: sanitized[k] }), {}));
-    return `properties:list:${sorted}`;
+    return publicCacheKey("properties-list", sanitized);
   },
-  user: (id: number) => {
-    if (!Number.isFinite(id) || id < 0) {
-      throw new Error(`Invalid user ID: ${id}`);
-    }
-    return `user:${id}`;
-  },
-  booking: (id: number) => {
-    if (!Number.isFinite(id) || id < 0) {
-      throw new Error(`Invalid booking ID: ${id}`);
-    }
-    return `booking:${id}`;
-  },
-  invoice: (id: number) => {
-    if (!Number.isFinite(id) || id < 0) {
-      throw new Error(`Invalid invoice ID: ${id}`);
-    }
-    return `invoice:${id}`;
-  },
-  adminSummary: () => `admin:summary`,
+  adminSummary: () => adminCacheKey("summary"),
   adminPerformanceHighlights: (days: number) => {
     const d = Number(days);
     if (!Number.isFinite(d) || d <= 0 || d > 3650) {
       throw new Error(`Invalid days: ${days}`);
     }
-    return `admin:performance:highlights:${Math.round(d)}`;
+    return adminCacheKey("performance-highlights", { days: Math.round(d) });
   },
   propertyCount: (status: string) => {
     if (!status || typeof status !== 'string') {
       throw new Error(`Invalid status: ${status}`);
     }
     const safeStatus = status.replace(/[^\w]/g, '_').substring(0, 50);
-    return `property:count:${safeStatus}`;
+    return adminCacheKey("property-count", { status: safeStatus });
   },
   bookingCount: (status: string) => {
     if (!status || typeof status !== 'string') {
       throw new Error(`Invalid status: ${status}`);
     }
     const safeStatus = status.replace(/[^\w]/g, '_').substring(0, 50);
-    return `booking:count:${safeStatus}`;
+    return adminCacheKey("booking-count", { status: safeStatus });
   },
 };
 

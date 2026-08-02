@@ -12,7 +12,7 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
-import { withCache } from "../lib/performance.js";
+import { publicCacheKey, withCache } from "../lib/performance.js";
 import { signOperatorVerificationToken, verifyOperatorVerificationToken } from "../lib/operatorVerificationToken.js";
 
 const router = Router();
@@ -273,7 +273,7 @@ async function buildTripConfidenceByAgent(agentIds: number[]) {
 router.get(
   "/categories",
   asyncHandler(async (_req, res) => {
-    const payload = await withCache("public:agents:categories", async () => {
+    const payload = await withCache(publicCacheKey("agent-categories"), async () => {
       const agents = await prisma.agent.findMany({
         where: {
           status: "ACTIVE",
@@ -316,7 +316,7 @@ router.get(
     const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize) || 20));
     const skip = (page - 1) * pageSize;
 
-    const payload = await withCache(`public:agents:list:p${page}:s${pageSize}`, async () => {
+    const payload = await withCache(publicCacheKey("agent-list", { page, pageSize }), async () => {
       const [agents, total] = await Promise.all([
         prisma.agent.findMany({
           where: {
@@ -413,7 +413,7 @@ router.get(
       return res.status(400).json({ error: "Invalid agent id" });
     }
 
-    const payload = await withCache(`public:agents:detail:${id}`, async () => {
+    const payload = await withCache(publicCacheKey("agent-detail", { id }), async () => {
       const agent = await prisma.agent.findFirst({
         where: { id, status: "ACTIVE" },
         select: {

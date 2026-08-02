@@ -17,6 +17,7 @@ import { notifyOwner } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { NRMS_PLAN_CODE } from "../lib/nrms.js";
 import { generateOrderPointToken } from "../lib/nrmsOrderPoints.js";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 import {
   RESTRICTION_SCOPE,
   createRestrictionCase,
@@ -227,6 +228,7 @@ router.post("/staff/:userId/disable", requireNrmsFinanceApprover as unknown as R
     // Kill every live session for the disabled staff account.
     db.user.update({ where: { id: userId }, data: { tokensValidAfter: new Date() } }),
   ]);
+  await revokeUserAuthorization(userId);
   const staffName = memberships[0].user?.fullName || memberships[0].user?.name || memberships[0].user?.email || `User #${userId}`;
   await audit(req.user!.id, "NRMS_STAFF_DISABLE_GLOBAL", userId, {
     memberships: memberships.map((m: any) => ({ id: m.id, propertyId: m.propertyId, role: m.role, previousStatus: m.status })),

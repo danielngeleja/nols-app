@@ -8,6 +8,7 @@ import { audit } from '../lib/audit.js';
 import { sendMail } from '../lib/mailer.js';
 import { sendSms } from '../lib/sms.js';
 import { getAdminRevocationEmail, getAdminRevocationSms } from '../lib/adminEmailTemplates.js';
+import { revokeUserAuthorization } from '../lib/authorizationInvalidation.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
@@ -638,6 +639,8 @@ router.post('/:id/suspend', async (req, res) => {
       });
     }
 
+    await revokeUserAuthorization(id);
+
     res.json({ ok: true, user });
   } catch (err) {
     console.error('POST /admin/users/:id/suspend error:', err);
@@ -757,6 +760,8 @@ router.post(
       select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
     });
 
+    await revokeUserAuthorization(id);
+
     try {
       await audit(req, 'ADMIN_USER_PROMOTED_TO_ADMIN', `user:${id}`, before, { role: updated.role });
     } catch {
@@ -814,6 +819,8 @@ router.post(
       data: { role: 'CUSTOMER' as any },
       select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
     });
+
+    await revokeUserAuthorization(id);
 
     // Create audit log
     try {
@@ -942,6 +949,9 @@ router.patch('/:id', async (req, res) => {
 
     const result = await prisma.$transaction(ops);
     const user = result[0] as any;
+    if (disable === true || reset2FA === true || typeof nrmsFinanceRole !== 'undefined') {
+      await revokeUserAuthorization(id);
+    }
     res.json({ data: user });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {

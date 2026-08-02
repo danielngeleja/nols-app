@@ -7,6 +7,7 @@ import type { Response, NextFunction, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "./restrictionCases.js";
+import { tenantWhere } from "./tenantIsolation.js";
 
 export const NRMS_PLAN_CODE = "NRMS_PAYG";
 
@@ -181,7 +182,7 @@ export async function loadOwnedProperty(
     return null;
   }
   const property = await prisma.property.findFirst({
-    where: { id: propertyId, ownerId },
+    where: tenantWhere("ownerId", ownerId, { id: propertyId }),
     select: { ...(select ?? { id: true, title: true, roomsSpec: true, nrmsActivatedAt: true }), status: true },
   });
   if (!property) {

@@ -53,8 +53,6 @@ type IconType = ComponentType<{ className?: string }>;
 type PdfSectionKey = "operations" | "reconciliation" | "channels" | "occupancy" | "balances" | "outlets" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
 type PdfPackKey = "current" | "full" | "executive" | "finance" | "operations" | "custom";
 type PdfPackSelection = { key: PdfPackKey; label: string; sections: PdfSectionKey[] };
-// "download" rasterises through html2pdf; "print" hands the same markup to the browser's PDF writer.
-type PdfOutputMode = "download" | "print";
 
 type CurrencyReport = {
   currency: string;
@@ -940,13 +938,16 @@ export default function NrmsReportsPage() {
     }
   };
 
-  const generatePdf = async (selection: PdfPackSelection, mode: PdfOutputMode = "download") => {
+  const generatePdf = async (selection: PdfPackSelection) => {
     if (!data || !financeData || !currencyReport || pdfBusy) return;
     setPrintDialogOpen(false);
     setActivePdfSelection(selection);
-    setPrintMode(mode === "print");
+    // Both printing and saving now use the browser's native A4 PDF engine. This
+    // preserves vector text and avoids the quality loss from canvas rasterisation.
+    setPrintMode(true);
     setPdfBusy(true);
     setPdfError(null);
+    const previousDocumentTitle = document.title;
     try {
       const generatedAt = new Date();
       let reportNumber = buildReportNumber(data, generatedAt);
@@ -1032,83 +1033,31 @@ export default function NrmsReportsPage() {
       if (!pdfRef.current) throw new Error("The printable report could not be prepared.");
       await Promise.all(Array.from(pdfRef.current.querySelectorAll("img")).map((image) => image.complete ? Promise.resolve() : image.decode()));
 
-      if (mode === "print") {
-        // Hand the live DOM to the browser's own PDF writer. Text stays as font outlines, so the
-        // output is resolution-independent and searchable, at a fraction of the rasterised size.
-        document.body.classList.add("nrms-printing");
-        await new Promise<void>((resolve) => {
-          let settled = false;
-          const finish = () => {
-            if (settled) return;
-            settled = true;
-            window.removeEventListener("afterprint", finish);
-            window.clearTimeout(fallback);
-            resolve();
-          };
-          // Most browsers block on print() and then fire afterprint, but neither is guaranteed,
-          // so the timeout makes sure the print class is always cleaned up.
-          const fallback = window.setTimeout(finish, 60_000);
-          window.addEventListener("afterprint", finish);
-          window.print();
-        });
-        document.body.classList.remove("nrms-printing");
-        return;
-      }
-
-      const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = html2pdfModule && (html2pdfModule.default || html2pdfModule);
-      if (!html2pdf) throw new Error("The PDF generator could not be loaded.");
       const propertyName = data.property.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "property";
-      // html2pdf rasterises the whole report into one canvas before slicing it into pages, so the
-      // usable scale is bounded by the browser canvas limits (32767px per side, ~268Mpx of area)
-      // rather than by row count. Measuring the rendered element keeps ordinary reports at full
-      // sharpness and only steps down when a report is genuinely long enough to need it.
-      const pdfWidthPx = pdfRef.current.scrollWidth || 718;
-      const pdfHeightPx = pdfRef.current.scrollHeight || 1;
-      const scaleBySide = 32000 / pdfHeightPx;
-      const scaleByArea = Math.sqrt(240_000_000 / (pdfWidthPx * pdfHeightPx));
-      // No lower floor: these are hard browser limits, not preferences. Exceeding them yields a
-      // failed or blank canvas, which is worse than a long report rendering at a reduced scale.
-      const canvasScale = Math.min(2.75, scaleBySide, scaleByArea);
-      const pdfOptions = {
-        filename: `NRMS-${propertyName}-${selection.key}-${reportNumber}.pdf`,
-        margin: [8, 10, 10, 10] as [number, number, number, number],
-        // PNG is lossless. JPEG's chroma subsampling and DCT ringing are what smeared the small
-        // text; on a flat, mostly-white document PNG also compresses better than high-quality JPEG.
-        image: { type: "png" as const, quality: 1 },
-        html2canvas: { scale: canvasScale, useCORS: true, logging: false, backgroundColor: "#ffffff", windowWidth: pdfWidthPx, imageTimeout: 0, removeContainer: true },
-        jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const, compress: true },
-        pagebreak: { mode: ["css", "legacy"], avoid: [".pdf-metric", ".pdf-panel", ".pdf-grid-2", ".pdf-section-title", ".pdf-certification-head", "tr"] },
-      };
-      const pdfWorker = html2pdf().from(pdfRef.current).set(pdfOptions).toPdf();
-      const pdfDocument = await pdfWorker.get("pdf");
-      pdfDocument.setProperties({
-        title: `${data.property.title} - ${selection.label}`,
-        subject: `NRMS ${selection.label.toLowerCase()} for ${data.range.from} to ${data.range.to}`,
-        author: identity.generatedBy,
-        keywords: `NRMS,hotel,property report,${identity.reportNumber},${currencyReport.currency}`,
-        creator: "NRMS Property Reporting Centre",
+      // Chromium and other browsers use document.title as the suggested PDF
+      // filename, while still allowing the user to select a physical printer.
+      document.title = `NRMS-${propertyName}-${selection.key}-${reportNumber}`;
+      document.body.classList.add("nrms-printing");
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener("afterprint", finish);
+          window.clearTimeout(fallback);
+          resolve();
+        };
+        // Most browsers block on print() and then fire afterprint, but neither is guaranteed,
+        // so the timeout makes sure the print class and title are always restored.
+        const fallback = window.setTimeout(finish, 60_000);
+        window.addEventListener("afterprint", finish);
+        window.print();
       });
-      pdfDocument.setCreationDate(new Date(identity.generatedAt));
-      const pageCount = pdfDocument.internal.getNumberOfPages();
-      const pageWidth = pdfDocument.internal.pageSize.getWidth();
-      const pageHeight = pdfDocument.internal.pageSize.getHeight();
-      for (let page = 1; page <= pageCount; page += 1) {
-        pdfDocument.setPage(page);
-        pdfDocument.setDrawColor(214, 222, 219);
-        pdfDocument.setLineWidth(0.2);
-        pdfDocument.line(10, pageHeight - 6.5, pageWidth - 10, pageHeight - 6.5);
-        pdfDocument.setFont("helvetica", "normal");
-        pdfDocument.setFontSize(7);
-        pdfDocument.setTextColor(93, 105, 101);
-        pdfDocument.text(reportNumber, 10, pageHeight - 3.5);
-        pdfDocument.text(`Page ${page} of ${pageCount}`, pageWidth - 10, pageHeight - 3.5, { align: "right" });
-      }
-      await pdfWorker.save();
     } catch (pdfGenerationError) {
       console.error("NRMS PDF generation failed", pdfGenerationError);
       setPdfError(pdfGenerationError instanceof Error ? pdfGenerationError.message : "Unable to generate the PDF report. Please try again.");
     } finally {
+      document.title = previousDocumentTitle;
       document.body.classList.remove("nrms-printing");
       setPdfIdentity(null);
       setActivePdfSelection(null);
@@ -1169,7 +1118,7 @@ export default function NrmsReportsPage() {
           : <div className="pointer-events-none fixed left-[-12000px] top-0 z-[-1]" aria-hidden="true">{reportNode}</div>;
       })()}
 
-      <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection, mode) => void generatePdf(selection, mode)} />
+      <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection) => void generatePdf(selection)} />
 
       <section className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 shadow-sm print:hidden" aria-label="Report controls">
         <div className="mx-auto flex w-max min-w-max items-center justify-center gap-2">
@@ -1266,7 +1215,7 @@ export default function NrmsReportsPage() {
   );
 }
 
-function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { open: boolean; busy: boolean; currentReport: ReportKey; onClose: () => void; onGenerate: (selection: PdfPackSelection, mode: PdfOutputMode) => void }) {
+function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { open: boolean; busy: boolean; currentReport: ReportKey; onClose: () => void; onGenerate: (selection: PdfPackSelection) => void }) {
   const fullPack = PDF_PACKS[0];
   const [packKey, setPackKey] = useState<PdfPackKey>(fullPack.key);
   const [sections, setSections] = useState<PdfSectionKey[]>(fullPack.sections);
@@ -1333,7 +1282,7 @@ function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { o
               </section>
             </div>
 
-            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 bg-white px-5 py-3.5"><div><p className="m-0 text-[11px] font-bold text-neutral-900">{selection.label}</p><p className="mb-0 mt-0.5 text-[9px] text-neutral-500">Identity, assurance and certification cannot be removed from a verified NRMS PDF.</p></div><div className="flex items-center gap-2"><button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">Cancel</button><button type="button" onClick={() => onGenerate(selection, "print")} disabled={busy} title="Uses the browser's own PDF writer. Sharpest text and smallest file, but the filename and page footer come from the browser." className="inline-flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-lg border border-[#073c35] bg-white px-4 text-[10px] font-bold text-[#073c35] hover:bg-emerald-50 disabled:border-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}Print as PDF</button><button type="button" onClick={() => onGenerate(selection, "download")} disabled={busy} title="Downloads a ready-named PDF with the report number and page footer on every page." className="inline-flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:bg-neutral-300">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}{busy ? "Preparing" : "Download PDF"}</button></div></footer>
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 bg-white px-5 py-3.5"><div><p className="m-0 text-[11px] font-bold text-neutral-900">{selection.label}</p><p className="mb-0 mt-0.5 text-[9px] text-neutral-500">Identity, assurance and certification cannot be removed from a verified NRMS PDF.</p></div><div className="flex items-center gap-2"><button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">Cancel</button><button type="button" onClick={() => onGenerate(selection)} disabled={busy} title="Opens the browser's high-quality A4 output. Choose Save as PDF for a sharp, searchable document or select a physical printer." className="inline-flex h-9 min-w-[164px] items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:bg-neutral-300">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}{busy ? "Preparing A4" : "High-quality A4 PDF"}</button></div></footer>
           </DialogPanel>
         </div>
       </div>

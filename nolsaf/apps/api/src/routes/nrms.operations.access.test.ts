@@ -111,4 +111,26 @@ describe("NRMS assigned staff workspace access", () => {
       propertyStatus: "SUSPENDED",
     });
   });
+
+  it("does not let staff access another tenant's property by changing the property id", async () => {
+    mocks.propertyFindUnique.mockResolvedValue({
+      id: 92,
+      ownerId: 55,
+      title: "Another Owner Hotel",
+      status: "APPROVED",
+      currency: "TZS",
+      nrmsActivatedAt: new Date("2026-07-01T00:00:00.000Z"),
+      housekeepingDailyServiceEnabled: true,
+      housekeepingDailyServiceTime: "09:00",
+    });
+    mocks.membershipFindFirst.mockResolvedValue(null);
+
+    const response = await request(app).get("/api/nrms/operations/property/92/context");
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("NRMS_PROPERTY_FORBIDDEN");
+    expect(mocks.membershipFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { propertyId: 92, userId: 23, status: "ACTIVE" },
+    }));
+  });
 });

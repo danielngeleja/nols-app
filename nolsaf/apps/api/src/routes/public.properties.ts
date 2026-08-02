@@ -4,7 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
 import { Prisma } from "@prisma/client";
 import QRCode from "qrcode";
-import { withCache, cacheKeys, cacheTags, measureTime } from "../lib/performance.js";
+import { withCache, cacheKeys, cacheTags, measureTime, publicCacheKey } from "../lib/performance.js";
 import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
@@ -1036,7 +1036,7 @@ const homeSummary: RequestHandler = async (_req, res) => {
   try {
     const { result, duration } = await measureTime("public.properties.homeSummary", async () => {
       return await withCache(
-        "properties:home-summary:v2",
+        publicCacheKey("properties-home-summary", { version: 2 }),
         async () => {
           const aliasesByKey = new Map<string, Set<string>>();
           const allTypeAliases = new Set<string>();

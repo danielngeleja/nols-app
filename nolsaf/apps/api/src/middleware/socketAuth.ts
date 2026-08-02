@@ -16,6 +16,8 @@ export interface AuthenticatedSocket extends Socket {
       sessionRole?: string;
       /** JWT issuance time used for dynamic policy enforcement. */
       sessionIssuedAtSec?: number;
+      /** Exact revocable server-side session bound to this socket JWT. */
+      sessionId?: string;
     };
   };
 }
@@ -25,6 +27,7 @@ interface JwtSocketPayload {
   sub: string | number;
   iat?: number;
   exp?: number;
+  sid?: string;
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -62,21 +65,34 @@ export async function verifyToken(
       return null;
     }
 
-    // Fetch user from DB to get current role (important for role changes)
     const userId = Number(decoded.sub);
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
-    });
+    const sessionId = typeof decoded.sid === "string" ? decoded.sid.trim() : "";
+    if (!Number.isSafeInteger(userId) || userId <= 0 || !sessionId) return null;
 
-    if (!user) {
-      return null;
-    }
+    // Bind the socket JWT to its exact active session, mirroring HTTP auth.
+    // Another active device must never keep this device's revoked token alive.
+    const activeSession = await (prisma.session as any).findFirst({
+      where: { id: sessionId, userId, revokedAt: null },
+      select: {
+        id: true,
+        user: {
+          select: {
+            id: true, role: true, email: true, suspendedAt: true,
+            isDisabled: true, tokensValidAfter: true,
+            agentProfile: { select: { status: true } },
+          },
+        },
+      },
+    });
+    const user = activeSession?.user;
+    if (!user) return null;
 
     // Deny suspended users
     if (user.suspendedAt) {
       return null;
     }
+    if (user.isDisabled) return null;
+    if (String(user.role || "").toUpperCase() === "AGENT" && String(user.agentProfile?.status || "").toUpperCase() !== "ACTIVE") return null;
 
     // Global revocation gate (mirrors HTTP auth): reject any token issued before
     // the user's tokensValidAfter cutoff.
@@ -87,15 +103,6 @@ export async function verifyToken(
       if (issuedAtForCutoff < validAfterSec) {
         return null;
       }
-    }
-
-    // Deny if all sessions have been explicitly revoked (e.g. admin demotion)
-    const [totalSessions, activeSessions] = await Promise.all([
-      (prisma.session as any).count({ where: { userId } }),
-      (prisma.session as any).count({ where: { userId, revokedAt: null } }),
-    ]);
-    if (totalSessions > 0 && activeSessions === 0) {
-      return null;
     }
 
     // Map role - ensure it's a string and handle CUSTOMER -> USER mapping
@@ -118,6 +125,7 @@ export async function verifyToken(
       email: user.email || null,
       sessionRole: role,
       sessionIssuedAtSec: Number.isFinite(issuedAtSec) ? issuedAtSec : undefined,
+      sessionId,
     };
   } catch (error) {
     return null;
@@ -130,19 +138,51 @@ const SOCKET_POLICY_RECHECK_MS = Math.max(
   Number(process.env.SOCKET_SESSION_POLICY_RECHECK_MS ?? 30_000) || 30_000,
 );
 
-async function socketExceedsCurrentPolicy(socket: AuthenticatedSocket): Promise<boolean> {
+type SocketAuthorizationFailure = "SESSION_EXPIRED" | "SESSION_REVOKED";
+
+async function currentSocketAuthorizationFailure(socket: AuthenticatedSocket): Promise<SocketAuthorizationFailure | null> {
   const user = socket.data.user;
   const issuedAtSec = Number(user?.sessionIssuedAtSec);
-  if (!user || !Number.isFinite(issuedAtSec) || issuedAtSec <= 0) return false;
-  const maxMinutes = await getRoleSessionMaxMinutes(user.sessionRole || user.role);
-  return Math.floor(Date.now() / 1000) - issuedAtSec > maxMinutes * 60;
+  if (!user || !user.sessionId || !Number.isFinite(issuedAtSec) || issuedAtSec <= 0) return "SESSION_REVOKED";
+
+  const activeSession = await (prisma.session as any).findFirst({
+    where: { id: user.sessionId, userId: user.id, revokedAt: null },
+    select: {
+      user: {
+        select: {
+          role: true, suspendedAt: true, isDisabled: true, tokensValidAfter: true,
+          agentProfile: { select: { status: true } },
+        },
+      },
+    },
+  });
+  const current = activeSession?.user;
+  if (!current || current.suspendedAt || current.isDisabled) return "SESSION_REVOKED";
+
+  const rawRole = String(current.role || "USER").toUpperCase();
+  if (rawRole === "AGENT" && String(current.agentProfile?.status || "").toUpperCase() !== "ACTIVE") return "SESSION_REVOKED";
+  const mappedRole = rawRole === "CUSTOMER" ? "USER" : rawRole;
+  if (rawRole !== user.sessionRole || mappedRole !== user.role) return "SESSION_REVOKED";
+
+  const tokensValidAfter = current.tokensValidAfter as Date | string | null | undefined;
+  if (tokensValidAfter) {
+    const validAfterSec = Math.floor(new Date(tokensValidAfter).getTime() / 1000);
+    if (issuedAtSec < validAfterSec) return "SESSION_REVOKED";
+  }
+
+  const maxMinutes = await getRoleSessionMaxMinutes(rawRole);
+  return Math.floor(Date.now() / 1000) - issuedAtSec > maxMinutes * 60 ? "SESSION_EXPIRED" : null;
 }
 
 async function expireSocketIfNeeded(socket: AuthenticatedSocket): Promise<boolean> {
-  if (!(await socketExceedsCurrentPolicy(socket))) return false;
+  const failure = await currentSocketAuthorizationFailure(socket);
+  if (!failure) return false;
   socket.data.user = undefined;
   try {
-    socket.emit("session:expired", { code: "SESSION_EXPIRED", message: "Session expired" });
+    socket.emit("session:expired", {
+      code: failure,
+      message: failure === "SESSION_EXPIRED" ? "Session expired" : "Session revoked",
+    });
   } catch {}
   try {
     socket.disconnect(true);
@@ -175,15 +215,7 @@ export async function enforceSocketSessionPolicy(io: SocketServer): Promise<numb
   const sockets = await io.fetchSockets();
   let expired = 0;
   await Promise.all(sockets.map(async (socket: any) => {
-    const data = socket.data as AuthenticatedSocket["data"];
-    const user = data?.user;
-    const issuedAtSec = Number(user?.sessionIssuedAtSec);
-    if (!user || !Number.isFinite(issuedAtSec) || issuedAtSec <= 0) return;
-    const maxMinutes = await getRoleSessionMaxMinutes(user.sessionRole || user.role);
-    if (Math.floor(Date.now() / 1000) - issuedAtSec <= maxMinutes * 60) return;
-    expired += 1;
-    try { socket.emit("session:expired", { code: "SESSION_EXPIRED", message: "Session expired" }); } catch {}
-    try { socket.disconnect(true); } catch {}
+    if (await expireSocketIfNeeded(socket as AuthenticatedSocket)) expired += 1;
   }));
   return expired;
 }

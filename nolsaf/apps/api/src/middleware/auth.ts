@@ -5,7 +5,6 @@ import { prisma } from '@nolsaf/prisma';
 import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from '../lib/securitySettings.js';
 import { clearAuthCookie } from '../lib/sessionManager.js';
 import { touchActiveUser } from '../lib/activePresence.js';
-import { cacheAuthSession, getCachedAuthSession } from '../lib/authSessionCache.js';
 
 export type Role = 'ADMIN' | 'OWNER' | 'USER' | 'DRIVER' | 'AGENT';
 
@@ -21,7 +20,7 @@ interface JwtTokenPayload {
   imp?: boolean;
 }
 
-function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED", message: string) {
+function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED", message: string) {
   const e: any = new Error(message);
   e.code = code;
   return e;
@@ -114,24 +113,10 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     if (!sessionId) {
       throw authError("SESSION_REVOKED", "Legacy session is no longer valid");
     }
-    const cached = await getCachedAuthSession(token);
-    if (cached && cached.id === userId && cached.sessionId === sessionId) {
-      // Cached identity data must not bypass a newly reduced role TTL. The JWT
-      // role is signed and preserves CUSTOMER for Traveller accounts even
-      // though the public AuthedUser role is normalized to USER.
-      const issuedAtSec = typeof decoded.iat === 'number' ? decoded.iat : Number(decoded.iat);
-      if (Number.isFinite(issuedAtSec) && issuedAtSec > 0) {
-        const maxMinutes = await getRoleSessionMaxMinutes(decoded.role || cached.role);
-        const ageSec = Math.floor(Date.now() / 1000) - issuedAtSec;
-        if (ageSec > maxMinutes * 60) {
-          throw authError("SESSION_EXPIRED", "Session expired");
-        }
-      }
-      return cached;
-    }
-
-    // Bind this JWT to its exact session. An unrelated active session must
-    // never keep a revoked device token alive.
+    // Authentication and authorization state is deliberately loaded from the
+    // database on every request. Redis may cache public/application data, but
+    // it is never authoritative for role, suspension, disablement, token
+    // revocation, or the exact server-side session bound to this JWT.
     let activeSession: any;
     try {
       activeSession = await (prisma.session as any).findFirst({
@@ -140,7 +125,11 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
           id: true,
           lastSeenAt: true,
           user: {
-            select: { id: true, role: true, email: true, nrmsFinanceRole: true, suspendedAt: true, tokensValidAfter: true },
+            select: {
+              id: true, role: true, email: true, nrmsFinanceRole: true,
+              suspendedAt: true, isDisabled: true, tokensValidAfter: true,
+              agentProfile: { select: { status: true } },
+            },
           },
         },
       });
@@ -160,7 +149,11 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
           id: true,
           lastSeenAt: true,
           user: {
-            select: { id: true, role: true, email: true, suspendedAt: true, tokensValidAfter: true },
+            select: {
+              id: true, role: true, email: true, suspendedAt: true,
+              isDisabled: true, tokensValidAfter: true,
+              agentProfile: { select: { status: true } },
+            },
           },
         },
       });
@@ -177,6 +170,12 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     // Check if account is suspended - suspended users cannot access their account.
     if (user.suspendedAt) {
       throw authError("ACCOUNT_SUSPENDED", "Account suspended");
+    }
+    if (user.isDisabled) {
+      throw authError("ACCOUNT_DISABLED", "Account disabled");
+    }
+    if (String(user.role || "").toUpperCase() === "AGENT" && String(user.agentProfile?.status || "").toUpperCase() !== "ACTIVE") {
+      throw authError("ACCOUNT_SUSPENDED", "Agent account is not active");
     }
 
     // Map database role to Role type (handle case where role might be different format)
@@ -237,7 +236,6 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       sessionId,
       ...(decoded.imp === true ? { imp: true } : {}),
     };
-    await cacheAuthSession(token, authedUser, decoded.exp);
     return authedUser;
   } catch (err) {
     throw err;
@@ -295,6 +293,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       if (err?.code === 'ACCOUNT_SUSPENDED') {
         return res.status(403).json({ error: "Account suspended", code: "ACCOUNT_SUSPENDED" });
       }
+      if (err?.code === 'ACCOUNT_DISABLED') {
+        clearAuthCookie(res);
+        return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
+      }
       // fallthrough to unauthorized logic
     }
   }
@@ -331,6 +333,10 @@ export function requireRole(required?: Role) {
           }
           if (err?.code === 'ACCOUNT_SUSPENDED') {
             return res.status(403).json({ error: "Account suspended", code: "ACCOUNT_SUSPENDED" });
+          }
+          if (err?.code === 'ACCOUNT_DISABLED') {
+            clearAuthCookie(res);
+            return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
           }
         }
       }

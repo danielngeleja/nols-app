@@ -1,4 +1,6 @@
 import Redis from "ioredis";
+import { createHash } from "node:crypto";
+import { requireTenantId } from "./tenantIsolation.js";
 
 const enabled = String(process.env.REPORTS_CACHE_ENABLED).toLowerCase() === "true";
 const ttl = Number(process.env.REPORTS_CACHE_TTL_SECONDS ?? 600);
@@ -18,15 +20,22 @@ if (enabled && process.env.REDIS_URL) {
   }
 }
 
-/** Build a stable key from parts (owner, route, params) */
-export function makeKey(ownerId: number, route: string, params: Record<string, any>) {
-  // stable stringify (sort keys)
-  const sorted = JSON.stringify(params, Object.keys(params).sort());
-  return `reports:${ownerId}:${route}:${sorted}`;
+declare const ownerReportCacheKeyBrand: unique symbol;
+export type OwnerReportCacheKey = string & { readonly [ownerReportCacheKeyBrand]: true };
+
+/** Build a stable, owner-bound key without exposing report parameters in Redis. */
+export function makeKey(ownerId: number, route: string, params: Record<string, any>): OwnerReportCacheKey {
+  const id = requireTenantId(ownerId, "ownerId");
+  const safeRoute = String(route || "").trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+  if (!safeRoute) throw new Error("Report cache route is required");
+  const sorted = JSON.stringify(params, Object.keys(params || {}).sort());
+  const digest = createHash("sha256").update(sorted).digest("hex").slice(0, 24);
+  return `reports:${id}:${safeRoute}:${digest}` as OwnerReportCacheKey;
 }
 
 /** Wrap a producer with cache get/set (JSON). Fallbacks gracefully if cache disabled/unavailable. */
-export async function withCache<T>(key: string, producer: () => Promise<T>): Promise<T> {
+export async function withCache<T>(key: OwnerReportCacheKey, producer: () => Promise<T>): Promise<T> {
+  if (!/^reports:[1-9]\d*:[a-zA-Z0-9._-]+:[a-f0-9]{24}$/.test(key)) return producer();
   if (!enabled || !redis) return producer();
 
   try {
@@ -66,7 +75,7 @@ export async function invalidateByPattern(pattern: string) {
 
 /** Convenience: invalidate all report caches for an owner */
 export function invalidateOwnerReports(ownerId: number) {
-  return invalidateByPattern(`reports:${ownerId}:*`);
+  return invalidateByPattern(`reports:${requireTenantId(ownerId, "ownerId")}:*`);
 }
 export async function invalidateOwnerPropertyLists(ownerId: number) {
   try {
