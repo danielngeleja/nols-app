@@ -6,6 +6,7 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { NRMS_REVIEW_CATEGORIES, NRMS_REVIEW_CATEGORY_KEYS, averageCategoryRatings, resolveReviewCategories } from "../lib/nrmsReviewCategories.js";
+import { NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME } from "../lib/nrmsCheckInWelcome.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -52,7 +53,7 @@ const caseUpdateSchema = z.object({
   note: z.string().trim().max(1000).nullable().optional(), resolution: z.string().trim().max(1000).nullable().optional(), assignedToId: optionalId,
 });
 const journeySchema = z.object({
-  name: z.string().trim().min(2).max(120), trigger: z.enum(["BOOKED", "PRE_ARRIVAL", "CHECK_IN", "PRE_DEPARTURE", "CHECK_OUT"]),
+  name: z.string().trim().min(2).max(120).refine((name) => name !== NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME, { message: "This journey name is reserved by NoLSAF" }), trigger: z.enum(["BOOKED", "PRE_ARRIVAL", "CHECK_IN", "PRE_DEPARTURE", "CHECK_OUT"]),
   offsetMinutes: z.number().int().min(-100_800).max(100_800).default(0), channel: z.enum(["SMS", "EMAIL"]).default("SMS"),
   subject: z.string().trim().max(160).nullable().optional(), message: z.string().trim().min(3).max(1000), active: z.boolean().default(true),
 });
@@ -245,7 +246,7 @@ router.post("/:propertyId/journeys", (async (req: AuthedRequest, res: Response) 
 router.post("/:propertyId/journeys/schedule", (async (req: AuthedRequest, res: Response) => {
   try {
     const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const now = new Date();
-    const [templates, reservations] = await Promise.all([prisma.nrmsJourneyTemplate.findMany({ where: { propertyId, active: true } }), prisma.reservation.findMany({ where: { propertyId, status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] }, checkOut: { gte: new Date(now.getTime() - 7 * 86_400_000) } }, include: { guestProfile: true } })]);
+    const [templates, reservations] = await Promise.all([prisma.nrmsJourneyTemplate.findMany({ where: { propertyId, active: true, name: { not: NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME } } }), prisma.reservation.findMany({ where: { propertyId, status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] }, checkOut: { gte: new Date(now.getTime() - 7 * 86_400_000) } }, include: { guestProfile: true } })]);
     let queued = 0;
     for (const template of templates) for (const reservation of reservations) {
       const base = template.trigger === "BOOKED" ? reservation.createdAt : template.trigger === "PRE_ARRIVAL" ? reservation.checkIn : template.trigger === "CHECK_IN" ? (reservation.checkedInAt ?? reservation.checkIn) : template.trigger === "PRE_DEPARTURE" ? reservation.checkOut : (reservation.checkedOutAt ?? reservation.checkOut);

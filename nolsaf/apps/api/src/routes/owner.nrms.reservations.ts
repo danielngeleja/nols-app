@@ -15,6 +15,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
 import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
+import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
 
 export const router = Router();
 
@@ -754,6 +755,7 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
               await tx.reservationEvent.create({
                 data: { reservationId: member.id, type: "CHECKED_IN", actorId: ownerId, data: { groupId: group.id, groupReference: group.reference, ...(parsed.data.overrideRoomReadiness ? { overrideRoomReadiness: true } : {}) } },
               });
+              await queueNrmsCheckInWelcome(tx, member.id);
               return { changed: true };
             }
             const billing = await finalizeNrmsCheckout(tx, member, ownerId, inspection.requiredChargeIds);
@@ -1370,6 +1372,7 @@ function transition(
         await tx.reservationEvent.create({
           data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: Object.keys(eventData).length ? eventData : undefined },
         });
+        if (eventType === "CHECKED_IN") await queueNrmsCheckInWelcome(tx, reservation.id);
       });
 
       const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });

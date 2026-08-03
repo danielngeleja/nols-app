@@ -3,6 +3,7 @@
 // payment and commission; Reservation carries only the operational room view.
 import { computeDraftBookingAvailability, type DraftBookingAvailability } from "./draftBookingAvailability.js";
 import { lockPropertyInventory } from "./nrmsAvailability.js";
+import { queueNrmsCheckInWelcome } from "./nrmsCheckInWelcome.js";
 
 type DbLike = any;
 
@@ -223,6 +224,8 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
       })),
     });
   }
+
+  if (mappedStatus === "CHECKED_IN") await queueNrmsCheckInWelcome(db, reservation.id);
 
   return reservation;
 }
