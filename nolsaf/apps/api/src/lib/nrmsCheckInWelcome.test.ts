@@ -21,7 +21,6 @@ function fakeDb(reservation = eligibleReservation()) {
     nrmsOutlet: { findMany: vi.fn().mockResolvedValue([{ type: "RESTAURANT" }, { type: "BAR" }]) },
     nrmsJourneyTemplate: { upsert: vi.fn().mockResolvedValue({ id: 9 }) },
     nrmsJourneyDelivery: {
-      findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi.fn().mockResolvedValue({ id: 10 }),
     },
   };
@@ -53,11 +52,11 @@ describe("NRMS automatic check-in welcome", () => {
 
   it("is idempotent when the same check-in is retried", async () => {
     const db = fakeDb();
-    db.nrmsJourneyDelivery.findUnique.mockResolvedValue({ id: 10 });
 
     const result = await queueNrmsCheckInWelcome(db, 41);
 
-    expect(result.status).toBe("ALREADY_QUEUED");
+    expect(result.status).toBe("QUEUED");
+    expect(db.nrmsJourneyDelivery.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: {} }));
     expect(db.nrmsJourneyDelivery.upsert).toHaveBeenCalledTimes(1);
   });
 

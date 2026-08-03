@@ -1373,7 +1373,7 @@ function transition(
           data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: Object.keys(eventData).length ? eventData : undefined },
         });
         if (eventType === "CHECKED_IN") await queueNrmsCheckInWelcome(tx, reservation.id);
-      });
+      }, EXTENDED_TX_OPTIONS);
 
       const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
       res.json({ reservation: formatReservation(updated) });

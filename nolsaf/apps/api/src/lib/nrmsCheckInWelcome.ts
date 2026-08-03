@@ -3,7 +3,7 @@ export const NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME = "NoLSAF automatic room-orderi
 type DbLike = any;
 
 export type CheckInWelcomeQueueResult =
-  | { status: "QUEUED" | "ALREADY_QUEUED"; deliveryId: number; orderPointId: number }
+  | { status: "QUEUED"; deliveryId: number; orderPointId: number }
   | { status: "SKIPPED"; reason: "NOT_CHECKED_IN" | "NRMS_INACTIVE" | "NO_GUEST_PHONE" | "QR_ORDERING_FROZEN" | "NO_ASSIGNED_ROOM" | "NO_ACTIVE_ROOM_QR" | "NO_ACTIVE_OUTLET" };
 
 function webOrigin(): string {
@@ -91,10 +91,6 @@ export async function queueNrmsCheckInWelcome(db: DbLike, reservationId: number)
     select: { id: true },
   });
 
-  const existing = await db.nrmsJourneyDelivery.findUnique({
-    where: { templateId_reservationId: { templateId: template.id, reservationId: reservation.id } },
-    select: { id: true },
-  });
   const orderingUrl = `${webOrigin()}/menu/${point.token}`;
   const renderedMessage = welcomeMessage(
     reservation.guestProfile.fullName || "Guest",
@@ -114,5 +110,5 @@ export async function queueNrmsCheckInWelcome(db: DbLike, reservationId: number)
     update: {},
     select: { id: true },
   });
-  return { status: existing ? "ALREADY_QUEUED" : "QUEUED", deliveryId: delivery.id, orderPointId: point.id };
+  return { status: "QUEUED", deliveryId: delivery.id, orderPointId: point.id };
 }
