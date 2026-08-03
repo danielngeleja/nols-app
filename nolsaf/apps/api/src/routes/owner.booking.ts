@@ -14,6 +14,7 @@ import {
   getBookingCodeLockoutStatus,
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
+import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 router.use(
@@ -796,7 +797,7 @@ const confirmCheckout: RequestHandler = async (req, res) => {
   if (booking.status !== "CHECKED_IN") return (res as Response).status(400).json({ error: "Booking must be CHECKED_IN to confirm check-out" });
   if (!Number.isFinite(rating) || rating < 1 || rating > 5) return (res as Response).status(400).json({ error: "Please rate the guest (1–5) before confirming check-out" });
 
-  const updated = await prisma.booking.update({ where: { id: booking.id }, data: { status: "CHECKED_OUT" } });
+  const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(tx, booking.id, "CHECKED_OUT"));
 
   // AuditLog (preferred)
   try {

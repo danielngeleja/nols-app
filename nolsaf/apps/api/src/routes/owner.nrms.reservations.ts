@@ -137,6 +137,7 @@ function decimal(value: unknown): number | null {
 }
 
 function formatReservation(r: any) {
+  const marketplaceInvoice = r.booking?.invoices?.[0] ?? null;
   return {
     id: r.id,
     propertyId: r.propertyId,
@@ -182,6 +183,22 @@ function formatReservation(r: any) {
           phone: r.guestProfile.phone,
           email: r.guestProfile.email,
           nationality: r.guestProfile.nationality,
+        }
+      : null,
+    marketplaceBooking: r.booking
+      ? {
+          id: r.booking.id,
+          status: r.booking.status,
+          guestName: r.booking.guestName,
+          guestPhone: r.booking.guestPhone,
+          guestEmail: r.booking.user?.email ?? null,
+          nationality: r.booking.nationality,
+          sex: r.booking.sex,
+          ageGroup: r.booking.ageGroup,
+          roomsQty: r.booking.roomsQty,
+          totalAmount: decimal(r.booking.totalAmount),
+          paymentStatus: marketplaceInvoice?.status ?? null,
+          paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
         }
       : null,
     allocations: Array.isArray(r.allocations)
@@ -274,6 +291,25 @@ function formatReservation(r: any) {
 
 const detailInclude = {
   guestProfile: true,
+  booking: {
+    select: {
+      id: true,
+      status: true,
+      guestName: true,
+      guestPhone: true,
+      nationality: true,
+      sex: true,
+      ageGroup: true,
+      roomsQty: true,
+      totalAmount: true,
+      user: { select: { email: true } },
+      invoices: {
+        orderBy: { createdAt: "desc" as const },
+        take: 1,
+        select: { status: true, paymentMethod: true },
+      },
+    },
+  },
   group: { select: { id: true, reference: true, name: true, status: true } },
   allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
@@ -318,7 +354,12 @@ const detailInclude = {
   events: { orderBy: { createdAt: "asc" as const } },
 };
 
-async function loadOwnedReservation(res: Response, ownerId: number, id: number) {
+async function loadOwnedReservation(
+  res: Response,
+  ownerId: number,
+  id: number,
+  options: { allowMarketplace?: boolean } = {},
+) {
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid reservation id" });
     return null;
@@ -328,7 +369,7 @@ async function loadOwnedReservation(res: Response, ownerId: number, id: number) 
     res.status(404).json({ error: "Reservation not found" });
     return null;
   }
-  if (reservation.bookingId != null) {
+  if (reservation.bookingId != null && !options.allowMarketplace) {
     // Marketplace stays keep the existing booking-code check-in flow (doc 6.5).
     res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
     return null;
@@ -385,7 +426,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
             ? [{ guestProfile: { nationality: sortOrder } }, { id: "desc" }]
           : [{ [sortBy]: sortOrder }, { id: "desc" }];
 
-    const where: any = { propertyId: property.id as number, bookingId: null };
+    const where: any = { propertyId: property.id as number };
     if (status) where.status = String(status);
     if (source) where.source = String(source);
     if (from) where.checkOut = { gt: new Date(String(from)) };
@@ -403,6 +444,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         where,
         include: {
           guestProfile: true,
+          booking: detailInclude.booking,
           group: { select: { id: true, reference: true, name: true, status: true } },
           allocations: {
             where: { status: "ACTIVE" },
@@ -956,7 +998,7 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
 router.get("/:id", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { allowMarketplace: true });
     if (!reservation) return;
     res.json({ reservation: formatReservation(reservation) });
   } catch (err) {

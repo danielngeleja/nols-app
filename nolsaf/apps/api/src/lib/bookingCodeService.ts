@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { sendSms } from "./sms.js";
 import { sendMail } from "./mailer.js";
 import { getBookingValidationWindowStatus } from "./bookingValidationWindow.js";
+import { updateNoLsafBookingStatus } from "./nolsafMarketplaceNrms.js";
 
 function getModelFieldSet(modelName: string): Set<string> | null {
   try {
@@ -674,20 +675,17 @@ export async function markBookingCodeAsUsed(
     }
 
     // Update code status and booking status
-    await prisma.$transaction([
-      prisma.checkinCode.update({
+    await prisma.$transaction(async (tx: any) => {
+      await tx.checkinCode.update({
         where: { id: codeId },
         data: {
           status: "USED",
           usedAt: new Date(),
           usedByOwner: true,
         },
-      }),
-      prisma.booking.update({
-        where: { id: checkinCode.bookingId },
-        data: { status: "CHECKED_IN" },
-      }),
-    ]);
+      });
+      await updateNoLsafBookingStatus(tx, checkinCode.bookingId, "CHECKED_IN");
+    });
 
     return { success: true };
   } catch (error: any) {

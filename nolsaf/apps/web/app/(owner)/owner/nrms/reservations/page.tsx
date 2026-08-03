@@ -72,6 +72,7 @@ type OutletOrder = {
 
 type Reservation = {
   id: number;
+  bookingId: number | null;
   source: string;
   status: string;
   checkIn: string;
@@ -84,7 +85,21 @@ type Reservation = {
   chargesTotal: number | null;
   balance: number | null;
   cancelReason: string | null;
-  guestProfile: { id: number; fullName: string; phone: string | null; nationality: string | null } | null;
+  guestProfile: { id: number; fullName: string; phone: string | null; email: string | null; nationality: string | null } | null;
+  marketplaceBooking: {
+    id: number;
+    status: string;
+    guestName: string | null;
+    guestPhone: string | null;
+    guestEmail: string | null;
+    nationality: string | null;
+    sex: string | null;
+    ageGroup: string | null;
+    roomsQty: number;
+    totalAmount: number | null;
+    paymentStatus: string | null;
+    paymentMethod: string | null;
+  } | null;
   allocations?: Allocation[];
   payments?: Payment[];
   charges?: Charge[];
@@ -105,7 +120,7 @@ type GuestSearchResult = {
 type GuestHistory = GuestSearchResult & {
   notes?: string | null;
   createdAt?: string | null;
-  reservations: Array<{ id: number; status: string; source: string; checkIn: string; checkOut: string; currency: string; totalAmount: number | null; amountPaid?: number | null }>;
+  reservations: Array<{ id: number; bookingId: number | null; commercialManaged?: boolean; status: string; source: string; checkIn: string; checkOut: string; currency: string; totalAmount: number | null; amountPaid?: number | null }>;
 };
 
 type ReservationGroup = {
@@ -151,8 +166,9 @@ const MANUAL_CHARGE_CATEGORIES = NRMS_CHARGE_CATEGORIES.filter(
   (category) => category !== "RESTAURANT" && category !== "BAR",
 );
 
-const SOURCES = ["WALK_IN", "PHONE", "DIRECT", "AIRBNB", "BOOKING_COM", "EXPEDIA", "OTHER"];
+const SOURCES = ["NOLSAF", "WALK_IN", "PHONE", "DIRECT", "AIRBNB", "BOOKING_COM", "EXPEDIA", "OTHER"];
 const SOURCE_LABEL: Record<string, string> = {
+  NOLSAF: "NoLSAF",
   WALK_IN: "Walk-in",
   PHONE: "Phone",
   DIRECT: "Direct link",
@@ -162,6 +178,11 @@ const SOURCE_LABEL: Record<string, string> = {
   OTHER: "Other",
 };
 const SOURCE_STYLE: Record<string, { row: string; badge: string; dot: string }> = {
+  NOLSAF: {
+    row: "bg-emerald-50/55 hover:bg-emerald-100/70",
+    badge: "border-emerald-200 bg-emerald-100 text-emerald-800",
+    dot: "bg-emerald-600",
+  },
   WALK_IN: {
     row: "bg-emerald-50/55 hover:bg-emerald-100/70",
     badge: "border-emerald-200 bg-emerald-100 text-emerald-800",
@@ -512,8 +533,8 @@ export default function NrmsReservationsPage() {
                     <input
                       type="checkbox"
                       aria-label="Select all ungrouped reservations on this page"
-                      checked={reservations.some((reservation) => !reservation.group) && reservations.filter((reservation) => !reservation.group).every((reservation) => selectedIds.includes(reservation.id))}
-                      onChange={(event) => setSelectedIds(event.target.checked ? reservations.filter((reservation) => !reservation.group).map((reservation) => reservation.id) : [])}
+                      checked={reservations.some((reservation) => !reservation.group && reservation.bookingId == null) && reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).every((reservation) => selectedIds.includes(reservation.id))}
+                      onChange={(event) => setSelectedIds(event.target.checked ? reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).map((reservation) => reservation.id) : [])}
                       className="h-4 w-4 accent-emerald-700"
                     />
                   </th>
@@ -540,6 +561,7 @@ export default function NrmsReservationsPage() {
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = paymentMethodSummary(reservation.payments);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
+                  const isMarketplace = reservation.bookingId != null;
                   return (
                     <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
                       <td className="px-3 py-3.5 text-center">
@@ -547,8 +569,8 @@ export default function NrmsReservationsPage() {
                           type="checkbox"
                           aria-label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
                           checked={selectedIds.includes(reservation.id)}
-                          disabled={Boolean(reservation.group)}
-                          title={reservation.group ? `Already in ${reservation.group.name}` : "Select for a group"}
+                          disabled={Boolean(reservation.group) || isMarketplace}
+                          title={reservation.group ? `Already in ${reservation.group.name}` : isMarketplace ? "NoLSAF bookings cannot be added to NRMS groups" : "Select for a group"}
                           onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
                           className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
                         />
@@ -577,21 +599,21 @@ export default function NrmsReservationsPage() {
                         <span className="block truncate font-medium text-neutral-700" title={rooms || "Unassigned"}>{rooms || "Unassigned"}</span>
                       </td>
                       <td className="px-4 py-3.5 text-center text-neutral-600">
-                        {reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span>
+                        {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
                       </td>
                       <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.amountPaid != null && reservation.amountPaid > 0 ? "text-emerald-700" : "text-neutral-400"}`}>
-                        {money(reservation.amountPaid, reservation.currency)}
+                        {isMarketplace ? "NoLSAF managed" : money(reservation.amountPaid, reservation.currency)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-center">
                         <span
                           title={paymentMethod.title}
                           className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : "bg-emerald-50 text-emerald-700"}`}
                         >
-                          {paymentMethod.label}
+                          {isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
                         </span>
                       </td>
                       <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-                        {reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : "Paid in full"}
+                        {isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
@@ -1465,7 +1487,7 @@ function CreateReservationModal({
                           </div>
                           <div className="grid grid-cols-2 gap-5 text-right sm:min-w-52">
                             <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Stay total</p><p className="mb-0 mt-1 text-xs font-black text-neutral-900">{row.currency} {(row.totalAmount ?? 0).toLocaleString()}</p></div>
-                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{rowBalance > 0 ? "Balance" : "Payment"}</p><p className={`mb-0 mt-1 text-xs font-black ${rowBalance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{rowBalance > 0 ? `${row.currency} ${rowBalance.toLocaleString()}` : "Settled"}</p></div>
+                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{row.commercialManaged ? "Payment" : rowBalance > 0 ? "Balance" : "Payment"}</p><p className={`mb-0 mt-1 text-xs font-black ${row.commercialManaged ? "text-emerald-700" : rowBalance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{row.commercialManaged ? "NoLSAF managed" : rowBalance > 0 ? `${row.currency} ${rowBalance.toLocaleString()}` : "Settled"}</p></div>
                           </div>
                         </div>
                       )})}
@@ -1847,6 +1869,7 @@ function ReservationDetailModal({
   };
 
   const r = reservation;
+  const isMarketplace = r?.bookingId != null;
   const paymentLocked = r?.balance != null && r.balance <= 0;
   const activeCharges = (r?.charges ?? []).filter((charge) => !charge.voidedAt);
   const chargesRequiringVerification = activeCharges.filter(chargeNeedsManualVerification);
@@ -1872,9 +1895,10 @@ function ReservationDetailModal({
   const chargesNeedVerification = r?.status === "CHECKED_IN" && chargesRequiringVerification.some((charge) => !verifiedChargeIds.includes(charge.id));
   const outletReconciliationBlocked = r?.status === "CHECKED_IN" && unclassifiedOutletPayments.length > 0;
   const checkoutBlocked = folioBalanceBlocked || chargesNeedVerification || outletReconciliationBlocked;
-  const canPostCharges = r != null && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
-  const canPrintInvoice = r != null && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
+  const canPostCharges = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
+  const canPrintInvoice = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
   const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
+    && !isMarketplace
     ? [
         { key: "confirm", label: "Confirm", show: ["DRAFT", "HELD"].includes(r.status) },
         { key: "check-in", label: "Check in", show: r.status === "CONFIRMED" },
@@ -1925,31 +1949,50 @@ function ReservationDetailModal({
             </div>
           </section>
 
+          {isMarketplace && (
+            <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+                <div className="min-w-0">
+                  <p className="m-0 text-xs font-bold">Connected NoLSAF marketplace booking #{r.marketplaceBooking?.id ?? r.bookingId}</p>
+                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Guest identity, dates and room allocation are synchronized into NRMS. Payment and stay-status changes remain managed by NoLSAF to prevent duplicate records.</p>
+                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-emerald-900">
+                    <span><strong>Phone:</strong> {r.guestProfile?.phone ?? "Not provided"}</span>
+                    <span><strong>Email:</strong> {r.guestProfile?.email ?? "Not provided"}</span>
+                    <span><strong>Nationality:</strong> {r.guestProfile?.nationality ?? "Not provided"}</span>
+                    <span><strong>Sex:</strong> {r.marketplaceBooking?.sex ?? "Not provided"}</span>
+                    <span><strong>Age group:</strong> {r.marketplaceBooking?.ageGroup ?? "Not provided"}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Room</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.totalAmount, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Booking value" : "Room"}</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(isMarketplace ? r.marketplaceBooking?.totalAmount ?? null : r.totalAmount, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Folio extras</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.chargesTotal ?? 0, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment record" : "Folio extras"}</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.paymentStatus?.replace(/_/g, " ").toLowerCase() ?? "NoLSAF managed") : money(r.chargesTotal ?? 0, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Outlet paid</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{money(settledAtOutletTotal, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "NRMS folio" : "Outlet paid"}</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Read only" : money(settledAtOutletTotal, r.currency)}</p>
               {unclassifiedOutletPayments.length > 0 && <p className="mb-0 mt-0.5 text-[9px] font-semibold text-amber-700">Payment method missing</p>}
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total spend</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(totalGuestSpend, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Rooms booked" : "Total spend"}</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.roomsQty ?? 1) : money(totalGuestSpend, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total collected</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(totalCollected, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment method" : "Total collected"}</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{isMarketplace ? (PAYMENT_METHOD_LABEL[r.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF managed") : money(totalCollected, r.currency)}</p>
             </div>
-            <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Amount due</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
+            <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 && !isMarketplace ? "bg-amber-50" : "bg-emerald-50"}`}>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Commercial owner" : "Amount due"}</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-900" : "text-emerald-900"}`}>{isMarketplace ? "NoLSAF" : r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
             </div>
           </section>
 
@@ -2104,7 +2147,7 @@ function ReservationDetailModal({
             </section>
           )}
 
-          {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
+          {!isMarketplace && !["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
             <section className="rounded-xl border border-neutral-200 bg-white p-3">
               <div>
                 <p className="m-0 text-xs font-bold text-neutral-900">Record a guest payment</p>

@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { BedDouble, CalendarDays, ChevronLeft, ChevronRight, Loader2, LogIn, LogOut, Plus, ZoomIn, ZoomOut } from "lucide-react";
+import { BedDouble, CalendarDays, ChevronLeft, ChevronRight, Loader2, LogIn, LogOut, Plus, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
+import { useSocket } from "@/hooks/useSocket";
 
 type FeedUnit = { id: number; code: string; floor: number | null; status: string };
 type FeedType = {
@@ -147,6 +148,7 @@ function formatRoomRate(type: FeedType): string {
 
 export default function NrmsCalendarPage() {
   const { selectedPropertyId } = useNrms();
+  const { socket } = useSocket(undefined, { enabled: true, joinDriverRoom: false });
   const router = useRouter();
   const [anchorDate, setAnchorDate] = useState<Date>(() => startOfDay(new Date()));
   const [view, setView] = useState<CalendarView>("month");
@@ -174,10 +176,10 @@ export default function NrmsCalendarPage() {
   const rangeEnd = useMemo(() => addDays(rangeStart, dayCount), [dayCount, rangeStart]);
   const lastDay = days[days.length - 1] ?? rangeStart;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return;
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
       const response = await apiClient.get<any>(`/api/owner/nrms/calendar/${selectedPropertyId}`, {
         params: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
@@ -185,15 +187,41 @@ export default function NrmsCalendarPage() {
       setTypes(response.data?.roomTypes ?? []);
       setEntries(response.data?.entries ?? []);
     } catch (requestError: any) {
-      setError(requestError?.response?.data?.error || "Failed to load calendar");
+      if (!silent) setError(requestError?.response?.data?.error || "Failed to load calendar");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [rangeEnd, rangeStart, selectedPropertyId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Keep an already-open room rack current when a marketplace payment,
+  // cancellation, room assignment or stay transition changes inventory.
+  useEffect(() => {
+    const refresh = () => void load(true);
+    const timer = window.setInterval(refresh, 15_000);
+    if (socket) {
+      socket.on("owner:bookings:updated", refresh);
+      socket.on("booking.changed", refresh);
+      socket.on("admin:booking:status", refresh);
+      socket.on("admin:booking:validated", refresh);
+      socket.on("admin:code:generated", refresh);
+      socket.on("booking:cancellation_update", refresh);
+    }
+    return () => {
+      window.clearInterval(timer);
+      if (socket) {
+        socket.off("owner:bookings:updated", refresh);
+        socket.off("booking.changed", refresh);
+        socket.off("admin:booking:status", refresh);
+        socket.off("admin:booking:validated", refresh);
+        socket.off("admin:code:generated", refresh);
+        socket.off("booking:cancellation_update", refresh);
+      }
+    };
+  }, [load, socket]);
 
   const unitEntryFor = useCallback(
     (unitId: number, day: Date): FeedEntry | null => {
@@ -317,6 +345,15 @@ export default function NrmsCalendarPage() {
               <span className="min-w-[68px] px-1 text-center text-[9px] font-bold uppercase tracking-wide text-neutral-500">{density.label}</span>
               <button type="button" onClick={() => setDensityIndex((current) => Math.min(CALENDAR_DENSITIES.length - 1, current + 1))} disabled={densityIndex === CALENDAR_DENSITIES.length - 1} className="flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:text-neutral-200" aria-label="Zoom calendar in"><ZoomIn className="h-3.5 w-3.5" /></button>
             </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-emerald-700"
+              aria-label="Refresh room calendar"
+              title="Refresh calendar"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
           </div>
         </div>
 

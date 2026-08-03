@@ -188,7 +188,7 @@ export async function getRoomTypesAvailability(
  * reservations, and marketplace bookings come back in one shape.
  */
 export async function getCalendarEntries(propertyId: number, start: Date, end: Date): Promise<CalendarEntry[]> {
-  const [bookings, reservations, blocks] = await Promise.all([
+  const [bookings, reservations, blocks, roomTypes] = await Promise.all([
     prisma.booking.findMany({
       where: {
         propertyId,
@@ -257,12 +257,36 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
         notes: true,
       },
     }),
+    prisma.roomType.findMany({
+      where: { propertyId },
+      select: {
+        id: true,
+        name: true,
+        sourceSpecKey: true,
+        units: { select: { id: true, code: true } },
+      },
+    }),
   ]);
 
   const entries: CalendarEntry[] = [];
 
+  const resolveLegacyBookingRoom = (roomCode: string | null) => {
+    const value = String(roomCode ?? "").trim();
+    if (!value) return { roomTypeId: null, roomUnitId: null };
+    for (const type of roomTypes) {
+      const unit = type.units.find((candidate) => candidate.code.toLowerCase() === value.toLowerCase());
+      if (unit) return { roomTypeId: type.id, roomUnitId: unit.id };
+    }
+    const key = value.replace(/-\d+$/, "").toLowerCase();
+    const type = roomTypes.find((candidate) =>
+      candidate.name.toLowerCase() === key || String(candidate.sourceSpecKey ?? "").toLowerCase() === key,
+    );
+    return { roomTypeId: type?.id ?? null, roomUnitId: null };
+  };
+
   for (const b of bookings) {
     const allocation = b.nrmsReservation?.allocations?.[0] ?? null;
+    const legacyRoom = allocation ? null : resolveLegacyBookingRoom(b.roomCode ?? null);
     entries.push({
       kind: "BOOKING",
       id: b.id,
@@ -270,8 +294,8 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
       endDate: b.checkOut,
       status: b.status,
       source: "NOLSAF",
-      roomTypeId: allocation?.roomTypeId ?? null,
-      roomUnitId: allocation?.roomUnitId ?? null,
+      roomTypeId: allocation?.roomTypeId ?? legacyRoom?.roomTypeId ?? null,
+      roomUnitId: allocation?.roomUnitId ?? legacyRoom?.roomUnitId ?? null,
       roomCode: b.roomCode ?? null,
       quantity: b.roomsQty ?? 1,
       guestName: b.guestName ?? null,
@@ -357,7 +381,7 @@ export async function findUnitConflicts(
   roomUnitId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; db?: DbLike },
+  opts?: { excludeReservationId?: number; excludeBookingId?: number; db?: DbLike },
 ): Promise<UnitConflict[]> {
   const db = opts?.db ?? prisma;
   const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { propertyId: true, code: true } });
@@ -388,6 +412,7 @@ export async function findUnitConflicts(
     }),
     db.booking.findMany({
       where: {
+        ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}),
         propertyId: unit.propertyId,
         roomCode: unit.code,
         status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },

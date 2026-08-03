@@ -9,6 +9,7 @@ import { signPublicInvoiceAccessToken, verifyPublicInvoiceAccessToken } from "..
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
+import { confirmNoLsafBooking, NoLsafInventoryConflictError } from "../lib/nolsafMarketplaceNrms.js";
 
 async function getEffectiveCommissionPercent(params: {
   propertyServices: unknown;
@@ -687,10 +688,19 @@ router.get("/:id", publicInvoiceReadLimiter, async (req: Request, res: Response)
     let bookingCode = invoice.booking.code?.code || null;
     if (invoice.status === "PAID" && !bookingCode && invoice.booking.status !== "CANCELED") {
       if (invoice.booking.status === "NEW") {
-        await prisma.booking.update({
-          where: { id: invoice.booking.id },
-          data: { status: "CONFIRMED" },
-        });
+        try {
+          await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, invoice.booking.id));
+        } catch (error) {
+          if (error instanceof NoLsafInventoryConflictError) {
+            return res.status(409).json({
+              error: "room_unavailable_after_payment",
+              code: error.code,
+              message: "Payment was recorded, but this room can no longer be confirmed automatically. NoLSAF support must resolve the booking.",
+              availability: error.availability,
+            });
+          }
+          throw error;
+        }
       }
       const generated = await generateBookingCodeForBooking(invoice.booking.id);
       bookingCode = generated.code;

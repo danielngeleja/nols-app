@@ -98,6 +98,7 @@ router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) =
           orderBy: { checkIn: "desc" },
           select: {
             id: true,
+            bookingId: true,
             status: true,
             source: true,
             checkIn: true,
@@ -105,6 +106,7 @@ router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) =
             totalAmount: true,
             amountPaid: true,
             currency: true,
+            booking: { select: { totalAmount: true } },
           },
         },
       },
@@ -127,8 +129,10 @@ router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) =
         smsOutreach: smsEligibility,
         reservations: guest.reservations.map((r) => ({
           ...r,
-          totalAmount: r.totalAmount != null ? Number(r.totalAmount) : null,
-          amountPaid: r.amountPaid != null ? Number(r.amountPaid) : null,
+          booking: undefined,
+          commercialManaged: r.bookingId != null,
+          totalAmount: r.booking?.totalAmount != null ? Number(r.booking.totalAmount) : r.totalAmount != null ? Number(r.totalAmount) : null,
+          amountPaid: r.bookingId != null ? null : r.amountPaid != null ? Number(r.amountPaid) : null,
         })),
       },
     });

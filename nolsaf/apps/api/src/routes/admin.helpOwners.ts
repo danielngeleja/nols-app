@@ -3,6 +3,7 @@ import type { RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "@nolsaf/prisma";
 import { getBookingValidationWindowStatus } from "../lib/bookingValidationWindow.js";
+import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -207,10 +208,7 @@ router.post("/confirm-checkin", async (req, res) => {
       });
 
       // Update booking status
-      const updatedBooking = await tx.booking.update({
-        where: { id: bookingId },
-        data: { status: "CHECKED_IN" },
-      });
+      const updatedBooking = await updateNoLsafBookingStatus(tx, bookingId, "CHECKED_IN");
 
       return updatedBooking;
     });

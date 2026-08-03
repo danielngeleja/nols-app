@@ -31,6 +31,7 @@ import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
+import { confirmNoLsafBooking } from "../lib/nolsafMarketplaceNrms.js";
 
 const router = Router();
 
@@ -240,20 +241,13 @@ function nextReceiptNumber(prefix = "RCPT", seq: number) {
 }
 
 async function ensurePaidBookingReady(bookingId: number) {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    select: { id: true, status: true },
-  });
-  if (!booking || booking.status === "CANCELED") return;
-
-  if (booking.status === "NEW") {
-    await prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: "CONFIRMED" },
-    });
-  }
-
-  if (["NEW", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
+  // Preserve the webhook's historical idempotency: a late/replayed payment
+  // notification must never attempt to revive a cancelled accommodation.
+  const current = await prisma.booking.findUnique({ where: { id: bookingId }, select: { status: true } });
+  if (!current || current.status === "CANCELED") return;
+  const booking = await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, bookingId));
+  if (!booking) return;
+  if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
     await generateBookingCodeForBooking(bookingId);
   }
 }

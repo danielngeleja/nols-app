@@ -10,6 +10,13 @@ import { sendMail, type MailAttachment } from "../lib/mailer.js";
 import { getBookingConfirmedEmail, getBookingCancelledEmail } from "../lib/bookingEmailTemplates.js";
 import { generateBookingTicketPdf } from "../lib/pdfDocuments.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
+import {
+  confirmNoLsafBooking,
+  NoLsafInventoryConflictError,
+  syncNoLsafBookingToNrms,
+  updateNoLsafBookingStatus,
+} from "../lib/nolsafMarketplaceNrms.js";
+import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -20,7 +27,11 @@ const BOOKING_DRAFT_WINDOW_HOURS = 12;
 
 /* ----------------------------- Utilities ------------------------------ */
 
-async function idempotentConfirmAndCode(tx: typeof prisma, bookingId: number) {
+type ConfirmAndCodeResult =
+  | { error: string; status: number }
+  | { bookingId: number; codeVisible: string };
+
+async function idempotentConfirmAndCode(tx: typeof prisma, bookingId: number): Promise<ConfirmAndCodeResult> {
   const booking = await tx.booking.findUnique({
     where: { id: bookingId },
     include: { code: true, property: true, invoices: { select: { status: true, receiptNumber: true } } },
@@ -47,10 +58,10 @@ async function idempotentConfirmAndCode(tx: typeof prisma, bookingId: number) {
     };
   }
 
-  // Ensure CONFIRMED
-  if (booking.status !== "CONFIRMED") {
-    await tx.booking.update({ where: { id: bookingId }, data: { status: "CONFIRMED" } });
-  }
+  // Confirm under the shared property inventory lock and create/update the
+  // linked NRMS operational reservation. Existing real lifecycle states are
+  // preserved instead of being downgraded to CONFIRMED.
+  await confirmNoLsafBooking(tx, bookingId);
 
   // If code already exists, return it (idempotent)
   if (booking.code) {
@@ -557,10 +568,15 @@ router.get("/:id", async (req, res) => {
  */
 router.post("/:id/confirm", async (req, res) => {
   const id = Number(req.params.id);
-
-  const result = await prisma.$transaction(async (tx: any) => {
-    return idempotentConfirmAndCode(tx, id);
-  });
+  let result: Awaited<ReturnType<typeof idempotentConfirmAndCode>>;
+  try {
+    result = await prisma.$transaction(async (tx: any) => idempotentConfirmAndCode(tx, id));
+  } catch (error) {
+    if (error instanceof NoLsafInventoryConflictError) {
+      return res.status(409).json({ error: "room_unavailable", code: error.code, message: error.message, availability: error.availability });
+    }
+    throw error;
+  }
 
   if ("error" in result) return res.status(result.status).json({ error: result.error });
 
@@ -621,7 +637,7 @@ router.post("/:id/checkin", async (req, res) => {
   if (!before) return res.status(404).json({ error: "Booking not found" });
   if (before.status === "CHECKED_IN") return res.status(400).json({ error: "Already checked in" });
 
-  const updated = await prisma.booking.update({ where: { id }, data: { status: "CHECKED_IN" } });
+  const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(tx, id, "CHECKED_IN"));
   try { await audit(req, "BOOKING_CHECKIN", "BOOKING", before, { status: "CHECKED_IN" }); } catch {}
   try {
     const b = await prisma.booking.findUnique({ where: { id }, include: { property: true } as any });
@@ -638,7 +654,7 @@ router.post("/:id/checkout", async (req, res) => {
   if (!before) return res.status(404).json({ error: "Booking not found" });
   if (before.status === "CHECKED_OUT") return res.status(400).json({ error: "Already checked out" });
 
-  const updated = await prisma.booking.update({ where: { id }, data: { status: "CHECKED_OUT" } });
+  const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(tx, id, "CHECKED_OUT"));
   try { await audit(req, "BOOKING_CHECKOUT", "BOOKING", before, { status: "CHECKED_OUT" }); } catch {}
   try {
     const b = await prisma.booking.findUnique({ where: { id }, include: { property: true } as any });
@@ -738,7 +754,7 @@ router.post("/validate-by-code", async (req, res) => {
   // idempotent: mark code used and set booking to CONFIRMED
   const updated = await prisma.$transaction(async (tx: any) => {
     await tx.checkinCode.update({ where: { id: c.id }, data: { status: 'USED', usedAt: new Date(), usedByOwner: true } });
-    const b = await tx.booking.update({ where: { id: c.bookingId }, data: { status: 'CONFIRMED' } });
+    const b = await confirmNoLsafBooking(tx, c.bookingId);
     return b;
   });
 
@@ -769,10 +785,12 @@ router.post("/:id/cancel", async (req, res) => {
   if (!before) return res.status(404).json({ error: "Booking not found" });
   if (before.status === "CANCELED") return res.status(400).json({ error: "Already canceled" });
 
-  const updated = await prisma.booking.update({
-    where: { id },
-    data: { status: "CANCELED", cancelReason: reason, canceledAt: new Date() } as any,
-  });
+  const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(
+    tx,
+    id,
+    "CANCELED",
+    { cancelReason: reason, canceledAt: new Date() },
+  ));
 
   if (before.code && before.code.status === "ACTIVE") {
     await prisma.checkinCode.update({
@@ -813,24 +831,47 @@ router.post("/:id/reassign-room", async (req, res) => {
   const roomCode = String(req.body?.roomCode ?? "").trim();
   if (!roomCode) return res.status(400).json({ error: "roomCode is required" });
 
-  const b = await prisma.booking.findUnique({ where: { id }, include: { property: true } });
-  if (!b) return res.status(404).json({ error: "Booking not found" });
-
-  // overlap check
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      id: { not: id },
-      propertyId: b.propertyId,
-      roomCode,
-      // treat any PENDING_CHECKIN rows as CHECKED_IN via migration; only check CONFIRMED/CHECKED_IN
-      status: { in: ["CONFIRMED", "CHECKED_IN"] },
-      AND: [{ checkIn: { lt: b.checkOut } }, { checkOut: { gt: b.checkIn } }],
-    },
-    select: { id: true },
+  const b = await prisma.booking.findUnique({
+    where: { id },
+    include: { property: true, nrmsReservation: { select: { id: true } } },
   });
-  if (conflict) return res.status(409).json({ error: "Room already assigned for overlapping dates", conflictWith: conflict.id });
-
-  const updated = await prisma.booking.update({ where: { id }, data: { roomCode } });
+  if (!b) return res.status(404).json({ error: "Booking not found" });
+  let updated: any;
+  try {
+    updated = await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, b.propertyId);
+      const unit = await tx.roomUnit.findFirst({ where: { propertyId: b.propertyId, code: roomCode }, select: { id: true, roomTypeId: true } });
+      if (unit) {
+        const conflicts = await findUnitConflicts(unit.id, b.checkIn, b.checkOut, {
+          db: tx,
+          excludeBookingId: b.id,
+          excludeReservationId: b.nrmsReservation?.id,
+        });
+        if (conflicts.length) throw Object.assign(new Error("ROOM_ASSIGNMENT_CONFLICT"), { conflicts });
+      } else {
+        const key = roomCode.replace(/-\d+$/, "");
+        const type = await tx.roomType.findFirst({
+          where: { propertyId: b.propertyId, OR: [{ name: key }, { sourceSpecKey: key }] },
+          select: { id: true, name: true },
+        });
+        const currentKey = String(b.roomCode ?? "").replace(/-\d+$/, "").toLowerCase();
+        if (type && currentKey !== key.toLowerCase()) {
+          const capacity = await getRoomTypeAvailability(tx, b.propertyId, type.id, b.checkIn, b.checkOut, { excludeReservationId: b.nrmsReservation?.id });
+          if (capacity.available < Math.max(1, Number(b.roomsQty ?? 1))) {
+            throw Object.assign(new Error("ROOM_ASSIGNMENT_CONFLICT"), { capacity });
+          }
+        }
+      }
+      const changed = await tx.booking.update({ where: { id }, data: { roomCode } });
+      await syncNoLsafBookingToNrms(tx, id);
+      return changed;
+    });
+  } catch (error: any) {
+    if (error?.message === "ROOM_ASSIGNMENT_CONFLICT") {
+      return res.status(409).json({ error: "Room already assigned or blocked for overlapping dates", conflicts: error.conflicts ?? null, capacity: error.capacity ?? null });
+    }
+    throw error;
+  }
   return res.json({ ok: true, booking: updated });
 });
 

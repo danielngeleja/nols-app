@@ -9,6 +9,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { getCalendarEntries } from "../lib/nrmsAvailability.js";
+import { connectExistingNoLsafBookings } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 
@@ -44,6 +45,9 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     if (end.getTime() > maxEnd.getTime()) end = maxEnd;
 
     const propertyId = property.id as number;
+    // Self-heal confirmed marketplace bookings created before the linked NRMS
+    // operational projection was introduced. NEW/unpaid rows are never selected.
+    await connectExistingNoLsafBookings(prisma, propertyId, start, end);
     const [entries, roomTypes] = await Promise.all([
       getCalendarEntries(propertyId, start, end),
       prisma.roomType.findMany({
