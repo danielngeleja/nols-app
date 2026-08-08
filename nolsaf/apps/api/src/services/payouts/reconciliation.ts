@@ -12,6 +12,7 @@
 import { prisma } from "@nolsaf/prisma";
 import type { Disbursement } from "@prisma/client";
 import { azamPayTransactionStatus } from "../azampay/disbursement/client.js";
+import { normalizeAzamPayFinalStatus } from "../azampay/disbursement/contract.js";
 import { applyProviderEvent, recordAmountMismatch } from "./ledger.js";
 
 /** AzamPay reported a figure that does not match what this payout is for. Never applied automatically, either way. */
@@ -54,8 +55,8 @@ export async function checkDisbursementStatus(disbursementId: number): Promise<D
     bankName: disbursement.bankName,
   });
 
-  const normalizedStatus = String(status.status || "").toLowerCase();
-  if (normalizedStatus !== "success" && normalizedStatus !== "failure") {
+  const normalizedStatus = normalizeAzamPayFinalStatus(status);
+  if (!normalizedStatus) {
     return prisma.disbursement.findUniqueOrThrow({ where: { id: disbursementId } });
   }
 

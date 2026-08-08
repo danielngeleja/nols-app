@@ -22,8 +22,9 @@ import type { Disbursement, Prisma } from "@prisma/client";
 import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.js";
 import { computeApprovalFingerprint } from "./fingerprint.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
+import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
-import type { AzamPayDisburseBankName, AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
+import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
 import { notifyUser } from "../../lib/notifications.js";
 import { sendMail } from "../../lib/mailer.js";
 import { getOwnerDisbursementEmail } from "../../lib/bookingEmailTemplates.js";
@@ -176,6 +177,55 @@ export async function recordAmountMismatch(
     });
   } catch (err) {
     console.error(`[payout-ledger] could not flag amount mismatch on disbursement ${disbursementId}`, err);
+  }
+}
+
+/** Persists a callback identifier/provider mismatch without settling or stopping reconciliation. */
+export async function recordProviderCorrelationMismatch(
+  disbursementId: number,
+  details: {
+    code: "initiator_reference_mismatch" | "pg_reference_mismatch" | "operator_mismatch";
+    expected: string;
+    received: string;
+    payload?: unknown;
+  }
+): Promise<void> {
+  const message = truncateReason(
+    `Provider callback ${details.code.replace(/_/g, " ")}: expected ${details.expected}, received ${details.received}`
+  );
+  try {
+    await prisma.disbursementEvent.create({
+      data: {
+        disbursementId,
+        eventType: "PROVIDER_CORRELATION_MISMATCH",
+        eventHash: eventHashFor(disbursementId, "PROVIDER_CORRELATION_MISMATCH", {
+          code: details.code,
+          expected: details.expected,
+          received: details.received,
+        }),
+        status: "CORRELATION_MISMATCH",
+        message,
+        payload: (details.payload ?? null) as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err: any) {
+    if (err?.code !== "P2002") {
+      console.error(
+        `[payout-ledger] could not record provider correlation mismatch for disbursement ${disbursementId}`,
+        err
+      );
+    }
+  }
+  try {
+    await prisma.disbursement.update({
+      where: { id: disbursementId },
+      data: { securityReviewReason: message },
+    });
+  } catch (err) {
+    console.error(
+      `[payout-ledger] could not flag provider correlation mismatch on disbursement ${disbursementId}`,
+      err
+    );
   }
 }
 
@@ -387,58 +437,73 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
 
   assertWithinAmountCeiling(disbursement.amount);
 
+  const amount = Number(disbursement.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new PayoutStateError(`Disbursement ${disbursementId} has an invalid amount`);
+  }
+  if (!String(disbursement.currency || "").trim()) {
+    throw new PayoutStateError(`Disbursement ${disbursementId} has no currency`);
+  }
+  if (
+    !String(disbursement.externalReferenceId || "").trim() ||
+    disbursement.externalReferenceId.length > 30
+  ) {
+    throw new PayoutStateError(
+      `Disbursement ${disbursementId} has an invalid externalReferenceId (required, maximum 30 characters)`
+    );
+  }
+  if (
+    !String(disbursement.payoutAccount.accountNumber || "").trim() ||
+    !String(disbursement.payoutAccount.accountName || "").trim()
+  ) {
+    throw new PayoutStateError(
+      `Disbursement ${disbursementId} has an incomplete destination account`
+    );
+  }
+  const requestConfig = loadAzamPayDisbursementRequestConfig(
+    disbursement.payoutAccount.provider
+  );
+
   const sourceAccount = {
     countryCode: "TZ",
-    fullName: process.env.AZAMPAY_DISBURSE_SOURCE_NAME || "NoLS AFRICA COMPANY LIMITED",
-    bankName: (process.env.AZAMPAY_DISBURSE_SOURCE_PROVIDER || "azampesa") as AzamPayDisburseBankName,
-    accountNumber: process.env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT || "",
+    fullName: requestConfig.sourceName,
+    bankName: requestConfig.sourceProvider,
+    accountNumber: requestConfig.sourceAccount,
     currency: disbursement.currency,
   };
 
+  // Cross-process submission claim. Without this, two workers (or a worker
+  // racing the admin retry route) can both read AUTHORIZED and both call the
+  // money-out API before either stores the provider response.
+  const submissionClaim = await prisma.disbursement.updateMany({
+    where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
+    data: { status: "SUBMITTED", submittedAt: new Date(), securityReviewReason: null },
+  });
+  if (submissionClaim.count !== 1) {
+    throw new PayoutStateError(
+      `Disbursement ${disbursementId} changed state before submission; provider call was not made`
+    );
+  }
+
+  let response: Awaited<ReturnType<typeof azamPayDisburse>>;
   try {
-    const response = await azamPayDisburse({
+    response = await azamPayDisburse({
       source: sourceAccount,
       destination: {
         countryCode: "TZ",
         fullName: disbursement.payoutAccount.accountName,
-        bankName: disbursement.payoutAccount.provider as AzamPayDisburseBankName,
+        bankName: requestConfig.destinationProvider,
         accountNumber: disbursement.payoutAccount.accountNumber,
         currency: disbursement.currency,
       },
       transferDetails: {
-        type: process.env.AZAMPAY_DISBURSE_TRANSFER_TYPE || "",
-        amount: Number(disbursement.amount),
+        type: requestConfig.transferType,
+        amount,
         dateInEpoch: Math.floor(Date.now() / 1000),
       },
       externalReferenceId: disbursement.externalReferenceId,
       additionalProperties: { sourceType: disbursement.sourceType, sourceId: disbursement.sourceId },
       remarks: disbursement.remarks ?? undefined,
-    });
-
-    return prisma.$transaction(async (tx) => {
-      await tx.disbursementEvent.create({
-        data: {
-          disbursementId,
-          eventType: "SUBMIT_RESPONSE",
-          eventHash: eventHashFor(disbursementId, "SUBMIT_RESPONSE", { pgReferenceId: response.pgReferenceId }),
-          status: "PROCESSING",
-          message: response.message,
-          pgReferenceId: response.pgReferenceId,
-          payload: response as unknown as Prisma.InputJsonValue,
-        },
-      });
-      const processing = await tx.disbursement.update({
-        where: { id: disbursementId },
-        data: {
-          status: "PROCESSING",
-          pgReferenceId: response.pgReferenceId,
-          submittedAt: new Date(),
-          providerMessage: response.message,
-          rawResponse: response as unknown as Prisma.InputJsonValue,
-        },
-      });
-      await writeBackSourceProcessing(tx, processing);
-      return processing;
     });
   } catch (err) {
     if (err instanceof AzamPayDisburseError) {
@@ -452,11 +517,75 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
           payload: (err.rawBody ?? null) as Prisma.InputJsonValue,
         },
       });
-      // Deliberately does not change disbursement.status: retry policy (auth/validation/
-      // freshness/reconcile-first) is the caller's call, per the dev guide's error table.
+      // Retry policy follows the provider error classifier.
+      if (err.retryClass === "AUTH_RETRY" || err.retryClass === "VALIDATION" || err.retryClass === "FRESHNESS") {
+        // These documented failures prove the provider refused the request,
+        // so releasing the claim for a corrected/safely rebuilt retry is valid.
+        await prisma.disbursement.updateMany({
+          where: { id: disbursementId, status: "SUBMITTED", pgReferenceId: null },
+          data: { status: "AUTHORIZED", submittedAt: null },
+        });
+      } else {
+        // Duplicate reference, network failure, or another unknown outcome may
+        // mean the provider accepted the payout. Keep it claimed and visible;
+        // an automatic retry here is a potential duplicate payment.
+        await prisma.disbursement.updateMany({
+          where: { id: disbursementId, status: "SUBMITTED", pgReferenceId: null },
+          data: {
+            securityReviewReason: truncateReason(
+              `AzamPay submission outcome is unknown; reconcile before retrying: ${err.providerMessage ?? err.message}`
+            ),
+          },
+        });
+      }
+    } else {
+      // Token/configuration/checksum/crypto failures occur before the
+      // disbursement HTTP request is sent, so the submission claim can be
+      // released safely. Provider-response persistence happens below, outside
+      // this catch, and therefore can never trigger an unsafe retry.
+      await prisma.disbursement.updateMany({
+        where: { id: disbursementId, status: "SUBMITTED", pgReferenceId: null },
+        data: { status: "AUTHORIZED", submittedAt: null },
+      });
     }
     throw err;
   }
+
+  // Keep provider acceptance persistence outside the pre-transport catch.
+  // If this transaction fails after AzamPay accepted the payout, the row
+  // remains SUBMITTED and automatic retry stays blocked.
+  return prisma.$transaction(async (tx) => {
+    await tx.disbursementEvent.create({
+      data: {
+        disbursementId,
+        eventType: "SUBMIT_RESPONSE",
+        eventHash: eventHashFor(disbursementId, "SUBMIT_RESPONSE", { pgReferenceId: response.pgReferenceId }),
+        status: "PROCESSING",
+        message: response.message,
+        pgReferenceId: response.pgReferenceId,
+        payload: response as unknown as Prisma.InputJsonValue,
+      },
+    });
+    const moved = await tx.disbursement.updateMany({
+      where: { id: disbursementId, status: "SUBMITTED", pgReferenceId: null },
+      data: {
+        status: "PROCESSING",
+        pgReferenceId: response.pgReferenceId,
+        submittedAt: new Date(),
+        providerMessage: response.message,
+        rawResponse: response as unknown as Prisma.InputJsonValue,
+      },
+    });
+    if (moved.count !== 1) {
+      throw new PayoutStateError(
+        `Disbursement ${disbursementId} changed state while its AzamPay acceptance response was being stored`
+      );
+    }
+    const processing = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+    if (!processing) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared after submission`);
+    await writeBackSourceProcessing(tx, processing);
+    return processing;
+  });
 }
 
 /**
@@ -750,46 +879,113 @@ export async function applyProviderEvent(
     if (!disbursement) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
 
     const hash = eventHashFor(disbursementId, event.eventType, {
+      initiatorReferenceId: event.callback.initiatorReferenceId,
       pgReferenceId: event.callback.pgReferenceId,
+      fspReferenceId: event.callback.fspReferenceId,
       status: event.callback.status,
       amount: event.callback.amount,
+      operator: event.callback.operator,
+      message: event.callback.message,
     });
 
-    try {
-      await tx.disbursementEvent.create({
-        data: {
-          disbursementId,
-          eventType: event.eventType,
-          eventHash: hash,
-          status: event.callback.status,
-          message: event.callback.message,
-          pgReferenceId: event.callback.pgReferenceId,
-          fspReferenceId: event.callback.fspReferenceId,
-          amount: event.callback.amount ? Number(event.callback.amount) : null,
-          operator: event.callback.operator,
-          payload: event.callback as unknown as Prisma.InputJsonValue,
-        },
-      });
-    } catch (err: any) {
-      if (err?.code === "P2002") {
-        // Same event already recorded — already-applied, return current state untouched.
-        return { disbursement, transitionedToPaid: false };
-      }
-      throw err;
+    // Use the database's atomic insert-if-absent behavior instead of an
+    // exception-driven read/insert sequence. The unique eventHash plus
+    // skipDuplicates makes concurrent callback replays a genuine no-op on
+    // this project's MySQL/MariaDB datastore.
+    const inserted = await tx.disbursementEvent.createMany({
+      data: [{
+        disbursementId,
+        eventType: event.eventType,
+        eventHash: hash,
+        status: event.callback.status,
+        message: event.callback.message,
+        pgReferenceId: event.callback.pgReferenceId,
+        fspReferenceId: event.callback.fspReferenceId,
+        amount: event.callback.amount ? Number(event.callback.amount) : null,
+        operator: event.callback.operator,
+        payload: event.callback as unknown as Prisma.InputJsonValue,
+      }],
+      skipDuplicates: true,
+    });
+    if (inserted.count === 0) {
+      // Same event already recorded and applied; leave state untouched.
+      return { disbursement, transitionedToPaid: false };
     }
 
     // Never reverse a terminal state on a conflicting later event — freeze
     // for manual review instead, per "Transaction Status: fallback and
     // reconciliation" in the dev guide.
+    const correlationFailures: string[] = [];
+    if (!disbursement.pgReferenceId || event.callback.pgReferenceId !== disbursement.pgReferenceId) {
+      correlationFailures.push("pgReferenceId does not match the submitted payout");
+    }
+    if (
+      event.callback.initiatorReferenceId &&
+      event.callback.initiatorReferenceId !== disbursement.externalReferenceId
+    ) {
+      correlationFailures.push("initiatorReferenceId does not match the payout");
+    }
+    if (event.callback.amount) {
+      const reportedAmount = Number(event.callback.amount);
+      if (!Number.isFinite(reportedAmount) || Math.abs(reportedAmount - Number(disbursement.amount)) > 0.01) {
+        correlationFailures.push("reported amount does not match the payout");
+      }
+    }
+    if (
+      event.callback.operator &&
+      event.callback.operator.trim().toLowerCase() !== disbursement.bankName.trim().toLowerCase()
+    ) {
+      correlationFailures.push("operator does not match the payout destination");
+    }
+    if (correlationFailures.length > 0) {
+      const reason = truncateReason(`Provider event correlation failure: ${correlationFailures.join("; ")}`);
+      const flagged = await tx.disbursement.update({
+        where: { id: disbursementId },
+        data: { securityReviewReason: reason },
+      });
+      return { disbursement: flagged, transitionedToPaid: false };
+    }
+
+    const isFinalEvent = event.callback.status === "success" || event.callback.status === "failure";
+
     if (disbursement.status === "PAID" || disbursement.status === "FAILED") {
+      const expectedTerminal =
+        event.callback.status === "success"
+          ? "PAID"
+          : event.callback.status === "failure"
+            ? "FAILED"
+            : null;
+      if (expectedTerminal && expectedTerminal !== disbursement.status) {
+        const conflicted = await tx.disbursement.update({
+          where: { id: disbursementId },
+          data: {
+            securityReviewReason: truncateReason(
+              `Conflicting provider event attempted ${expectedTerminal} after payout was already ${disbursement.status}`
+            ),
+          },
+        });
+        return { disbursement: conflicted, transitionedToPaid: false };
+      }
       return { disbursement, transitionedToPaid: false };
+    }
+
+    if (isFinalEvent && disbursement.status !== "PROCESSING") {
+      const flagged = await tx.disbursement.update({
+        where: { id: disbursementId },
+        data: {
+          securityReviewReason: truncateReason(
+            `Provider final status ${event.callback.status} received while payout was ${disbursement.status}, expected PROCESSING`
+          ),
+        },
+      });
+      return { disbursement: flagged, transitionedToPaid: false };
     }
 
     if (event.callback.status === "success") {
       // A callback and a status poll can report success concurrently. Claiming
       // the terminal transition atomically gives notification delivery one owner.
       const claimed = await tx.disbursement.updateMany({
-        where: { id: disbursementId, status: { notIn: ["PAID", "FAILED"] } },
+        where: { id: disbursementId, status: "PROCESSING" },
         data: {
           status: "PAID",
           paidAt: new Date(),
@@ -809,8 +1005,8 @@ export async function applyProviderEvent(
       return { disbursement: paid, transitionedToPaid: true };
     }
     if (event.callback.status === "failure") {
-      const failed = await tx.disbursement.update({
-        where: { id: disbursementId },
+      const claimed = await tx.disbursement.updateMany({
+        where: { id: disbursementId, status: "PROCESSING" },
         data: {
           status: "FAILED",
           failedAt: new Date(),
@@ -821,6 +1017,13 @@ export async function applyProviderEvent(
           activeSourceKey: null,
         },
       });
+      if (claimed.count !== 1) {
+        const current = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+        if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
+        return { disbursement: current, transitionedToPaid: false };
+      }
+      const failed = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+      if (!failed) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
       await writeBackSourceFailed(tx, failed);
       return { disbursement: failed, transitionedToPaid: false };
     }

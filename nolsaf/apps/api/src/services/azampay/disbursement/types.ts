@@ -71,7 +71,18 @@ export interface AzamPayDisburseCallback {
 
 export interface AzamPayTransactionStatusResponse {
   pgReferenceId: string;
-  status: string;
-  message?: string;
+  message: string;
+  success: boolean;
+  statusCode: number;
+  /**
+   * Some AzamPay environments may include a final transaction status even
+   * though the public OpenAPI response currently omits it. Never infer a
+   * completed payout from `success`; that field only says the status query
+   * itself succeeded.
+   */
+  status?: string;
+  amount?: string | number;
+  fspReferenceId?: string;
+  operator?: string;
   [key: string]: unknown;
 }

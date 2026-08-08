@@ -39,7 +39,7 @@ Phase 3 and 4's code are fully typed (Prisma Client was regenerated from the sch
 
 Money-moving admin actions (`approve`, `submit`, `check-status`) are gated behind `requireAdminFinanceGrant` (OTP re-auth), the same separation-of-duties control the Sales Partner payout flow already uses — this was the one existing flow flagged as most professional in the payout audit, so Phase 4 follows its pattern rather than the weaker Owner/Invoice one.
 
-The disbursement callback route has a known, unresolved gap: AzamPay's docs do not publish a signature field for the callback payload, so the route can only enforce an optional IP allowlist (`AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS`) plus content matching (externalReferenceId + amount) against the stored Disbursement. This is not a finished security control — see the "Questions NoLSAF must send AzamPay before production" list.
+The disbursement callback route has a known provider-contract gap: AzamPay's docs do not publish a signature field for the callback payload. NoLSAF therefore requires an IP allowlist (`AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS`) and/or shared callback secret (`AZAMPAY_DISBURSE_CALLBACK_SECRET`) in every environment, then correlates external reference, provider reference, amount, and operator against the stored disbursement. The endpoint fails closed when neither authentication control is configured. AzamPay must still confirm its supported callback-authentication method before production; see the Phase 5 question list.
 
 Note: generating the Phase 2 migration via `prisma migrate dev --create-only` failed because a pre-existing, unrelated migration (`20260714130000_reconcile_legacy_database_drift`) uses MySQL syntax this server rejects (`DROP FOREIGN KEY IF EXISTS`). That blocks Prisma's shadow-database diffing for *any* new migration, not just this one, until it's fixed separately. The Phase 2 migration SQL was hand-written instead, matching the existing migration style.
 
@@ -754,7 +754,7 @@ A concise checklist before switching `AZAMPAY_ENV=production` for disbursement.
 - Clearing a security hold on a payout you approved is refused.
 - If a second finance admin exists, set `DISBURSEMENT_REQUIRE_TWO_PERSON=true` and verify self-release is refused outright. This is the stronger control and should be adopted as soon as staffing allows.
 - `AZAMPAY_DISBURSE_MAX_AMOUNT` (per payout) and `AZAMPAY_DISBURSE_MAX_BATCH_TOTAL` (per authorization) are both set to real figures. Without the batch ceiling, `formBatch` sweeps every approved payout in the system into one batch and a single click releases it.
-- `AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS` and/or `AZAMPAY_DISBURSE_CALLBACK_SECRET` is configured — the callback endpoint fails closed in production without at least one, but confirm it rather than relying on the refusal.
+- `AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS` and/or `AZAMPAY_DISBURSE_CALLBACK_SECRET` is configured — the callback endpoint fails closed in every environment without at least one, but confirm it rather than relying on the refusal.
 - `PAYOUT_RISK_TIMEZONE` matches the operating timezone if the host is not on East Africa Time.
 - Background workers are running on exactly one instance (`workers/leaderLock.ts` holds the lease). The batch worker is what actually submits authorized money; if it is not running, batches sit `AUTHORIZED` and nothing is paid.
 

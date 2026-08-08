@@ -27,6 +27,11 @@ import type {
 
 const FETCH_TIMEOUT_MS = 15_000;
 
+interface HttpJsonResult {
+  status: number;
+  body: any;
+}
+
 function disburseHost(): string {
   return (
     process.env.AZAMPAY_DISBURSE_API_URL || "https://api-disbursement-sandbox.azampay.co.tz"
@@ -47,11 +52,11 @@ function requirePublicKey(): string {
   return key;
 }
 
-async function postJson<TResponse>(
+async function postJson(
   path: string,
   body: unknown,
   token: string
-): Promise<{ status: number; body: any }> {
+): Promise<HttpJsonResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -85,6 +90,38 @@ async function postJson<TResponse>(
   return { status: res.status, body: json };
 }
 
+/** Refreshes an expired token once and replays the exact same provider request. */
+async function withAuthRetry(
+  operation: (token: string) => Promise<HttpJsonResult>
+): Promise<HttpJsonResult> {
+  const firstToken = await getAzamPayDisburseToken();
+  const first = await operation(firstToken);
+  if (first.status !== 401) return first;
+
+  await invalidateAzamPayDisburseToken();
+  const refreshedToken = await getAzamPayDisburseToken();
+  const second = await operation(refreshedToken);
+  if (second.status === 401) {
+    await invalidateAzamPayDisburseToken();
+  }
+  return second;
+}
+
+function isProviderSuccessCode(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 200 && Number(value) < 300;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function invalidProviderResponse(status: number, body: any, detail: string): never {
+  throw mapAzamPayError(status, {
+    ...(body && typeof body === "object" ? body : {}),
+    message: `Invalid AzamPay response: ${detail}`,
+  });
+}
+
 /**
  * Resolves and verifies a beneficiary account before it can be used as a
  * payout destination. Caller is responsible for persisting isVerified /
@@ -94,7 +131,6 @@ export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
   const publicKey = requirePublicKey();
-  const token = await getAzamPayDisburseToken();
 
   const checksumInput = buildChecksumInput("NAMELOOKUP", input);
   const request: AzamPayNameLookupRequest = {
@@ -102,13 +138,15 @@ export async function azamPayNameLookup(
     checksum: azamPayChecksum(checksumInput, publicKey),
   };
 
-  const { status, body } = await postJson("/api/v1/azampay/namelookup", request, token);
+  const { status, body } = await withAuthRetry((token) =>
+    postJson("/api/v1/azampay/namelookup", request, token)
+  );
 
-  if (status === 401) {
-    await invalidateAzamPayDisburseToken();
-  }
   if (status < 200 || status >= 300 || !body?.status) {
     throw mapAzamPayError(status, body);
+  }
+  if (!isProviderSuccessCode(body.statusCode)) {
+    invalidProviderResponse(status, body, "name lookup statusCode is missing or non-success");
   }
 
   return body as AzamPayNameLookupResponse;
@@ -124,7 +162,6 @@ export async function azamPayDisburse(
   request: Omit<AzamPayDisburseRequest, "checksum">
 ): Promise<AzamPayDisburseResponse> {
   const publicKey = requirePublicKey();
-  const token = await getAzamPayDisburseToken();
 
   const checksumInput = buildChecksumInput("DISBURSE", request);
   const fullRequest: AzamPayDisburseRequest = {
@@ -132,13 +169,18 @@ export async function azamPayDisburse(
     checksum: azamPayChecksum(checksumInput, publicKey),
   };
 
-  const { status, body } = await postJson("/api/v1/azampay/disburse", fullRequest, token);
+  const { status, body } = await withAuthRetry((token) =>
+    postJson("/api/v1/azampay/disburse", fullRequest, token)
+  );
 
-  if (status === 401) {
-    await invalidateAzamPayDisburseToken();
-  }
   if (status < 200 || status >= 300 || !body?.success) {
     throw mapAzamPayError(status, body);
+  }
+  if (!isProviderSuccessCode(body.statusCode)) {
+    invalidProviderResponse(status, body, "disbursement statusCode is missing or non-success");
+  }
+  if (!isNonEmptyString(body.pgReferenceId)) {
+    invalidProviderResponse(status, body, "successful disbursement has no pgReferenceId");
   }
 
   return body as AzamPayDisburseResponse;
@@ -149,42 +191,47 @@ export async function azamPayTransactionStatus(params: {
   pgReferenceId: string;
   bankName: string;
 }): Promise<AzamPayTransactionStatusResponse> {
-  const token = await getAzamPayDisburseToken();
-
   const url = new URL(`${disburseHost()}/api/v1/azampay/transactionstatus`);
   url.searchParams.set("pgReferenceId", params.pgReferenceId);
   url.searchParams.set("bankName", params.bankName);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const { status, body } = await withAuthRetry(async (token) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    });
-  } catch (err: any) {
-    clearTimeout(timer);
-    throw mapAzamPayError(null, { message: `network error (${err?.name ?? "unknown"})` });
-  } finally {
-    clearTimeout(timer);
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      throw mapAzamPayError(null, { message: `network error (${err?.name ?? "unknown"})` });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    let responseBody: any = null;
+    try {
+      responseBody = await res.json();
+    } catch {
+      /* ignore */
+    }
+    return { status: res.status, body: responseBody };
+  });
+
+  if (status < 200 || status >= 300 || body?.success !== true) {
+    throw mapAzamPayError(status, body);
   }
-
-  if (res.status === 401) {
-    await invalidateAzamPayDisburseToken();
+  if (!isProviderSuccessCode(body.statusCode)) {
+    invalidProviderResponse(status, body, "transaction statusCode is missing or non-success");
   }
-
-  let body: any = null;
-  try {
-    body = await res.json();
-  } catch {
-    /* ignore */
+  if (!isNonEmptyString(body.pgReferenceId)) {
+    invalidProviderResponse(status, body, "transaction status response has no pgReferenceId");
   }
-
-  if (!res.ok) {
-    throw mapAzamPayError(res.status, body);
+  if (body.pgReferenceId !== params.pgReferenceId) {
+    invalidProviderResponse(status, body, "transaction status pgReferenceId does not match the request");
   }
 
   return body as AzamPayTransactionStatusResponse;

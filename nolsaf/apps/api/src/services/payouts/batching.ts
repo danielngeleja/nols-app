@@ -462,7 +462,7 @@ export async function authorizeBatch(
   authorizedById: number,
   options: AuthorizeBatchOptions = {}
 ) {
-  return prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     const batch = await tx.disbursementBatch.findUnique({
       where: { id: batchId },
       include: { items: { include: { payoutAccount: true } } },
@@ -490,25 +490,77 @@ export async function authorizeBatch(
       }
     }
 
+    const integrityFailures: string[] = [];
+    if (batch.formedById === null) {
+      integrityFailures.push("batch formation provenance is missing");
+    }
+    if (batch.items.some((item) => item.approvedById === null)) {
+      integrityFailures.push("one or more payout approvals have no attributable admin");
+    }
+    if (batch.items.length !== batch.itemCount) {
+      integrityFailures.push(`member count changed (${batch.itemCount} expected, ${batch.items.length} found)`);
+    }
+    const nonBatched = batch.items.filter((item) => item.status !== "BATCHED");
+    if (nonBatched.length > 0) {
+      integrityFailures.push(
+        `member state changed (${nonBatched.slice(0, 5).map((item) => `#${item.id}:${item.status}`).join(", ")})`
+      );
+    }
+    if (batch.items.some((item) => item.currency !== batch.currency)) {
+      integrityFailures.push(`member currency differs from batch currency ${batch.currency}`);
+    }
+    const currentTotal = batch.items.reduce(
+      (sum, item) => sum.plus(item.amount),
+      new Prisma.Decimal(0)
+    );
+    if (!currentTotal.equals(batch.totalAmount)) {
+      integrityFailures.push(
+        `batch total changed (${batch.totalAmount.toString()} displayed, ${currentTotal.toString()} in members)`
+      );
+    }
+
     const currentFingerprint = computeBatchFingerprint(
       batch.items.map((i) => toBatchFingerprintMember(i, i.payoutAccount))
     );
-
     if (currentFingerprint !== batch.batchFingerprint) {
-      await tx.disbursementBatch.update({ where: { id: batchId }, data: { status: "SECURITY_REVIEW" } });
-      await tx.disbursement.updateMany({
-        where: { batchId },
-        data: { status: "SECURITY_REVIEW", securityReviewReason: "Batch fingerprint mismatch at authorization time" },
-      });
-      await writeAudit(tx, { actorId: authorizedById, action: "DISBURSEMENT_BATCH_FINGERPRINT_MISMATCH", entity: "DISBURSEMENT_BATCH", entityId: batchId });
-      throw new BatchStateError(`Batch ${batchId} fingerprint mismatch — batch and its items were moved to SECURITY_REVIEW`);
+      integrityFailures.push("batch fingerprint mismatch");
     }
 
-    const updated = await tx.disbursementBatch.update({
-      where: { id: batchId },
+    if (integrityFailures.length > 0) {
+      const reason = truncateReason(`Batch integrity failure at authorization: ${integrityFailures.join("; ")}`);
+      await tx.disbursementBatch.update({ where: { id: batchId }, data: { status: "SECURITY_REVIEW" } });
+      await tx.disbursement.updateMany({
+        where: { batchId, status: { notIn: ["PAID", "FAILED"] } },
+        data: { status: "SECURITY_REVIEW", securityReviewReason: reason },
+      });
+      await writeAudit(tx, {
+        actorId: authorizedById,
+        action: "DISBURSEMENT_BATCH_INTEGRITY_MISMATCH",
+        entity: "DISBURSEMENT_BATCH",
+        entityId: batchId,
+        afterJson: { reason },
+      });
+      // Do not throw inside this transaction: that would roll back the hold.
+      return { kind: "security_review" as const, reason };
+    }
+
+    // Claim DRAFT atomically so two API instances cannot both authorize it.
+    const claimedBatch = await tx.disbursementBatch.updateMany({
+      where: { id: batchId, status: "DRAFT" },
       data: { status: "AUTHORIZED", authorizedById, authorizedAt: new Date() },
     });
-    await tx.disbursement.updateMany({ where: { batchId, status: "BATCHED" }, data: { status: "AUTHORIZED" } });
+    if (claimedBatch.count !== 1) {
+      throw new BatchStateError(`Batch ${batchId} changed state during authorization; no release was applied`);
+    }
+    const claimedItems = await tx.disbursement.updateMany({
+      where: { batchId, status: "BATCHED" },
+      data: { status: "AUTHORIZED" },
+    });
+    if (claimedItems.count !== batch.items.length) {
+      throw new BatchStateError(
+        `Batch ${batchId} changed membership during authorization; expected ${batch.items.length} items, claimed ${claimedItems.count}`
+      );
+    }
     await writeAudit(tx, {
       actorId: authorizedById,
       action: "DISBURSEMENT_BATCH_AUTHORIZED",
@@ -525,8 +577,17 @@ export async function authorizeBatch(
         releaseAuthority: self.isSelfRelease ? "SELF_RELEASE_WITH_CHALLENGE" : "TWO_PERSON",
       },
     });
-    return updated;
+    const updated = await tx.disbursementBatch.findUnique({ where: { id: batchId } });
+    if (!updated) throw new BatchStateError(`Batch ${batchId} disappeared during authorization`);
+    return { kind: "authorized" as const, batch: updated };
   });
+
+  if (outcome.kind === "security_review") {
+    throw new BatchStateError(
+      `Batch ${batchId} failed its authorization integrity checks and was moved to SECURITY_REVIEW: ${outcome.reason}`
+    );
+  }
+  return outcome.batch;
 }
 
 export interface ProcessBatchResult {

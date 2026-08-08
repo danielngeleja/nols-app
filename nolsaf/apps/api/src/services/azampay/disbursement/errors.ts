@@ -23,12 +23,12 @@ export type AzamPayRetryClass =
  */
 export class AzamPayDisburseConfigurationError extends Error {
   readonly missingKeys: readonly string[];
-  readonly operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY";
+  readonly operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY" | "REQUEST";
 
   constructor(params: {
     message: string;
     missingKeys: string[];
-    operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY";
+    operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY" | "REQUEST";
   }) {
     super(params.message);
     this.name = "AzamPayDisburseConfigurationError";

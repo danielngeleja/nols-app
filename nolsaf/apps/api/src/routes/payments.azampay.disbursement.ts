@@ -9,10 +9,10 @@
  * AzamPay has still not confirmed a signing scheme, so the controls we can
  * enforce are (a) an IP allowlist and (b) an optional pre-shared secret that
  * AzamPay can be configured to send as a header. Both sit in front of the
- * idempotent, amount-checked ledger.applyProviderEvent.
+ * idempotent, reference/amount/operator-checked ledger.applyProviderEvent.
  *
- * FAIL-CLOSED: in production this endpoint refuses to run unless at least one
- * of those controls is configured. Previously an unset allowlist meant
+ * FAIL-CLOSED: this endpoint refuses to run unless at least one of those
+ * controls is configured. Previously an unset allowlist meant
  * "accept from any IP" (isWebhookIpAllowed returns true for an empty list),
  * which would have let anyone POST a forged "success" callback. We no longer
  * rely on that default — if nothing is configured in production, every
@@ -20,36 +20,41 @@
  * and/or AZAMPAY_DISBURSE_CALLBACK_SECRET.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { limitAzampayDisbursementCallback } from "../middleware/rateLimit.js";
 import { isWebhookIpAllowed } from "./webhooks.payments.js";
-import { applyProviderEvent, recordAmountMismatch } from "../services/payouts/ledger.js";
+import { validateDisbursementCallbackCorrelation } from "../services/azampay/disbursement/contract.js";
+import {
+  applyProviderEvent,
+  recordAmountMismatch,
+  recordProviderCorrelationMismatch,
+} from "../services/payouts/ledger.js";
 
 export const router = Router();
 
 /** Constant-time string compare that never short-circuits on length. */
 function secretsMatch(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  // Hash both inputs to a fixed length before comparing. Returning early on
+  // unequal raw lengths leaks secret-length information through timing.
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 /**
  * Decides whether a callback request is authorized, given the two controls we
  * can enforce today. Returns a reason string when rejecting so the caller can
  * log it. Enforcement rules:
- *  - If neither control is configured: allowed OUTSIDE production (dev/testing
- *    convenience), rejected IN production (fail closed).
+ *  - If neither control is configured: rejected in every environment.
  *  - If an IP allowlist is configured: the source IP must be on it.
  *  - If a shared secret is configured: the request must present it, matched in
  *    constant time. Header name is configurable; defaults to x-callback-token.
  */
-function authorizeDisbursementCallback(req: Request, clientIp: string): { ok: boolean; reason?: string } {
+export function authorizeDisbursementCallback(req: Request, clientIp: string): { ok: boolean; reason?: string } {
   const allowedIps = (process.env.AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS || "")
     .split(",")
     .map((s) => s.trim())
@@ -60,12 +65,7 @@ function authorizeDisbursementCallback(req: Request, clientIp: string): { ok: bo
   const hasSecretControl = secret.length > 0;
 
   if (!hasIpControl && !hasSecretControl) {
-    if (process.env.NODE_ENV === "production") {
-      return { ok: false, reason: "no callback authentication configured (fail-closed in production)" };
-    }
-    // Non-production: allow so local/staging testing is not blocked, but the
-    // startup log below still warns that this is unauthenticated.
-    return { ok: true };
+    return { ok: false, reason: "no callback authentication configured (fail-closed)" };
   }
 
   if (hasIpControl && !isWebhookIpAllowed(clientIp, allowedIps)) {
@@ -83,14 +83,21 @@ function authorizeDisbursementCallback(req: Request, clientIp: string): { ok: bo
   return { ok: true };
 }
 
-const callbackSchema = z.object({
+export const azamPayDisbursementCallbackSchema = z.object({
   initiatorReferenceId: z.string().trim().min(1),
   fspReferenceId: z.string().trim().default(""),
-  pgReferenceId: z.string().trim().default(""),
-  amount: z.union([z.string(), z.number()]).transform(String).default(""),
-  status: z.string().trim().toLowerCase(),
+  pgReferenceId: z.string().trim().min(1),
+  amount: z
+    .union([z.string(), z.number()])
+    .transform(String)
+    .refine((value) => value.trim().length > 0 && Number.isFinite(Number(value)), "amount must be numeric"),
+  status: z
+    .string()
+    .trim()
+    .transform((value) => value.toLowerCase())
+    .pipe(z.enum(["success", "failure"])),
   message: z.string().trim().default(""),
-  operator: z.string().trim().default(""),
+  operator: z.string().trim().min(1),
   additionalProperties: z.record(z.unknown()).optional(),
 });
 
@@ -105,7 +112,7 @@ router.post(
       return res.status(403).json({ ok: false, error: "forbidden" });
     }
 
-    const parsed = callbackSchema.safeParse(req.body);
+    const parsed = azamPayDisbursementCallbackSchema.safeParse(req.body);
     if (!parsed.success) {
       console.warn("[AzamPay Disbursement Callback] rejected: invalid payload shape", parsed.error.flatten());
       // Still 200 — AzamPay should not endlessly retry a payload we will never accept.
@@ -115,7 +122,13 @@ router.post(
 
     const disbursement = await prisma.disbursement.findUnique({
       where: { externalReferenceId: cb.initiatorReferenceId },
-      select: { id: true, amount: true, currency: true },
+      select: {
+        id: true,
+        externalReferenceId: true,
+        pgReferenceId: true,
+        amount: true,
+        bankName: true,
+      },
     });
     if (!disbursement) {
       // Unknown reference: log for review, but do not error — nothing to retry into existence.
@@ -123,24 +136,28 @@ router.post(
       return res.status(200).json({ ok: true, matched: false });
     }
 
-    const callbackAmount = Number(cb.amount);
-    if (Number.isFinite(callbackAmount) && Math.abs(callbackAmount - Number(disbursement.amount)) > 0.01) {
-      // Amount mismatch: do not trust the status, and do not let the only
-      // record of it be a log line. A mismatch is precisely the event a human
-      // must see, so it is persisted to the append-only event log and the
-      // payout is held. Deliberately NOT moved out of PROCESSING: the
-      // reconciliation worker must keep polling AzamPay for the real outcome.
+    const mismatch = validateDisbursementCallbackCorrelation(disbursement, cb);
+    if (mismatch) {
       console.error(
-        `[AzamPay Disbursement Callback] amount mismatch on disbursement ${disbursement.id}: ` +
-          `expected ${disbursement.amount}, callback said ${cb.amount}`
+        `[AzamPay Disbursement Callback] ${mismatch.code} on disbursement ${disbursement.id}: ` +
+          `expected ${mismatch.expected}, received ${mismatch.received}`
       );
-      await recordAmountMismatch(disbursement.id, {
-        expected: disbursement.amount.toString(),
-        received: String(cb.amount),
-        source: "CALLBACK",
-        payload: cb,
-      });
-      return res.status(200).json({ ok: true, matched: true, flagged: "amount_mismatch" });
+      if (mismatch.code === "amount_mismatch") {
+        await recordAmountMismatch(disbursement.id, {
+          expected: mismatch.expected,
+          received: mismatch.received,
+          source: "CALLBACK",
+          payload: cb,
+        });
+      } else {
+        await recordProviderCorrelationMismatch(disbursement.id, {
+          code: mismatch.code,
+          expected: mismatch.expected,
+          received: mismatch.received,
+          payload: cb,
+        });
+      }
+      return res.status(200).json({ ok: true, matched: true, flagged: mismatch.code });
     }
 
     await applyProviderEvent(disbursement.id, { eventType: "CALLBACK", callback: cb });

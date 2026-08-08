@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeApprovalFingerprint } from "../services/payouts/fingerprint";
 
 const mocks = vi.hoisted(() => ({
   findDisbursement: vi.fn(),
+  claimDisbursement: vi.fn(),
   transaction: vi.fn(),
   azamPayDisburse: vi.fn(),
   findInvoice: vi.fn(),
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@nolsaf/prisma", () => ({
   prisma: {
-    disbursement: { findUnique: mocks.findDisbursement },
+    disbursement: { findUnique: mocks.findDisbursement, updateMany: mocks.claimDisbursement },
     disbursementEvent: { create: vi.fn() },
     invoice: { findUnique: mocks.findInvoice },
     notification: { create: mocks.createNotification },
@@ -59,7 +60,7 @@ function ownerDisbursement(status: string) {
   const disbursement: any = {
     id: 77,
     externalReferenceId: "NoLSAF-O-2608081645-D51QVX",
-    pgReferenceId: null,
+    pgReferenceId: ["PROCESSING", "PAID", "FAILED"].includes(status) ? "PG-77" : null,
     fspReferenceId: null,
     sourceType: "OWNER_INVOICE",
     sourceId: 123,
@@ -96,7 +97,12 @@ function ownerDisbursement(status: string) {
 describe("owner invoice disbursement write-back", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.claimDisbursement.mockResolvedValue({ count: 1 });
+    vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "255700000000");
+    vi.stubEnv("AZAMPAY_DISBURSE_TRANSFER_TYPE", "MOBILE_MONEY");
   });
+
+  afterEach(() => vi.unstubAllEnvs());
 
   it("moves an APPROVED owner invoice to PROCESSING after AzamPay accepts the payout", async () => {
     const authorized = ownerDisbursement("AUTHORIZED");
@@ -104,12 +110,20 @@ describe("owner invoice disbursement write-back", () => {
     const invoiceUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
       disbursementEvent: { create: vi.fn().mockResolvedValue({}) },
-      disbursement: { update: vi.fn().mockResolvedValue(processing) },
+      disbursement: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUnique: vi.fn().mockResolvedValue(processing),
+      },
       invoice: { updateMany: invoiceUpdateMany },
     };
 
     mocks.findDisbursement.mockResolvedValue(authorized);
-    mocks.azamPayDisburse.mockResolvedValue({ pgReferenceId: "PG-77", message: "accepted" });
+    mocks.azamPayDisburse.mockResolvedValue({
+      pgReferenceId: "PG-77",
+      message: "accepted",
+      success: true,
+      statusCode: 200,
+    });
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
 
     const result = await submitToAzamPay(authorized.id);
@@ -121,6 +135,19 @@ describe("owner invoice disbursement write-back", () => {
     });
   });
 
+  it("fails before the provider call when required request configuration is missing", async () => {
+    const authorized = ownerDisbursement("AUTHORIZED");
+    vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "");
+    mocks.findDisbursement.mockResolvedValue(authorized);
+
+    await expect(submitToAzamPay(authorized.id)).rejects.toMatchObject({
+      name: "AzamPayDisburseConfigurationError",
+      operation: "REQUEST",
+      missingKeys: ["AZAMPAY_DISBURSE_SOURCE_ACCOUNT"],
+    });
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
+  });
+
   it("creates the standard receipt number when provider settlement marks the payout PAID", async () => {
     const processing = ownerDisbursement("PROCESSING");
     const paid = { ...processing, status: "PAID", paidAt: new Date() };
@@ -130,7 +157,7 @@ describe("owner invoice disbursement write-back", () => {
         findUnique: vi.fn().mockResolvedValueOnce(processing).mockResolvedValueOnce(paid),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      disbursementEvent: { create: vi.fn().mockResolvedValue({}) },
+      disbursementEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
       invoice: {
         findUnique: vi.fn().mockResolvedValue({ paymentRef: "INVREF-123", receiptNumber: null }),
         update: invoiceUpdate,
@@ -197,10 +224,9 @@ describe("owner invoice disbursement write-back", () => {
 
   it("does not notify the owner again when AzamPay replays an applied success event", async () => {
     const paid = { ...ownerDisbursement("PAID"), paidAt: new Date("2026-08-08T13:00:00.000Z") };
-    const duplicate = Object.assign(new Error("duplicate event"), { code: "P2002" });
     const tx = {
       disbursement: { findUnique: vi.fn().mockResolvedValue(paid) },
-      disbursementEvent: { create: vi.fn().mockRejectedValue(duplicate) },
+      disbursementEvent: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
     };
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
 
@@ -229,10 +255,10 @@ describe("owner invoice disbursement write-back", () => {
     const invoiceUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
       disbursement: {
-        findUnique: vi.fn().mockResolvedValue(processing),
-        update: vi.fn().mockResolvedValue(failed),
+        findUnique: vi.fn().mockResolvedValueOnce(processing).mockResolvedValueOnce(failed),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      disbursementEvent: { create: vi.fn().mockResolvedValue({}) },
+      disbursementEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
       invoice: { updateMany: invoiceUpdateMany },
     };
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
