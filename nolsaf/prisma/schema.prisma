@@ -328,6 +328,8 @@ model User {
   salesCommissionsApproved  SalesCommission[]            @relation("SalesCommissionApprovedBy")
   salesPayoutsReviewed      SalesPayoutRequest[]         @relation("SalesPayoutReviewedBy")
   salesMaterialsCreated     SalesMaterial[]              @relation("SalesMaterialCreatedBy")
+  payoutAccounts            PayoutAccount[]              @relation("PayoutAccountOwner")
+  disbursementsApproved     Disbursement[]               @relation("DisbursementApprovedBy")
 
   @@index([role])
   @@index([email])
@@ -6136,3 +6138,145 @@ model SalesMaterial {
 // Levels are not a table. They live in apps/api/src/lib/salesPartnerLevel.ts
 // as a single-source-of-truth spec constant, following the existing
 // agentLevel.ts pattern. See docs/SALES_PARTNER_WORKSPACE.md section 5.2.
+
+// ─────────────────────────────────────────────────────────────────────────
+// DRAFT — AzamPay disbursement models. Written for review only.
+// NOT migrated, NOT applied to any database. Do not run `prisma migrate`
+// or `prisma db push` against this block without Daniel's explicit
+// approval, per the standing "no unapproved migrations" rule.
+//
+// Design intent: one generic payout engine shared by all four money-out
+// flows (owner/operator, tours, drivers, sales partners) instead of a
+// fifth bespoke table, modeled on the strongest existing pattern in this
+// schema (SalesCommission / SalesPayoutRequest / SalesPayoutItem):
+// idempotent keys, snapshot-at-request-time destinations, and an append
+// -only event ledger instead of editing rows in place.
+//
+// sourceType/sourceId are plain columns rather than relations, following
+// the same rationale documented on SalesCommission above: this ledger
+// should not force a foreign key onto Invoice, TourBooking, TransportPayout
+// and SalesPayoutRequest, and those source rows are never hard-deleted.
+// See docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md for the full spec this
+// implements.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A verified payout destination (mobile money or bank) for any payee type.
+/// One User can hold several, e.g. an operator with both a MOBILE_MONEY and
+/// a BANK account. isVerified only becomes true after a successful AzamPay
+/// Name Lookup; changing accountNumber/provider must reset it to false.
+model PayoutAccount {
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  type          String @db.VarChar(20) // MOBILE_MONEY | BANK
+  provider      String @db.VarChar(30) // tigo | airtel | azampesa | crdb | nmb ...
+  accountNumber String @db.VarChar(40)
+  accountName   String @db.VarChar(160)
+  currency      String @default("TZS") @db.VarChar(3)
+
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+  isDefault  Boolean   @default(false)
+  isActive   Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation("PayoutAccountOwner", fields: [userId], references: [id], onDelete: Restrict)
+  disbursements Disbursement[]
+
+  @@unique([userId, provider, accountNumber])
+  @@index([userId, isActive])
+  @@map("payout_account")
+}
+
+/// One AzamPay disbursement request, regardless of which NoLSAF flow
+/// originated it. sourceType distinguishes OWNER_INVOICE | TOUR_BOOKING |
+/// DRIVER_TRIP | SALES_PAYOUT so this table can eventually replace the
+/// ad-hoc "mark paid" logic in each of those flows without forcing them
+/// onto a shared schema before the provider contract is even confirmed.
+model Disbursement {
+  id Int @id @default(autoincrement())
+
+  /// NoLSAF-generated, max 30 chars per AzamPay's externalReferenceId limit.
+  /// Unique before the AzamPay call is ever made — this is the idempotency
+  /// anchor for the whole flow.
+  externalReferenceId String  @unique @db.VarChar(30)
+  pgReferenceId        String? @unique @db.VarChar(64)
+  fspReferenceId        String? @db.VarChar(64)
+
+  sourceType String @db.VarChar(20) // OWNER_INVOICE | TOUR_BOOKING | DRIVER_TRIP | SALES_PAYOUT
+  sourceId   Int
+
+  payoutAccountId Int
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+
+  /// REQUESTED, APPROVED, SUBMITTED, PROCESSING, PAID, FAILED,
+  /// RECOVERY_PENDING, RECOVERED — mirrors the Tours payoutStatus machine,
+  /// the one existing flow that already has a working cancellation
+  /// clawback (see tourCancellationConsistency.ts). Extending recovery
+  /// states to this shared table is what lets Owner/Driver/Sales gain the
+  /// same clawback safety Tours already has.
+  status String @default("REQUESTED") @db.VarChar(20)
+
+  provider String @default("azampay") @db.VarChar(20)
+  bankName String @db.VarChar(30) // tigo | airtel | azampesa — MNO-focused, see dev guide
+  operator String? @db.VarChar(40)
+
+  approvedById Int?
+  approvedAt   DateTime?
+  submittedAt  DateTime?
+  paidAt       DateTime?
+  failedAt     DateTime?
+
+  /// Redacted before writing where the payload could contain account
+  /// numbers beyond what audit/support needs — see "Security boundary" in
+  /// the dev guide.
+  providerMessage String? @db.VarChar(300)
+  rawRequest      Json?
+  rawResponse     Json?
+
+  remarks String? @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payoutAccount PayoutAccount       @relation(fields: [payoutAccountId], references: [id], onDelete: Restrict)
+  approvedBy    User?               @relation("DisbursementApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  events        DisbursementEvent[]
+
+  @@index([sourceType, sourceId])
+  @@index([status, submittedAt])
+  @@index([payoutAccountId])
+  @@map("disbursement")
+}
+
+/// Append-only audit trail for everything AzamPay tells NoLSAF about a
+/// disbursement after submission: the initial accept response, callbacks,
+/// and status polls. eventHash is the idempotency key that makes a
+/// replayed callback a no-op instead of a duplicate PAID transition — see
+/// "Callback idempotency and accounting integrity" in the dev guide.
+model DisbursementEvent {
+  id             Int @id @default(autoincrement())
+  disbursementId Int
+
+  eventType String @db.VarChar(30) // SUBMIT_RESPONSE | CALLBACK | STATUS_POLL
+  eventHash String @unique @db.VarChar(80)
+
+  status         String?  @db.VarChar(20)
+  message        String?  @db.VarChar(300)
+  pgReferenceId  String?  @db.VarChar(64)
+  fspReferenceId String?  @db.VarChar(64)
+  amount         Decimal? @db.Decimal(12, 2)
+  operator       String?  @db.VarChar(40)
+  payload        Json?
+
+  createdAt DateTime @default(now())
+
+  disbursement Disbursement @relation(fields: [disbursementId], references: [id], onDelete: Cascade)
+
+  @@index([disbursementId])
+  @@map("disbursement_event")
+}

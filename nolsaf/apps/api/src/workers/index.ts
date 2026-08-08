@@ -20,6 +20,7 @@ import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReserv
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -96,6 +97,11 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startNrmsGuestAutomationWorker();
     startSalesCommissionLifecycleWorker();
     startAuditRetentionWorker();
+    // Fallback for missed/delayed AzamPay disbursement callbacks: polls
+    // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
+    // applies the result through the same idempotent ledger path a callback
+    // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
+    startDisbursementReconciliationWorker();
     startChannelOperationsWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
       startBookingComReservationSyncWorker();

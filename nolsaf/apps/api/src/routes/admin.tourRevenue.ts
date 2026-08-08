@@ -236,7 +236,10 @@ router.post("/action", async (req: any, res) => {
     if (!adminId) return res.status(401).json({ ok: false, error: "Unauthorized" });
     if (!revenueId || !action) return res.status(400).json({ ok: false, error: "Missing required fields" });
 
-    const validActions = ["verify", "approve", "disburse", "reject"];
+    // "disburse" was retired — operator payouts now move exclusively through
+    // the AzamPay Disbursement ledger (services/payouts/ledger.ts), reached
+    // from this record once it is APPROVED. See admin.disbursements.ts.
+    const validActions = ["verify", "approve", "reject"];
     if (!validActions.includes(action)) {
       return res.status(400).json({ ok: false, error: "Invalid action" });
     }
@@ -272,21 +275,6 @@ router.post("/action", async (req: any, res) => {
     }
     if (action === "approve" && !actionReason) {
       return res.status(400).json({ ok: false, error: "Approval reason is required" });
-    }
-
-    if (action === "disburse" && currentStatus !== "APPROVED") {
-      return res.status(400).json({ ok: false, error: "Record must be APPROVED before DISBURSE" });
-    }
-    if (action === "disburse") {
-      // Never release operator money while a traveller case is unresolved:
-      // it turns a simple payout hold into a post-disbursement recovery debt.
-      const openCase = await prisma.tourCase.findFirst({
-        where: { tourBookingId: booking.id, status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE", "APPROVED"] } },
-        select: { id: true, type: true },
-      });
-      if (openCase) {
-        return res.status(409).json({ ok: false, error: `Payout cannot be disbursed while case #${openCase.id} (${String(openCase.type).toLowerCase()}) is open for this booking. Resolve the case first.` });
-      }
     }
 
     if (action === "reject") {
@@ -329,17 +317,6 @@ router.post("/action", async (req: any, res) => {
         reason: actionReason,
         actor: { id: adminId, name: adminName },
       };
-    } else if (action === "disburse") {
-      if (!paymentRef) return res.status(400).json({ ok: false, error: "Payment reference required" });
-      updatedData.payoutStatus = "DISBURSED";
-      updatedData.operatorPayoutRef = paymentRef;
-      updatedData.payoutPaidAt = new Date();
-      history.disbursed = {
-        ...(history.disbursed || {}),
-        at: nowIso,
-        actor: { id: adminId, name: adminName },
-        paymentRef: String(paymentRef),
-      };
     } else if (action === "reject") {
       updatedData.payoutStatus = "REJECTED";
       updatedData.notes = actionReason;
@@ -360,22 +337,6 @@ router.post("/action", async (req: any, res) => {
       where: { id: Number(revenueId) },
       data: updatedData,
     });
-
-    if (action === "disburse") {
-      await prisma.tourFinancialTransaction.upsert({
-        where: { reference: String(paymentRef) },
-        create: {
-          tourBookingId: booking.id,
-          kind: "PAYOUT",
-          status: "DISBURSED",
-          reference: String(paymentRef),
-          currency: booking.currency,
-          amount: booking.operatorPayoutAmount,
-          metadata: { adminId },
-        },
-        update: { status: "DISBURSED", metadata: { adminId } },
-      });
-    }
 
     // Log audit trail
     try {
@@ -402,13 +363,11 @@ router.post("/action", async (req: any, res) => {
         const template =
           action === "verify" ? "agent_payout_verified" :
           action === "approve" ? "agent_payout_approved" :
-          action === "disburse" ? "agent_payout_disbursed" :
           "agent_payout_rejected";
         await notifyUser(operatorAgent.userId, template, {
           tourBookingId: updated.id,
           bookingCode: (updated as any).bookingCode,
           reason: actionReason || null,
-          paymentRef: paymentRef || null,
         });
       }
     } catch {

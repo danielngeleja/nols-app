@@ -3,6 +3,7 @@ import requireRole, { maybeAuth } from "../middleware/auth";
 import { router as account } from "./account";
 import authRoutes from "./auth";
 import azampayPaymentsRouter from "./payments.azampay.js";
+import azampayDisbursementRouter from "./payments.azampay.disbursement.js";
 import azampayBankRouter     from "./payments.azampay.bank.js";
 import azampayCardRouter     from "./payments.azampay.card.js";
 import coralCommerceCardRouter from "./payments.coralcommerce.card.js";
@@ -43,6 +44,7 @@ export function registerPaymentRoutes(app: Express): void {
   app.use("/webhooks/expedia", expediaWebhooksRouter);
   app.use("/webhooks/coralcommerce/card", coralCommerceCardRouter); // Coral callback/postback aliases
   app.use("/webhooks", paymentWebhooksRouter);
+  app.use("/api/payments/azampay/disbursement", azampayDisbursementRouter); // Disbursement callback (money OUT)
   app.use("/api/payments/azampay", azampayPaymentsRouter);       // MNO: Airtel, M-Pesa, Mixx, HaloPesa
   app.use("/api/payments/azampay/bank", azampayBankRouter);      // Bank: CRDB, NMB, NBC, etc.
   app.use("/api/payments/azampay/card", azampayCardRouter);      // Card: Visa / Mastercard

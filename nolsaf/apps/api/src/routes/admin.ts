@@ -19,6 +19,7 @@ import adminDriversLevelMessagesRouter from "./admin.drivers.level-messages";
 import adminDriversLevelsRouter from "./admin.drivers.levels";
 import adminDriversSummaryRouter from "./admin.drivers.summary";
 import adminDriversRouter from "./admin.drivers";
+import adminDisbursementsRouter from "./admin.disbursements.js";
 import adminGroupStaysArrangementsRouter from "./admin.groupStays.arrangements";
 import adminGroupStaysAssignmentsRouter from "./admin.groupStays.assignments";
 import adminGroupStaysBookingsAuditRouter from "./admin.groupStays.bookings.audit";
@@ -113,6 +114,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/drivers/levels", adminDriversLevelsRouter as RequestHandler);
   app.use("/api/admin/drivers", adminDriversRouter as RequestHandler);
   app.use("/admin/drivers", adminDriversRouter);
+  app.use("/api/admin/disbursements", adminDisbursementsRouter as RequestHandler);
+  app.use("/admin/disbursements", adminDisbursementsRouter as RequestHandler);
   app.use("/api/admin/drivers/level-messages", requireRole("ADMIN") as RequestHandler, adminDriversLevelMessagesRouter);
   app.use("/admin/group-stays/summary", adminGroupStaysSummaryRouter);
   app.use("/api/admin/group-stays/summary", adminGroupStaysSummaryRouter);

@@ -635,3 +635,53 @@ export const limitPublicNrmsGuestCapability = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many guest-link requests. Please wait a moment." },
 });
+
+export const limitDisbursementAdminRead = rateLimit({
+  windowMs: 60_000,
+  limit: 180,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many disbursement administration requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `disbursement-admin-read:${userId}`
+      : `disbursement-admin-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitDisbursementAdminWrite = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many disbursement administration changes. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `disbursement-admin-write:${userId}`
+      : `disbursement-admin-write:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitOwnerPayoutRead = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many payout requests. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `owner-payout-read:${userId}`
+      : `owner-payout-read:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitAzampayDisbursementCallback = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many callback requests." },
+});
