@@ -640,25 +640,24 @@ export default function Page(){
 
           {/* Mark Paid / Disbursed Action */}
           {inv.status==="APPROVED" && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <Send className="h-4 w-4 text-emerald-600" />
+            <div className="min-w-0 overflow-hidden rounded-xl border border-emerald-100 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-5">
+              <div className="mb-3 flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                  <Send className="h-5 w-5 text-emerald-600" />
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">Send payout</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Approved and ready to disburse through AzamPay.</p>
+                <div className="min-w-0 flex-1">
+                  <h3 className="m-0 text-base font-semibold text-gray-900">Ready for payout</h3>
+                  <p className="m-0 mt-1 text-sm leading-5 text-gray-500">
+                    Verify the destination and send securely through AzamPay.
+                  </p>
                 </div>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Payouts now go through the AzamPay disbursement queue, which verifies the payout account, requires finance OTP, and reconciles the transfer automatically. No manual reference is needed.
-              </p>
               <Link
                 href={`/admin/disbursements?sourceType=OWNER_INVOICE&sourceId=${inv.id}`}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 sm:py-3 text-sm sm:text-base font-medium text-white no-underline shadow-sm transition-all duration-200 hover:bg-emerald-700 active:bg-emerald-800"
+                className="box-border flex w-full max-w-full min-w-0 items-center justify-center gap-2 whitespace-normal rounded-lg bg-emerald-600 px-3 py-2.5 text-center text-sm font-medium leading-5 text-white no-underline shadow-sm transition-all duration-200 hover:bg-emerald-700 active:bg-emerald-800 sm:px-4"
               >
-                <Send className="h-4 w-4" />
-                Open in Disbursements
+                <Send className="h-4 w-4 flex-shrink-0" />
+                <span className="min-w-0">Continue to Disbursements</span>
               </Link>
             </div>
           )}
