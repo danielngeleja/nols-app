@@ -3,6 +3,7 @@ import "@/styles/globals.css";
 import "@/styles/admin-soft-ui.css";
 import { useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import AdminSiteHeader from "@/components/AdminSiteHeader";
 import AdminNav from "@/components/AdminSidebar";
 import LayoutFrame from "@/components/LayoutFrame";
@@ -12,6 +13,7 @@ import AdminOperationalFooter from "@/components/AdminOperationalFooter";
 import AdminNotificationDrawer from "@/components/AdminNotificationDrawer";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 768px)").matches;
@@ -52,6 +54,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       mainEl.removeEventListener('scroll', onMainScroll as EventListener);
     };
   }, [sidebarOpen]);
+
+  // Disbursements is a self-contained operational workspace (batch security
+  // review, authorize, reconcile). It owns its own navigation and chrome —
+  // same pattern as /owner/nrms — and deliberately hides the standard admin
+  // sidebar/header until the user exits back to /admin/home.
+  if (pathname.startsWith("/admin/disbursements")) {
+    return <div className="min-h-screen min-w-0 bg-neutral-100">{children}</div>;
+  }
 
   return (
     <div className="admin-soft-ui min-h-screen flex flex-col bg-neutral-100">

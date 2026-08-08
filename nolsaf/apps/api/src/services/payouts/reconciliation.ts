@@ -12,7 +12,15 @@
 import { prisma } from "@nolsaf/prisma";
 import type { Disbursement } from "@prisma/client";
 import { azamPayTransactionStatus } from "../azampay/disbursement/client.js";
-import { applyProviderEvent } from "./ledger.js";
+import { applyProviderEvent, recordAmountMismatch } from "./ledger.js";
+
+/** AzamPay reported a figure that does not match what this payout is for. Never applied automatically, either way. */
+export class AmountMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AmountMismatchError";
+  }
+}
 
 const DEFAULT_STALE_THRESHOLD_MINUTES = 30;
 
@@ -21,6 +29,8 @@ export interface ReconciliationResult {
   resolved: number;
   stillPending: number;
   errors: number;
+  /** Payouts where AzamPay reported a different amount. Held, never applied. */
+  mismatched: number;
 }
 
 /**
@@ -32,7 +42,7 @@ export interface ReconciliationResult {
 export async function checkDisbursementStatus(disbursementId: number): Promise<Disbursement> {
   const disbursement = await prisma.disbursement.findUnique({
     where: { id: disbursementId },
-    select: { id: true, pgReferenceId: true, bankName: true, status: true },
+    select: { id: true, pgReferenceId: true, bankName: true, status: true, amount: true },
   });
   if (!disbursement) throw new Error(`Disbursement ${disbursementId} not found`);
   if (!disbursement.pgReferenceId) {
@@ -47,6 +57,23 @@ export async function checkDisbursementStatus(disbursementId: number): Promise<D
   const normalizedStatus = String(status.status || "").toLowerCase();
   if (normalizedStatus !== "success" && normalizedStatus !== "failure") {
     return prisma.disbursement.findUniqueOrThrow({ where: { id: disbursementId } });
+  }
+
+  // The callback route amount-checks before applying; this path did not, so a
+  // mismatch the callback refused was accepted 30 minutes later by the poller.
+  // Both entry points into applyProviderEvent must agree on the same rule.
+  const reportedAmount = Number((status as any).amount);
+  if (Number.isFinite(reportedAmount) && Math.abs(reportedAmount - Number(disbursement.amount)) > 0.01) {
+    await recordAmountMismatch(disbursementId, {
+      expected: disbursement.amount.toString(),
+      received: String((status as any).amount),
+      source: "STATUS_POLL",
+      payload: status,
+    });
+    throw new AmountMismatchError(
+      `Disbursement ${disbursementId}: AzamPay reports ${(status as any).amount} for a payout of ${disbursement.amount}. ` +
+        `Status not applied; resolve the discrepancy with AzamPay before this payout is settled either way.`
+    );
   }
 
   return applyProviderEvent(disbursementId, {
@@ -77,7 +104,7 @@ export async function reconcileStalePayouts(
     select: { id: true },
   });
 
-  const result: ReconciliationResult = { checked: stale.length, resolved: 0, stillPending: 0, errors: 0 };
+  const result: ReconciliationResult = { checked: stale.length, resolved: 0, stillPending: 0, errors: 0, mismatched: 0 };
 
   for (const disbursement of stale) {
     try {
@@ -85,6 +112,13 @@ export async function reconcileStalePayouts(
       if (updated.status === "PAID" || updated.status === "FAILED") result.resolved += 1;
       else result.stillPending += 1;
     } catch (err) {
+      if (err instanceof AmountMismatchError) {
+        // Already persisted as a DisbursementEvent by checkDisbursementStatus.
+        // Counted separately so it does not hide among transport errors.
+        result.mismatched += 1;
+        console.error(`[payout-reconciliation] ${err.message}`);
+        continue;
+      }
       result.errors += 1;
       console.error(`[payout-reconciliation] failed to check disbursement ${disbursement.id}:`, err);
     }

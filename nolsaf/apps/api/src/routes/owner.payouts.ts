@@ -97,6 +97,9 @@ router.post(
         accountName,
         isVerified,
         verifiedAt,
+        // Provenance anchor for riskScoring.RECENT_ACCOUNT_CHANGE. Must be
+        // set wherever a destination is created or edited, and nowhere else.
+        destinationChangedAt: new Date(),
       },
     });
 

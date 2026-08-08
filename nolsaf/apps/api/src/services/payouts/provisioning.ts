@@ -96,24 +96,11 @@ export async function provisionPayoutAccountFromProfile(
   const existing = await prisma.payoutAccount.findFirst({
     where: { userId: source.payeeUserId, provider: destination.provider, accountNumber: destination.accountNumber },
   });
-  if (existing) {
-    return {
-      account: {
-        id: existing.id,
-        type: existing.type,
-        provider: existing.provider,
-        accountNumber: existing.accountNumber,
-        accountName: existing.accountName,
-        isVerified: existing.isVerified,
-      },
-      verificationWarning: existing.isVerified ? null : "This account exists but is not yet verified by AzamPay.",
-      reused: true,
-    };
-  }
 
-  let accountName = profile.bankAccountName || user?.name || `User #${source.payeeUserId}`;
-  let isVerified = false;
-  let verifiedAt: Date | null = null;
+  let accountName = existing?.accountName || profile.bankAccountName || user?.name || `User #${source.payeeUserId}`;
+  let isVerified = existing?.isVerified ?? false;
+  let verifiedAt: Date | null = existing?.verifiedAt ?? null;
+  let lookupSucceeded = false;
   let verificationWarning: string | null = null;
 
   try {
@@ -123,14 +110,42 @@ export async function provisionPayoutAccountFromProfile(
     });
     accountName = lookup.name || accountName;
     isVerified = Boolean(lookup.status);
-    verifiedAt = isVerified ? new Date() : null;
+    verifiedAt = isVerified ? existing?.verifiedAt ?? new Date() : null;
+    lookupSucceeded = isVerified;
   } catch (err) {
     verificationWarning =
       err instanceof AzamPayDisburseError
         ? `AzamPay verification unavailable: ${err.providerMessage ?? err.message}`
         : err instanceof Error
           ? `AzamPay verification unavailable: ${err.message}`
-          : "AzamPay verification unavailable";
+           : "AzamPay verification unavailable";
+  }
+
+  if (existing) {
+    const account = lookupSucceeded
+      ? await prisma.payoutAccount.update({
+          where: { id: existing.id },
+          data: {
+            accountName,
+            isVerified: true,
+            verifiedAt,
+            lastVerifiedAt: new Date(),
+          },
+        })
+      : existing;
+
+    return {
+      account: {
+        id: account.id,
+        type: account.type,
+        provider: account.provider,
+        accountNumber: account.accountNumber,
+        accountName: account.accountName,
+        isVerified: account.isVerified,
+      },
+      verificationWarning,
+      reused: true,
+    };
   }
 
   const created = await prisma.payoutAccount.create({
@@ -142,6 +157,10 @@ export async function provisionPayoutAccountFromProfile(
       accountName,
       isVerified,
       verifiedAt,
+      lastVerifiedAt: isVerified ? new Date() : null,
+      // Provenance anchor for riskScoring.RECENT_ACCOUNT_CHANGE. Must be
+      // set wherever a destination is created or edited, and nowhere else.
+      destinationChangedAt: new Date(),
     },
   });
 

@@ -12,7 +12,7 @@ export function startDisbursementReconciliationWorker({ intervalMs = DEFAULT_INT
       if (result.checked > 0) {
         console.log(
           `[disbursement-reconciliation] checked ${result.checked}, resolved ${result.resolved}, ` +
-            `still pending ${result.stillPending}, errors ${result.errors}`
+            `still pending ${result.stillPending}, amount mismatches ${result.mismatched}, errors ${result.errors}`
         );
       }
     } catch (error) {

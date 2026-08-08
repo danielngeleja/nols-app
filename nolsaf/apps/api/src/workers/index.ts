@@ -21,6 +21,7 @@ import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDeliv
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
+import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -102,6 +103,10 @@ export function startBackgroundWorkers(io: SocketServer): void {
     // applies the result through the same idempotent ledger path a callback
     // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
     startDisbursementReconciliationWorker();
+    // Submits authorized batches to AzamPay. Authorization is the human
+    // decision; this is what actually moves the money, so that an HTTP
+    // timeout can never strand a released batch half-submitted.
+    startDisbursementBatchWorker();
     startChannelOperationsWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
       startBookingComReservationSyncWorker();

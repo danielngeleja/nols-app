@@ -2,7 +2,7 @@
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Layers,
   Loader2,
   PlusCircle,
   RefreshCw,
@@ -28,6 +29,17 @@ type PayoutAccountSummary = {
   accountNumber: string;
   accountName: string;
   userId?: number;
+};
+
+type PayoutAccountLookup = {
+  id: number;
+  type: string;
+  provider: string;
+  accountNumber: string;
+  accountName: string;
+  isVerified: boolean;
+  verificationWarning: string | null;
+  reused: boolean;
 };
 
 type DisbursementEvent = {
@@ -58,11 +70,12 @@ type Disbursement = {
   submittedAt: string | null;
   paidAt: string | null;
   failedAt: string | null;
+  batchId: number | null;
+  securityReviewReason: string | null;
   payoutAccount: PayoutAccountSummary;
   events?: DisbursementEvent[];
 };
 
-const STATUSES = ["", "REQUESTED", "APPROVED", "SUBMITTED", "PROCESSING", "PAID", "FAILED"];
 const SOURCE_TYPES = ["", "OWNER_INVOICE", "TOUR_BOOKING", "DRIVER_TRIP", "SALES_PAYOUT"];
 const PAGE_SIZES = [25, 50, 100];
 const STALE_MINUTES = 30;
@@ -74,6 +87,14 @@ const actionClass =
 
 function money(value: number, currency: string) {
   return `${currency === "TZS" ? "TSh" : currency} ${Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+function maskDestination(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return "Not available";
+  if (clean.includes("•") || clean.includes("*")) return clean;
+  const visible = clean.slice(-4);
+  return `${"•".repeat(Math.max(4, Math.min(8, clean.length - visible.length)))} ${visible}`;
 }
 
 function errorMessage(cause: any, fallback: string) {
@@ -96,7 +117,7 @@ function retryGuidance(retryClass: string): string {
     case "FRESHNESS":
       return "safe to retry, request will be rebuilt";
     case "RECONCILE_FIRST":
-      return "do NOT retry — check status before doing anything else";
+      return "do NOT retry, check status before doing anything else";
     default:
       return "unknown, check status before retrying";
   }
@@ -104,8 +125,8 @@ function retryGuidance(retryClass: string): string {
 
 function statusClass(status: string) {
   if (status === "PAID") return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (status === "FAILED") return "border-red-100 bg-red-50 text-red-700";
-  if (status === "APPROVED") return "border-sky-100 bg-sky-50 text-sky-700";
+  if (status === "FAILED" || status === "SECURITY_REVIEW") return "border-red-100 bg-red-50 text-red-700";
+  if (status === "APPROVED" || status === "BATCHED" || status === "AUTHORIZED") return "border-sky-100 bg-sky-50 text-sky-700";
   return "border-amber-100 bg-amber-50 text-amber-700"; // REQUESTED, SUBMITTED, PROCESSING
 }
 
@@ -179,8 +200,13 @@ function Summary({
 
 function DisbursementsView() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  // Status filter is driven by the URL (?status=) so the workspace sidebar
+  // and this page share one source of truth — the sidebar links set it, this
+  // page reads it.
+  const status = searchParams.get("status") ?? "";
   const [items, setItems] = useState<Disbursement[]>([]);
-  const [status, setStatus] = useState("");
   const [sourceType, setSourceType] = useState("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -197,6 +223,8 @@ function DisbursementsView() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ sourceType: "OWNER_INVOICE", sourceId: "", payoutAccountId: "", remarks: "" });
+  const [lookupResult, setLookupResult] = useState<PayoutAccountLookup | null>(null);
+  const [lookupError, setLookupError] = useState("");
 
   // A dashboard (Owners revenue, Tours revenue, Drivers, Sales finance) can
   // deep-link here with ?sourceType=X&sourceId=Y once its own claim is
@@ -279,7 +307,11 @@ function DisbursementsView() {
   }, [hasInFlight, stats.stuck, busy, load]);
 
   const setFilterStatus = (value: string) => {
-    setStatus(value);
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    if (value) params.set("status", value);
+    else params.delete("status");
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     setPage(1);
   };
   const setFilterSourceType = (value: string) => {
@@ -350,9 +382,11 @@ function DisbursementsView() {
     }
   };
 
-  // A FAILED disbursement can be tried again (the ledger and guard both treat
-  // FAILED as re-requestable). Reopen the create form prefilled from the failed
-  // row so the admin doesn't retype the source or re-look-up the account.
+  // A FAILED disbursement can be tried again: it is the one state that
+  // releases the source's activeSourceKey, so a fresh request for the same
+  // source passes the uniqueness constraint. Reopen the create form prefilled
+  // from the failed row so the admin doesn't retype the source or re-look-up
+  // the account.
   const reRequest = (item: Disbursement) => {
     setCreateForm({
       sourceType: item.sourceType,
@@ -360,6 +394,8 @@ function DisbursementsView() {
       payoutAccountId: item.payoutAccount?.id ? String(item.payoutAccount.id) : "",
       remarks: item.remarks || "",
     });
+    setLookupResult(null);
+    setLookupError("");
     setShowCreate(true);
     setNotice(`Prefilled a new request from failed disbursement #${item.id}. Review and create it.`);
     setError("");
@@ -369,12 +405,15 @@ function DisbursementsView() {
   const provisionAccount = async () => {
     const sourceId = Number(createForm.sourceId);
     if (!createForm.sourceType || !Number.isInteger(sourceId) || sourceId <= 0) {
-      setError("Enter a valid source ID before looking up a payout account.");
+      setCreateForm((f) => ({ ...f, payoutAccountId: "" }));
+      setLookupResult(null);
+      setLookupError("Enter a valid source ID before looking up a payout account.");
       return;
     }
     setBusy("provision");
-    setError("");
-    setNotice("");
+    setCreateForm((f) => ({ ...f, payoutAccountId: "" }));
+    setLookupResult(null);
+    setLookupError("");
     try {
       const response = await apiClient.post("/api/admin/disbursements/payout-accounts/provision", {
         sourceType: createForm.sourceType,
@@ -383,15 +422,21 @@ function DisbursementsView() {
       const account = response.data?.account;
       const warning = response.data?.verificationWarning;
       if (account?.id) {
-        setCreateForm((f) => ({ ...f, payoutAccountId: String(account.id) }));
-        setNotice(
-          warning
-            ? `Found payout account #${account.id} (${account.provider} ${account.accountNumber}) — ${warning}`
-            : `Found and verified payout account #${account.id} (${account.provider} ${account.accountNumber}).`
-        );
+        const result: PayoutAccountLookup = {
+          id: Number(account.id),
+          type: String(account.type || ""),
+          provider: String(account.provider || ""),
+          accountNumber: String(account.accountNumber || ""),
+          accountName: String(account.accountName || "Account holder"),
+          isVerified: Boolean(account.isVerified),
+          verificationWarning: warning ? String(warning) : null,
+          reused: Boolean(response.data?.reused),
+        };
+        setLookupResult(result);
+        setCreateForm((f) => ({ ...f, payoutAccountId: result.isVerified ? String(result.id) : "" }));
       }
     } catch (cause: any) {
-      setError(errorMessage(cause, "Could not look up a payout account for this source."));
+      setLookupError(errorMessage(cause, "Could not look up a payout account for this source."));
     } finally {
       setBusy("");
     }
@@ -400,6 +445,10 @@ function DisbursementsView() {
   const createDisbursement = async () => {
     const sourceId = Number(createForm.sourceId);
     const payoutAccountId = Number(createForm.payoutAccountId);
+    if (lookupResult && !lookupResult.isVerified) {
+      setLookupError("AzamPay must verify this destination before it can be used for a payout.");
+      return;
+    }
     if (!Number.isInteger(sourceId) || sourceId <= 0 || !Number.isInteger(payoutAccountId) || payoutAccountId <= 0) {
       setError("Enter a valid source ID and payout account ID.");
       return;
@@ -415,6 +464,8 @@ function DisbursementsView() {
         remarks: createForm.remarks || undefined,
       });
       setCreateForm({ sourceType: "OWNER_INVOICE", sourceId: "", payoutAccountId: "", remarks: "" });
+      setLookupResult(null);
+      setLookupError("");
       setShowCreate(false);
       setNotice("Disbursement requested.");
       await load();
@@ -448,7 +499,8 @@ function DisbursementsView() {
               </div>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Disbursements</h1>
               <p className="mb-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500 sm:text-sm">
-                One queue across owner, tour, driver and sales-partner payouts. Approve, submit to AzamPay, and reconcile stuck transfers.
+                One queue across owner, tour, driver and sales-partner payouts. Approve here, then batch, authorize and reconcile in the Batches tab
+                from the workspace sidebar.
               </p>
             </div>
           </div>
@@ -485,11 +537,49 @@ function DisbursementsView() {
         </div>
       </section>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700">{error}</div>}
-      {notice && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800">
-          <CheckCircle2 className="h-4 w-4" />
-          {notice}
+      {(error || notice) && (
+        <div
+          className="fixed inset-0 z-[9500] grid place-items-center bg-neutral-950/40 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => { setError(""); setNotice(""); }}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.4)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`flex items-center gap-3 px-5 py-4 ${error ? "bg-red-50" : "bg-emerald-50"}`}>
+              <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border ${error ? "border-red-100 bg-white text-red-600" : "border-emerald-100 bg-white text-emerald-600"}`}>
+                {error ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+              </span>
+              <div className="min-w-0">
+                <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.14em] ${error ? "text-red-700" : "text-emerald-700"}`}>
+                  {error ? "Action needed" : "Done"}
+                </p>
+                <p className="m-0 mt-0.5 text-sm font-bold text-neutral-900">{error ? "Something needs your attention" : "Success"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setError(""); setNotice(""); }}
+                className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-lg text-neutral-400 transition hover:bg-white/70 hover:text-neutral-700"
+                aria-label="Close"
+              >
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="m-0 text-sm leading-6 text-neutral-600">{error || notice}</p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-neutral-100 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => { setError(""); setNotice(""); }}
+                className={`inline-flex min-h-9 items-center justify-center rounded-xl px-4 text-xs font-bold text-white transition ${error ? "bg-red-600 hover:bg-red-700" : "bg-emerald-700 hover:bg-emerald-800"}`}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -502,9 +592,8 @@ function DisbursementsView() {
           tone="slate"
           active={!status && !sourceType}
           onClick={() => {
-            setStatus("");
+            setFilterStatus("");
             setSourceType("");
-            setPage(1);
           }}
         />
         <Summary icon={Wallet} label="This page's value" value={summary.value} detail={`Sum of the ${visible.length} rows shown`} tone="emerald" />
@@ -538,7 +627,11 @@ function DisbursementsView() {
             <select
               className={fieldClass}
               value={createForm.sourceType}
-              onChange={(e) => setCreateForm({ ...createForm, sourceType: e.target.value })}
+              onChange={(e) => {
+                setCreateForm({ ...createForm, sourceType: e.target.value, payoutAccountId: "" });
+                setLookupResult(null);
+                setLookupError("");
+              }}
             >
               {SOURCE_TYPES.filter(Boolean).map((s) => (
                 <option key={s} value={s}>
@@ -549,14 +642,22 @@ function DisbursementsView() {
             <input
               className={fieldClass}
               value={createForm.sourceId}
-              onChange={(e) => setCreateForm({ ...createForm, sourceId: e.target.value })}
+              onChange={(e) => {
+                setCreateForm({ ...createForm, sourceId: e.target.value, payoutAccountId: "" });
+                setLookupResult(null);
+                setLookupError("");
+              }}
               placeholder="Source ID (invoice/booking/trip/payout)"
             />
             <div className="flex gap-2">
               <input
                 className={fieldClass}
                 value={createForm.payoutAccountId}
-                onChange={(e) => setCreateForm({ ...createForm, payoutAccountId: e.target.value })}
+                onChange={(e) => {
+                  setCreateForm({ ...createForm, payoutAccountId: e.target.value });
+                  if (lookupResult && String(lookupResult.id) !== e.target.value) setLookupResult(null);
+                  setLookupError("");
+                }}
                 placeholder="Payout account ID"
               />
               <button
@@ -581,9 +682,104 @@ function DisbursementsView() {
             No payout account yet? Click "Look up" to create and verify one from the payee's existing profile details (mobile money / bank
             info they already have on file) instead of typing an ID.
           </p>
+
+          {busy === "provision" && (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br from-white via-sky-50/60 to-emerald-50/60 shadow-[0_18px_45px_-34px_rgba(2,132,199,0.55)]">
+              <div className="flex items-center gap-3 border-b border-sky-100 px-4 py-3 sm:px-5">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-sky-100 bg-white text-sky-600 shadow-sm">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </span>
+                <div>
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-sky-700">AzamPay Name Lookup</p>
+                  <p className="m-0 mt-0.5 text-sm font-bold text-neutral-900">Verifying payout destination…</p>
+                </div>
+              </div>
+              <div className="grid gap-3 p-4 sm:grid-cols-2 sm:px-5">
+                <div className="h-14 animate-pulse rounded-xl bg-white/80" />
+                <div className="h-14 animate-pulse rounded-xl bg-white/80" />
+              </div>
+            </div>
+          )}
+
+          {busy !== "provision" && lookupError && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 shadow-[0_18px_45px_-34px_rgba(220,38,38,0.45)] sm:p-5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-red-200 bg-white text-red-600">
+                  <XCircle className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-red-700">Lookup unsuccessful</p>
+                  <p className="mb-0 mt-1 text-sm leading-6 text-red-800">{lookupError}</p>
+                </div>
+                <button type="button" disabled={!!busy} onClick={() => void provisionAccount()} className={`${actionClass} !border-red-200 !text-red-700`}>
+                  <RefreshCw className="h-4 w-4" /> Retry
+                </button>
+              </div>
+            </div>
+          )}
+
+          {busy !== "provision" && lookupResult && (
+            <div
+              className={`mt-4 overflow-hidden rounded-2xl border bg-gradient-to-br from-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.5)] ${
+                lookupResult.isVerified
+                  ? "border-emerald-200 via-emerald-50/40 to-teal-50/70"
+                  : "border-amber-200 via-amber-50/50 to-orange-50/60"
+              }`}
+            >
+              <div className={`flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${lookupResult.isVerified ? "border-emerald-100" : "border-amber-100"}`}>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border bg-white shadow-sm ${lookupResult.isVerified ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"}`}>
+                    {lookupResult.isVerified ? <ShieldCheck className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.14em] ${lookupResult.isVerified ? "text-emerald-700" : "text-amber-700"}`}>
+                      {lookupResult.isVerified ? "Verified by AzamPay" : "Verification required"}
+                    </p>
+                    <p className="m-0 mt-0.5 truncate text-base font-black text-neutral-950">{lookupResult.accountName}</p>
+                  </div>
+                </div>
+                {lookupResult.isVerified ? (
+                  <button
+                    type="button"
+                    onClick={() => setCreateForm((f) => ({ ...f, payoutAccountId: String(lookupResult.id) }))}
+                    disabled={createForm.payoutAccountId === String(lookupResult.id)}
+                    className={`${actionClass} !border-emerald-700 !bg-emerald-700 !text-white disabled:!border-emerald-200 disabled:!bg-emerald-100 disabled:!text-emerald-700 disabled:opacity-100`}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {createForm.payoutAccountId === String(lookupResult.id) ? "Selected for payout" : "Use this account"}
+                  </button>
+                ) : (
+                  <button type="button" disabled={!!busy} onClick={() => void provisionAccount()} className={`${actionClass} !border-amber-200 !text-amber-800`}>
+                    <RefreshCw className="h-4 w-4" /> Retry verification
+                  </button>
+                )}
+              </div>
+
+              <dl className="m-0 grid gap-px bg-neutral-200/70 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["Destination", lookupResult.type === "MOBILE_MONEY" ? "Mobile money" : "Bank account"],
+                  ["Provider", lookupResult.provider],
+                  ["Account number", maskDestination(lookupResult.accountNumber)],
+                  ["Payout account ID", `#${lookupResult.id}`],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-white/90 px-4 py-3 sm:px-5">
+                    <dt className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</dt>
+                    <dd className="m-0 mt-1 truncate text-sm font-bold text-neutral-800">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              {(lookupResult.verificationWarning || lookupResult.reused) && (
+                <div className={`px-4 py-3 text-xs leading-5 sm:px-5 ${lookupResult.isVerified ? "text-emerald-800" : "text-amber-800"}`}>
+                  {lookupResult.verificationWarning || "This verified destination was already registered and has been safely reused."}
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             type="button"
-            disabled={busy === "create"}
+            disabled={!!busy || (lookupResult !== null && !lookupResult.isVerified)}
             onClick={() => void createDisbursement()}
             className={`${actionClass} mt-3 !border-emerald-700 !bg-emerald-700 !text-white`}
           >
@@ -594,7 +790,7 @@ function DisbursementsView() {
       )}
 
       <section className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-        <div className="grid gap-3 lg:grid-cols-[1fr_200px_200px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
           <label className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-400" />
             <input
@@ -605,13 +801,6 @@ function DisbursementsView() {
               aria-label="Search disbursements"
             />
           </label>
-          <select value={status} onChange={(e) => setFilterStatus(e.target.value)} className={fieldClass}>
-            {STATUSES.map((s) => (
-              <option key={s || "ALL"} value={s}>
-                {s || "ALL STATUSES"}
-              </option>
-            ))}
-          </select>
           <select value={sourceType} onChange={(e) => setFilterSourceType(e.target.value)} className={fieldClass}>
             <option value="">ALL SOURCES</option>
             {SOURCE_TYPES.filter(Boolean).map((s) => (
@@ -621,6 +810,7 @@ function DisbursementsView() {
             ))}
           </select>
         </div>
+        <p className="mb-0 mt-2 text-[11px] text-neutral-400">Filter by status from the workspace sidebar on the left.</p>
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
@@ -701,10 +891,21 @@ function DisbursementsView() {
                               </button>
                             )}
                             {item.status === "APPROVED" && (
-                              <button type="button" disabled={!!busy} onClick={() => void runAction(item.id, "submit")} className={actionClass}>
-                                {busy === `submit-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                Submit
-                              </button>
+                              <span className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs font-bold text-neutral-500">
+                                Awaiting next batch
+                              </span>
+                            )}
+                            {(item.status === "BATCHED" || item.status === "AUTHORIZED") && item.batchId && (
+                              <Link href={`/admin/disbursements/batches/${item.batchId}`} className={`${actionClass} no-underline`}>
+                                <Layers className="h-4 w-4" />
+                                View batch #{item.batchId}
+                              </Link>
+                            )}
+                            {item.status === "SECURITY_REVIEW" && (
+                              <Link href="/admin/disbursements/security-review" className={`${actionClass} !border-red-200 !bg-red-50 !text-red-700 no-underline`}>
+                                <ShieldAlert className="h-4 w-4" />
+                                In security review
+                              </Link>
                             )}
                             {["SUBMITTED", "PROCESSING"].includes(item.status) && (
                               <button
@@ -753,7 +954,7 @@ function DisbursementsView() {
                                       <span className="text-neutral-400">{new Date(event.createdAt).toLocaleString()}</span>
                                     </div>
                                     <p className="mb-0 mt-1 text-neutral-600">
-                                      {event.status ? `${event.status} — ` : ""}
+                                      {event.status ? `${event.status}: ` : ""}
                                       {event.message || "no message"}
                                     </p>
                                     {(event.pgReferenceId || event.fspReferenceId || event.operator) && (

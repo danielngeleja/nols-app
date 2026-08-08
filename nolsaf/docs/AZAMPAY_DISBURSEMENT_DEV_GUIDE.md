@@ -141,10 +141,17 @@ Store `clientId`/`clientSecret` only on the backend. Cache the token until short
 
 Design the state machine before writing the provider call.
 
-States: `REQUESTED -> VERIFIED -> APPROVED -> SUBMITTED -> PROCESSING -> PAID / FAILED`
+States (implemented, `services/payouts/ledger.ts` + `services/payouts/batching.ts`):
+
+`REQUESTED -> APPROVED -> BATCHED -> AUTHORIZED -> PROCESSING -> PAID / FAILED`, with a `SECURITY_REVIEW` off-ramp at batch formation and at batch authorization.
+
+- **REQUESTED / APPROVED** — unchanged from before batching existed: admin creates the disbursement against an already-approved source (eligibility.ts) and a verified `PayoutAccount`, then approves it (`ledger.approveDisbursement`). Approval also freezes an **approval fingerprint** — see "Batch security architecture" below.
+- **BATCHED / AUTHORIZED / PROCESSING** — new. See "Batch security architecture."
+- There is **no manual per-item "send to AzamPay" step** in normal use. Approval only ever lands a payout in the batch queue; batch authorization is the one action that actually submits money. `ledger.submitToAzamPay` still accepts a disbursement in `APPROVED` state directly, for a manual/legacy retry of a single stuck item outside the batch flow — that path stays behind the same finance re-auth gate as everything else.
 
 **Reference strategy:**
 - NoLSAF reference: `NoLSAF-O-2608081645-D51QVX` (source-type letter: O/T/D/S, then minute-precision timestamp, then 6 random alphanumeric chars)
+- Batch reference: `BATCH-2608081645-D51QV` (minute-precision timestamp, then 5 random alphanumeric chars)
 - AzamPay `pgReferenceId`: e.g. `b42aeas4...cb452`
 - FSP reference: received later in callback
 
@@ -154,6 +161,76 @@ States: `REQUESTED -> VERIFIED -> APPROVED -> SUBMITTED -> PROCESSING -> PAID / 
 - Store `pgReferenceId` immediately after provider acceptance.
 - Never identify a payout by amount alone.
 - Callback processing must be idempotent.
+
+---
+
+## Batch security architecture
+
+What happens after an admin approves a payout, and why it is not a single click to AzamPay. Implemented in `services/payouts/fingerprint.ts`, `services/payouts/riskScoring.ts`, and `services/payouts/batching.ts`; exposed via `routes/admin.disbursements.ts`; surfaced in the web app at `/admin/disbursements/batches` and `/admin/disbursements/security-review` (see "Disbursement Workspace" below).
+
+**0. One live payout per source (database-enforced).**
+`Disbursement.activeSourceKey` holds `"<sourceType>:<sourceId>"` while a payout is live and `NULL` once it reaches `FAILED`, under a unique index. The application-level "does this source already have a disbursement" lookup is a friendly pre-check only; two concurrent requests for the same invoice can both pass it, and the unique constraint is what actually stops the second one from existing. `FAILED` releases the key so a fresh attempt is still allowed.
+
+**1. Approval fingerprint (frozen at approve time).**
+`SHA256(id | externalReferenceId | amount | currency | provider | accountNumber | accountName | sourceType | sourceId)`, stored on `Disbursement.approvalFingerprint`. Recomputed and compared **twice**: before the payout may enter a batch, and again inside `submitToAzamPay` immediately before the money-out call. The second check matters because the first is minutes-to-hours old by the time a batch is released, and `submitToAzamPay` builds the AzamPay `destination` from the live `PayoutAccount`. A mismatch at either point diverts the payout to `SECURITY_REVIEW` instead of proceeding. A **missing** fingerprint fails closed and is treated the same way: "not locked" must never be read as "nothing changed".
+
+**2. Batch formation (`formBatch`, automatic — a normal admin action, not money-moving).**
+Pulls every `APPROVED`, unbatched disbursement and, for each:
+   - **Bulk re-verifies** the payout account with AzamPay Name Lookup (closes the staleness window between approve-time verification and batch-time release — a payout account could be swapped between the two).
+   - Re-checks the approval fingerprint.
+   - **Risk-scores** it (`riskScoring.ts`): `RECENT_ACCOUNT_CHANGE`, `PAYEE_HAS_PRIOR_PAYOUT_ELSEWHERE`, `FIRST_PAYOUT_TO_BENEFICIARY`, `AMOUNT_ABOVE_NORMAL_RANGE`, `ACCOUNT_SHARED_ACROSS_PARTNERS`, `AFTER_HOURS_APPROVAL`, `REPEATED_RECENT_FAILURES` roll up by weight to `LOW`/`MEDIUM`/`HIGH`/`CRITICAL`.
+
+     The scorer's job is to separate **account takeover** from **onboarding**. `RECENT_ACCOUNT_CHANGE` + `PAYEE_HAS_PRIOR_PAYOUT_ELSEWHERE` is the compromised-account pattern (an established payee whose money is suddenly redirected) and scores `CRITICAL`. A recent account change plus a first-ever payout to that beneficiary, without prior history, describes every legitimate new partner as precisely as it describes an attacker, so it scores `MEDIUM`: visible to the authorizer, not blocking. This is deliberate — a queue that fires on every onboarding gets cleared reflexively, and a control that gets cleared reflexively is not a control.
+
+     `RECENT_ACCOUNT_CHANGE` is anchored on `PayoutAccount.destinationChangedAt`, which moves only when the provider/number/name changes. It must never be anchored on `verifiedAt`: routine batch re-verification writes `lastVerifiedAt`, and when it used to write `verifiedAt` the anchor silently degraded from "when did this destination change" into "when did a batch last run". Business hours are evaluated in `PAYOUT_RISK_TIMEZONE` (default `Africa/Dar_es_Salaam`), not the host's local time.
+   - Anything that fails re-verification, fails its fingerprint check, or scores `HIGH`/`CRITICAL` is **excluded** from the batch and set to `SECURITY_REVIEW` with a reason. Everything else is grouped into a new `DisbursementBatch` (`status: DRAFT`) with a **batch fingerprint** — `SHA256` over the sorted, exact set of `externalReferenceId|amount|currency|provider|accountNumber|accountName`, read from the **live** `PayoutAccount` — and the member disbursements move to `BATCHED`.
+
+     The fingerprint must hash the real destination, never `payoutAccountId`. Hashing the foreign key leaves a swapped account number invisible to the authorize-time check while `submitToAzamPay` happily reads the new number, which is the exact attack the check exists to catch.
+
+     **One batch per currency**, never mixed: a mixed batch's `totalAmount` is a sum across currencies presented to the authorizer as one figure, and that figure is what a human is being asked to sign off on. Two caps bound what a single authorization can release — `AZAMPAY_DISBURSE_MAX_BATCH_TOTAL` (value ceiling, unset disables it, production should always set it) and `AZAMPAY_DISBURSE_MAX_BATCH_ITEMS` (default 250). Items that do not fit stay `APPROVED` and are picked up by the next formation.
+
+     Concurrent formation is resolved by the database, not by a lock: the claiming `updateMany` re-asserts `status: APPROVED, batchId: null` and the whole transaction rolls back unless it claims exactly the rows it fingerprinted, so the loser of a race creates no batch at all. A MySQL `GET_LOCK` was considered and rejected — it is connection-scoped, and Prisma's pool gives no guarantee that the release runs on the connection that acquired it.
+
+**3. Batch authorization (`authorizeBatch`, the deliberate human step — finance re-auth/OTP gated).**
+Recomputes the batch fingerprint from the batch's current member state, against the live payout accounts, and compares it to the one stored at formation. A mismatch means the batch's membership or a member's destination drifted since formation — the whole batch and every member disbursement freeze to `SECURITY_REVIEW` rather than authorizing something that silently changed. On a match, the batch becomes `AUTHORIZED` and its members move to `AUTHORIZED`.
+
+**Release authority (decided 2026-08-08).** The threat this architecture is written against is a single compromised admin session, so the ideal control is two-person release. NoLSAF operates with one finance admin today, and hard-requiring two would make release impossible rather than safe. The policy is therefore tiered:
+
+| Path | Who | What is required |
+|---|---|---|
+| Two-person (strongest) | An admin who neither formed the batch nor approved any member | Finance grant only |
+| Self-release | The admin who formed the batch or approved a member | Finance grant **plus** a batch-bound, single-use release code |
+| Two-person enforced | Any | `DISBURSEMENT_REQUIRE_TWO_PERSON=true` retires self-release entirely |
+
+The release code (`services/payouts/releaseChallenge.ts`) is deliberately **not** the ambient finance grant. That grant is a session-wide 15-minute "this admin re-authenticated recently" flag: it covers every money action taken in that window and proves nothing about any one of them. The release code is different in three ways that matter:
+
+1. **Bound to the batch.** The `AdminOtp.purpose` encodes the batch id and a prefix of its fingerprint (`BR:<batchId>:<fp12>`). Change the batch and every outstanding code for it becomes unusable, so a code cannot be harvested against a small batch and spent on a larger one.
+2. **Single use, 10 minutes.** Marked used inside the transaction that reads it, so two concurrent authorize calls cannot both spend it. It is spent *before* authorization proceeds, so it is burned even if the authorization then fails on a fingerprint mismatch. Five wrong codes locks that batch's challenge for 15 minutes.
+3. **Out of band and descriptive.** The email/SMS states the batch reference, item count and total. A code that only says "here is your verification code" authenticates the session; one that says "this releases TSh 4,200,000 across 18 payouts" lets the admin catch a release they did not initiate, which is the entire point. An attacker holding a hijacked admin session but not the admin's mailbox cannot complete a release; if they hold both, the message is still an independent record that a release happened and for how much.
+
+`AuditLog` records `releaseAuthority` as `TWO_PERSON` or `SELF_RELEASE_WITH_CHALLENGE` on every authorization, plus separate rows for challenges sent and challenge failures, so the weaker path is always distinguishable after the fact.
+
+Clearing a `SECURITY_REVIEW` hold is a separate rule and has no self-service escape hatch: the payout's own approver may not clear it, because that is the one action that re-admits a payout the checks already caught.
+
+**4. Processing (`processBatch`, driven by `workers/processAuthorizedBatches.ts`).**
+Submits each `AUTHORIZED` member to AzamPay **one at a time** by default (chunks of `AZAMPAY_DISBURSE_CONCURRENCY`, which defaults to 1), via the existing `submitToAzamPay` — batching is internal bookkeeping only. `/disburse`, as documented at `https://developerdocs.azampay.co.tz/tanzania/disbursement#disburse` (checked 2026-08-08), is single-transaction: one `source`, one `destination`, one `transferDetails`, one `externalReferenceId` per call, no array-of-transfers, no batch endpoint on that page.
+
+Note a real discrepancy, not yet resolved: AzamPay's own marketing page (`azampay.com/products/disbursement`) advertises "bulk payments" via CSV upload for both bank and mobile money disbursement — likely a feature of AzamPay's merchant dashboard (a human uploading a spreadsheet in their portal), not a programmatic API NoLSAF's backend could call, since the developer docs show no such endpoint. This is unconfirmed either way and must be asked directly (see "Questions NoLSAF must send AzamPay before production") rather than assumed from either page. Until answered, one item's failure never blocks the rest; each is caught and reported individually. From here the existing callback/status-poll reconciliation (`applyProviderEvent`) takes each item to `PAID`/`FAILED` exactly as before batching existed.
+
+**Deliberately sequential by default, not concurrent (decided 2026-08-08).** Nothing technical stops `processBatch` from firing every authorized item at once (`Promise.all`) or in bounded chunks — each request is already independent (own checksum, own `externalReferenceId`). This was decided against as the default because AzamPay's concurrency/rate limit is one of the unanswered "Questions NoLSAF must send AzamPay before production," and firing an unknown-limit API with a burst risks a messy partial-batch failure that's harder to reconcile than a clean sequential one.
+
+`processBatch` already supports bounded concurrency, dormant behind the `AZAMPAY_DISBURSE_CONCURRENCY` env var (`resolveDisburseConcurrency` in `batching.ts`). Unset/invalid/`<1` defaults to `1` — today's exact sequential behavior, byte-for-byte. Once AzamPay confirms a real rate/concurrency limit in writing, raise this env var to that number (clamped to a ceiling of 50 regardless of what it's set to, as a misconfiguration guard) — no code change needed, only the env var.
+
+**Submission never runs inside an HTTP request.** Authorization is the human decision; the worker performs the submission and picks the batch up within a minute. It used to run inline in the authorize handler, which meant a gateway timeout partway through a batch left it `PROCESSING` with the remainder `AUTHORIZED` and no route back in — `authorizeBatch` refused (not `DRAFT`), `processBatch` refused (not `AUTHORIZED`), and the reconciliation worker only looks at payouts that already have a `pgReferenceId`. That is stranded money owed to partners, recoverable only by hand-editing the database.
+
+The worker accepts a batch in `AUTHORIZED` (first pass) or `PROCESSING` (resuming), retries items whose submission never reached AzamPay, and closes the batch to `COMPLETED` once every member has settled. Retry is safe because `externalReferenceId` is allocated before the first call and never changes, so a duplicate arrives at AzamPay as a duplicate rather than as a second payment. A submission that fails is persisted as a `DisbursementEvent` — it used to exist only in the HTTP response body, so an item that never reached AzamPay left no trace anywhere.
+
+`POST /:id/submit` is a **retry only**: the item must be `AUTHORIZED` and have no `pgReferenceId`. It previously accepted `APPROVED`, which made this entire architecture optional — one admin could approve and immediately submit, skipping bulk re-verification, risk scoring, the batch fingerprint and the second authorizer. `submitToAzamPay` now accepts `AUTHORIZED` and nothing else, so there is no path to AzamPay that does not pass through a batch someone else released.
+
+**5. Security Review.**
+A queue of everything excluded above, with its reason and risk flags. Clearing an item returns it to `APPROVED`, unbatched, so the next `formBatch` call can pick it up again — a manual confirmation that the flagged condition no longer applies, not an override of the checks themselves. Clearing requires finance re-auth, a written note of at least 10 characters (recorded on the audit log and as a `DisbursementEvent`), and an admin **other than** the one who approved that payout. Without that last rule, risk scoring was advisory only: the same compromised session that pushed a payout through approval could clear its own `CRITICAL` flag and send it on.
+
+**Disbursement Workspace (web).** `/admin/disbursements` is a self-contained full-page workspace — own sidebar (Queue / Batches / Security Review), own "Exit to Admin" link — same pattern as the owner-side NRMS Workspace at `/owner/nrms`. The standard admin chrome is hidden for this route tree (see the pathname bypass in `(admin)/admin/layout.tsx`).
 
 ---
 
@@ -523,6 +600,12 @@ Everything sensitive lives in the NoLSAF backend, never in the browser.
 
 Redact account numbers and request payloads in logs. Store only what is required for support/audit, and control who can view unmasked payout details.
 
+**Account numbers are masked in every list view** — the disbursement queue, batch detail, and the security review queue all return `••••••••1234`. The queue is a whole-population view of every partner's destination and its free-text search matches on that column, so returning full numbers made it an enumeration oracle for any `ADMIN`. The unmasked number remains on the single-item detail endpoint (`GET /admin/disbursements/:id`), where access is one record at a time and attributable in the audit log.
+
+**Every money-touching admin action writes an `AuditLog` row**: request, approve, batch formation, batch authorization, fingerprint mismatch, security-review flag, security-review clear (with the mandatory note and the held reason), submit-retry, and manual status check. The clear action in particular is the one that re-admits a flagged payout into the pipeline, and it previously left no record of who did it or why.
+
+**Amount mismatches are persisted, not logged.** When AzamPay reports a figure that does not match the payout, both the callback route and the status poller write an `AMOUNT_MISMATCH` `DisbursementEvent` and set `securityReviewReason`, and neither applies the reported status. The status is deliberately left as `PROCESSING` so reconciliation keeps chasing the real outcome. Previously the callback path logged to stdout and dropped it, while the status-poll path had no amount check at all — so a mismatch the callback refused was accepted by the poller 30 minutes later.
+
 ---
 
 ## Documentation inconsistencies: engineering decisions
@@ -554,12 +637,14 @@ This table should remain in the code repository/wiki until every "confirm" item 
 - Confirm `dateInEpoch` unit: seconds or milliseconds.
 
 **Rail + production contract:**
+- **Native Bulk Disbursement API availability — contested, ask directly.** The public developer docs (`developerdocs.azampay.co.tz/tanzania/disbursement#disburse`) show only a single-transaction `/disburse` endpoint, no batch/bulk endpoint. But AzamPay's own marketing page (`azampay.com/products/disbursement`) advertises bulk payments via CSV upload for bank and mobile money. Ask explicitly: is bulk/CSV a merchant-dashboard-only feature (a human uploads a file in AzamPay's portal), or is there a programmatic bulk API NoLSAF's backend can call? If the latter exists, get its endpoint, request schema, and checksum model — it is not in the public dev docs. Until answered, NoLSAF's `DisbursementBatch` stays a NoLSAF-side grouping construct only; `processBatch` submits members one at a time via the documented single-item `/disburse`.
 - Which `bankName`/provider values are enabled for NoLSAF disbursement?
 - Can the same API pay CRDB/NMB bank accounts? If yes, what exact values?
 - Which currencies are supported for disbursement, including USD accounts?
 - What values are valid for `transferDetails.type`?
 - What is the callback authentication method and retry policy?
 - Provide production base URL, source-account setup, limits, fees, and prefunding/settlement requirements.
+- **Is there a merchant dashboard/portal for disbursement at all?** Neither the developer docs nor the marketing page name one. The developer docs' only onboarding step is "contact us to configure the callback URL" (manual, not self-service). Don't plan around AzamPay-side visibility — NoLSAF's own Disbursement Workspace (`/admin/disbursements`) is built entirely from our own DB fed by the API/callback, independent of whatever AzamPay does or doesn't expose on their side.
 
 Do not go live until these are answered in writing or validated in sandbox with AzamPay technical support.
 
@@ -577,19 +662,25 @@ apps/api/src/
     payments.azampay.disbursement.ts
   services/
     payouts/
-      payoutEligibilityService.ts
-      payoutLedgerService.ts
-      payoutReconciliationService.ts
+      eligibility.ts
+      provisioning.ts
+      ledger.ts
+      fingerprint.ts
+      riskScoring.ts
+      batching.ts
+      reconciliation.ts
     azampay/
-      auth.ts
-      checksum.ts
-      checksumInput.ts
-      disbursementClient.ts
-      errors.ts
-  jobs/
-    reconcileProcessingPayouts.ts
+      disbursement/
+        auth.ts
+        checksum.ts
+        checksumInput.ts
+        client.ts
+        errors.ts
+  workers/
+    processAuthorizedBatches.ts
+    reconcileProcessingDisbursements.ts
 
-packages/prisma/schema.prisma
+prisma/schema.prisma
 ```
 
 **Responsibilities**
@@ -597,12 +688,20 @@ packages/prisma/schema.prisma
 | Component | Responsibility |
 |---|---|
 | `owner.payouts` | request + view partner payout |
-| `admin.disbursements` | review / approve / reject / status |
+| `admin.disbursements` | review / approve / form / authorize / status |
 | disbursement route | callback endpoint |
-| payout services | business rules + balance + locking |
+| `eligibility` | reads the four source flows; never approves anything itself |
+| `provisioning` | turns an existing profile payout destination into a verified `PayoutAccount` |
+| `ledger` | the shared state machine; the only writer of `PAID`/`FAILED` |
+| `fingerprint` | approval + batch integrity hashes |
+| `riskScoring` | takeover-vs-onboarding signals before batching |
+| `batching` | formation, authorization, separation of duties, submission |
 | azampay client | HTTP contract only |
 | `checksumInput` | provider-confirmed field composition |
-| reconcile job | stale PROCESSING recovery |
+| batch worker | submits authorized batches; resumes interrupted ones |
+| reconcile worker | stale PROCESSING recovery |
+
+There is no `guard.ts`. It existed to stop the legacy per-domain "mark paid" buttons from double-paying a source that was already in the disbursement ledger, but every one of those manual arms has since been retired (`admin.owners.ts`, `admin.tourRevenue.ts`, `admin.drivers.ts`, `admin.sales.finance.ts` all carry a comment saying so), leaving the module with zero call sites. The double-payment risk it covered is now enforced by the unique index on `activeSourceKey` instead.
 
 This structure also makes it easy to add another payment/disbursement provider later without rewriting NoLSAF's payout policy and ledger.
 
@@ -647,6 +746,17 @@ A concise checklist before switching `AZAMPAY_ENV=production` for disbursement.
 - **Testing**: sandbox matrix passed with evidence and provider references.
 - **Currencies**: TZS/USD capability documented, unsupported rails hidden in UI.
 - **Monitoring**: alerts for FAILED / stale PROCESSING / callback errors.
+
+**Release authority, verified before launch.** Confirm before go-live:
+
+- **Every admin who can release a batch has a working email or phone on their user record.** Self-release is impossible without one — `issueBatchReleaseChallenge` refuses in production rather than falling back to an unauthenticated release. Send a test challenge and confirm it arrives, before there is money in a batch.
+- Releasing your own batch without a code is refused (`403`, `challengeRequired: true`), and a code issued for one batch is rejected on another.
+- Clearing a security hold on a payout you approved is refused.
+- If a second finance admin exists, set `DISBURSEMENT_REQUIRE_TWO_PERSON=true` and verify self-release is refused outright. This is the stronger control and should be adopted as soon as staffing allows.
+- `AZAMPAY_DISBURSE_MAX_AMOUNT` (per payout) and `AZAMPAY_DISBURSE_MAX_BATCH_TOTAL` (per authorization) are both set to real figures. Without the batch ceiling, `formBatch` sweeps every approved payout in the system into one batch and a single click releases it.
+- `AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS` and/or `AZAMPAY_DISBURSE_CALLBACK_SECRET` is configured — the callback endpoint fails closed in production without at least one, but confirm it rather than relying on the refusal.
+- `PAYOUT_RISK_TIMEZONE` matches the operating timezone if the host is not on East Africa Time.
+- Background workers are running on exactly one instance (`workers/leaderLock.ts` holds the lease). The batch worker is what actually submits authorized money; if it is not running, batches sit `AUTHORIZED` and nothing is paid.
 
 **Recommended release sequence**: MNO/TZS first -> stable reconciliation -> confirmed bank payouts -> confirmed USD payouts. Keep each rail feature-gated.
 

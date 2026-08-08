@@ -538,7 +538,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
 
-        {/* Cross-flow AzamPay payout queue (owner/tour/driver/sales); stands alone since it isn't owner-specific. */}
+        {/* Cross-flow AzamPay payout queue (owner/tour/driver/sales). Self-contained
+            workspace (own sidebar, own chrome) — this is just the entry point,
+            same pattern as the owner-side NRMS Workspace link. */}
         <Item href="/admin/disbursements" label="Disbursements" Icon={Send} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Admin/Owners */}

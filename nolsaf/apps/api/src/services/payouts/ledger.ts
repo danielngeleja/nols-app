@@ -20,10 +20,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@nolsaf/prisma";
 import type { Disbursement, Prisma } from "@prisma/client";
 import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.js";
+import { computeApprovalFingerprint } from "./fingerprint.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import type { AzamPayDisburseBankName, AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
 import { notifyUser } from "../../lib/notifications.js";
+import { sendMail } from "../../lib/mailer.js";
+import { getOwnerDisbursementEmail } from "../../lib/bookingEmailTemplates.js";
+import { generateOwnerDisbursementPdf } from "../../lib/pdfDocuments.js";
 
 export class PayoutStateError extends Error {
   constructor(message: string) {
@@ -84,6 +88,107 @@ function generateExternalReferenceId(sourceType: PayoutSourceType): string {
   return `NoLSAF-${SOURCE_REF_CODE[sourceType]}-${datePart}-${randomPart}`;
 }
 
+/** securityReviewReason is VarChar(300) and some of what lands in it is provider-supplied text. Truncate rather than let an overlong provider message throw mid-flag. */
+export const SECURITY_REVIEW_REASON_MAX = 300;
+export function truncateReason(reason: string): string {
+  const clean = reason.replace(/\s+/g, " ").trim();
+  return clean.length <= SECURITY_REVIEW_REASON_MAX ? clean : `${clean.slice(0, SECURITY_REVIEW_REASON_MAX - 1)}…`;
+}
+
+/**
+ * Stable receipt number for an owner invoice settled through the shared
+ * disbursement ledger. The invoice id is the uniqueness anchor; the payment
+ * month keeps the format aligned with the existing admin revenue receipts.
+ */
+export function ownerDisbursementReceiptNumber(invoiceId: number, paidAt: Date): string {
+  const ym = `${paidAt.getFullYear()}${String(paidAt.getMonth() + 1).padStart(2, "0")}`;
+  return `RCPT-${ym}-${String(invoiceId).padStart(7, "0")}`;
+}
+
+/**
+ * Moves a payout out of the money pipeline and into the security queue, and
+ * records why in the append-only event log as well as on the row. Used by
+ * every integrity check that can fire after approval. Deliberately does not
+ * clear activeSourceKey: the payout is still live (just held), and the source
+ * must stay blocked from spawning a second one.
+ */
+export async function divertToSecurityReview(disbursementId: number, reason: string): Promise<void> {
+  const message = truncateReason(reason);
+  await prisma.$transaction(async (tx) => {
+    await tx.disbursement.update({
+      where: { id: disbursementId },
+      data: { status: "SECURITY_REVIEW", securityReviewReason: message },
+    });
+    await tx.disbursementEvent.create({
+      data: {
+        disbursementId,
+        eventType: "SECURITY_REVIEW",
+        eventHash: eventHashFor(disbursementId, "SECURITY_REVIEW", { reason: message, at: new Date().toISOString() }),
+        status: "SECURITY_REVIEW",
+        message,
+      },
+    });
+  });
+}
+
+/**
+ * Records a provider-reported amount that does not match what NoLSAF is owed,
+ * from a callback or a status poll. Persisted rather than logged: a mismatch
+ * used to exist only as a line in stdout, so nothing in the product could tell
+ * an operator that a payout had reported the wrong figure.
+ *
+ * The status is deliberately left alone. The payout stays PROCESSING so the
+ * reconciliation worker keeps chasing the real outcome; what changes is that
+ * the discrepancy is now on the record and surfaced on the detail view.
+ */
+export async function recordAmountMismatch(
+  disbursementId: number,
+  details: { expected: string; received: string; source: "CALLBACK" | "STATUS_POLL"; payload?: unknown }
+): Promise<void> {
+  const message = truncateReason(
+    `Provider reported ${details.received} for a payout of ${details.expected} (${details.source.toLowerCase()})`
+  );
+  try {
+    await prisma.disbursementEvent.create({
+      data: {
+        disbursementId,
+        eventType: "AMOUNT_MISMATCH",
+        eventHash: eventHashFor(disbursementId, "AMOUNT_MISMATCH", {
+          expected: details.expected,
+          received: details.received,
+          source: details.source,
+        }),
+        status: "AMOUNT_MISMATCH",
+        message,
+        payload: (details.payload ?? null) as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err: any) {
+    // P2002 means this exact mismatch is already recorded — nothing to add.
+    if (err?.code !== "P2002") {
+      console.error(`[payout-ledger] could not record amount mismatch for disbursement ${disbursementId}`, err);
+    }
+  }
+  try {
+    await prisma.disbursement.update({
+      where: { id: disbursementId },
+      data: { securityReviewReason: message },
+    });
+  } catch (err) {
+    console.error(`[payout-ledger] could not flag amount mismatch on disbursement ${disbursementId}`, err);
+  }
+}
+
+/**
+ * The value held in Disbursement.activeSourceKey while a payout is live. The
+ * column is uniquely indexed, so this is what makes "one live payout per
+ * source" a database guarantee: FAILED releases the key (set to NULL) so a
+ * fresh attempt is allowed, every other state holds it.
+ */
+export function activeSourceKeyFor(sourceType: PayoutSourceType, sourceId: number): string {
+  return `${sourceType}:${sourceId}`;
+}
+
 /** Best-effort audit trail, mirroring the pattern already used for driver/sales payouts. Never blocks the payout action itself. */
 async function writeAudit(
   tx: Prisma.TransactionClient,
@@ -141,6 +246,10 @@ export async function requestDisbursement(params: {
     throw new PayoutStateError(`PayoutAccount ${params.payoutAccountId} is not active`);
   }
 
+  // Fast, friendly pre-check. It is NOT the guarantee — two concurrent
+  // requests for the same source can both pass it. The guarantee is the
+  // unique constraint on activeSourceKey below, whose violation is caught and
+  // reported as the same conflict.
   const existing = await prisma.disbursement.findFirst({
     where: { sourceType: params.sourceType, sourceId: params.sourceId, status: { notIn: ["FAILED"] } },
   });
@@ -158,6 +267,7 @@ export async function requestDisbursement(params: {
             externalReferenceId: generateExternalReferenceId(params.sourceType),
             sourceType: params.sourceType,
             sourceId: params.sourceId,
+            activeSourceKey: activeSourceKeyFor(params.sourceType, params.sourceId),
             payoutAccountId: params.payoutAccountId,
             amount: source.amount,
             currency: source.currency,
@@ -175,7 +285,17 @@ export async function requestDisbursement(params: {
         return created;
       });
     } catch (err: any) {
-      const isRefCollision = err?.code === "P2002" && err?.meta?.target?.includes?.("externalReferenceId");
+      const target = String(err?.meta?.target ?? "");
+      if (err?.code === "P2002" && target.includes("activeSourceKey")) {
+        // Lost the race against a concurrent request for the same source.
+        // Surfaced as the same conflict the pre-check reports, so the caller
+        // and the operator see one consistent message either way.
+        throw new PayoutStateError(
+          `Source ${params.sourceType}:${params.sourceId} already has a non-failed disbursement ` +
+            `(a concurrent request created it first)`
+        );
+      }
+      const isRefCollision = err?.code === "P2002" && target.includes("externalReferenceId");
       if (isRefCollision && attempt === 0) continue;
       throw err;
     }
@@ -183,17 +303,25 @@ export async function requestDisbursement(params: {
   throw new PayoutStateError("Could not allocate a unique externalReferenceId after retry");
 }
 
-/** REQUESTED -> APPROVED. Separate step from creation so approval is a deliberate, auditable action. */
+/**
+ * REQUESTED -> APPROVED. Separate step from creation so approval is a
+ * deliberate, auditable action. Also freezes the approval fingerprint —
+ * a snapshot hash of every financial field (amount, currency, account) at
+ * this exact moment. batching.ts recomputes and compares it right before
+ * this payout enters a batch; a mismatch means something changed after
+ * approval and routes the payout to SECURITY_REVIEW instead of paying it.
+ */
 export async function approveDisbursement(disbursementId: number, approvedById: number): Promise<Disbursement> {
   return prisma.$transaction(async (tx) => {
-    const current = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+    const current = await tx.disbursement.findUnique({ where: { id: disbursementId }, include: { payoutAccount: true } });
     if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
     if (current.status !== "REQUESTED") {
       throw new PayoutStateError(`Disbursement ${disbursementId} is ${current.status}, expected REQUESTED`);
     }
+    const approvalFingerprint = computeApprovalFingerprint(current, current.payoutAccount);
     const updated = await tx.disbursement.update({
       where: { id: disbursementId },
-      data: { status: "APPROVED", approvedById, approvedAt: new Date() },
+      data: { status: "APPROVED", approvedById, approvedAt: new Date(), approvalFingerprint },
     });
     await writeAudit(tx, {
       actorId: approvedById,
@@ -207,8 +335,21 @@ export async function approveDisbursement(disbursementId: number, approvedById: 
 }
 
 /**
- * APPROVED -> SUBMITTED/PROCESSING. Calls AzamPay. A successful response is
- * NOT a paid state — only applyProviderEvent() can move this to PAID.
+ * AUTHORIZED -> PROCESSING. Calls AzamPay. A successful response is NOT a
+ * paid state — only applyProviderEvent() can move this to PAID.
+ *
+ * AUTHORIZED is the ONLY accepted entry state. It used to also accept
+ * APPROVED, which made the entire batch architecture optional: a single
+ * admin could approve an item and immediately submit it, skipping bulk
+ * re-verification, risk scoring, the batch fingerprint and the second
+ * authorizer. There is now no path to AzamPay that does not go through a
+ * batch someone other than the approver released.
+ *
+ * The approval fingerprint is re-checked here, immediately before the
+ * money-out call, against the live payout account. Batch formation checks it
+ * too, but that check is minutes-to-hours old by the time a batch is
+ * released; this one closes the window entirely. A payout whose destination
+ * changed after approval is diverted to SECURITY_REVIEW rather than paid.
  */
 export async function submitToAzamPay(disbursementId: number): Promise<Disbursement> {
   const disbursement = await prisma.disbursement.findUnique({
@@ -216,8 +357,32 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
     include: { payoutAccount: true },
   });
   if (!disbursement) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
-  if (disbursement.status !== "APPROVED") {
-    throw new PayoutStateError(`Disbursement ${disbursementId} is ${disbursement.status}, expected APPROVED`);
+  if (disbursement.status !== "AUTHORIZED") {
+    throw new PayoutStateError(`Disbursement ${disbursementId} is ${disbursement.status}, expected AUTHORIZED`);
+  }
+
+  // Fail closed on a missing fingerprint: "not locked" must never read as
+  // "nothing changed". Only rows approved before the column existed can be
+  // NULL, and those must be re-approved rather than silently paid.
+  if (!disbursement.approvalFingerprint) {
+    await divertToSecurityReview(
+      disbursementId,
+      "No approval fingerprint on file — payout was approved before approval locking existed and must be re-approved"
+    );
+    throw new PayoutStateError(
+      `Disbursement ${disbursementId} has no approval fingerprint; diverted to SECURITY_REVIEW instead of being submitted`
+    );
+  }
+
+  const liveFingerprint = computeApprovalFingerprint(disbursement, disbursement.payoutAccount);
+  if (liveFingerprint !== disbursement.approvalFingerprint) {
+    await divertToSecurityReview(
+      disbursementId,
+      "Approval fingerprint mismatch at submission time — a financial field or the destination account changed after approval"
+    );
+    throw new PayoutStateError(
+      `Disbursement ${disbursementId} failed its approval fingerprint check at submission; diverted to SECURITY_REVIEW`
+    );
   }
 
   assertWithinAmountCeiling(disbursement.amount);
@@ -262,7 +427,7 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
           payload: response as unknown as Prisma.InputJsonValue,
         },
       });
-      return tx.disbursement.update({
+      const processing = await tx.disbursement.update({
         where: { id: disbursementId },
         data: {
           status: "PROCESSING",
@@ -272,6 +437,8 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
           rawResponse: response as unknown as Prisma.InputJsonValue,
         },
       });
+      await writeBackSourceProcessing(tx, processing);
+      return processing;
     });
   } catch (err) {
     if (err instanceof AzamPayDisburseError) {
@@ -289,6 +456,54 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
       // freshness/reconcile-first) is the caller's call, per the dev guide's error table.
     }
     throw err;
+  }
+}
+
+/**
+ * Mirrors provider acceptance onto the legacy owner invoice so the owner sees
+ * APPROVED -> PROCESSING while AzamPay is settling the transfer. This is a
+ * projection only: the Disbursement remains authoritative. The conditional
+ * update cannot reverse a terminal or independently rejected invoice.
+ */
+async function writeBackSourceProcessing(
+  tx: Prisma.TransactionClient,
+  disbursement: Disbursement
+): Promise<void> {
+  if (disbursement.sourceType !== "OWNER_INVOICE") return;
+
+  try {
+    await tx.invoice.updateMany({
+      where: { id: disbursement.sourceId, status: "APPROVED" },
+      data: { status: "PROCESSING" },
+    });
+  } catch (err) {
+    // A projection failure must not discard a successful AzamPay acceptance.
+    // Reconciliation still settles from the authoritative Disbursement row.
+    console.error(
+      `[payout-ledger] write-back to OWNER_INVOICE:${disbursement.sourceId} failed after disbursement ${disbursement.id} entered PROCESSING`,
+      err
+    );
+  }
+}
+
+/** Return a failed owner payout to the approved queue so a new disbursement
+ * can be requested after the failed row releases its activeSourceKey. */
+async function writeBackSourceFailed(
+  tx: Prisma.TransactionClient,
+  disbursement: Disbursement
+): Promise<void> {
+  if (disbursement.sourceType !== "OWNER_INVOICE") return;
+
+  try {
+    await tx.invoice.updateMany({
+      where: { id: disbursement.sourceId, status: "PROCESSING" },
+      data: { status: "APPROVED" },
+    });
+  } catch (err) {
+    console.error(
+      `[payout-ledger] write-back to OWNER_INVOICE:${disbursement.sourceId} failed after disbursement ${disbursement.id} entered FAILED`,
+      err
+    );
   }
 }
 
@@ -311,10 +526,18 @@ async function writeBackSourcePaid(
 
   try {
     if (sourceType === "OWNER_INVOICE") {
-      const invoice = await tx.invoice.findUnique({ where: { id: sourceId }, select: { paymentRef: true } });
+      const invoice = await tx.invoice.findUnique({
+        where: { id: sourceId },
+        select: { paymentRef: true, receiptNumber: true },
+      });
       await tx.invoice.update({
         where: { id: sourceId },
-        data: { status: "PAID", paidAt: now, paymentRef: invoice?.paymentRef ?? externalReferenceId },
+        data: {
+          status: "PAID",
+          paidAt: now,
+          paymentRef: invoice?.paymentRef ?? externalReferenceId,
+          receiptNumber: invoice?.receiptNumber ?? ownerDisbursementReceiptNumber(sourceId, now),
+        },
       });
       return;
     }
@@ -391,11 +614,138 @@ async function writeBackSourcePaid(
  * PAID transition. Only this function can move a Disbursement to
  * PAID/FAILED.
  */
+async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<void> {
+  if (disbursement.sourceType !== "OWNER_INVOICE") return;
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: disbursement.sourceId },
+    select: {
+      id: true,
+      status: true,
+      invoiceNumber: true,
+      receiptNumber: true,
+      total: true,
+      commissionPercent: true,
+      commissionAmount: true,
+      netPayable: true,
+      paymentRef: true,
+      paidAt: true,
+      owner: { select: { id: true, email: true, name: true, fullName: true } },
+      booking: {
+        select: {
+          id: true,
+          codeVisible: true,
+          checkIn: true,
+          checkOut: true,
+          property: { select: { title: true } },
+        },
+      },
+    },
+  });
+
+  if (!invoice || invoice.status !== "PAID" || !invoice.receiptNumber || !invoice.paidAt) return;
+
+  const ownerName = invoice.owner.fullName || invoice.owner.name || `Owner #${invoice.owner.id}`;
+  const propertyName = invoice.booking.property?.title || "your property";
+  const invoiceNumber = invoice.invoiceNumber || `INV-${invoice.id}`;
+  const paymentReference = disbursement.externalReferenceId || invoice.paymentRef;
+  const amount = Number(invoice.netPayable ?? disbursement.amount);
+  const title = "Payout disbursed";
+  const body =
+    `Your payout of ${amount.toLocaleString("en-US")} ${disbursement.currency} for booking #${invoice.booking.id} has been sent.` +
+    ` Receipt: ${invoice.receiptNumber}. Reference: ${paymentReference}.`;
+
+  let notificationId: number | null = null;
+  try {
+    const notification = await prisma.notification.create({
+      data: {
+        ownerId: invoice.owner.id,
+        userId: invoice.owner.id,
+        title,
+        body,
+        type: "invoice",
+        meta: {
+          kind: "owner_payout_disbursed",
+          invoiceId: invoice.id,
+          bookingId: invoice.booking.id,
+          disbursementId: disbursement.id,
+          receiptNumber: invoice.receiptNumber,
+          paymentReference,
+          actionUrl: `/owner/revenue/receipts/${invoice.id}`,
+        },
+      },
+      select: { id: true },
+    });
+    notificationId = notification.id;
+  } catch (err) {
+    console.warn(`[payout-ledger] could not create owner payout notification for disbursement ${disbursement.id}`, err);
+  }
+
+  try {
+    const io = (global as any).io;
+    io?.to?.(`owner:${invoice.owner.id}`)?.emit?.("notification:new", { id: notificationId, title, type: "invoice" });
+    io?.to?.(`owner:${invoice.owner.id}`)?.emit?.("owner:bookings:updated", {
+      bookingId: invoice.booking.id,
+      invoiceId: invoice.id,
+    });
+  } catch {
+    // Realtime delivery is optional; the saved notification and email remain.
+  }
+
+  if (!invoice.owner.email) {
+    console.warn(`[payout-ledger] owner ${invoice.owner.id} has no email; disbursement ${disbursement.id} notice not sent`);
+    return;
+  }
+
+  const email = getOwnerDisbursementEmail({
+    ownerName,
+    propertyName,
+    bookingId: invoice.booking.id,
+    invoiceNumber,
+    receiptNumber: invoice.receiptNumber,
+    checkIn: invoice.booking.checkIn,
+    checkOut: invoice.booking.checkOut,
+    netPayable: amount,
+    paymentMethod: disbursement.bankName,
+    paidAt: invoice.paidAt,
+  });
+
+  let attachments: Array<{ filename: string; content: Buffer }> | undefined;
+  try {
+    const pdf = await generateOwnerDisbursementPdf({
+      ownerName,
+      ownerEmail: invoice.owner.email,
+      receiptNumber: invoice.receiptNumber,
+      invoiceNumber,
+      bookingId: invoice.booking.id,
+      bookingCode: invoice.booking.codeVisible,
+      propertyName,
+      checkIn: invoice.booking.checkIn,
+      checkOut: invoice.booking.checkOut,
+      totalRevenue: Number(invoice.total),
+      commissionPercent: invoice.commissionPercent ? Number(invoice.commissionPercent) : null,
+      commissionAmount: invoice.commissionAmount ? Number(invoice.commissionAmount) : null,
+      netPayable: amount,
+      paymentMethod: disbursement.bankName,
+      paymentRef: paymentReference,
+      paidAt: invoice.paidAt,
+      currency: disbursement.currency,
+      qrPng: null,
+    });
+    attachments = [{ filename: `Disbursement-${invoice.receiptNumber}.pdf`, content: pdf }];
+  } catch (err) {
+    console.warn(`[payout-ledger] owner payout PDF failed for disbursement ${disbursement.id}`, err);
+  }
+
+  await sendMail(invoice.owner.email, email.subject, email.html, attachments, { replyTo: "support@nolsaf.com" });
+}
+
 export async function applyProviderEvent(
   disbursementId: number,
   event: { eventType: "CALLBACK" | "STATUS_POLL"; callback: AzamPayDisburseCallback }
 ): Promise<Disbursement> {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(
+    async (tx): Promise<{ disbursement: Disbursement; transitionedToPaid: boolean }> => {
     const disbursement = await tx.disbursement.findUnique({ where: { id: disbursementId } });
     if (!disbursement) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
 
@@ -423,7 +773,7 @@ export async function applyProviderEvent(
     } catch (err: any) {
       if (err?.code === "P2002") {
         // Same event already recorded — already-applied, return current state untouched.
-        return disbursement;
+        return { disbursement, transitionedToPaid: false };
       }
       throw err;
     }
@@ -432,12 +782,14 @@ export async function applyProviderEvent(
     // for manual review instead, per "Transaction Status: fallback and
     // reconciliation" in the dev guide.
     if (disbursement.status === "PAID" || disbursement.status === "FAILED") {
-      return disbursement;
+      return { disbursement, transitionedToPaid: false };
     }
 
     if (event.callback.status === "success") {
-      const paid = await tx.disbursement.update({
-        where: { id: disbursementId },
+      // A callback and a status poll can report success concurrently. Claiming
+      // the terminal transition atomically gives notification delivery one owner.
+      const claimed = await tx.disbursement.updateMany({
+        where: { id: disbursementId, status: { notIn: ["PAID", "FAILED"] } },
         data: {
           status: "PAID",
           paidAt: new Date(),
@@ -446,16 +798,45 @@ export async function applyProviderEvent(
           providerMessage: event.callback.message,
         },
       });
+      if (claimed.count !== 1) {
+        const current = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+        if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
+        return { disbursement: current, transitionedToPaid: false };
+      }
+      const paid = await tx.disbursement.findUnique({ where: { id: disbursementId } });
+      if (!paid) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
       await writeBackSourcePaid(tx, paid);
-      return paid;
+      return { disbursement: paid, transitionedToPaid: true };
     }
     if (event.callback.status === "failure") {
-      return tx.disbursement.update({
+      const failed = await tx.disbursement.update({
         where: { id: disbursementId },
-        data: { status: "FAILED", failedAt: new Date(), providerMessage: event.callback.message },
+        data: {
+          status: "FAILED",
+          failedAt: new Date(),
+          providerMessage: event.callback.message,
+          // Release the source so a fresh payout can be requested for it.
+          // FAILED is the only state that gives the key back; every other
+          // state (including SECURITY_REVIEW) keeps the source blocked.
+          activeSourceKey: null,
+        },
       });
+      await writeBackSourceFailed(tx, failed);
+      return { disbursement: failed, transitionedToPaid: false };
     }
     // Any other status: leave as-is (still PROCESSING), the event is recorded for audit.
-    return disbursement;
+    return { disbursement, transitionedToPaid: false };
   });
+
+  if (result.transitionedToPaid && result.disbursement.sourceType === "OWNER_INVOICE") {
+    try {
+      await notifyOwnerDisbursementPaid(result.disbursement);
+    } catch (err) {
+      // Settlement is already committed. Notification failure must never
+      // reverse or fail a confirmed payout.
+      console.error(`[payout-ledger] owner payout notification failed for disbursement ${disbursementId}`, err);
+    }
+  }
+
+  return result.disbursement;
 }

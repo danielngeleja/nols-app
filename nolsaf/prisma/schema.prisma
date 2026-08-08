@@ -330,6 +330,8 @@ model User {
   salesMaterialsCreated     SalesMaterial[]              @relation("SalesMaterialCreatedBy")
   payoutAccounts            PayoutAccount[]              @relation("PayoutAccountOwner")
   disbursementsApproved     Disbursement[]               @relation("DisbursementApprovedBy")
+  disbursementBatchesFormed     DisbursementBatch[]       @relation("DisbursementBatchFormedBy")
+  disbursementBatchesAuthorized DisbursementBatch[]       @relation("DisbursementBatchAuthorizedBy")
 
   @@index([role])
   @@index([email])
@@ -6175,7 +6177,20 @@ model PayoutAccount {
   currency      String @default("TZS") @db.VarChar(3)
 
   isVerified Boolean   @default(false)
+  /// When this destination was first accepted by AzamPay Name Lookup. Kept
+  /// as a provenance marker — never overwritten by routine re-verification,
+  /// which writes lastVerifiedAt instead.
   verifiedAt DateTime?
+  /// Last time batching.ts re-ran Name Lookup against this account. Purely
+  /// operational; risk scoring must not read it. Split out from verifiedAt
+  /// because re-verification used to overwrite that column every batch run,
+  /// which silently turned the "when did this destination change" anchor
+  /// into "when did a batch last run" and broke the takeover signal.
+  lastVerifiedAt DateTime?
+  /// When the money-carrying fields (provider, accountNumber, accountName)
+  /// last changed. Set on creation and by any future edit path. This is the
+  /// only anchor riskScoring.ts may use for RECENT_ACCOUNT_CHANGE.
+  destinationChangedAt DateTime?
   isDefault  Boolean   @default(false)
   isActive   Boolean   @default(true)
 
@@ -6208,17 +6223,33 @@ model Disbursement {
   sourceType String @db.VarChar(20) // OWNER_INVOICE | TOUR_BOOKING | DRIVER_TRIP | SALES_PAYOUT
   sourceId   Int
 
+  /// "<sourceType>:<sourceId>" while this disbursement is live, NULL once it
+  /// reaches FAILED. The unique constraint on it is what makes "one active
+  /// payout per source" a database guarantee rather than a read-then-write
+  /// check the way it used to be: two concurrent requests for the same
+  /// invoice can both pass an application-level lookup, but only one can
+  /// insert this key. FAILED rows release the key so a fresh attempt is
+  /// still allowed, matching ledger.requestDisbursement's re-request rule.
+  activeSourceKey String? @unique @db.VarChar(60)
+
   payoutAccountId Int
 
   amount   Decimal @db.Decimal(12, 2)
   currency String  @default("TZS") @db.VarChar(3)
 
-  /// REQUESTED, APPROVED, SUBMITTED, PROCESSING, PAID, FAILED,
-  /// RECOVERY_PENDING, RECOVERED — mirrors the Tours payoutStatus machine,
-  /// the one existing flow that already has a working cancellation
-  /// clawback (see tourCancellationConsistency.ts). Extending recovery
-  /// states to this shared table is what lets Owner/Driver/Sales gain the
-  /// same clawback safety Tours already has.
+  /// REQUESTED, APPROVED, BATCHED, AUTHORIZED, SUBMITTED, PROCESSING, PAID,
+  /// FAILED, SECURITY_REVIEW, RECOVERY_PENDING, RECOVERED — mirrors the
+  /// Tours payoutStatus machine, the one existing flow that already has a
+  /// working cancellation clawback (see tourCancellationConsistency.ts).
+  /// Extending recovery states to this shared table is what lets
+  /// Owner/Driver/Sales gain the same clawback safety Tours already has.
+  ///
+  /// Post-approval lifecycle per docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md
+  /// "Batch security architecture": APPROVED -> BATCHED (system groups
+  /// re-verified approved payouts) -> AUTHORIZED (separate human release of
+  /// the locked batch) -> PROCESSING (worker submits per-item) -> PAID /
+  /// FAILED. Any fingerprint mismatch or high risk score at batch time
+  /// diverts a payout to SECURITY_REVIEW instead.
   status String @default("REQUESTED") @db.VarChar(20)
 
   provider String @default("azampay") @db.VarChar(20)
@@ -6230,6 +6261,29 @@ model Disbursement {
   submittedAt  DateTime?
   paidAt       DateTime?
   failedAt     DateTime?
+
+  /// SHA256 over the locked payout snapshot (id, externalReferenceId,
+  /// amount, currency, provider, accountNumber, accountName, sourceId),
+  /// computed and frozen at approve time. Recomputed and compared at batch
+  /// formation AND again inside submitToAzamPay immediately before the
+  /// money-out call, so a change to the destination account at any point
+  /// after approval blocks the payout instead of redirecting it. Nullable
+  /// only for rows approved before this column existed; batching and
+  /// submission both treat NULL as "not locked" and refuse to proceed.
+  approvalFingerprint String? @db.VarChar(64)
+
+  /// LOW | MEDIUM | HIGH | CRITICAL — computed at batch-formation time by
+  /// riskScoring.ts. HIGH/CRITICAL never enters a batch; it is routed to
+  /// SECURITY_REVIEW for senior approval instead.
+  riskLevel String? @db.VarChar(10)
+  /// Machine-readable list of the risk signals that fired, e.g.
+  /// ["RECENT_ACCOUNT_CHANGE", "FIRST_PAYOUT_TO_BENEFICIARY"].
+  riskFlags Json?
+  /// Why this payout is sitting in SECURITY_REVIEW — fingerprint mismatch,
+  /// risk score, or a rejected bulk re-verification. Cleared when resolved.
+  securityReviewReason String? @db.VarChar(300)
+
+  batchId Int?
 
   /// Redacted before writing where the payload could contain account
   /// numbers beyond what audit/support needs — see "Security boundary" in
@@ -6243,14 +6297,75 @@ model Disbursement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  payoutAccount PayoutAccount       @relation(fields: [payoutAccountId], references: [id], onDelete: Restrict)
-  approvedBy    User?               @relation("DisbursementApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  payoutAccount PayoutAccount        @relation(fields: [payoutAccountId], references: [id], onDelete: Restrict)
+  approvedBy    User?                @relation("DisbursementApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  /// Restrict, not SetNull: orphaning a BATCHED/AUTHORIZED payout would drop
+  /// it out of every batch view while leaving it submittable, which is
+  /// exactly the invisible-money-in-flight state this table exists to avoid.
+  batch         DisbursementBatch?   @relation(fields: [batchId], references: [id], onDelete: Restrict)
   events        DisbursementEvent[]
 
   @@index([sourceType, sourceId])
   @@index([status, submittedAt])
   @@index([payoutAccountId])
+  @@index([batchId])
   @@map("disbursement")
+}
+
+/// Groups APPROVED, bulk-re-verified, fingerprint-locked disbursements for
+/// a single deliberate release decision — see "Batch security architecture"
+/// in docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md. Formation (DRAFT), the
+/// authorize action (AUTHORIZED), and per-item processing are separate
+/// steps so a batch's exact membership can be fingerprinted and never
+/// silently changed after a human has signed off on it.
+model DisbursementBatch {
+  id            Int    @id @default(autoincrement())
+  batchReference String @unique @db.VarChar(40)
+
+  /// DRAFT (formed, awaiting authorization) -> AUTHORIZED (released by a
+  /// second admin/finance action) -> PROCESSING (worker submitting items)
+  /// -> COMPLETED (every item reached a terminal state) | SECURITY_REVIEW
+  /// (fingerprint mismatch caught at authorize time).
+  status String @default("DRAFT") @db.VarChar(20)
+
+  totalAmount Decimal @db.Decimal(14, 2)
+  currency    String  @default("TZS") @db.VarChar(3)
+  itemCount   Int
+
+  /// SHA256 over the sorted, exact set of member disbursements, each line
+  /// covering externalReferenceId|amount|currency|provider|accountNumber|
+  /// accountName read from the LIVE PayoutAccount. Hashing the real
+  /// destination (not the payoutAccountId) is the point: it is what makes a
+  /// swapped account number between formation and release detectable.
+  /// Computed at formation and re-checked at authorize time. A mismatch
+  /// means the batch's membership or a member's destination changed after
+  /// formation, and freezes the batch to SECURITY_REVIEW.
+  batchFingerprint String @db.VarChar(64)
+
+  /// Formation, authorization and release are three distinct human actions.
+  /// authorizeBatch refuses when the authorizer also formed the batch or
+  /// approved any member: a single compromised admin session must not be
+  /// able to walk a payout end to end. See services/payouts/batching.ts.
+  formedById     Int?
+  authorizedById Int?
+  authorizedAt   DateTime?
+
+  /// Set once every member has reached a terminal state (PAID/FAILED). A
+  /// batch left PROCESSING past processingStartedAt is the signal that
+  /// submission was interrupted; the worker resumes it from there.
+  processingStartedAt DateTime?
+  completedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  formedBy     User?          @relation("DisbursementBatchFormedBy", fields: [formedById], references: [id], onDelete: SetNull)
+  authorizedBy User?          @relation("DisbursementBatchAuthorizedBy", fields: [authorizedById], references: [id], onDelete: SetNull)
+  items        Disbursement[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("disbursement_batch")
 }
 
 /// Append-only audit trail for everything AzamPay tells NoLSAF about a
@@ -6262,7 +6377,7 @@ model DisbursementEvent {
   id             Int @id @default(autoincrement())
   disbursementId Int
 
-  eventType String @db.VarChar(30) // SUBMIT_RESPONSE | CALLBACK | STATUS_POLL
+  eventType String @db.VarChar(30) // SUBMIT_RESPONSE | CALLBACK | STATUS_POLL | SECURITY_REVIEW | AMOUNT_MISMATCH
   eventHash String @unique @db.VarChar(80)
 
   status         String?  @db.VarChar(20)

@@ -27,7 +27,7 @@ import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { limitAzampayDisbursementCallback } from "../middleware/rateLimit.js";
 import { isWebhookIpAllowed } from "./webhooks.payments.js";
-import { applyProviderEvent } from "../services/payouts/ledger.js";
+import { applyProviderEvent, recordAmountMismatch } from "../services/payouts/ledger.js";
 
 export const router = Router();
 
@@ -125,12 +125,21 @@ router.post(
 
     const callbackAmount = Number(cb.amount);
     if (Number.isFinite(callbackAmount) && Math.abs(callbackAmount - Number(disbursement.amount)) > 0.01) {
-      // Amount mismatch: freeze for manual review rather than trusting status blindly,
-      // per "Transaction Status: fallback and reconciliation" in the dev guide.
+      // Amount mismatch: do not trust the status, and do not let the only
+      // record of it be a log line. A mismatch is precisely the event a human
+      // must see, so it is persisted to the append-only event log and the
+      // payout is held. Deliberately NOT moved out of PROCESSING: the
+      // reconciliation worker must keep polling AzamPay for the real outcome.
       console.error(
         `[AzamPay Disbursement Callback] amount mismatch on disbursement ${disbursement.id}: ` +
           `expected ${disbursement.amount}, callback said ${cb.amount}`
       );
+      await recordAmountMismatch(disbursement.id, {
+        expected: disbursement.amount.toString(),
+        received: String(cb.amount),
+        source: "CALLBACK",
+        payload: cb,
+      });
       return res.status(200).json({ ok: true, matched: true, flagged: "amount_mismatch" });
     }
 

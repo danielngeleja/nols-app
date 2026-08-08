@@ -849,13 +849,50 @@ export async function markTourBookingPaid(
 
 /**
  * Check whether a client IP is in the configured allowlist.
- * Returns true when no allowlist is configured (empty → allow all).
+ * Returns true when no allowlist is configured (empty → allow all; callers
+ * that must fail closed check for an empty list themselves — see
+ * routes/payments.azampay.disbursement.ts).
  * Strips IPv4-mapped IPv6 prefix (::ffff:) before comparing.
+ *
+ * Entries may be a bare IPv4 address or IPv4 CIDR ("196.192.0.0/16").
+ * Providers egress from ranges, not single hosts, and without CIDR support an
+ * operator with a range has no way to express it and is pushed toward
+ * disabling the allowlist altogether.
  */
 export function isWebhookIpAllowed(clientIp: string, allowedIps: string[]): boolean {
   if (allowedIps.length === 0) return true;
-  const normalized = clientIp.replace("::ffff:", "");
-  return allowedIps.includes(normalized);
+  const normalized = clientIp.replace("::ffff:", "").trim();
+  if (allowedIps.includes(normalized)) return true;
+
+  const client = ipv4ToInt(normalized);
+  if (client === null) return false;
+
+  return allowedIps.some((entry) => {
+    const slash = entry.indexOf("/");
+    if (slash < 0) return false;
+    const base = ipv4ToInt(entry.slice(0, slash).trim());
+    const bits = Number(entry.slice(slash + 1));
+    if (base === null || !Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+    // A /0 mask would allow everything; shifting by 32 is undefined in JS
+    // bitwise ops, so handle the edge explicitly rather than accidentally.
+    if (bits === 0) return true;
+    const mask = (0xffffffff << (32 - bits)) >>> 0;
+    return (client & mask) >>> 0 === (base & mask) >>> 0;
+  });
+}
+
+/** Dotted-quad IPv4 to a 32-bit unsigned int. Returns null for anything that is not a strict IPv4 literal. */
+function ipv4ToInt(value: string): number | null {
+  const parts = value.split(".");
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet > 255) return null;
+    result = (result << 8) | octet;
+  }
+  return result >>> 0;
 }
 
 /**
