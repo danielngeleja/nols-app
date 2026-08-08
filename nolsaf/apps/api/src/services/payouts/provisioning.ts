@@ -19,6 +19,22 @@ import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.j
 import { azamPayNameLookup } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
+import { decrypt } from "../../lib/crypto.js";
+
+/**
+ * Account/mobile numbers are stored encrypted in User.payout (see account.ts).
+ * Return the plaintext number: decrypt() throws both for genuinely bad data
+ * and for values that are already plaintext (its own guard), so on failure we
+ * fall back to the raw value, mirroring how account.ts reads these fields back.
+ */
+function decryptPayoutValue(raw: string): string {
+  const trimmed = String(raw).trim();
+  try {
+    return decrypt(trimmed, { log: false });
+  } catch {
+    return trimmed;
+  }
+}
 
 export class NoPayoutProfileError extends Error {
   constructor(userId: number) {
@@ -42,13 +58,13 @@ function extractDestination(profile: UserPayoutProfile): { type: "MOBILE_MONEY" 
   const hasBank = profile.bankName && profile.bankAccountNumber;
 
   if (preferred === "BANK" && hasBank) {
-    return { type: "BANK", provider: profile.bankName!, accountNumber: profile.bankAccountNumber! };
+    return { type: "BANK", provider: profile.bankName!, accountNumber: decryptPayoutValue(profile.bankAccountNumber!) };
   }
   if (hasMobile) {
-    return { type: "MOBILE_MONEY", provider: profile.mobileMoneyProvider!, accountNumber: profile.mobileMoneyNumber! };
+    return { type: "MOBILE_MONEY", provider: profile.mobileMoneyProvider!, accountNumber: decryptPayoutValue(profile.mobileMoneyNumber!) };
   }
   if (hasBank) {
-    return { type: "BANK", provider: profile.bankName!, accountNumber: profile.bankAccountNumber! };
+    return { type: "BANK", provider: profile.bankName!, accountNumber: decryptPayoutValue(profile.bankAccountNumber!) };
   }
   return null;
 }

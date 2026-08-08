@@ -57,11 +57,31 @@ const SOURCE_REF_CODE: Record<PayoutSourceType, string> = {
   SALES_PAYOUT: "S",
 };
 
-/** e.g. "NLS-T-260807-9381" — well under AzamPay's 30-char externalReferenceId limit. */
+// Alphanumeric only (no ambiguous chars excluded — collisions are guarded by
+// the DB unique constraint and the retry in requestDisbursement, not by the
+// character set), matching the shape AzamPay's own examples use.
+const REFERENCE_RANDOM_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function randomReferenceSuffix(length: number): string {
+  const bytes = randomBytes(length);
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += REFERENCE_RANDOM_CHARS[bytes[i] % REFERENCE_RANDOM_CHARS.length];
+  }
+  return out;
+}
+
+/**
+ * e.g. "NoLSAF-T-2608081645-D51QVX" — 26 chars, under AzamPay's 30-char
+ * externalReferenceId limit. Minute-precision timestamp (YYMMDDHHmm) plus 6
+ * random alphanumeric chars keeps collisions astronomically unlikely even
+ * within the same minute; the DB unique constraint plus the retry in
+ * requestDisbursement is the real guarantee, not the randomness.
+ */
 function generateExternalReferenceId(sourceType: PayoutSourceType): string {
-  const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, "");
-  const randomPart = randomBytes(2).toString("hex");
-  return `NLS-${SOURCE_REF_CODE[sourceType]}-${datePart}-${randomPart}`;
+  const datePart = new Date().toISOString().replace(/[-T:]/g, "").slice(2, 12);
+  const randomPart = randomReferenceSuffix(6);
+  return `NoLSAF-${SOURCE_REF_CODE[sourceType]}-${datePart}-${randomPart}`;
 }
 
 /** Best-effort audit trail, mirroring the pattern already used for driver/sales payouts. Never blocks the payout action itself. */

@@ -144,7 +144,7 @@ Design the state machine before writing the provider call.
 States: `REQUESTED -> VERIFIED -> APPROVED -> SUBMITTED -> PROCESSING -> PAID / FAILED`
 
 **Reference strategy:**
-- NoLSAF reference: `NLS-P-260807-9381`
+- NoLSAF reference: `NoLSAF-O-2608081645-D51QVX` (source-type letter: O/T/D/S, then minute-precision timestamp, then 6 random alphanumeric chars)
 - AzamPay `pgReferenceId`: e.g. `b42aeas4...cb452`
 - FSP reference: received later in callback
 
@@ -290,7 +290,7 @@ Illustrative MNO payout; values must match NoLSAF's enabled AzamPay account conf
     "amount": 850000,
     "dateInEpoch": 1786122000
   },
-  "externalReferenceId": "NLS-P-260807-9381",
+  "externalReferenceId": "NoLSAF-O-2608081645-D51QVX",
   "additionalProperties": {
     "bookingId": "NLS-BKG-92811",
     "payoutId": "pyt_cuid_here"
@@ -385,7 +385,7 @@ AzamPay posts the completion status to the URL registered for NoLSAF.
 
 ```json
 {
-  "initiatorReferenceId": "NLS-P-260807-9381",
+  "initiatorReferenceId": "NoLSAF-O-2608081645-D51QVX",
   "fspReferenceId": "FSP-123456",
   "pgReferenceId": "AZPG-987654",
   "amount": "850000",
