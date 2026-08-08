@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FileText, DollarSign, Building2, Calendar, CheckCircle2, Clock, Receipt, CreditCard, AlertCircle, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText, DollarSign, Building2, Calendar, CheckCircle2, Clock, Receipt, CreditCard, AlertCircle, ShieldCheck, Send } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -71,8 +71,6 @@ export default function Page(){
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState("");
   const [overrideTax, setOverrideTax] = useState<string>("");
-  const [payMethod, setPayMethod] = useState("BANK");
-  const [payRef, setPayRef] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   
@@ -94,18 +92,6 @@ export default function Page(){
   useEffect(() => {
     void load();
   }, [load]);
-
-  // Auto-pick payout method based on owner's preferred payout settings.
-  useEffect(() => {
-    const pref = String(inv?.ownerPayout?.payoutPreferred || "").toUpperCase();
-    if (pref === "MOBILE_MONEY") {
-      setPayMethod("MOBILE");
-      return;
-    }
-    if (pref === "BANK") {
-      setPayMethod("BANK");
-    }
-  }, [inv?.ownerPayout?.payoutPreferred]);
 
   async function verify(){
     if (!inv?.ownerValidation?.validated) {
@@ -146,25 +132,6 @@ export default function Page(){
       setActionLoading(false);
     }
   }
-  async function markPaid(){
-    if (!payRef.trim()) {
-      setActionMessage({ type: "error", text: `Please enter a ${completionLabel(inv).toLowerCase()} reference.` });
-      return;
-    }
-    setActionLoading(true);
-    try {
-      await api.post(`/api/admin/revenue/invoices/${id}/mark-paid`, { method: payMethod, ref: payRef });
-      await load();
-      setPayRef("");
-      setActionMessage({ type: "success", text: `Invoice marked as ${paidStatusLabel(inv).toLowerCase()} successfully.` });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setActionMessage({ type: "error", text: detail || err?.response?.data?.error || `Failed to mark as ${paidStatusLabel(inv).toLowerCase()}` });
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
   function getStatusBadge(status: string, invoice?: Inv | null) {
     const statusLower = status.toLowerCase();
     if (statusLower === 'paid') {
@@ -541,19 +508,20 @@ export default function Page(){
                 </div>
               </div>
 
-              <div className="space-y-3 text-sm">
+              <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
                 <div className="min-w-0">
-                  <div className="text-gray-600">
-                    Bank: <span className="font-semibold text-gray-900">{inv.ownerPayout?.bankName || '—'}</span>
-                    {inv.ownerPayout?.bankAccountNumber ? (
-                      <span className="text-gray-600"> — Account: <span className="font-mono break-all">{maskAccountNumber(inv.ownerPayout.bankAccountNumber)}</span></span>
-                    ) : null}
-                  </div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Bank</div>
+                  <div className="mt-0.5 font-semibold text-gray-900 break-words">{inv.ownerPayout?.bankName || 'Not provided'}</div>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-gray-600">
-                    Mobile money ({inv.ownerPayout?.mobileMoneyProvider || '—'}): <span className="font-semibold text-gray-900 font-mono break-all">{inv.ownerPayout?.mobileMoneyNumber ? maskAccountNumber(inv.ownerPayout.mobileMoneyNumber) : '—'}</span>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Account number</div>
+                  <div className="mt-0.5 font-mono font-semibold text-gray-900 break-all">{inv.ownerPayout?.bankAccountNumber ? maskAccountNumber(inv.ownerPayout.bankAccountNumber) : 'Not provided'}</div>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    Mobile money{inv.ownerPayout?.mobileMoneyProvider ? ` (${inv.ownerPayout.mobileMoneyProvider})` : ''}
                   </div>
+                  <div className="mt-0.5 font-mono font-semibold text-gray-900 break-all">{inv.ownerPayout?.mobileMoneyNumber ? maskAccountNumber(inv.ownerPayout.mobileMoneyNumber) : 'Not provided'}</div>
                 </div>
               </div>
             </div>
@@ -674,55 +642,24 @@ export default function Page(){
           {inv.status==="APPROVED" && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                  <CreditCard className="h-4 w-4 text-purple-600" />
-                </div>
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Mark {paidStatusLabel(inv)}</h3>
-              </div>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">{completionLabel(inv)} Method</label>
-                  <select
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white text-sm sm:text-base box-border"
-                    value={payMethod}
-                    onChange={e=>setPayMethod(e.target.value)}
-                  >
-                    {["BANK","MOBILE","CASH","PAYMENT_GATEWAY"].map(m=>
-                      <option key={m} value={m}>{m}</option>
-                    )}
-                  </select>
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                  <Send className="h-4 w-4 text-emerald-600" />
                 </div>
                 <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                    {completionLabel(inv)} Reference <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all text-sm sm:text-base box-border"
-                    placeholder={`Enter ${completionLabel(inv).toLowerCase()} reference`}
-                    value={payRef}
-                    onChange={e=>setPayRef(e.target.value)}
-                    required
-                  />
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">Send payout</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Approved and ready to disburse through AzamPay.</p>
                 </div>
-                <button
-                  className="w-full px-4 py-2.5 sm:py-3 bg-purple-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-purple-700 active:bg-purple-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  onClick={markPaid}
-                  disabled={actionLoading || !payRef.trim()}
-                >
-                  {actionLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Receipt className="h-4 w-4" />
-                      Mark {paidStatusLabel(inv).toUpperCase()} & Generate Receipt
-                    </>
-                  )}
-                </button>
               </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Payouts now go through the AzamPay disbursement queue, which verifies the payout account, requires finance OTP, and reconciles the transfer automatically. No manual reference is needed.
+              </p>
+              <Link
+                href={`/admin/disbursements?sourceType=OWNER_INVOICE&sourceId=${inv.id}`}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 sm:py-3 text-sm sm:text-base font-medium text-white no-underline shadow-sm transition-all duration-200 hover:bg-emerald-700 active:bg-emerald-800"
+              >
+                <Send className="h-4 w-4" />
+                Open in Disbursements
+              </Link>
             </div>
           )}
 

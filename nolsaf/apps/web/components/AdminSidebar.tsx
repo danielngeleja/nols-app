@@ -138,7 +138,6 @@ function Item({
 
 const adminDetails: Item[] = [
   { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/admin/finance", label: "All Revenue", Icon: TrendingUp },
   { href: "/admin/owners", label: "Owners", Icon: Building2 },
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
@@ -532,6 +531,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Home */}
         <Item href="/admin/home" label="Home" Icon={Home} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
+        <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
