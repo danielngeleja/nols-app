@@ -16,6 +16,27 @@ export type AzamPayRetryClass =
   | "FRESHNESS"         // request/epoch/checksum went stale — rebuild and retry same reference
   | "RECONCILE_FIRST";  // duplicate reference or unknown outcome — never blind-retry
 
+/**
+ * Local deployment/configuration failure. This is distinct from an AzamPay
+ * provider response: the request was not sent and is not retryable until an
+ * operator supplies the required contract values.
+ */
+export class AzamPayDisburseConfigurationError extends Error {
+  readonly missingKeys: readonly string[];
+  readonly operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY";
+
+  constructor(params: {
+    message: string;
+    missingKeys: string[];
+    operation: "AUTH" | "CHECKSUM" | "PUBLIC_KEY";
+  }) {
+    super(params.message);
+    this.name = "AzamPayDisburseConfigurationError";
+    this.missingKeys = params.missingKeys;
+    this.operation = params.operation;
+  }
+}
+
 export class AzamPayDisburseError extends Error {
   readonly httpStatus: number | null;
   readonly providerMessage: string | null;

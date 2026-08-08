@@ -16,7 +16,7 @@
 import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "./auth.js";
 import { azamPayChecksum } from "./checksum.js";
 import { buildChecksumInput } from "./checksumInput.js";
-import { mapAzamPayError } from "./errors.js";
+import { AzamPayDisburseConfigurationError, mapAzamPayError } from "./errors.js";
 import type {
   AzamPayDisburseRequest,
   AzamPayDisburseResponse,
@@ -36,10 +36,13 @@ function disburseHost(): string {
 function requirePublicKey(): string {
   const key = process.env.AZAMPAY_DISBURSE_PUBLIC_KEY;
   if (!key) {
-    throw new Error(
-      "AzamPay disbursement: AZAMPAY_DISBURSE_PUBLIC_KEY is not set. Contact AzamPay support " +
-        "for the RSA public key before any real disbursement or name lookup call can be made."
-    );
+    throw new AzamPayDisburseConfigurationError({
+      operation: "PUBLIC_KEY",
+      missingKeys: ["AZAMPAY_DISBURSE_PUBLIC_KEY"],
+      message:
+        "AzamPay disbursement: AZAMPAY_DISBURSE_PUBLIC_KEY is not set. Contact AzamPay support " +
+        "for the RSA public key before any real disbursement or name lookup call can be made.",
+    });
   }
   return key;
 }

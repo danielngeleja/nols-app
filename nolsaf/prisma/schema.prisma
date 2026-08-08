@@ -56,6 +56,10 @@ model User {
   district          String?   @db.VarChar(120)
   emailVerifiedAt   DateTime?
   phoneVerifiedAt   DateTime?
+  /// Security anchor for contact-channel changes. A recently replaced channel
+  /// cannot immediately authorize another contact or payout destination change.
+  emailChangedAt    DateTime?
+  phoneChangedAt    DateTime?
 
   // Owner / business details
   tin     String? @db.VarChar(50)

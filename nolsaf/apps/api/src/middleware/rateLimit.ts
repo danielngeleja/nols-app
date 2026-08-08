@@ -358,6 +358,22 @@ export const limitContactChangeOtp = rateLimit({
   },
 });
 
+// Code confirmations are separately limited so the three-request issuance
+// budget is not consumed by the required authorize + verify stages. The
+// challenge itself additionally locks after five wrong codes.
+export const limitContactChangeConfirm = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Wait before trying again." },
+  keyGenerator: (req: any) => {
+    const userId = req.user?.id;
+    const field = req.body?.field || "unknown";
+    return `contact-change-confirm:${userId ?? req.ip ?? "unknown"}:${field}`;
+  },
+});
+
 // Rate limiter for login attempts (IP-based to prevent brute force)
 export const limitLoginAttempts = rateLimit({
   windowMs: 15 * 60_000, // 15 minutes

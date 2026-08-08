@@ -128,6 +128,10 @@
     "20260801120000_add_admin_work_item_sla": "466be2dcb1c75af2d605fa03e7d9be0735541cd24b6224a0c62cdd7d1bc1e8f2",
     "20260801160000_add_audit_retention_policy": "925e440f8b73bddc4ff4a04ba081176e96d8bca509867c9345659ce33a82d93d",
     "20260801163000_add_audit_retention_rollout_grace": "9bf1e51f18d950a3e51869601f09b1542c6ba2979ebcd44dc97d895a6ff38feb",
-    "20260801170000_fix_audit_retention_enforcement": "d7eccb0b87746af6b1d2c10ef875cf251aa313b5fd014788483e28a3edf42d62"
+    "20260801170000_fix_audit_retention_enforcement": "d7eccb0b87746af6b1d2c10ef875cf251aa313b5fd014788483e28a3edf42d62",
+    "20260807180000_add_azampay_disbursement": "9cd10ae4016c6062cd8cd4bb3719d15417c1fac91654a4bbfe87379b0d1c880a",
+    "20260808120000_add_disbursement_batching": "b6086e4b89a73839a76ffbe10f3198648f3f42be506183b42ab7594a2224d3db",
+    "20260808160000_harden_disbursement_security": "0d1ac340eb01d615e99360b389f10acdd1106b588fb1202a64d54b2e08c02449",
+    "20260809090000_harden_contact_channel_changes": "efa03e3bfabeec761db43dabcf5d3a76df8cb51f781321390c395399aea4dd80"
   }
 }

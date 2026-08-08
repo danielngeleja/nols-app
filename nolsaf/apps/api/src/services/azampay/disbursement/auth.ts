@@ -13,6 +13,7 @@
  */
 
 import { getRedis } from "../../../lib/redis.js";
+import { AzamPayDisburseConfigurationError } from "./errors.js";
 
 const REDIS_KEY = "azp:disburse:token";
 const CLOCK_SKEW_SEC = 60;
@@ -50,7 +51,11 @@ async function fetchFreshToken(): Promise<TokenCache> {
       !clientId && "AZAMPAY_DISBURSE_CLIENT_ID",
       !clientSecret && "AZAMPAY_DISBURSE_CLIENT_SECRET",
     ].filter(Boolean);
-    throw new Error(`AzamPay disbursement auth: missing required env var(s): ${missing.join(", ")}`);
+    throw new AzamPayDisburseConfigurationError({
+      operation: "AUTH",
+      missingKeys: missing as string[],
+      message: `AzamPay disbursement auth: missing required env var(s): ${missing.join(", ")}`,
+    });
   }
 
   const controller = new AbortController();

@@ -21,6 +21,8 @@
  * the exact order AzamPay says they must be concatenated.
  */
 
+import { AzamPayDisburseConfigurationError } from "./errors.js";
+
 export type AzamPayChecksumPurpose = "NAMELOOKUP" | "DISBURSE";
 
 interface ChecksumFieldConfig {
@@ -38,17 +40,24 @@ function loadFieldConfig(purpose: AzamPayChecksumPurpose): ChecksumFieldConfig {
   const raw = process.env[envVar];
 
   if (!raw) {
-    throw new Error(
-      `AzamPay checksum: ${envVar} is not set. AzamPay must confirm the exact field ` +
-        `composition for ${purpose} before this can be built — do not guess it.`
-    );
+    throw new AzamPayDisburseConfigurationError({
+      operation: "CHECKSUM",
+      missingKeys: [envVar],
+      message:
+        `AzamPay checksum: ${envVar} is not set. AzamPay must confirm the exact field ` +
+        `composition for ${purpose} before this can be built — do not guess it.`,
+    });
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`AzamPay checksum: ${envVar} is not valid JSON.`);
+    throw new AzamPayDisburseConfigurationError({
+      operation: "CHECKSUM",
+      missingKeys: [envVar],
+      message: `AzamPay checksum: ${envVar} is not valid JSON.`,
+    });
   }
 
   if (
@@ -57,9 +66,11 @@ function loadFieldConfig(purpose: AzamPayChecksumPurpose): ChecksumFieldConfig {
     !Array.isArray((parsed as any).fields) ||
     typeof (parsed as any).separator !== "string"
   ) {
-    throw new Error(
-      `AzamPay checksum: ${envVar} must be JSON of the form {"fields": string[], "separator": string}.`
-    );
+    throw new AzamPayDisburseConfigurationError({
+      operation: "CHECKSUM",
+      missingKeys: [envVar],
+      message: `AzamPay checksum: ${envVar} must be JSON of the form {"fields": string[], "separator": string}.`,
+    });
   }
 
   return parsed as ChecksumFieldConfig;
