@@ -18,9 +18,11 @@ interface JwtTokenPayload {
   sid?: string;
   /** Set on short-lived admin support tokens issued by the impersonate endpoints. */
   imp?: boolean;
+  /** Admin MFA method. ADMIN tokens without this claim are rejected. */
+  amr?: string;
 }
 
-function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED", message: string) {
+function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED" | "ADMIN_MFA_REQUIRED", message: string) {
   const e: any = new Error(message);
   e.code = code;
   return e;
@@ -181,6 +183,9 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
     // Map database role to Role type (handle case where role might be different format)
     // Check raw database value before casting to handle CUSTOMER -> USER mapping
     const rawRole = (user.role?.toUpperCase() || 'USER');
+    if (rawRole === 'ADMIN' && decoded.amr !== 'passkey' && decoded.amr !== 'totp') {
+      throw authError('ADMIN_MFA_REQUIRED', 'Administrator verification required');
+    }
     const role: Role = rawRole === 'CUSTOMER' ? 'USER' : (rawRole as Role);
 
     // Enforce dynamic per-role session TTL based on token issuance time.
@@ -297,6 +302,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         clearAuthCookie(res);
         return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
       }
+      if (err?.code === 'ADMIN_MFA_REQUIRED') {
+        clearAuthCookie(res);
+        return res.status(401).json({ error: "Administrator verification required", code: "ADMIN_MFA_REQUIRED" });
+      }
       // fallthrough to unauthorized logic
     }
   }
@@ -337,6 +346,10 @@ export function requireRole(required?: Role) {
           if (err?.code === 'ACCOUNT_DISABLED') {
             clearAuthCookie(res);
             return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
+          }
+          if (err?.code === 'ADMIN_MFA_REQUIRED') {
+            clearAuthCookie(res);
+            return res.status(401).json({ error: "Administrator verification required", code: "ADMIN_MFA_REQUIRED" });
           }
         }
       }

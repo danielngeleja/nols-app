@@ -196,6 +196,14 @@ const PRE_AUTH_PATHS = new Set([
   "/api/auth/register",
   "/api/auth/passkeys/options",
   "/api/auth/passkeys/verify",
+  "/api/auth/admin-mfa/passkey/options",
+  "/api/auth/admin-mfa/passkey/verify",
+  "/api/auth/admin-mfa/totp/verify",
+  "/api/auth/admin-mfa/bootstrap/send",
+  "/api/auth/admin-mfa/bootstrap/verify",
+  "/api/auth/admin-mfa/passkey/register/options",
+  "/api/auth/admin-mfa/passkey/register/verify",
+  "/api/auth/admin-mfa/cancel",
 ]);
 
 /**

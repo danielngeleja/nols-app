@@ -12,6 +12,7 @@ import {
 import { AlertCircle, Check, UserPlus, Lock, LogIn, User, Truck, Building2, Mail, ArrowLeft, Phone, Eye, EyeOff, Shield, Fingerprint, ShieldX, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useRouter, useSearchParams } from "next/navigation";
 import LogoSpinner from "@/components/LogoSpinner";
+import AdminMfaLoginGate, { type AdminMfaStart } from "@/components/security/AdminMfaLoginGate";
 
 const COUNTRY_CODES = [
   // East Africa — primary markets
@@ -288,13 +289,14 @@ export default function RegisterPage() {
   const [loginOtp, setLoginOtp] = useState<string>('');
   const [loginSent, setLoginSent] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
-  const [loginMethod, setLoginMethod] = useState<'phone' | 'credentials'>('phone');
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'credentials'>(roleParam === 'admin' ? 'credentials' : 'phone');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [lockoutTotalSeconds, setLockoutTotalSeconds] = useState<number>(0);
   const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(0);
   const [lockoutMessage, setLockoutMessage] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState<boolean>(false);
+  const [adminMfa, setAdminMfa] = useState<AdminMfaStart | null>(null);
   const [blockedAccount, setBlockedAccount] = useState<null | { name: string; email?: string | null; caseRef?: string | null; reason: string; nextSteps: string; payoutMessage: string }>(null);
   
   // Passkey sign-in helper
@@ -309,7 +311,7 @@ export default function RegisterPage() {
       const optRes = await fetch('/api/auth/passkeys/options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ loginApp: roleParam === 'admin' ? 'ADMIN' : undefined }),
         credentials: 'include',
       });
       if (!optRes.ok) {
@@ -368,7 +370,7 @@ export default function RegisterPage() {
       const verifyRes = await fetch('/api/auth/passkeys/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, response: assertion }),
+        body: JSON.stringify({ sessionId, response: assertion, loginApp: roleParam === 'admin' ? 'ADMIN' : undefined }),
         credentials: 'include',
       });
       const verifyData = await verifyRes.json().catch(() => ({}));
@@ -481,6 +483,10 @@ export default function RegisterPage() {
     else if (modeParam === 'forgot') setAuthMode('forgot');
     else if (modeParam === 'register') setAuthMode('register');
   }, [modeParam]);
+
+  useEffect(() => {
+    if (roleParam === 'admin') setLoginMethod('credentials');
+  }, [roleParam]);
 
   useEffect(() => {
     setBlockedAccount(null);
@@ -1038,6 +1044,22 @@ export default function RegisterPage() {
 
   // Login Page
   const renderLoginPage = () => {
+    if (adminMfa) {
+      return (
+        <AdminMfaLoginGate
+          initial={adminMfa}
+          onComplete={async (data) => {
+            if (data.token) saveAuthToken(data.token);
+            await redirectAfterAuth(data.user?.role || 'ADMIN');
+          }}
+          onCancel={() => {
+            setAdminMfa(null);
+            setLoginPassword('');
+            setError(null);
+          }}
+        />
+      );
+    }
     return (
       <div className="relative flex w-full flex-col bg-white">
         <div className="border-b border-slate-100 bg-white px-5 pb-4 pt-5 sm:px-6">
@@ -1129,7 +1151,7 @@ export default function RegisterPage() {
           <div className={`min-w-0 space-y-3.5 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}>
             {!loginSent ? (
               <>
-                <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
+                {roleParam !== 'admin' && <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -1164,7 +1186,7 @@ export default function RegisterPage() {
                     <Mail className="h-3.5 w-3.5" />
                     Email
                   </button>
-                </div>
+                </div>}
 
                 {loginMethod === 'phone' ? (
                   <>
@@ -1277,7 +1299,11 @@ export default function RegisterPage() {
                             method: 'POST',
                             credentials: 'include',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email, password: loginPassword }),
+                            body: JSON.stringify({
+                              email,
+                              password: loginPassword,
+                              loginApp: roleParam === 'admin' ? 'ADMIN' : undefined,
+                            }),
                           });
                           const data = await r.json().catch(() => ({}));
                           if (!r.ok) {
@@ -1325,6 +1351,11 @@ export default function RegisterPage() {
                           setLockoutUntil(null);
                           setLockoutTotalSeconds(0);
                           setLockoutMessage(null);
+                          if ((data as any)?.adminMfaRequired) {
+                            setLoginPassword('');
+                            setAdminMfa(data as AdminMfaStart);
+                            return;
+                          }
                           saveAuthToken(data.token);
                           await redirectAfterAuth((data as any)?.user?.role);
                         } catch (e: any) {

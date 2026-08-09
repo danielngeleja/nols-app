@@ -6334,7 +6334,9 @@ model DisbursementBatch {
   /// DRAFT (formed, awaiting authorization) -> AUTHORIZED (released by a
   /// second admin/finance action) -> PROCESSING (worker submitting items)
   /// -> COMPLETED (every item reached a terminal state) | SECURITY_REVIEW
-  /// (fingerprint mismatch caught at authorize time).
+  /// (fingerprint mismatch caught at authorize time) -> ABANDONED (every
+  /// member of a frozen batch was cleared and re-queued, leaving an empty
+  /// shell kept only for the audit trail).
   status String @default("DRAFT") @db.VarChar(20)
 
   totalAmount Decimal @db.Decimal(14, 2)

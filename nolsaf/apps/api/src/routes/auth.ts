@@ -25,6 +25,7 @@ import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
 import { getRedis } from '../lib/redis.js';
 import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
 import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
+import { beginAdminMfaChallenge } from './auth.adminMfa.js';
 
 const router = Router();
 
@@ -885,6 +886,16 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
         return res.status(403).json(loginAppRoleError);
       }
 
+      // SMS/email OTP is not an administrator login method. It is reserved for
+      // controlled bootstrap inside the password-verified admin MFA flow.
+      if (String(existing.role || '').toUpperCase() === 'ADMIN') {
+        return res.status(403).json({
+          error: 'Administrator passkey verification is required.',
+          code: 'ADMIN_PASSKEY_REQUIRED',
+          action: 'use_admin_portal',
+        });
+      }
+
       // Mark the destination as verified on successful login OTP.
       try {
         await prisma.user.update({
@@ -1147,7 +1158,22 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
             ...phoneCandidates.map((p) => ({ phone: p } as any)),
           ] as any,
         } as any,
-        select: { id: true, role: true, email: true, passwordHash: true, name: true, phone: true, suspendedAt: true, isDisabled: true, kycStatus: true, kycNote: true },
+        select: {
+          id: true,
+          role: true,
+          email: true,
+          passwordHash: true,
+          name: true,
+          phone: true,
+          phoneVerifiedAt: true,
+          twoFactorEnabled: true,
+          twoFactorMethod: true,
+          totpSecretEnc: true,
+          suspendedAt: true,
+          isDisabled: true,
+          kycStatus: true,
+          kycNote: true,
+        },
       });
     } catch (dbError: any) {
       console.error('[LOGIN] Database query error:', dbError);
@@ -1284,6 +1310,13 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     } catch (err) {
       console.error('[LOGIN] Failed to clear failed attempts:', err);
       // Continue - don't block successful login
+    }
+
+    // Administrators never receive a normal session from a password alone.
+    // The opaque, short-lived challenge cookie can only call the dedicated MFA
+    // endpoints; a full revocable ADMIN session is issued after passkey/TOTP.
+    if (String(user.role || '').toUpperCase() === 'ADMIN') {
+      return await beginAdminMfaChallenge(req, res, user as any);
     }
 
     // Generate JWT token with error handling
@@ -2291,7 +2324,7 @@ router.post('/passkeys/options', async (req, res) => {
     const options = await generateAuthenticationOptions({
       timeout: 60000,
       rpID,
-      userVerification: 'preferred',
+      userVerification: 'required',
       allowCredentials: [], // empty = discoverable credentials (no username required)
     });
 
@@ -2363,7 +2396,7 @@ router.post('/passkeys/verify', async (req, res) => {
           credentialPublicKey: fromBase64UrlToBuffer(stored.publicKey),
           counter: typeof stored.signCount === 'number' ? stored.signCount : 0,
         },
-        requireUserVerification: false,
+        requireUserVerification: true,
       } as any);
     } catch (e) {
       const details = String((e as any)?.message ?? e);
@@ -2400,7 +2433,11 @@ router.post('/passkeys/verify', async (req, res) => {
       return res.status(403).json(loginAppRoleError);
     }
 
-    const token = await signUserJwt({ id: (user as any).id, role: (user as any).role, email: (user as any).email });
+    const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
+    const token = await signUserJwt(
+      { id: (user as any).id, role: (user as any).role, email: (user as any).email },
+      isAdmin ? { adminMfa: 'passkey' } : undefined,
+    );
     await setAuthCookie(res, token, (user as any).role);
 
     // Native apps cannot read the httpOnly cookie; they consume the token from

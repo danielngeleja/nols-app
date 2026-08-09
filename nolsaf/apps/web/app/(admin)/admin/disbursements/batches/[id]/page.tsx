@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Layers, Loader2, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Layers, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type BatchItem = {
@@ -172,6 +172,16 @@ export default function BatchDetailPage() {
                 Status <span className="font-bold text-neutral-700">{batch.status}</span> · Formed by {batch.formedBy?.name || batch.formedBy?.email || "n/a"}
                 {batch.authorizedBy && <> · Authorized by {batch.authorizedBy.name || batch.authorizedBy.email}</>}
               </p>
+              {/* itemCount and totalAmount are frozen at formation; items is the
+                  live relation. Once payouts are cleared out of a frozen batch
+                  the two disagree, so say so rather than showing a headline
+                  figure above an empty table. */}
+              {batch.items.length !== batch.itemCount && (
+                <p className="mb-0 mt-1 text-xs text-neutral-500">
+                  {batch.itemCount - batch.items.length} payout(s) were cleared out of this batch and re-queued. The totals above are what the batch
+                  held when it was formed.
+                </p>
+              )}
             </div>
           </div>
           {batch.status === "DRAFT" && release?.blocked && (
@@ -218,6 +228,12 @@ export default function BatchDetailPage() {
           {batch.status === "SECURITY_REVIEW" && (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
               <ShieldAlert className="h-4 w-4" /> Fingerprint mismatch, frozen. See Security Review
+            </span>
+          )}
+          {batch.status === "ABANDONED" && (
+            <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-600">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              Closed. Every payout this batch held was cleared and re-queued into a new batch, so nothing here is pending.
             </span>
           )}
         </div>

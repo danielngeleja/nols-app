@@ -2,6 +2,7 @@ import { type Express, type RequestHandler } from "express";
 import requireRole, { maybeAuth } from "../middleware/auth";
 import { router as account } from "./account";
 import authRoutes from "./auth";
+import adminMfaRouter from "./auth.adminMfa.js";
 import azampayPaymentsRouter from "./payments.azampay.js";
 import azampayDisbursementRouter from "./payments.azampay.disbursement.js";
 import azampayBankRouter     from "./payments.azampay.bank.js";
@@ -31,6 +32,7 @@ export function registerUploadRoutes(app: Express): void {
 export function registerAccountAuthRoutes(app: Express): void {
   app.use("/account", account as RequestHandler);
   app.use("/api/account", account as RequestHandler);
+  app.use("/api/auth", adminMfaRouter);
   app.use("/api/auth", authRoutes);
   app.use("/api/auth", agentReportHandoffRouter);
 }

@@ -18,6 +18,8 @@ export interface AuthenticatedSocket extends Socket {
       sessionIssuedAtSec?: number;
       /** Exact revocable server-side session bound to this socket JWT. */
       sessionId?: string;
+      /** Verified administrator MFA method carried by the signed JWT. */
+      adminMfa?: string;
     };
   };
 }
@@ -28,6 +30,7 @@ interface JwtSocketPayload {
   iat?: number;
   exp?: number;
   sid?: string;
+  amr?: string;
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -107,6 +110,7 @@ export async function verifyToken(
 
     // Map role - ensure it's a string and handle CUSTOMER -> USER mapping
     const role = (user.role?.toUpperCase() || 'USER');
+    if (role === 'ADMIN' && decoded.amr !== 'passkey' && decoded.amr !== 'totp') return null;
     const mappedRole = role === 'CUSTOMER' ? 'USER' : role;
 
     // Enforce dynamic per-role TTL based on token issuance time
@@ -126,6 +130,7 @@ export async function verifyToken(
       sessionRole: role,
       sessionIssuedAtSec: Number.isFinite(issuedAtSec) ? issuedAtSec : undefined,
       sessionId,
+      adminMfa: role === 'ADMIN' ? decoded.amr : undefined,
     };
   } catch (error) {
     return null;
@@ -163,6 +168,7 @@ async function currentSocketAuthorizationFailure(socket: AuthenticatedSocket): P
   if (rawRole === "AGENT" && String(current.agentProfile?.status || "").toUpperCase() !== "ACTIVE") return "SESSION_REVOKED";
   const mappedRole = rawRole === "CUSTOMER" ? "USER" : rawRole;
   if (rawRole !== user.sessionRole || mappedRole !== user.role) return "SESSION_REVOKED";
+  if (rawRole === "ADMIN" && user.adminMfa !== "passkey" && user.adminMfa !== "totp") return "SESSION_REVOKED";
 
   const tokensValidAfter = current.tokensValidAfter as Date | string | null | undefined;
   if (tokensValidAfter) {

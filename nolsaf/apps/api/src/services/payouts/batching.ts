@@ -3,7 +3,9 @@
  *
  * Per docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md "Batch security architecture":
  * APPROVED -> BATCHED -> AUTHORIZED -> PROCESSING -> PAID/FAILED, with a
- * SECURITY_REVIEW off-ramp at batch formation and at authorize time. There is
+ * SECURITY_REVIEW off-ramp at batch formation and at authorize time, and an
+ * ABANDONED close for a frozen batch whose members were all cleared out of it
+ * (closeAbandonedBatchIfEmpty). There is
  * no individual "send to AzamPay" path: ledger.submitToAzamPay accepts only
  * AUTHORIZED, so the only way money reaches AzamPay is through a batch that
  * someone other than the approver released.
@@ -701,6 +703,60 @@ async function recordSubmitFailure(disbursementId: number, message: string): Pro
     });
   } catch (err) {
     console.error(`[disbursement-batch] could not record submit failure for disbursement ${disbursementId}`, err);
+  }
+}
+
+/**
+ * Closes a frozen batch once the last member has been detached from it.
+ *
+ * SECURITY_REVIEW is terminal for a batch: nothing in the state machine moves
+ * one back out, and the worker only looks at AUTHORIZED/PROCESSING. Clearing a
+ * held payout detaches it (batchId: null) and returns it to APPROVED for the
+ * next formation, so once every member has been cleared the batch is an empty
+ * shell that still reported its frozen itemCount and totalAmount in the list
+ * forever.
+ *
+ * ABANDONED is that shell's terminal state: the freeze really happened and the
+ * row is kept for the audit trail, but it no longer counts as live work. Only
+ * fires when zero members remain, so a partially cleared batch stays
+ * SECURITY_REVIEW and keeps showing the items still frozen inside it.
+ *
+ * Never throws. This runs after the clear has already been committed, and a
+ * bookkeeping failure must not turn a successful clear into an error response.
+ */
+export async function closeAbandonedBatchIfEmpty(batchId: number, actorId: number | null): Promise<boolean> {
+  try {
+    const batch = await prisma.disbursementBatch.findUnique({
+      where: { id: batchId },
+      select: { id: true, status: true, itemCount: true, totalAmount: true, currency: true },
+    });
+    if (!batch || batch.status !== "SECURITY_REVIEW") return false;
+
+    const remaining = await prisma.disbursement.count({ where: { batchId } });
+    if (remaining > 0) return false;
+
+    return await prisma.$transaction(async (tx) => {
+      // Guarded on the status we read, so a concurrent write wins instead of
+      // being overwritten by a stale decision.
+      const closed = await tx.disbursementBatch.updateMany({
+        where: { id: batchId, status: "SECURITY_REVIEW" },
+        data: { status: "ABANDONED", completedAt: new Date() },
+      });
+      if (closed.count === 0) return false;
+
+      await writeAudit(tx, {
+        actorId,
+        action: "DISBURSEMENT_BATCH_ABANDONED",
+        entity: "DISBURSEMENT_BATCH",
+        entityId: batchId,
+        beforeJson: { status: "SECURITY_REVIEW", itemCount: batch.itemCount, totalAmount: batch.totalAmount.toString(), currency: batch.currency },
+        afterJson: { status: "ABANDONED", reason: "every held member was cleared and re-queued for a new batch" },
+      });
+      return true;
+    });
+  } catch (err) {
+    console.error(`[disbursement-batch] could not close abandoned batch ${batchId}`, err);
+    return false;
   }
 }
 

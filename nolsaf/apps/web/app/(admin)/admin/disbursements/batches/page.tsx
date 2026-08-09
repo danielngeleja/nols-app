@@ -30,6 +30,9 @@ function money(value: string, currency: string) {
 function statusClass(status: string) {
   if (status === "AUTHORIZED" || status === "PROCESSING") return "border-sky-100 bg-sky-50 text-sky-700";
   if (status === "SECURITY_REVIEW") return "border-red-100 bg-red-50 text-red-700";
+  if (status === "COMPLETED") return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  // ABANDONED is a closed empty shell, not live work: keep it visually quiet.
+  if (status === "ABANDONED") return "border-neutral-200 bg-neutral-100 text-neutral-500";
   return "border-amber-100 bg-amber-50 text-amber-700"; // DRAFT
 }
 
@@ -47,6 +50,10 @@ function errorMessage(cause: any, fallback: string) {
 
 export default function DisbursementBatchesPage() {
   const [batches, setBatches] = useState<BatchListItem[]>([]);
+  const [abandonedCount, setAbandonedCount] = useState(0);
+  // Closed shells are hidden by default so they never compete with live
+  // batches for the 100 rows the API returns.
+  const [showAbandoned, setShowAbandoned] = useState(false);
   const [loading, setLoading] = useState(true);
   const [forming, setForming] = useState(false);
   const [error, setError] = useState("");
@@ -56,14 +63,17 @@ export default function DisbursementBatchesPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await apiClient.get("/api/admin/disbursements/batches");
+      const response = await apiClient.get("/api/admin/disbursements/batches", {
+        params: showAbandoned ? { status: "ABANDONED" } : undefined,
+      });
       setBatches(response.data?.batches || []);
+      setAbandonedCount(response.data?.abandonedCount || 0);
     } catch (cause: any) {
       setError(errorMessage(cause, "Could not load batches."));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showAbandoned]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -71,6 +81,9 @@ export default function DisbursementBatchesPage() {
     setForming(true);
     setError("");
     setNotice("");
+    // A new batch is live work, so never leave the operator staring at the
+    // closed-shell view after forming one.
+    setShowAbandoned(false);
     try {
       const response = await apiClient.post("/api/admin/disbursements/batches");
       // One batch per currency: currencies are never mixed, because a mixed
@@ -139,6 +152,19 @@ export default function DisbursementBatchesPage() {
         </div>
       )}
 
+      {(abandonedCount > 0 || showAbandoned) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-neutral-200 bg-white px-3.5 py-2.5">
+          <p className="m-0 text-xs text-neutral-500">
+            {showAbandoned
+              ? "Showing closed batches. These were frozen at authorization and every payout in them has since been cleared and re-queued."
+              : `${abandonedCount} closed batch(es) hidden. Nothing is pending in them, every payout was cleared and re-queued.`}
+          </p>
+          <button type="button" onClick={() => setShowAbandoned((previous) => !previous)} disabled={loading} className={actionClass}>
+            {showAbandoned ? "Back to active batches" : "Show closed"}
+          </button>
+        </div>
+      )}
+
       <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         {loading ? (
           <div className="grid min-h-56 place-items-center text-neutral-400">
@@ -153,8 +179,10 @@ export default function DisbursementBatchesPage() {
               <span className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
                 <ShieldCheck className="h-5 w-5" />
               </span>
-              <p className="mb-0 mt-3 text-sm font-bold text-neutral-800">No batches yet</p>
-              <p className="mb-0 mt-1 text-xs text-neutral-500">Form one from any APPROVED, unbatched disbursements.</p>
+              <p className="mb-0 mt-3 text-sm font-bold text-neutral-800">{showAbandoned ? "No closed batches" : "No batches yet"}</p>
+              <p className="mb-0 mt-1 text-xs text-neutral-500">
+                {showAbandoned ? "No frozen batch has been fully cleared out." : "Form one from any APPROVED, unbatched disbursements."}
+              </p>
             </div>
           </div>
         ) : (
