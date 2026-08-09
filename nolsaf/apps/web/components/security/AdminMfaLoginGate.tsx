@@ -39,6 +39,23 @@ function arrayBufferToB64url(value: ArrayBuffer): string {
   return btoa(binary).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_")
 }
 
+function utf8ToUint8(value: string): Uint8Array<ArrayBuffer> {
+  const encoded = new TextEncoder().encode(String(value))
+  const buffer = new ArrayBuffer(encoded.byteLength)
+  const bytes = new Uint8Array(buffer)
+  bytes.set(encoded)
+  return bytes
+}
+
+function assertRpIdMatchesCurrentHost(rpId: unknown) {
+  const rp = String(rpId || "").trim().toLowerCase()
+  const host = window.location.hostname.toLowerCase()
+  if (!rp || host === rp || host.endsWith(`.${rp}`)) return
+  throw new Error(
+    `Passkeys are configured for ${rp}, but this page is running on ${host}. Update the staging WebAuthn RP ID or open the configured domain.`,
+  )
+}
+
 async function postJson(path: string, body: unknown = {}) {
   const response = await fetch(path, {
     method: "POST",
@@ -109,6 +126,7 @@ export default function AdminMfaLoginGate({ initial, onComplete, onCancel }: Pro
       ensurePasskeysAvailable()
       const optionsBody = await postJson("/api/auth/admin-mfa/passkey/options")
       const source = optionsBody.publicKey
+      assertRpIdMatchesCurrentHost(source?.rpId)
       const credential = await navigator.credentials.get({
         publicKey: {
           challenge: b64urlToUint8(source.challenge),
@@ -202,11 +220,19 @@ export default function AdminMfaLoginGate({ initial, onComplete, onCancel }: Pro
       ensurePasskeysAvailable()
       const optionsBody = await postJson("/api/auth/admin-mfa/passkey/register/options")
       const source = optionsBody.publicKey
+      assertRpIdMatchesCurrentHost(source?.rp?.id || source?.rpId)
+      if (!source?.challenge || !source?.user?.id) {
+        throw new Error("The server returned incomplete passkey registration options.")
+      }
       const credential = await navigator.credentials.create({
         publicKey: {
           ...source,
           challenge: b64urlToUint8(source.challenge),
-          user: { ...source.user, id: b64urlToUint8(source.user.id) },
+          // @simplewebauthn/server v8 returns the configured userID verbatim.
+          // It is an opaque UTF-8 identifier, not a Base64URL value. Treating
+          // numeric IDs as Base64 made registration depend on their length and
+          // caused "String contains an invalid character" in staging.
+          user: { ...source.user, id: utf8ToUint8(source.user.id) },
           excludeCredentials: (source.excludeCredentials || []).map((item: { id: string }) => ({
             ...item,
             id: b64urlToUint8(item.id),
