@@ -5,6 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import QRCode from "qrcode";
 import { Prisma } from "@prisma/client";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
+import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
 import {
   buildOwnerPayoutReceiptVerificationUrl,
   createOwnerPayoutReceiptSnapshot,
@@ -395,6 +396,9 @@ router.get("/invoices/:id", (async (req: AuthedRequest, res) => {
     commissionPercent: null,
     commissionAmount: null,
     notes: null,
+    receiverName: NOLSAF_BILLING_CONTACT.name,
+    receiverEmail: NOLSAF_BILLING_CONTACT.email,
+    receiverAddress: NOLSAF_BILLING_CONTACT.address,
   });
 }) as RequestHandler);
 

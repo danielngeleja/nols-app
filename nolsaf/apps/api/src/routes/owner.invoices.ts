@@ -6,6 +6,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
 
@@ -242,9 +243,9 @@ router.get("/:id", async (req: Request, res: Response) => {
     senderName: owner?.name ?? `Owner #${authReq.user!.id}`,
     senderPhone: owner?.phone ?? null,
     senderAddress: (owner as any)?.address ?? null,
-    receiverName: "NoLSAF",
-    receiverPhone: "+255",
-    receiverAddress: "Dar es Salaam, Tanzania",
+    receiverName: NOLSAF_BILLING_CONTACT.name,
+    receiverEmail: NOLSAF_BILLING_CONTACT.email,
+    receiverAddress: NOLSAF_BILLING_CONTACT.address,
     subtotal,
     taxPercent,
     taxAmount,
