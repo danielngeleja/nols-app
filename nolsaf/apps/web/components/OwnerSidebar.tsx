@@ -259,7 +259,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
         }}
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
-        <CollapseBtn href="/owner/nrms" label="NRMS Workspace" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
+        <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/properties/approved" label="My Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/bookings" label="Bookings" Icon={Calendar} active={sectionActive.bookings} count={checkedInCount + checkoutDueCount || undefined} />
@@ -303,7 +303,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       <div className="sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2.5">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
-        <TopItem href="/owner/nrms" label="NRMS Workspace" Icon={BedDouble} />
+        <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
         <Divider />
 
         <Section label="My Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>

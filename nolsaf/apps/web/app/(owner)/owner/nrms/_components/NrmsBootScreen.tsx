@@ -130,7 +130,7 @@ export default function NrmsBootScreen({
 
           <p className="nrms-boot-in nrms-boot-d1 m-0 text-[11px] font-bold tracking-[0.18em] text-emerald-100/40">NoLSAF NRMS</p>
           <p className="nrms-boot-in nrms-boot-d2 m-0 mt-2 max-w-[22ch] text-[15px] font-bold tracking-[-0.01em] text-white">
-            {propertyTitle || "NRMS Workspace"}
+            {propertyTitle || "NRMS WORKSPACE"}
           </p>
           {/* Re-keying replays the fade on every step, but only the first line
               waits its turn in the opening stagger. */}

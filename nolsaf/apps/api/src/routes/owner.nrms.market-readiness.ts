@@ -41,6 +41,8 @@ const restrictionSchema = z.object({
   minAdvanceDays: z.number().int().min(0).nullable().optional(), maxAdvanceDays: z.number().int().min(0).nullable().optional(),
   stopSell: z.boolean().default(false), closedToArrival: z.boolean().default(false), closedToDeparture: z.boolean().default(false),
   channelCode: z.string().trim().max(40).nullable().optional(),
+}).refine((value) => value.stopSell || value.closedToArrival || value.closedToDeparture || value.minStay != null || value.maxStay != null || value.minAdvanceDays != null || value.maxAdvanceDays != null, {
+  message: "Choose at least one restriction control",
 });
 const serviceCaseSchema = z.object({
   roomUnitId: optionalId, reservationId: optionalId, guestProfileId: optionalId,
@@ -75,7 +77,21 @@ function day(value: string): Date { return new Date(`${value}T00:00:00.000Z`); }
 function token(): string { return crypto.randomBytes(24).toString("base64url"); }
 function reference(propertyId: number): string { return `SC-${propertyId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`; }
 function json(value: unknown): Prisma.InputJsonValue { return value as Prisma.InputJsonValue; }
+function withoutUndefined(value: Record<string, unknown>): Record<string, unknown> { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)); }
 function daysBetween(start: Date, end: Date): number { return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000)); }
+function inclusiveDaysBetween(start: Date, end: Date): number { return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1; }
+function hasRestrictionControl(value: { stopSell?: boolean; closedToArrival?: boolean; closedToDeparture?: boolean; minStay?: number | null; maxStay?: number | null; minAdvanceDays?: number | null; maxAdvanceDays?: number | null }): boolean {
+  return Boolean(value.stopSell || value.closedToArrival || value.closedToDeparture || value.minStay != null || value.maxStay != null || value.minAdvanceDays != null || value.maxAdvanceDays != null);
+}
+function restrictionSnapshot(value: { name: string; startDate: Date; endDate: Date; roomTypeId: number | null; ratePlanId: number | null; stopSell: boolean; closedToArrival: boolean; closedToDeparture: boolean; minStay: number | null; maxStay: number | null; minAdvanceDays: number | null; maxAdvanceDays: number | null; channelCode: string | null; status: string }) {
+  return {
+    name: value.name, startDate: value.startDate.toISOString().slice(0, 10), endDate: value.endDate.toISOString().slice(0, 10),
+    roomTypeId: value.roomTypeId, ratePlanId: value.ratePlanId, stopSell: value.stopSell,
+    closedToArrival: value.closedToArrival, closedToDeparture: value.closedToDeparture,
+    minStay: value.minStay, maxStay: value.maxStay, minAdvanceDays: value.minAdvanceDays, maxAdvanceDays: value.maxAdvanceDays,
+    channelCode: value.channelCode, status: value.status,
+  };
+}
 function isPrismaErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
 }
@@ -143,7 +159,7 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     const propertyId = Number(req.params.propertyId);
     const [ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewResponses, reviewSettings] = await Promise.all([
       prisma.nrmsRatePlan.findMany({ where: { propertyId }, include: { roomType: { select: { id: true, name: true } }, seasons: { orderBy: [{ priority: "desc" }, { startDate: "asc" }] } }, orderBy: [{ isDefault: "desc" }, { name: "asc" }] }),
-      prisma.nrmsRateRestriction.findMany({ where: { propertyId, status: "ACTIVE" }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } }, orderBy: { startDate: "asc" } }),
+      prisma.nrmsRateRestriction.findMany({ where: { propertyId, status: { in: ["ACTIVE", "PAUSED"] } }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } }, orderBy: { startDate: "asc" } }),
       prisma.nrmsOnboardingRun.findFirst({ where: { propertyId, status: { not: "ROLLED_BACK" } }, include: { checks: { orderBy: { id: "asc" } } }, orderBy: { createdAt: "desc" } }),
       prisma.nrmsServiceCase.findMany({ where: { propertyId }, include: { roomUnit: { select: { id: true, code: true } }, guestProfile: { select: { id: true, fullName: true } }, events: { orderBy: { createdAt: "desc" }, take: 3 } }, orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }], take: 100 }),
       prisma.nrmsGuestPaymentRequest.findMany({ where: { reservation: { propertyId } }, include: { reservation: { select: { id: true, receiptNumber: true, guestProfile: { select: { fullName: true, phone: true } } } } }, orderBy: { createdAt: "desc" }, take: 50 }),
@@ -209,8 +225,103 @@ router.post("/:propertyId/rate-plans/:ratePlanId/seasons", (async (req: AuthedRe
 router.post("/:propertyId/restrictions", (async (req: AuthedRequest, res: Response) => {
   const parsed = restrictionSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid restriction", details: parsed.error.flatten() });
   if (day(parsed.data.endDate) < day(parsed.data.startDate)) return res.status(400).json({ error: "Restriction end date must not precede its start date" });
-  try { const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const restriction = await prisma.nrmsRateRestriction.create({ data: { propertyId, ...parsed.data, startDate: day(parsed.data.startDate), endDate: day(parsed.data.endDate) } }); res.status(201).json({ restriction }); }
+  if (inclusiveDaysBetween(day(parsed.data.startDate), day(parsed.data.endDate)) > 366) return res.status(400).json({ error: "A single restriction cannot cover more than 366 days" });
+  try {
+    const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId);
+    if (parsed.data.roomTypeId && !(await prisma.roomType.count({ where: { id: parsed.data.roomTypeId, propertyId } }))) return res.status(400).json({ error: "Room type does not belong to this property" });
+    if (parsed.data.ratePlanId && !(await prisma.nrmsRatePlan.count({ where: { id: parsed.data.ratePlanId, propertyId } }))) return res.status(400).json({ error: "Rate plan does not belong to this property" });
+    const restriction = await prisma.$transaction(async (tx) => {
+      const created = await tx.nrmsRateRestriction.create({ data: { propertyId, ...parsed.data, startDate: day(parsed.data.startDate), endDate: day(parsed.data.endDate), createdById: req.user!.id, updatedById: req.user!.id } });
+      await tx.nrmsRateRestrictionEvent.create({ data: { restrictionId: created.id, type: parsed.data.stopSell ? "STOP_SELL_CREATED" : "CREATED", actorId: req.user!.id, toVersion: 1, data: json(restrictionSnapshot(created)) } });
+      return tx.nrmsRateRestriction.findUnique({ where: { id: created.id }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } } });
+    });
+    res.status(201).json({ restriction });
+  }
   catch (error) { console.error("[owner.nrms.market-readiness] restriction failed", error); res.status(500).json({ error: "Failed to save restriction" }); }
+}) as RequestHandler);
+
+/**
+ * PATCH /:propertyId/restrictions/:restrictionId
+ *
+ * Releasing a control is the common case, not deleting it: a stop sell put on
+ * for a holiday is lifted, then wanted again next year. So the same route
+ * flips individual switches (stopSell, closedToArrival, closedToDeparture),
+ * edits the stay and advance limits, and pauses or resumes the whole rule
+ * through status, all without losing the record of what was set.
+ *
+ * Every field is optional and only what is sent is changed, so unticking stop
+ * sell cannot silently clear a minimum stay set beside it.
+ */
+const restrictionPatchSchema = z.object({
+  version: z.number().int().positive(),
+  name: z.string().trim().min(2).max(120).optional(),
+  startDate: dateText.optional(), endDate: dateText.optional(),
+  minStay: z.number().int().min(1).max(365).nullable().optional(), maxStay: z.number().int().min(1).max(365).nullable().optional(),
+  minAdvanceDays: z.number().int().min(0).nullable().optional(), maxAdvanceDays: z.number().int().min(0).nullable().optional(),
+  stopSell: z.boolean().optional(), closedToArrival: z.boolean().optional(), closedToDeparture: z.boolean().optional(),
+  channelCode: z.string().trim().max(40).nullable().optional(),
+  /** PAUSED keeps the rule on file while lifting it from every sales channel. */
+  status: z.enum(["ACTIVE", "PAUSED"]).optional(),
+}).refine((value) => Object.keys(value).some((key) => key !== "version"), { message: "Nothing to change" });
+
+router.patch("/:propertyId/restrictions/:restrictionId", (async (req: AuthedRequest, res: Response) => {
+  const parsed = restrictionPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid restriction change", details: parsed.error.flatten() });
+  try {
+    const active = await owned(req, res); if (!active) return;
+    const propertyId = Number(req.params.propertyId);
+    const restrictionId = Number(req.params.restrictionId);
+    const current = await prisma.nrmsRateRestriction.findFirst({ where: { id: restrictionId, propertyId, status: { not: "REMOVED" } } });
+    if (!current) return res.status(404).json({ error: "Restriction not found" });
+    if (current.version !== parsed.data.version) return res.status(409).json({ error: "This restriction changed on another device. Refresh before changing it.", code: "VERSION_CONFLICT" });
+
+    const { version, startDate, endDate, ...rest } = parsed.data;
+    const nextStart = startDate ? day(startDate) : current.startDate;
+    const nextEnd = endDate ? day(endDate) : current.endDate;
+    if (nextEnd < nextStart) return res.status(400).json({ error: "Restriction end date must not precede its start date" });
+    if (inclusiveDaysBetween(nextStart, nextEnd) > 366) return res.status(400).json({ error: "A single restriction cannot cover more than 366 days" });
+    const next = { ...current, ...rest, startDate: nextStart, endDate: nextEnd };
+    if (next.status === "ACTIVE" && !hasRestrictionControl(next)) return res.status(400).json({ error: "An active restriction must enforce at least one control. Pause or remove it instead." });
+
+    const type = rest.stopSell === true && !current.stopSell ? "STOP_SELL_APPLIED" : rest.stopSell === false && current.stopSell ? "STOP_SELL_RELEASED" : rest.status === "PAUSED" ? "PAUSED" : rest.status === "ACTIVE" && current.status === "PAUSED" ? "RESUMED" : "UPDATED";
+    const restriction = await prisma.$transaction(async (tx) => {
+      const changed = await tx.nrmsRateRestriction.updateMany({
+        where: { id: restrictionId, propertyId, version, status: { not: "REMOVED" } },
+        data: { ...rest, ...(startDate ? { startDate: nextStart } : {}), ...(endDate ? { endDate: nextEnd } : {}), updatedById: req.user!.id, version: { increment: 1 } },
+      });
+      if (!changed.count) return null;
+      await tx.nrmsRateRestrictionEvent.create({ data: { restrictionId, type, actorId: req.user!.id, fromVersion: version, toVersion: version + 1, data: json({ before: restrictionSnapshot(current), changes: withoutUndefined({ ...rest, startDate, endDate }) }) } });
+      return tx.nrmsRateRestriction.findUnique({ where: { id: restrictionId }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } } });
+    });
+    if (!restriction) return res.status(409).json({ error: "This restriction changed on another device. Refresh before changing it.", code: "VERSION_CONFLICT" });
+    res.json({ restriction });
+  } catch (error) {
+    console.error("[owner.nrms.market-readiness] restriction change failed", error);
+    res.status(500).json({ error: "Failed to change this restriction" });
+  }
+}) as RequestHandler);
+
+router.delete("/:propertyId/restrictions/:restrictionId", (async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ version: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "A current restriction version is required" });
+  try {
+    const active = await owned(req, res); if (!active) return;
+    const propertyId = Number(req.params.propertyId);
+    const restrictionId = Number(req.params.restrictionId);
+    const current = await prisma.nrmsRateRestriction.findFirst({ where: { id: restrictionId, propertyId, status: { not: "REMOVED" } } });
+    if (!current) return res.status(404).json({ error: "Restriction not found" });
+    const removed = await prisma.$transaction(async (tx) => {
+      const changed = await tx.nrmsRateRestriction.updateMany({ where: { id: restrictionId, propertyId, version: parsed.data.version, status: { not: "REMOVED" } }, data: { status: "REMOVED", removedAt: new Date(), updatedById: req.user!.id, version: { increment: 1 } } });
+      if (!changed.count) return false;
+      await tx.nrmsRateRestrictionEvent.create({ data: { restrictionId, type: "REMOVED", actorId: req.user!.id, fromVersion: parsed.data.version, toVersion: parsed.data.version + 1, data: json({ before: restrictionSnapshot(current) }) } });
+      return true;
+    });
+    if (!removed) return res.status(409).json({ error: "This restriction changed on another device. Refresh before removing it.", code: "VERSION_CONFLICT" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[owner.nrms.market-readiness] restriction delete failed", error);
+    res.status(500).json({ error: "Failed to remove this restriction" });
+  }
 }) as RequestHandler);
 
 router.post("/:propertyId/onboarding/start", (async (req: AuthedRequest, res: Response) => {

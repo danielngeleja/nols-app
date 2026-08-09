@@ -5325,16 +5325,39 @@ model NrmsRateRestriction {
   closedToDeparture Boolean  @default(false)
   channelCode       String?  @db.VarChar(40)
   status            String   @default("ACTIVE") @db.VarChar(20)
+  version           Int      @default(1)
+  createdById       Int?
+  updatedById       Int?
+  removedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   property Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   roomType RoomType?     @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
   ratePlan NrmsRatePlan? @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  events   NrmsRateRestrictionEvent[]
 
   @@index([propertyId, startDate, endDate])
   @@index([roomTypeId, status])
   @@map("nrms_rate_restriction")
+}
+
+/// Immutable operational history for every restriction change. A restriction
+/// is archived rather than erased so an owner action remains explainable.
+model NrmsRateRestrictionEvent {
+  id            Int      @id @default(autoincrement())
+  restrictionId Int
+  type          String   @db.VarChar(40)
+  actorId       Int?
+  fromVersion   Int?
+  toVersion     Int
+  data          Json?
+  createdAt     DateTime @default(now())
+
+  restriction NrmsRateRestriction @relation(fields: [restrictionId], references: [id], onDelete: Cascade)
+
+  @@index([restrictionId, createdAt])
+  @@map("nrms_rate_restriction_event")
 }
 
 /// One guided import/readiness attempt. rollbackSnapshot is private and lets

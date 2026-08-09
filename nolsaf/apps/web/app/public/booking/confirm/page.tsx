@@ -334,6 +334,10 @@ export default function BookingConfirmPage() {
         const available = !!payload?.available;
         if (available) {
           setAvailabilityState({ status: "available" });
+        } else if (payload?.closed?.message) {
+          // The property closed these dates. Say that, rather than implying the
+          // rooms are taken when they are not.
+          setAvailabilityState({ status: "unavailable", message: payload.closed.message });
         } else {
           const summary = payload?.summary;
           const msg =
@@ -710,6 +714,19 @@ export default function BookingConfirmPage() {
       })();
 
       if (!invoiceResponse.ok) {
+        // The room being unavailable is an ordinary outcome, not a failure to
+        // report as one: the dates were taken, or the property closed them.
+        // Surface the plain message the API already wrote for the guest,
+        // without the HTTP noise appended below.
+        if ((invoiceResult as any)?.code === "DRAFT_ROOM_UNAVAILABLE") {
+          const availability = (invoiceResult as any)?.availability;
+          throw new Error(
+            (availability?.message as string)
+              || (invoiceResult as any)?.message
+              || "These dates are no longer available. Please choose different dates."
+          );
+        }
+
         // Show detailed error message if available
         let errorMessage = (invoiceResult as any)?.error || "Failed to create invoice";
         

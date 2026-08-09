@@ -317,13 +317,13 @@ function NrmsShell({ children }: { children: ReactNode }) {
     : accessRole === "FRONT_DESK" ? "Front desk"
     : accessRole === "OUTLET_SUPERVISOR" ? "Outlet operations"
     : accessRole === "MANAGER" ? "Hotel management"
-    : "Property management system";
+    : "Room management system";
 
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
       <div className={`flex min-h-[5rem] items-center border-b border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm"><Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority /></span>
-        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
+        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[0.02em]">NRMS WORKSPACE</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="NRMS workspace navigation">

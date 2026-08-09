@@ -33,6 +33,9 @@ function dbFor(value: any) {
     reservationRoomAllocation: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn().mockResolvedValue({ count: 1 }), updateMany: vi.fn() },
     roomUnit: { findFirst: vi.fn().mockResolvedValue({ id: 15, roomTypeId: 5 }) },
     roomType: { findFirst: vi.fn() },
+    // Allocations now snapshot the meal plan they were sold on, resolved
+    // through the property default when the booking names no plan.
+    nrmsRatePlan: { findFirst: vi.fn().mockResolvedValue({ id: 21, mealPlan: "BREAKFAST" }) },
     guestProfile: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: 80 }),
