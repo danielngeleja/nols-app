@@ -28,6 +28,8 @@ import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "../lib/restrictionCa
 import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
+import { buildBreakfastList } from "../lib/nrmsBreakfastList.js";
+import { generateNrmsBreakfastListPdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
 import {
   generateOrderPointToken,
@@ -316,6 +318,105 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
   }
   const properties = [...byProperty.values()];
   res.json({ viewer: { firstName }, entitled: properties.length > 0, workspaceMode: properties.length > 0 ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties });
+}) as RequestHandler);
+
+/**
+ * Breakfast list, the sheet the restaurant serves the morning from.
+ *
+ * Lives on the operations router rather than the owner one because it is a
+ * handover between two desks: front office prepares it, the restaurant works
+ * from it, and both need to be able to open and print it.
+ *
+ * Two routes over one builder, so the list reviewed on screen and the PDF
+ * carried to the pass can never disagree. Defaults to tomorrow's service,
+ * because the sheet is produced at night audit for the morning ahead, while
+ * the kitchen still has time to act on the numbers.
+ */
+const BREAKFAST_LIST_ROLES: AccessRole[] = ["OWNER", "MANAGER", "FRONT_DESK", "RESTAURANT"];
+
+const breakfastListQuery = z.object({
+  date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  entitledOnly: z.union([z.literal("1"), z.literal("true")]).optional(),
+});
+
+/** Tomorrow as a business date in the operating timezone. */
+function defaultBreakfastServiceDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Dar_es_Salaam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.now() + 86400000));
+}
+
+async function loadBreakfastList(req: AuthedRequest, res: Response) {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return null;
+  if (!BREAKFAST_LIST_ROLES.includes(access.role)) {
+    res.status(403).json({ error: "Your role cannot open the breakfast list" });
+    return null;
+  }
+  const query = breakfastListQuery.parse(req.query);
+  const serviceDate = query.date ?? defaultBreakfastServiceDate();
+  const list = await buildBreakfastList({
+    propertyId: access.property.id,
+    propertyTitle: access.property.title,
+    serviceDate,
+    entitledOnly: !!query.entitledOnly,
+  });
+  return { access, list, serviceDate };
+}
+
+function breakfastPdfFilename(propertyName: string, serviceDate: string): string {
+  const safeProperty = propertyName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 &()_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "HOTEL";
+  return `${safeProperty}_BREAKFAST_${serviceDate.replace(/-/g, "")}.pdf`;
+}
+
+router.get("/property/:propertyId/breakfast-list", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadBreakfastList(req, res);
+    if (!loaded) return;
+    res.json({ ok: true, ...loaded.list });
+  } catch (err) {
+    console.error("[nrms.operations] breakfast list failed", err);
+    res.status(500).json({ error: "Failed to build the breakfast list" });
+  }
+}) as RequestHandler);
+
+router.get("/property/:propertyId/breakfast-list.pdf", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadBreakfastList(req, res);
+    if (!loaded) return;
+    const { list, serviceDate } = loaded;
+
+    // Every print gets its own number on purpose: two copies on the pass with
+    // different counts must be tellable apart at a glance.
+    const documentNumber = `BFL-${loaded.access.property.id}-${serviceDate.replace(/-/g, "")}-${generateNrmsRandomCode()}`;
+    const pdf = await generateNrmsBreakfastListPdf({
+      propertyName: loaded.access.property.title,
+      serviceDate,
+      nightOf: list.nightOf,
+      documentNumber,
+      generatedAt: list.generatedAt,
+      preparedBy: req.user?.name ?? null,
+      rows: list.rows,
+      totals: list.totals,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${breakfastPdfFilename(loaded.access.property.title, serviceDate)}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(pdf);
+  } catch (err) {
+    console.error("[nrms.operations] breakfast list pdf failed", err);
+    res.status(500).json({ error: "Failed to generate the breakfast list" });
+  }
 }) as RequestHandler);
 
 router.get("/property/:propertyId/context", (async (req: AuthedRequest, res: Response) => {

@@ -76,6 +76,18 @@ function token(): string { return crypto.randomBytes(24).toString("base64url"); 
 function reference(propertyId: number): string { return `SC-${propertyId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`; }
 function json(value: unknown): Prisma.InputJsonValue { return value as Prisma.InputJsonValue; }
 function daysBetween(start: Date, end: Date): number { return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000)); }
+function isPrismaErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+function ratePlanCodeConflict(res: Response, code?: string) {
+  return res.status(409).json({
+    error: code
+      ? `Rate plan code "${code}" is already in use for this property. Choose a different code or use the existing plan.`
+      : "That rate plan code is already in use for this property. Choose a different code or use the existing plan.",
+    code: "RATE_PLAN_CODE_EXISTS",
+    field: "code",
+  });
+}
 
 async function owned(req: AuthedRequest, res: Response) {
   return loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
@@ -157,22 +169,34 @@ router.post("/:propertyId/rate-plans", (async (req: AuthedRequest, res: Response
   try {
     const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId);
     if (parsed.data.roomTypeId && !(await prisma.roomType.count({ where: { id: parsed.data.roomTypeId, propertyId } }))) return res.status(400).json({ error: "Room type does not belong to this property" });
+    const duplicate = await prisma.nrmsRatePlan.findFirst({ where: { propertyId, code: parsed.data.code }, select: { id: true } });
+    if (duplicate) return ratePlanCodeConflict(res, parsed.data.code);
     const plan = await prisma.$transaction(async (tx) => {
       if (parsed.data.isDefault) await tx.nrmsRatePlan.updateMany({ where: { propertyId }, data: { isDefault: false } });
       return tx.nrmsRatePlan.create({ data: { propertyId, ...parsed.data } });
     });
     res.status(201).json({ plan });
-  } catch (error) { console.error("[owner.nrms.market-readiness] rate plan failed", error); res.status(500).json({ error: "Failed to save rate plan" }); }
+  } catch (error) {
+    if (isPrismaErrorCode(error, "P2002")) return ratePlanCodeConflict(res, parsed.data.code);
+    console.error("[owner.nrms.market-readiness] rate plan failed", error); res.status(500).json({ error: "Failed to save rate plan" });
+  }
 }) as RequestHandler);
 
 router.patch("/:propertyId/rate-plans/:ratePlanId", (async (req: AuthedRequest, res: Response) => {
   const parsed = ratePlanUpdateSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid rate plan update", details: parsed.error.flatten() });
   try {
     const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const id = Number(req.params.ratePlanId); const { version, ...data } = parsed.data;
+    if (data.code) {
+      const duplicate = await prisma.nrmsRatePlan.findFirst({ where: { propertyId, code: data.code, id: { not: id } }, select: { id: true } });
+      if (duplicate) return ratePlanCodeConflict(res, data.code);
+    }
     const changed = await prisma.nrmsRatePlan.updateMany({ where: { id, propertyId, version }, data: { ...data, version: { increment: 1 } } });
     if (!changed.count) return res.status(409).json({ error: "This rate plan changed on another device", code: "VERSION_CONFLICT" });
     res.json({ plan: await prisma.nrmsRatePlan.findUnique({ where: { id }, include: { seasons: true } }) });
-  } catch (error) { console.error("[owner.nrms.market-readiness] rate plan update failed", error); res.status(500).json({ error: "Failed to update rate plan" }); }
+  } catch (error) {
+    if (isPrismaErrorCode(error, "P2002")) return ratePlanCodeConflict(res, parsed.data.code);
+    console.error("[owner.nrms.market-readiness] rate plan update failed", error); res.status(500).json({ error: "Failed to update rate plan" });
+  }
 }) as RequestHandler);
 
 router.post("/:propertyId/rate-plans/:ratePlanId/seasons", (async (req: AuthedRequest, res: Response) => {

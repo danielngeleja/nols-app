@@ -3,6 +3,7 @@ import { prisma } from "@nolsaf/prisma";
 import { decrypt } from "../crypto.js";
 import { runNrmsWorker } from "../nrmsWorkerHealth.js";
 import { lockPropertyInventory } from "../nrmsAvailability.js";
+import { resolveAllocationMealPlan } from "../nrmsMealPlan.js";
 import { BookingComApiError, bookingComClient } from "./bookingComClient.js";
 import { bookingComEventPayload, parseBookingReservationMessages, parseBookingResponseHasErrors, type BookingReservationMessage } from "./bookingComReservations.js";
 
@@ -190,8 +191,13 @@ async function normalizeReservation(connection: any, message: BookingReservation
     for (const stay of roomStays) {
       const roomTypeId = mappingByExternalId.get(stay.roomTypeExternalId);
       if (!roomTypeId || !stay.startDate || !stay.endDate) continue;
+      // Booking.com carries no rate plan NoLSAF can map, so entitlement falls
+      // back to the property default, which is what a PMS does with an
+      // unmapped rate code. Left NULL when there is no default, and the
+      // breakfast list prints that as "verify" for the desk to settle.
+      const plan = await resolveAllocationMealPlan(tx, { propertyId: reservation.propertyId, roomTypeId });
       for (let unit = 0; unit < stay.quantity; unit += 1) {
-        await tx.reservationRoomAllocation.create({ data: { reservationId: reservation.id, roomTypeId, startDate: stay.startDate, endDate: stay.endDate, status: "ACTIVE" } });
+        await tx.reservationRoomAllocation.create({ data: { reservationId: reservation.id, roomTypeId, startDate: stay.startDate, endDate: stay.endDate, status: "ACTIVE", ratePlanId: plan.ratePlanId, mealPlan: plan.mealPlan } });
       }
     }
     await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: existing ? "EDITED" : "CREATED", data: { source: "BOOKING_COM", externalRef: message.providerReservationId, action: message.action } } });

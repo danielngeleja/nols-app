@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Coffee,
   DoorOpen,
   FileText,
   LayoutDashboard,
@@ -61,6 +62,7 @@ const NAV_GROUPS = [
       { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
       { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
       { href: "/owner/nrms/tables", label: "Tables & tabs", icon: LayoutGrid },
+      { href: "/owner/nrms/breakfast", label: "Breakfast list", icon: Coffee },
       { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
       { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
       { href: "/owner/nrms/guests", label: "Guests", icon: Users },
@@ -113,6 +115,9 @@ function roleCanSee(href: string, role: string) {
   // their assigned bar or restaurant, not owner, manager, front desk or a
   // supervisor covering multiple outlets.
   if (href === "/owner/nrms/shift") return role === "BAR" || role === "RESTAURANT";
+  // The breakfast list is a front office to restaurant handover, so both sides
+  // of that handover can open it, plus the manager who covers for either.
+  if (href === "/owner/nrms/breakfast") return ["OWNER", "MANAGER", "FRONT_DESK", "RESTAURANT"].includes(role);
   if (role === "OWNER") return true;
   if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
   if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock"].includes(href);

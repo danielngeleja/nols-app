@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { decrypt } from "../crypto.js";
+import { resolveAllocationMealPlan } from "../nrmsMealPlan.js";
 import { lockPropertyInventory } from "../nrmsAvailability.js";
 import { runNrmsWorker } from "../nrmsWorkerHealth.js";
 import { ExpediaApiError, expediaClient, type ExpediaCredentials } from "./expediaClient.js";
@@ -141,8 +142,11 @@ async function normalize(connection: ExpediaConnection, message: ExpediaReservat
     for (const stay of message.roomStays) {
       const roomTypeId = mappingByExternalId.get(stay.roomTypeExternalId);
       if (!roomTypeId) continue;
+      // No mappable rate plan on the Expedia message, so entitlement falls back
+      // to the property default, as a PMS does with an unmapped rate code.
+      const plan = await resolveAllocationMealPlan(tx, { propertyId: reservation.propertyId, roomTypeId });
       for (let index = 0; index < Math.max(1, stay.quantity); index += 1) {
-        await tx.reservationRoomAllocation.create({ data: { reservationId: reservation.id, roomTypeId, startDate: checkIn, endDate: checkOut, status: "ACTIVE" } });
+        await tx.reservationRoomAllocation.create({ data: { reservationId: reservation.id, roomTypeId, startDate: checkIn, endDate: checkOut, status: "ACTIVE", ratePlanId: plan.ratePlanId, mealPlan: plan.mealPlan } });
       }
     }
     await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: existing ? "EDITED" : "CREATED", data: { source: "EXPEDIA", externalRef: message.providerReservationId, action: message.action } } });

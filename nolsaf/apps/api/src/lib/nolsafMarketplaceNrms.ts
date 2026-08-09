@@ -4,6 +4,7 @@
 import { computeDraftBookingAvailability, type DraftBookingAvailability } from "./draftBookingAvailability.js";
 import { lockPropertyInventory } from "./nrmsAvailability.js";
 import { queueNrmsCheckInWelcome } from "./nrmsCheckInWelcome.js";
+import { resolveAllocationMealPlan } from "./nrmsMealPlan.js";
 
 type DbLike = any;
 
@@ -211,6 +212,10 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
         data: { status: "RELEASED" },
       });
     }
+    // Marketplace bookings do not choose an NRMS rate plan, so the meal plan
+    // comes from the property default. Snapshotted onto the allocation so the
+    // breakfast list can answer for these stays like any other.
+    const plan = await resolveAllocationMealPlan(db, { propertyId: reservation.propertyId, roomTypeId: room.roomTypeId });
     await db.reservationRoomAllocation.createMany({
       data: Array.from({ length: desiredCount }, (_, index) => ({
         reservationId: reservation.id,
@@ -221,6 +226,8 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
         startDate: booking.checkIn,
         endDate: booking.checkOut,
         status: "ACTIVE",
+        ratePlanId: plan.ratePlanId,
+        mealPlan: plan.mealPlan,
       })),
     });
   }

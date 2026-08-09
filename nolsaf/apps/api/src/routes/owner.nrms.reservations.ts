@@ -16,6 +16,7 @@ import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
 import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
+import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 
 export const router = Router();
 
@@ -69,7 +70,14 @@ const createReservationSchema = z.object({
   children: z.number().int().min(0).max(50).default(0),
   guest: guestInput,
   rooms: z
-    .array(z.object({ roomTypeId: z.number().int().positive(), roomUnitId: z.number().int().positive().optional().nullable() }))
+    .array(
+      z.object({
+        roomTypeId: z.number().int().positive(),
+        roomUnitId: z.number().int().positive().optional().nullable(),
+        /** Rate plan sold for this room. Its meal plan is snapshotted onto the allocation; omitted falls back to the property default. */
+        ratePlanId: z.number().int().positive().optional().nullable(),
+      })
+    )
     .min(1)
     .max(10),
   currency: z.string().trim().length(3).optional(),
@@ -1156,6 +1164,18 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
         },
       });
 
+      // Meal plan is recorded per room, because a party can sit on two plans.
+      // Resolved once per room type rather than per room: the same type on the
+      // same booking always resolves the same way.
+      const planByRoomType = new Map<number, Awaited<ReturnType<typeof resolveAllocationMealPlan>>>();
+      for (const room of data.rooms) {
+        if (planByRoomType.has(room.roomTypeId)) continue;
+        planByRoomType.set(
+          room.roomTypeId,
+          await resolveAllocationMealPlan(tx, { propertyId, roomTypeId: room.roomTypeId, ratePlanId: room.ratePlanId ?? null })
+        );
+      }
+
       await tx.reservationRoomAllocation.createMany({
         data: data.rooms.map((room) => ({
           reservationId: reservation.id,
@@ -1163,6 +1183,8 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
           roomUnitId: room.roomUnitId ?? null,
           startDate: checkIn,
           endDate: checkOut,
+          ratePlanId: planByRoomType.get(room.roomTypeId)?.ratePlanId ?? null,
+          mealPlan: planByRoomType.get(room.roomTypeId)?.mealPlan ?? null,
         })),
       });
 

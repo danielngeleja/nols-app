@@ -991,3 +991,203 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
     doc.page.margins.bottom = M;
   }, { size: "A5", margin: M });
 }
+
+// ─── NRMS breakfast list ──────────────────────────────────────
+
+export type BreakfastListPdfRow = {
+  sn: number;
+  fullName: string;
+  roomType: string;
+  roomNo: string;
+  adults: number;
+  children: number;
+  mealPlanLabel: string;
+  entitled: boolean;
+  remark: string;
+};
+
+export type BreakfastListPdfData = {
+  propertyName: string;
+  propertyLocation?: string | null;
+  serviceDate: Date | string;
+  nightOf: Date | string;
+  documentNumber: string;
+  generatedAt: Date;
+  preparedBy?: string | null;
+  rows: BreakfastListPdfRow[];
+  totals: { rooms: number; parties: number; adults: number; children: number; covers: number; entitledRooms: number; entitledCovers: number; unverified: number };
+};
+
+/**
+ * The sheet that goes to the restaurant before service. A4 portrait, one line
+ * per occupied room, ruled REMARK column left empty for the floor to write in.
+ *
+ * The header repeats property, service date and the night it covers on every
+ * page, because this page gets separated from its stack the moment service
+ * starts. The totals block is what the kitchen preps against, so it is printed
+ * once at the end where it cannot be mistaken for a page subtotal.
+ */
+export async function generateNrmsBreakfastListPdf(data: BreakfastListPdfData): Promise<Buffer> {
+  const M = 36;
+  const W = PAGE_W - M * 2;
+  const PAGE_H = 841.89; // A4 pt height
+  const FOOTER_ZONE = 104;
+
+  // SN | FULL NAME | ROOM TYPE | ROOM NO | PAX | MEAL PLAN | REMARK
+  const COL_SN = 26;
+  const COL_NAME = 150;
+  const COL_TYPE = 96;
+  const COL_ROOM = 52;
+  const COL_PAX = 38;
+  const COL_PLAN = 78;
+  const COL_REMARK = W - COL_SN - COL_NAME - COL_TYPE - COL_ROOM - COL_PAX - COL_PLAN;
+  const ROW_H = 24;
+
+  const dayLabel = (value: Date | string) =>
+    new Date(value).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = M;
+
+    const header = (includeSummary: boolean) => {
+      const headerH = 62;
+      doc.roundedRect(M, y, W, headerH, 9).fillAndStroke("#ffffff", BORDER);
+      doc.roundedRect(M, y, 6, headerH, 3).fill(TEAL);
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+        .text("FRONT OFFICE  >  RESTAURANT", M + 18, y + 11, { characterSpacing: 1.1, lineBreak: false });
+      doc.font(fonts.bold).fontSize(17).fillColor(DARK)
+        .text("Breakfast service list", M + 18, y + 23, { width: W - 245, lineBreak: false, ellipsis: true });
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(`${data.propertyName}${data.propertyLocation ? `  ·  ${data.propertyLocation}` : ""}  ·  ${data.documentNumber}`, M + 18, y + 47, { width: W - 245, lineBreak: false, ellipsis: true });
+
+      doc.font(fonts.regular).fontSize(6).fillColor(TEXT_MUTED)
+        .text("SERVICE MORNING", M + W - 210, y + 11, { width: 194, align: "right", characterSpacing: 0.8, lineBreak: false });
+      doc.font(fonts.bold).fontSize(10).fillColor(RCPT_HEAD)
+        .text(dayLabel(data.serviceDate), M + W - 230, y + 23, { width: 214, align: "right", lineBreak: false });
+      doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+        .text(`Night covered: ${dayLabel(data.nightOf)}`, M + W - 230, y + 42, { width: 214, align: "right", lineBreak: false });
+      y += headerH + 10;
+
+      if (includeSummary) {
+        const summaryH = 50;
+        const stats: Array<[string, string]> = [
+          ["Rooms", String(data.totals.rooms)],
+          ["Parties", String(data.totals.parties)],
+          ["Adults", String(data.totals.adults)],
+          ["Children", String(data.totals.children)],
+          ["Total covers", String(data.totals.covers)],
+          ["Entitled", String(data.totals.entitledCovers)],
+        ];
+        doc.roundedRect(M, y, W, summaryH, 8).fillAndStroke(LIGHT_TEAL, RCPT_BORDER);
+        const statW = W / stats.length;
+        stats.forEach(([label, value], index) => {
+          const sx = M + statW * index;
+          if (index > 0) {
+            doc.strokeColor(RCPT_BORDER).lineWidth(0.5).moveTo(sx, y + 10).lineTo(sx, y + summaryH - 10).stroke();
+          }
+          doc.font(fonts.regular).fontSize(6).fillColor(TEXT_MUTED)
+            .text(label.toUpperCase(), sx + 7, y + 9, { width: statW - 14, align: "center", characterSpacing: 0.5, lineBreak: false });
+          doc.font(fonts.bold).fontSize(15).fillColor(index >= 4 ? TEAL : RCPT_HEAD)
+            .text(value, sx + 7, y + 23, { width: statW - 14, align: "center", lineBreak: false });
+        });
+        y += summaryH + 10;
+      }
+
+      doc.rect(M, y, W, 20).fill("#edf7f6");
+      doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(M, y + 20).lineTo(M + W, y + 20).stroke();
+      doc.font(fonts.bold).fontSize(6.3).fillColor(RCPT_HEAD);
+      let x = M;
+      const head = (label: string, width: number, align: "left" | "center" = "left") => {
+        doc.text(label, x + 5, y + 7, { width: width - 8, align, characterSpacing: 0.35, lineBreak: false });
+        x += width;
+      };
+      head("NO.", COL_SN);
+      head("GUEST", COL_NAME);
+      head("ROOM TYPE", COL_TYPE);
+      head("ROOM", COL_ROOM, "center");
+      head("PAX", COL_PAX, "center");
+      head("MEAL PLAN", COL_PLAN);
+      head("SERVICE NOTES", COL_REMARK);
+      y += 20;
+    };
+
+    header(true);
+
+    for (const row of data.rows) {
+      if (y + ROW_H > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        y = M;
+        header(false);
+      }
+
+      if (row.sn % 2 === 0) doc.rect(M, y, W, ROW_H).fill("#fafcfb");
+      doc.strokeColor(BORDER).lineWidth(0.4).moveTo(M, y + ROW_H).lineTo(M + W, y + ROW_H).stroke();
+
+      let x = M;
+      const cell = (text: string, width: number, options: { align?: "left" | "center"; bold?: boolean; muted?: boolean } = {}) => {
+        doc.font(options.bold ? fonts.bold : fonts.regular).fontSize(7.5)
+          .fillColor(options.muted ? TEXT_MUTED : TEXT_MAIN)
+          .text(text, x + 5, y + 8, { width: width - 8, align: options.align ?? "left", lineBreak: false, ellipsis: true });
+        x += width;
+      };
+
+      cell(String(row.sn).padStart(2, "0"), COL_SN, { muted: true });
+      cell(row.fullName, COL_NAME, { bold: true });
+      cell(row.roomType, COL_TYPE);
+      cell(row.roomNo || "not set", COL_ROOM, { align: "center", bold: true, muted: !row.roomNo });
+      cell(`${row.adults}+${row.children}`, COL_PAX, { align: "center" });
+      // Meal-plan state is treated as a compact badge so it scans quickly at
+      // the restaurant pass without adding colour noise to every other cell.
+      const planColor = row.entitled ? TEAL : row.mealPlanLabel === "Verify" ? AMBER : TEXT_MUTED;
+      const planBg = row.entitled ? "#eaf8f3" : row.mealPlanLabel === "Verify" ? "#fff7e8" : "#f1f3f3";
+      doc.font(fonts.bold).fontSize(6.7);
+      const planW = Math.min(COL_PLAN - 10, Math.max(36, doc.widthOfString(row.mealPlanLabel) + 13));
+      doc.roundedRect(x + 5, y + 5, planW, 14, 6).fill(planBg);
+      doc.fillColor(planColor)
+        .text(row.mealPlanLabel, x + 11, y + 9, { width: planW - 12, lineBreak: false, ellipsis: true });
+      x += COL_PLAN;
+      doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+        .text(row.remark || "—", x + 6, y + 8, { width: COL_REMARK - 10, lineBreak: false, ellipsis: true });
+
+      // Keep the notes area visibly separate and writable without turning the
+      // whole register into a heavy spreadsheet grid.
+      const notesRule = M + COL_SN + COL_NAME + COL_TYPE + COL_ROOM + COL_PAX + COL_PLAN;
+      doc.strokeColor(BORDER).lineWidth(0.45).moveTo(notesRule, y).lineTo(notesRule, y + ROW_H).stroke();
+      y += ROW_H;
+    }
+
+    if (data.rows.length === 0) {
+      doc.font(fonts.regular).fontSize(9).fillColor(TEXT_MUTED)
+        .text("No occupied rooms for this service date.", M, y + 18, { width: W, align: "center" });
+      y += 44;
+    }
+
+    if (data.totals.unverified > 0) {
+      y += 10;
+      doc.font(fonts.bold).fontSize(7).fillColor(AMBER)
+        .text(`${data.totals.unverified} room(s) have no meal plan on file and print as Verify. Confirm at reception before serving.`, M, y + 7, { width: W, lineBreak: false });
+      y += 18;
+    }
+
+    // Signature pair: what makes this a controlled handover, not a printout.
+    doc.page.margins.bottom = 0;
+    const signY = PAGE_H - 74;
+    doc.strokeColor(TEXT_MUTED).lineWidth(0.5).moveTo(M, signY + 12).lineTo(M + 170, signY + 12).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Prepared by (front office)", M, signY + 16, { lineBreak: false });
+    doc.strokeColor(TEXT_MUTED).lineWidth(0.5).moveTo(M + W - 170, signY + 12).lineTo(M + W, signY + 12).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Received by (restaurant)", M + W - 170, signY + 16, { lineBreak: false });
+    if (data.preparedBy) {
+      doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MAIN)
+        .text(data.preparedBy, M, signY, { width: 170, lineBreak: false });
+    }
+
+    const footerY = PAGE_H - 34;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, footerY - 6).lineTo(M + W, footerY - 6).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(`${data.documentNumber} | generated ${fmtDateTime(data.generatedAt)} | Powered by NoLSAF`, M, footerY, { width: W, align: "center" });
+    doc.page.margins.bottom = M;
+  }, { size: "A4", margin: M });
+}

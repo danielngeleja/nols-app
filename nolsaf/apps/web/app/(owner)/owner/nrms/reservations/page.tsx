@@ -893,19 +893,16 @@ function ReturningGuestMatches({
     <span className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-20 mt-1 block w-[min(36rem,calc(100vw-3rem))] overflow-hidden rounded-md border border-neutral-300 bg-white shadow-[0_14px_35px_-18px_rgba(15,23,42,0.28)]`}>
       <span className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3">
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-800">Returning guests</span>
-        <span className="inline-flex items-center gap-1.5 rounded-sm border border-neutral-200 bg-neutral-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">
-          {loading ? <><Loader2 className="h-3 w-3 animate-spin text-emerald-600" />Searching</> : error ? "Unavailable" : `${guests.length} match${guests.length === 1 ? "" : "es"}`}
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
+          {loading ? <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />Checking</> : error ? "Unavailable" : `${guests.length} match${guests.length === 1 ? "" : "es"}`}
         </span>
       </span>
       {loading && (
-        <span className="block">
-          {[0, 1, 2].map((row) => (
-            <span key={row} className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3 last:border-b-0">
-              <span className="block h-3 w-2/5 animate-pulse rounded-sm bg-neutral-100" />
-              <span className="block h-3 w-1/4 animate-pulse rounded-sm bg-neutral-100" />
-              <span className="block h-3 w-1/5 animate-pulse rounded-sm bg-neutral-100" />
-            </span>
-          ))}
+        <span className="block px-4 py-4" role="status" aria-live="polite">
+          <span className="block h-1.5 overflow-hidden rounded-full bg-neutral-100">
+            <span className="block h-full w-2/3 animate-pulse rounded-full bg-gradient-to-r from-emerald-200 via-emerald-500 to-emerald-200" />
+          </span>
+          <span className="mt-2 block text-[11px] text-neutral-500">Checking saved guest records…</span>
         </span>
       )}
       {!loading && error && <span className="block px-4 py-4 text-xs text-red-700">{error}</span>}
@@ -1184,18 +1181,24 @@ function CreateReservationModal({
       subtitle="Add a guest stay and assign a room"
       icon={<CalendarPlus className="h-5 w-5" />}
       onClose={onClose}
-      wide
+      extraWide
       footer={
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="m-0 text-xs text-neutral-500">{nights} {nights === 1 ? "night" : "nights"}{type ? ` · ${type.name}` : ""}</p>
-            <p className="mb-0 mt-0.5 text-base font-bold text-neutral-950">{total.trim() ? `${type?.currency || "TZS"} ${Number(total).toLocaleString()}` : "Total pending"}</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+              <Clock3 className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-medium uppercase tracking-[0.1em] text-neutral-400">Stay summary</p>
+              <p className="mb-0 mt-0.5 truncate text-sm text-neutral-600">{nights} {nights === 1 ? "night" : "nights"}{type ? ` · ${type.name}` : " · Room not selected"}</p>
+              <p className="mb-0 mt-0.5 text-lg font-semibold text-neutral-950">{total.trim() ? `${type?.currency || "TZS"} ${Number(total).toLocaleString()}` : "Total pending"}</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={submit}
             disabled={busy || !guestName.trim() || guestPhone.trim().length < 7 || !nationality.trim() || !checkIn || !checkOut || !roomTypeId || !total.trim()}
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-52"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
             {busy ? "Saving reservation..." : "Create reservation"}
@@ -1203,10 +1206,19 @@ function CreateReservationModal({
         </div>
       }
     >
-      <div className="space-y-5">
-        <section>
-          <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500"><UserRound className="h-3.5 w-3.5" />Guest details</h4>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+      <div className="space-y-4">
+        <section className="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><UserRound className="h-4 w-4" /></span>
+              <div className="min-w-0">
+                <h4 className="m-0 text-sm font-semibold text-neutral-900">Guest details</h4>
+                <p className="mb-0 mt-0.5 text-xs text-neutral-500">Identity and primary contact information</p>
+              </div>
+            </div>
+            <span className="text-[11px] text-neutral-400"><span className="text-red-500">*</span> Required fields</span>
+          </div>
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Guest name <span className="text-red-500">*</span></span>
               <span className="relative block">
@@ -1214,7 +1226,7 @@ function CreateReservationModal({
                 <input
                   required
                   autoComplete="off"
-                  className={`${inputCls} pl-9 pr-9`}
+                  className={`${inputCls} pl-9 pr-3`}
                   value={guestName}
                   onFocus={() => {
                     if (guestSearchField !== "name") setGuestMatches([]);
@@ -1229,7 +1241,6 @@ function CreateReservationModal({
                   }}
                   placeholder="Search returning guest or enter a new name"
                 />
-                {searchingGuests && guestSearchField === "name" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
               </span>
               {showGuestMatches && guestSearchField === "name" && !selectedGuestId && guestName.trim().length >= 2 && <ReturningGuestMatches guests={guestMatches} loading={searchingGuests} error={guestSearchError} query={guestName.trim()} onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
@@ -1241,7 +1252,7 @@ function CreateReservationModal({
                   required
                   type="tel"
                   autoComplete="off"
-                  className={`${inputCls} pl-9 pr-9`}
+                  className={`${inputCls} pl-9 pr-3`}
                   value={guestPhone}
                   onFocus={() => {
                     if (guestSearchField !== "phone") setGuestMatches([]);
@@ -1256,7 +1267,6 @@ function CreateReservationModal({
                   }}
                   placeholder="Search by phone or enter a new number"
                 />
-                {searchingGuests && guestSearchField === "phone" && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600" />}
               </span>
               {showGuestMatches && guestSearchField === "phone" && !selectedGuestId && guestPhone.trim().length >= 3 && <ReturningGuestMatches guests={guestMatches} align="right" loading={searchingGuests} error={guestSearchError} query={guestPhone.trim()} onSelect={(guest) => void openGuestPreview(guest)} />}
             </label>
@@ -1302,9 +1312,15 @@ function CreateReservationModal({
           )}
         </section>
 
-        <section className="border-t border-neutral-100 pt-5">
-          <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500"><CalendarDays className="h-3.5 w-3.5" />Stay details</h4>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <section className="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
+          <div className="mb-4 flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><CalendarDays className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <h4 className="m-0 text-sm font-semibold text-neutral-900">Stay details</h4>
+              <p className="mb-0 mt-0.5 text-xs text-neutral-500">Dates, room assignment and agreed pricing</p>
+            </div>
+          </div>
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Check-in <span className="text-red-500">*</span></span>
               <DatePickerField

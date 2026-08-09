@@ -4050,15 +4050,34 @@ model ReservationRoomAllocation {
 
   status String @default("ACTIVE") @db.VarChar(20) // ACTIVE, RELEASED
 
+  /// The rate plan this room was sold on. Lives here rather than on
+  /// Reservation because that is the granularity the industry uses: a family
+  /// on two rooms can sit on two different plans, and a mid-stay plan change
+  /// is already handled by the release-and-recreate rule above, which makes
+  /// these rows a per-night rate detail by another name.
+  ratePlanId Int?
+
+  /// ROOM_ONLY | BREAKFAST | HALF_BOARD | FULL_BOARD | ALL_INCLUSIVE, copied
+  /// from the rate plan at the moment the room was sold. Snapshot, not a
+  /// join: editing a rate plan in March must not silently rewrite what a
+  /// January guest was entitled to, exactly as Reservation snapshots price
+  /// when applied. NULL means the stay predates this column or arrived
+  /// without a plan; the breakfast list prints those as "verify" rather than
+  /// dropping the guest, because a guest turned away at the buffet is a
+  /// complaint and a guest fed by mistake is only a cost.
+  mealPlan String? @db.VarChar(30)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   reservation     Reservation      @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   roomType        RoomType         @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
   roomUnit        RoomUnit?        @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+  ratePlan        NrmsRatePlan?    @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
   nrmsUsageEvents NrmsUsageEvent[]
 
   @@index([reservationId])
+  @@index([ratePlanId])
   @@index([roomUnitId, status, startDate, endDate], map: "rra_unit_status_start_end_idx")
   @@index([roomTypeId, status, startDate, endDate], map: "rra_type_status_start_end_idx")
   @@map("reservation_room_allocation")
@@ -5250,10 +5269,11 @@ model NrmsRatePlan {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  property     Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  roomType     RoomType?             @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  property     Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType     RoomType?                   @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
   seasons      NrmsRateSeason[]
   restrictions NrmsRateRestriction[]
+  allocations  ReservationRoomAllocation[]
 
   @@unique([propertyId, code])
   @@index([propertyId, status])
