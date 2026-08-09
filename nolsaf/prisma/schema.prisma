@@ -676,6 +676,11 @@ model Invoice {
 
   receiptQrPayload String? @db.Text
   receiptQrPng     Bytes? // PNG bytes (LONGBLOB)
+  /// Immutable financial and settlement facts captured when the payout first
+  /// reaches PAID. Receipt rendering must read this snapshot, never mutable
+  /// booking/invoice fields.
+  receiptSnapshot Json?
+  receiptIssuedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

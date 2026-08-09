@@ -55,7 +55,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-dvh min-h-[36rem] min-w-0 flex-col overflow-hidden bg-neutral-100">
+    <div className="owner-workspace flex h-dvh min-h-[36rem] min-w-0 flex-col overflow-hidden bg-neutral-100">
       <OwnerSiteHeader unreadMessages={unreadCount} />
 
       <div className="flex min-h-0 flex-1 overflow-hidden pt-16">
@@ -93,7 +93,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-24 pt-3 sm:px-3 md:pb-3">
-            <div className="public-container w-full max-w-full">{children}</div>
+            <div className="w-full min-w-0 max-w-none">{children}</div>
           </main>
 
           <div className="hidden shrink-0 md:block">

@@ -41,6 +41,23 @@ function fmtDate(d: Date | string | null | undefined): string {
   });
 }
 
+function fmtDateTime(d: Date | string | null | undefined, timeZone = "Africa/Dar_es_Salaam"): string {
+  if (!d) return "—";
+  const dateTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(d));
+
+  return `${dateTime} EAT`;
+}
+
 function fmtMoney(amount: number | string | null | undefined, currency = "TZS"): string {
   const n = Number(amount ?? 0);
   return `${currency} ${n.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -481,7 +498,11 @@ export interface OwnerDisbursementData {
   netPayable: number | string;
   paymentMethod?: string | null;
   paymentRef?: string | null;
+  nolsafReference?: string | null;
+  maskedDestination?: string | null;
   paidAt: Date | string | null;
+  timeZone?: string;
+  disclaimer?: string;
   currency?: string;
   /** QR code PNG bytes */
   qrPng?: Buffer | null;
@@ -531,7 +552,7 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
     y += 34;
     if (data.paidAt) {
       doc.font("Helvetica").fontSize(9).fillColor(RCPT_LABEL)
-        .text(fmtDate(data.paidAt), innerX, y, { width: innerW, align: "center" });
+        .text(fmtDateTime(data.paidAt, data.timeZone), innerX, y, { width: innerW, align: "center" });
       y += 16;
     }
 
@@ -554,8 +575,10 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
     ));
     const paymentRows: RcptRow[] = [
       ["Method", (data.paymentMethod || "—").replace(/_/g, " ")],
-      ["Date", fmtDate(data.paidAt)],
-      ...(data.paymentRef ? ([["Reference", data.paymentRef]] as RcptRow[]) : []),
+      ["Settled", fmtDateTime(data.paidAt, data.timeZone)],
+      ...(data.paymentRef ? ([["Provider ref", data.paymentRef]] as RcptRow[]) : []),
+      ...(data.nolsafReference ? ([["NoLSAF ref", data.nolsafReference]] as RcptRow[]) : []),
+      ...(data.maskedDestination ? ([["Destination", data.maskedDestination]] as RcptRow[]) : []),
     ];
     const bookingRows: RcptRow[] = [
       ["Booking", `#${data.bookingId}`, { accent: true }],
@@ -612,7 +635,7 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
       .text("NoLSAF  ·  CERTIFIED RECEIPT", innerX + 12, y + 12, { characterSpacing: 0.5, lineBreak: false });
     doc.font("Helvetica").fontSize(8).fillColor(RCPT_SUB)
       .text(
-        "This document confirms your payout has been disbursed to your registered payment method. Please retain it for your records.",
+        data.disclaimer || "This document confirms your payout has been disbursed to your registered payment method. Please retain it for your records.",
         innerX + 12, y + 26, { width: textW },
       );
     if (hasQr) {

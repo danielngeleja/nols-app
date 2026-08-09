@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, FileText, Receipt, RotateCw, ArrowUpRight, Hash, SlidersHorizontal, RotateCcw } from "lucide-react";
+import { CheckCircle2, Loader2, FileText, Receipt, RotateCw, ArrowUpRight, Hash, SlidersHorizontal, RotateCcw, Search, X, TrendingUp } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import TableRow from "@/components/TableRow";
@@ -35,6 +35,7 @@ export default function Paid() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState("paidAt_desc");
+  const [search, setSearch] = useState("");
   const [filters] = useState<RevenueFilters>({ status: "PAID" });
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -95,7 +96,13 @@ export default function Paid() {
   };
 
   const filtered = useMemo(() => {
-    const result = [...items];
+    const query = search.trim().toLowerCase();
+    const result = items.filter((invoice) => {
+      if (!query) return true;
+      return [invoice.invoiceNumber, invoice.receiptNumber, invoice.booking?.property?.title]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
 
     const [field, dir] = sortKey.split("_");
     const asc = dir === "asc";
@@ -114,10 +121,10 @@ export default function Paid() {
     });
 
     return result;
-  }, [items, sortKey]);
+  }, [items, search, sortKey]);
 
   // Reset to first page whenever the sort or the underlying data changes.
-  useEffect(() => { setPage(1); }, [sortKey, items]);
+  useEffect(() => { setPage(1); }, [search, sortKey, items]);
 
   const paged = useMemo(
     () => filtered.slice((page - 1) * pageSize, page * pageSize),
@@ -149,7 +156,7 @@ export default function Paid() {
   }
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+    <div className="w-full max-w-none space-y-5 px-3 pb-12 sm:px-5 lg:px-6 xl:px-8">
 
       {/* ─── Hero Header ─────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100/70">
@@ -213,25 +220,24 @@ export default function Paid() {
       </div>
 
       {/* ─── Stats Row ────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 sm:gap-4">
         {/* Count card */}
-        <div className="relative rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-5 flex items-center gap-4">
-          <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-xl bg-slate-100 border border-slate-200">
-            <Hash className="h-5 w-5 text-slate-600" aria-hidden />
+        <div className="relative flex items-center gap-3 rounded-2xl bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.055)] transition-shadow duration-200 hover:shadow-md">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
+            <Hash className="h-4 w-4 text-slate-600" aria-hidden />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Invoices</p>
-            <p className="mt-0.5 text-3xl font-black text-slate-900 tabular-nums leading-none">{stats.totalCount.toLocaleString()}</p>
-            <p className="mt-1 text-xs text-slate-400">Disbursed &amp; processed</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Invoices</p>
+            <p className="mt-1 text-2xl font-semibold leading-none tabular-nums text-slate-900">{stats.totalCount.toLocaleString()}</p>
+            <p className="mt-1 text-xs text-slate-400">Completed payouts</p>
           </div>
         </div>
 
         {/* Amount card — credit-card style */}
         <div
-          className="relative rounded-[22px] overflow-hidden shadow-2xl hover:-translate-y-1.5 hover:shadow-[0_28px_60px_-10px_rgba(2,102,94,0.55)] transition-all duration-500 cursor-default select-none"
+          className="relative cursor-default select-none overflow-hidden rounded-2xl shadow-[0_8px_24px_rgba(2,102,94,0.18)] transition-shadow duration-300 hover:shadow-lg"
           style={{
             background: "linear-gradient(135deg, #1a3a8f 0%, #0a6b82 45%, #02665e 100%)",
-            minHeight: "270px",
           }}
         >
           {/* ── Decorative SVG layer ── */}
@@ -266,10 +272,10 @@ export default function Paid() {
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent pointer-events-none" />
 
           {/* ── Card content ── */}
-          <div className="relative flex flex-col justify-between gap-5 p-6 pb-6" style={{ minHeight: "270px" }}>
+          <div className="relative p-4">
 
             {/* Row 1 — brand + chip */}
-            <div className="flex items-start justify-between">
+            <div className="hidden items-start justify-between">
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.25em] text-white/50">NoLSAF</p>
                 <p className="text-base font-black text-white tracking-wide leading-tight mt-0.5">Revenue Card</p>
@@ -288,18 +294,21 @@ export default function Paid() {
             </div>
 
             {/* Row 2 — amount hero */}
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/45 mb-1.5">Total Revenue Received</p>
-              <p
-                className="font-black text-white leading-none drop-shadow tabular-nums"
-                style={{ fontSize: "clamp(1.55rem, 3.5vw, 2.1rem)", letterSpacing: "-0.02em" }}
-              >
-                {formatCurrency(stats.totalAmount)}
-              </p>
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/10">
+                <TrendingUp className="h-4 w-4 text-white/85" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">Total revenue received</p>
+                <p className="mt-1 truncate text-2xl font-semibold leading-none tabular-nums text-white">
+                  {formatCurrency(stats.totalAmount)}
+                </p>
+                <p className="mt-1 text-xs text-white/55">{stats.totalCount} completed payout{stats.totalCount === 1 ? '' : 's'}</p>
+              </div>
             </div>
 
             {/* Row 3 — stats + logo circles */}
-            <div className="flex items-center justify-between pt-2 border-t border-white/10">
+            <div className="hidden items-center justify-between border-t border-white/10 pt-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <div>
                   <p className="text-[8px] font-bold uppercase tracking-widest text-white/45">Invoices</p>
@@ -340,27 +349,51 @@ export default function Paid() {
       ) : null}
 
       {/* ─── Invoices Table ───────────────────────────────────── */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_8px_28px_rgba(15,23,42,0.055)]">
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-5 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="sticky top-0 z-10 flex flex-col gap-3 bg-white/95 px-4 py-3.5 backdrop-blur lg:flex-row lg:items-center lg:justify-between sm:px-5">
           <div className="min-w-0 flex items-center gap-3">
-            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-50 border border-emerald-100">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
               <FileText className="h-4 w-4 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <div className="text-sm font-bold text-slate-900 leading-none">Invoices</div>
+              <div className="text-sm font-semibold leading-none text-slate-900">Invoices</div>
               <div className="text-xs text-slate-400 mt-0.5">{filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'} showing</div>
             </div>
           </div>
 
-          <div className="flex gap-2 items-center">
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:flex-nowrap">
+            <div className="relative min-w-[12rem] flex-1 lg:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search invoice, property…"
+                className="h-9 w-full appearance-none rounded-xl !border-0 bg-slate-100 pl-9 pr-8 text-sm text-slate-900 !outline-none !ring-0 placeholder:text-slate-400 transition focus:bg-white focus:!ring-2 focus:!ring-emerald-500/20 lg:w-56"
+                style={{ border: 'none', boxShadow: 'none' }}
+                aria-label="Search disbursed invoices"
+              />
+              {search ? (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-1/2 inline-flex !min-h-0 h-5 w-5 -translate-y-1/2 appearance-none items-center justify-center rounded-full !border-0 !bg-transparent text-slate-400 transition hover:!bg-slate-200 hover:text-slate-700"
+                  style={{ border: 'none', boxShadow: 'none' }}
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+
             {/* Sort */}
             <div className="relative flex items-center">
               <SlidersHorizontal className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" aria-hidden />
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value)}
-                className="appearance-none h-9 pl-8 pr-8 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400 transition-all duration-200 cursor-pointer"
+                className="h-9 cursor-pointer appearance-none rounded-xl !border-0 bg-slate-100 pl-8 pr-8 text-xs font-medium text-slate-700 !outline-none !ring-0 transition-all duration-200 focus:!ring-2 focus:!ring-emerald-500/20"
+                style={{ border: 'none', boxShadow: 'none' }}
                 aria-label="Sort invoices"
               >
                   <option value="paidAt_desc">Newest disbursed</option>
@@ -375,7 +408,8 @@ export default function Paid() {
               <button
                 type="button"
                 onClick={() => setSortKey("paidAt_desc")}
-                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-500 text-xs font-semibold hover:bg-slate-50 hover:text-slate-700 transition shadow-sm"
+                className="inline-flex !min-h-0 h-9 appearance-none items-center gap-1.5 rounded-xl !border-0 !bg-slate-100 px-3 text-xs font-medium text-slate-500 transition hover:!bg-slate-200 hover:text-slate-700"
+                style={{ border: 'none', boxShadow: 'none' }}
                 aria-label="Reset sort"
                 title="Reset sort"
               >
@@ -388,7 +422,8 @@ export default function Paid() {
               type="button"
               onClick={() => load({ silent: true })}
               disabled={refreshing}
-              className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+              className="inline-flex !min-h-0 h-9 w-9 flex-shrink-0 appearance-none items-center justify-center rounded-xl !border-0 !bg-slate-100 text-slate-600 transition-all hover:!bg-slate-200 active:scale-95 disabled:opacity-50"
+              style={{ border: 'none', boxShadow: 'none' }}
               aria-label="Refresh list"
               title="Refresh"
             >
@@ -398,13 +433,13 @@ export default function Paid() {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="py-16 px-6 text-center">
-            <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-slate-100 border border-slate-200 mb-5">
-              <Receipt className="h-8 w-8 text-slate-400" aria-hidden />
+          <div className="px-6 py-10 text-center">
+            <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100">
+              <Receipt className="h-5 w-5 text-slate-400" aria-hidden />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-1.5">No disbursed invoices yet</h2>
+            <h2 className="mb-1 text-base font-semibold text-slate-900">No disbursed invoices yet</h2>
             <p className="text-sm text-slate-500">Once payments are processed, they&apos;ll appear here.</p>
-            <div className="mt-6 flex justify-center gap-2">
+            <div className="mt-4 flex justify-center gap-2">
               <Link
                 href="/owner/revenue/requested"
                 className="no-underline inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold transition active:scale-[0.98] shadow-sm"
@@ -418,17 +453,27 @@ export default function Paid() {
         ) : (
           <>
           <div className="w-full overflow-x-auto">
-            <table className="min-w-[820px] w-full text-sm border-collapse">
+            <table className="w-full min-w-[1280px] table-fixed border-collapse text-sm">
+              <colgroup>
+                <col className="w-[14%]" />
+                <col className="w-[16%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[11%]" />
+                <col className="w-[15%]" />
+                <col className="w-[11%]" />
+                <col className="w-[13%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Invoice</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Property</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Issued</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Disbursed</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Status</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Receipt</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Action</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Invoice</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Property</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Issued</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Disbursed</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Status</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Receipt</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -445,36 +490,41 @@ export default function Paid() {
                   const invoiceHref = isOwnerSubmittedInvoice ? `/owner/invoices/${invoice.id}` : `/owner/revenue/invoices/${invoice.id}`;
                   return (
                     <TableRow key={invoice.id} className="group hover:bg-emerald-50/40 transition-colors duration-150">
-                      <td className="px-5 sm:px-6 py-3.5">
-                        <div className="flex items-center gap-2.5">
+                      <td className="overflow-hidden px-4 py-3.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
                           <div className="flex-shrink-0 h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
                             <FileText className="h-3.5 w-3.5 text-slate-500" aria-hidden />
                           </div>
-                          <span className="font-semibold text-slate-900">{invoice.invoiceNumber}</span>
+                          <span className="truncate whitespace-nowrap font-semibold text-slate-900" title={invoice.invoiceNumber}>{invoice.invoiceNumber}</span>
                         </div>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-slate-600 truncate max-w-[200px]">{propertyTitle}</td>
-                      <td className="px-5 sm:px-6 py-3.5 text-slate-500 whitespace-nowrap tabular-nums text-xs">{formatDate(invoice.issuedAt)}</td>
-                      <td className="px-5 sm:px-6 py-3.5 text-slate-500 whitespace-nowrap tabular-nums text-xs">
+                      <td className="truncate whitespace-nowrap px-4 py-3.5 text-slate-600" title={propertyTitle}>{propertyTitle}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-xs tabular-nums text-slate-500">{formatDate(invoice.issuedAt)}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-xs tabular-nums text-slate-500">
                         {invoice.paidAt ? formatDate(invoice.paidAt) : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5">
+                      <td className="overflow-hidden px-4 py-3.5">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">
                           <CheckCircle2 className="h-3 w-3" aria-hidden />
                           DISBURSED
                         </span>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5">
+                      <td className="overflow-hidden whitespace-nowrap px-4 py-3.5">
                         {invoice.receiptNumber ? (
-                          <span className="font-mono text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">{invoice.receiptNumber}</span>
+                          <span
+                            className="inline-flex max-w-full whitespace-nowrap rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-slate-700"
+                            title={invoice.receiptNumber}
+                          >
+                            {invoice.receiptNumber}
+                          </span>
                         ) : (
                           <span className="text-slate-300 text-base">—</span>
                         )}
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right">
-                        <span className="font-bold text-emerald-700 tabular-nums">{formatCurrency(payout)}</span>
+                      <td className="overflow-hidden px-4 py-3.5 text-right">
+                        <span className="whitespace-nowrap font-semibold tabular-nums text-emerald-700">{formatCurrency(payout)}</span>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right">
+                      <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Link
                             href={`/owner/revenue/receipts/${invoice.id}`}

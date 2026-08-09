@@ -322,6 +322,16 @@ html, body {
   max-width: 100%;
 }
 
+/* Tailwind preflight is disabled in this app, so its usual border-box reset is
+   unavailable. Keep the owner workspace on one predictable sizing model:
+   `w-full` includes padding and borders instead of growing beyond its parent. */
+.owner-workspace,
+.owner-workspace *,
+.owner-workspace *::before,
+.owner-workspace *::after {
+  box-sizing: border-box;
+}
+
 /* Admin UI refinements */
 /* Admin layout variables: sidebar width and footer height used site-wide */
 :root { --admin-sidebar-width: 14rem; --admin-footer-height: 48px; }

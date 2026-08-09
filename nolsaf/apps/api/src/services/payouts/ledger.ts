@@ -29,6 +29,14 @@ import { notifyUser } from "../../lib/notifications.js";
 import { sendMail } from "../../lib/mailer.js";
 import { getOwnerDisbursementEmail } from "../../lib/bookingEmailTemplates.js";
 import { generateOwnerDisbursementPdf } from "../../lib/pdfDocuments.js";
+import QRCode from "qrcode";
+import {
+  buildOwnerPayoutReceiptVerificationUrl,
+  createOwnerPayoutReceiptSnapshot,
+  maskPayoutDestination,
+  signOwnerPayoutReceipt,
+  type OwnerPayoutReceiptSnapshot,
+} from "../../lib/ownerPayoutReceiptSeal.js";
 
 export class PayoutStateError extends Error {
   constructor(message: string) {
@@ -657,15 +665,87 @@ async function writeBackSourcePaid(
     if (sourceType === "OWNER_INVOICE") {
       const invoice = await tx.invoice.findUnique({
         where: { id: sourceId },
-        select: { paymentRef: true, receiptNumber: true },
+        select: {
+          id: true,
+          ownerId: true,
+          bookingId: true,
+          invoiceNumber: true,
+          receiptNumber: true,
+          total: true,
+          commissionPercent: true,
+          commissionAmount: true,
+          taxPercent: true,
+          netPayable: true,
+          paymentRef: true,
+          receiptSnapshot: true,
+          receiptIssuedAt: true,
+          receiptQrPayload: true,
+          owner: { select: { email: true, name: true, fullName: true } },
+          booking: {
+            select: {
+              code: { select: { codeVisible: true } },
+              checkIn: true,
+              checkOut: true,
+              property: { select: { title: true } },
+            },
+          },
+        },
       });
+      if (!invoice) throw new PayoutStateError(`Owner invoice ${sourceId} not found during settlement`);
+
+      const payoutAccount = await tx.payoutAccount.findUnique({
+        where: { id: disbursement.payoutAccountId },
+        select: { accountNumber: true },
+      });
+      if (!payoutAccount) throw new PayoutStateError(`Payout account ${disbursement.payoutAccountId} not found during settlement`);
+
+      const settledAt = disbursement.paidAt ?? now;
+      const receiptNumber = invoice.receiptNumber ?? ownerDisbursementReceiptNumber(sourceId, settledAt);
+      const invoiceNumber = invoice.invoiceNumber ?? `INV-${sourceId}`;
+      const ownerName = invoice.owner.fullName || invoice.owner.name || `Owner #${invoice.ownerId}`;
+      const providerReference = disbursement.fspReferenceId || disbursement.pgReferenceId || externalReferenceId;
+      const netPayable = Number(invoice.netPayable ?? amount);
+      const snapshot: OwnerPayoutReceiptSnapshot = invoice.receiptSnapshot
+        ? (invoice.receiptSnapshot as unknown as OwnerPayoutReceiptSnapshot)
+        : createOwnerPayoutReceiptSnapshot({
+            receiptNumber,
+            invoiceId: invoice.id,
+            invoiceNumber,
+            ownerId: invoice.ownerId,
+            ownerName,
+            ownerEmail: invoice.owner.email,
+            bookingId: invoice.bookingId,
+            bookingCode: invoice.booking.code?.codeVisible ?? null,
+            propertyName: invoice.booking.property?.title || "Property",
+            checkIn: invoice.booking.checkIn.toISOString(),
+            checkOut: invoice.booking.checkOut.toISOString(),
+            totalRevenue: Number(invoice.total),
+            commissionPercent: invoice.commissionPercent == null ? null : Number(invoice.commissionPercent),
+            commissionAmount: invoice.commissionAmount == null ? null : Number(invoice.commissionAmount),
+            taxPercent: invoice.taxPercent == null ? null : Number(invoice.taxPercent),
+            taxAmount: null,
+            netPayable,
+            currency,
+            paymentMethod: disbursement.bankName,
+            payoutProvider: disbursement.provider,
+            providerReference,
+            nolsafReference: externalReferenceId,
+            maskedDestination: maskPayoutDestination(payoutAccount.accountNumber),
+            settledAt: settledAt.toISOString(),
+            issuedAt: settledAt.toISOString(),
+          });
+      const verificationUrl = invoice.receiptQrPayload || buildOwnerPayoutReceiptVerificationUrl(signOwnerPayoutReceipt(snapshot));
+
       await tx.invoice.update({
         where: { id: sourceId },
         data: {
           status: "PAID",
-          paidAt: now,
+          paidAt: settledAt,
           paymentRef: invoice?.paymentRef ?? externalReferenceId,
-          receiptNumber: invoice?.receiptNumber ?? ownerDisbursementReceiptNumber(sourceId, now),
+          receiptNumber,
+          receiptSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+          receiptIssuedAt: invoice.receiptIssuedAt ?? settledAt,
+          receiptQrPayload: verificationUrl,
         },
       });
       return;
@@ -759,6 +839,10 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
       netPayable: true,
       paymentRef: true,
       paidAt: true,
+      receiptSnapshot: true,
+      receiptIssuedAt: true,
+      receiptQrPayload: true,
+      receiptQrPng: true,
       owner: { select: { id: true, email: true, name: true, fullName: true } },
       booking: {
         select: {
@@ -772,13 +856,22 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
     },
   });
 
-  if (!invoice || invoice.status !== "PAID" || !invoice.receiptNumber || !invoice.paidAt) return;
+  if (
+    !invoice ||
+    invoice.status !== "PAID" ||
+    !invoice.receiptNumber ||
+    !invoice.paidAt ||
+    !invoice.receiptSnapshot ||
+    !invoice.receiptQrPayload
+  ) return;
 
-  const ownerName = invoice.owner.fullName || invoice.owner.name || `Owner #${invoice.owner.id}`;
-  const propertyName = invoice.booking.property?.title || "your property";
-  const invoiceNumber = invoice.invoiceNumber || `INV-${invoice.id}`;
-  const paymentReference = disbursement.externalReferenceId || invoice.paymentRef;
-  const amount = Number(invoice.netPayable ?? disbursement.amount);
+  const snapshot = invoice.receiptSnapshot as unknown as OwnerPayoutReceiptSnapshot;
+
+  const ownerName = snapshot.ownerName;
+  const propertyName = snapshot.propertyName;
+  const invoiceNumber = snapshot.invoiceNumber;
+  const paymentReference = snapshot.providerReference;
+  const amount = snapshot.netPayable;
   const title = "Payout disbursed";
   const body =
     `Your payout of ${amount.toLocaleString("en-US")} ${disbursement.currency} for booking #${invoice.booking.id} has been sent.` +
@@ -814,14 +907,14 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
     const io = (global as any).io;
     io?.to?.(`owner:${invoice.owner.id}`)?.emit?.("notification:new", { id: notificationId, title, type: "invoice" });
     io?.to?.(`owner:${invoice.owner.id}`)?.emit?.("owner:bookings:updated", {
-      bookingId: invoice.booking.id,
+      bookingId: snapshot.bookingId,
       invoiceId: invoice.id,
     });
   } catch {
     // Realtime delivery is optional; the saved notification and email remain.
   }
 
-  if (!invoice.owner.email) {
+  if (!snapshot.ownerEmail) {
     console.warn(`[payout-ledger] owner ${invoice.owner.id} has no email; disbursement ${disbursement.id} notice not sent`);
     return;
   }
@@ -829,44 +922,59 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
   const email = getOwnerDisbursementEmail({
     ownerName,
     propertyName,
-    bookingId: invoice.booking.id,
+    bookingId: snapshot.bookingId,
     invoiceNumber,
-    receiptNumber: invoice.receiptNumber,
-    checkIn: invoice.booking.checkIn,
-    checkOut: invoice.booking.checkOut,
+    receiptNumber: snapshot.receiptNumber,
+    checkIn: snapshot.checkIn,
+    checkOut: snapshot.checkOut,
     netPayable: amount,
-    paymentMethod: disbursement.bankName,
-    paidAt: invoice.paidAt,
+    paymentMethod: snapshot.paymentMethod,
+    paidAt: snapshot.settledAt,
   });
 
   let attachments: Array<{ filename: string; content: Buffer }> | undefined;
   try {
+    const qrPng = invoice.receiptQrPng
+      ? Buffer.from(invoice.receiptQrPng)
+      : await QRCode.toBuffer(invoice.receiptQrPayload, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+    if (!invoice.receiptQrPng) {
+      await prisma.invoice.updateMany({
+        where: { id: invoice.id, receiptQrPng: null },
+        data: { receiptQrPng: qrPng },
+      });
+    }
     const pdf = await generateOwnerDisbursementPdf({
       ownerName,
-      ownerEmail: invoice.owner.email,
-      receiptNumber: invoice.receiptNumber,
+      ownerEmail: snapshot.ownerEmail,
+      receiptNumber: snapshot.receiptNumber,
       invoiceNumber,
-      bookingId: invoice.booking.id,
-      bookingCode: invoice.booking.codeVisible,
+      bookingId: snapshot.bookingId,
+      bookingCode: snapshot.bookingCode,
       propertyName,
-      checkIn: invoice.booking.checkIn,
-      checkOut: invoice.booking.checkOut,
-      totalRevenue: Number(invoice.total),
-      commissionPercent: invoice.commissionPercent ? Number(invoice.commissionPercent) : null,
-      commissionAmount: invoice.commissionAmount ? Number(invoice.commissionAmount) : null,
+      checkIn: snapshot.checkIn,
+      checkOut: snapshot.checkOut,
+      totalRevenue: snapshot.totalRevenue,
+      commissionPercent: snapshot.commissionPercent,
+      commissionAmount: snapshot.commissionAmount,
+      taxPercent: snapshot.taxPercent,
+      taxAmount: snapshot.taxAmount,
       netPayable: amount,
-      paymentMethod: disbursement.bankName,
+      paymentMethod: snapshot.paymentMethod,
       paymentRef: paymentReference,
-      paidAt: invoice.paidAt,
-      currency: disbursement.currency,
-      qrPng: null,
+      paidAt: snapshot.settledAt,
+      currency: snapshot.currency,
+      qrPng,
+      maskedDestination: snapshot.maskedDestination,
+      nolsafReference: snapshot.nolsafReference,
+      timeZone: snapshot.timeZone,
+      disclaimer: snapshot.disclaimer,
     });
-    attachments = [{ filename: `Disbursement-${invoice.receiptNumber}.pdf`, content: pdf }];
+    attachments = [{ filename: `Disbursement-${snapshot.receiptNumber}.pdf`, content: pdf }];
   } catch (err) {
     console.warn(`[payout-ledger] owner payout PDF failed for disbursement ${disbursement.id}`, err);
   }
 
-  await sendMail(invoice.owner.email, email.subject, email.html, attachments, { replyTo: "support@nolsaf.com" });
+  await sendMail(snapshot.ownerEmail, email.subject, email.html, attachments, { replyTo: "support@nolsaf.com" });
 }
 
 export async function applyProviderEvent(

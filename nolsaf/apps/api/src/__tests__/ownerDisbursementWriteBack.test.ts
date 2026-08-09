@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   azamPayDisburse: vi.fn(),
   findInvoice: vi.fn(),
+  updateInvoiceMany: vi.fn(),
   createNotification: vi.fn(),
   sendMail: vi.fn(),
   generateOwnerDisbursementPdf: vi.fn(),
@@ -16,7 +17,7 @@ vi.mock("@nolsaf/prisma", () => ({
   prisma: {
     disbursement: { findUnique: mocks.findDisbursement, updateMany: mocks.claimDisbursement },
     disbursementEvent: { create: vi.fn() },
-    invoice: { findUnique: mocks.findInvoice },
+    invoice: { findUnique: mocks.findInvoice, updateMany: mocks.updateInvoiceMany },
     notification: { create: mocks.createNotification },
     $transaction: mocks.transaction,
   },
@@ -150,8 +151,31 @@ describe("owner invoice disbursement write-back", () => {
 
   it("creates the standard receipt number when provider settlement marks the payout PAID", async () => {
     const processing = ownerDisbursement("PROCESSING");
-    const paid = { ...processing, status: "PAID", paidAt: new Date() };
+    const paid = { ...processing, status: "PAID", paidAt: new Date(), fspReferenceId: "FSP-77" };
     const invoiceUpdate = vi.fn().mockResolvedValue({});
+    const invoiceForSettlement = {
+      id: processing.sourceId,
+      ownerId: 44,
+      bookingId: 123,
+      invoiceNumber: "OINV-202608-000123-0042",
+      receiptNumber: null,
+      total: 150000,
+      commissionPercent: null,
+      commissionAmount: null,
+      taxPercent: null,
+      netPayable: 150000,
+      paymentRef: "INVREF-123",
+      receiptSnapshot: null,
+      receiptIssuedAt: null,
+      receiptQrPayload: null,
+      owner: { email: "owner@example.com", name: "Asha", fullName: "Asha Mtumwa" },
+      booking: {
+        code: { codeVisible: "BOOK-123" },
+        checkIn: new Date("2026-08-08T12:00:00.000Z"),
+        checkOut: new Date("2026-08-10T12:00:00.000Z"),
+        property: { title: "NoLSAF Lodge" },
+      },
+    };
     const tx = {
       disbursement: {
         findUnique: vi.fn().mockResolvedValueOnce(processing).mockResolvedValueOnce(paid),
@@ -159,11 +183,44 @@ describe("owner invoice disbursement write-back", () => {
       },
       disbursementEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
       invoice: {
-        findUnique: vi.fn().mockResolvedValue({ paymentRef: "INVREF-123", receiptNumber: null }),
+        findUnique: vi.fn().mockResolvedValue(invoiceForSettlement),
         update: invoiceUpdate,
       },
+      payoutAccount: { findUnique: vi.fn().mockResolvedValue({ accountNumber: "255700000001" }) },
     };
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+    const receiptSnapshot = {
+      version: 1,
+      documentType: "OWNER_PAYOUT_CONFIRMATION",
+      issuer: "NoLS Africa Co Ltd",
+      receiptNumber: "RCPT-202608-0000123",
+      invoiceId: 123,
+      invoiceNumber: "OINV-202608-000123-0042",
+      ownerId: 44,
+      ownerName: "Asha Mtumwa",
+      ownerEmail: "owner@example.com",
+      bookingId: 123,
+      bookingCode: "BOOK-123",
+      propertyName: "NoLSAF Lodge",
+      checkIn: "2026-08-08T12:00:00.000Z",
+      checkOut: "2026-08-10T12:00:00.000Z",
+      totalRevenue: 150000,
+      commissionPercent: null,
+      commissionAmount: null,
+      taxPercent: null,
+      taxAmount: null,
+      netPayable: 150000,
+      currency: "TZS",
+      paymentMethod: "azampesa",
+      payoutProvider: "azampay",
+      providerReference: "FSP-77",
+      nolsafReference: processing.externalReferenceId,
+      maskedDestination: "•••••••• 0001",
+      settledAt: paid.paidAt.toISOString(),
+      issuedAt: paid.paidAt.toISOString(),
+      timeZone: "Africa/Dar_es_Salaam",
+      disclaimer: "This is a NoLSAF payout confirmation, not an AzamPay, bank, or mobile-network-issued receipt.",
+    };
     mocks.findInvoice.mockResolvedValue({
       id: processing.sourceId,
       status: "PAID",
@@ -175,6 +232,10 @@ describe("owner invoice disbursement write-back", () => {
       netPayable: 150000,
       paymentRef: "INVREF-123",
       paidAt: paid.paidAt,
+      receiptSnapshot,
+      receiptIssuedAt: paid.paidAt,
+      receiptQrPayload: "https://nolsaf.com/verify/payout?t=signed-token",
+      receiptQrPng: Buffer.from("qr"),
       owner: { id: 44, email: "owner@example.com", name: "Asha", fullName: "Asha Mtumwa" },
       booking: {
         id: 123,
@@ -205,6 +266,20 @@ describe("owner invoice disbursement write-back", () => {
     expect(update.where).toEqual({ id: processing.sourceId });
     expect(update.data.status).toBe("PAID");
     expect(update.data.receiptNumber).toMatch(/^RCPT-\d{6}-0000123$/);
+    expect(update.data.receiptSnapshot).toEqual(expect.objectContaining({
+      documentType: "OWNER_PAYOUT_CONFIRMATION",
+      providerReference: "FSP-77",
+      maskedDestination: "•••••••• 0001",
+    }));
+    expect(update.data.receiptQrPayload).toContain("/verify/payout?t=");
+    expect(mocks.generateOwnerDisbursementPdf).toHaveBeenCalledWith(expect.objectContaining({
+      receiptNumber: "RCPT-202608-0000123",
+      paymentRef: "FSP-77",
+      nolsafReference: processing.externalReferenceId,
+      maskedDestination: "•••••••• 0001",
+      timeZone: "Africa/Dar_es_Salaam",
+      qrPng: Buffer.from("qr"),
+    }));
     expect(mocks.sendMail).toHaveBeenCalledWith(
       "owner@example.com",
       "Your payout has been sent",

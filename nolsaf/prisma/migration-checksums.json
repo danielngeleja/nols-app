@@ -132,6 +132,7 @@
     "20260807180000_add_azampay_disbursement": "9cd10ae4016c6062cd8cd4bb3719d15417c1fac91654a4bbfe87379b0d1c880a",
     "20260808120000_add_disbursement_batching": "b6086e4b89a73839a76ffbe10f3198648f3f42be506183b42ab7594a2224d3db",
     "20260808160000_harden_disbursement_security": "0d1ac340eb01d615e99360b389f10acdd1106b588fb1202a64d54b2e08c02449",
-    "20260809090000_harden_contact_channel_changes": "efa03e3bfabeec761db43dabcf5d3a76df8cb51f781321390c395399aea4dd80"
+    "20260809090000_harden_contact_channel_changes": "efa03e3bfabeec761db43dabcf5d3a76df8cb51f781321390c395399aea4dd80",
+    "20260809100000_add_owner_payout_receipt_snapshot": "c4f14029ab5c1f77dc0dcc4306504d1b1f3df5b0b03522d32c733bb6092dce99"
   }
 }
