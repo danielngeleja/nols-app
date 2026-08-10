@@ -137,6 +137,6 @@
     "20260809120000_add_allocation_meal_plan": "9fe8015813c1492216644699fcacbeba24d13f5d1af2a1875c243d672fc193d3",
     "20260810100000_harden_nrms_rate_restrictions": "cf4d128fbcc22cfd20f7f5def850433ceac88448fd09027d3a080e0705c4d6b7",
     "20260810120000_add_service_availability_gates": "428fa30fdd3bb70a918e61a9e4aaf6c11e0e2de7d6f716a95acf7c36aaf6a925",
-    "20260810130000_harden_service_availability_gates": "f28438d01aae692cdf3fb770880be18405ec4fb446390a3e684d3728d4a0089d"
+    "20260810130000_harden_service_availability_gates": "6cd0bc16379c8ffe43a7525f2575d2e9de04fbea6c64d30c5ec001e1bf6015f4"
   }
 }

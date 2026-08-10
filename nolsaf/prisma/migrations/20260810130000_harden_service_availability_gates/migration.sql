@@ -13,7 +13,7 @@ SELECT
   '',
   1,
   NULL
-FROM `Property` p
+FROM `property` p
 WHERE p.`status` = 'APPROVED'
   AND p.`regionName` IS NOT NULL
   AND TRIM(p.`regionName`) <> ''
