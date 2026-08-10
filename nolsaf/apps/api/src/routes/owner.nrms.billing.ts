@@ -11,9 +11,10 @@ import {
   idemSet,
   makePaymentRateLimiter,
   normalizePhone,
-  SUPPORTED_BANK_CODES,
+  CHECKOUT_BANK_CODES,
 } from "../lib/azampay.helpers.js";
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import crypto from "crypto";
 
 export const router = Router();
@@ -34,7 +35,7 @@ const initiatePaymentSchema = z.discriminatedUnion("channel", [
   }),
   z.object({
     channel: z.literal("BANK"),
-    bankCode: z.enum(SUPPORTED_BANK_CODES),
+    bankCode: z.enum(CHECKOUT_BANK_CODES),
     accountNumber: z.string().min(1).max(30).regex(/^[\w-]+$/),
     merchantMobileNumber: z.string().min(9).max(15),
     otp: z.string().min(1).max(50),
@@ -186,6 +187,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       const normalizedPhone = normalizePhone(input.phoneNumber);
       if (!normalizedPhone) return res.status(400).json({ error: "Enter a valid Tanzanian mobile number" });
       const provider = ({ Mixx: "Tigo", "M-Pesa": "Mpesa", HaloPesa: "Halopesa", Airtel: "Airtel" } as const)[input.provider];
+      const gate = await getPaymentMethodAvailability(provider);
+      if (!gate.enabled) return res.status(400).json({ error: "payment_method_unavailable", message: gate.reason });
       const payload = {
         accountNumber: normalizedPhone.replace(/^\+/, ""),
         amount,
@@ -223,6 +226,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     }
 
     if (input.channel === "BANK") {
+      const gate = await getPaymentMethodAvailability(`BANK_${input.bankCode}`);
+      if (!gate.enabled) return res.status(400).json({ error: "payment_method_unavailable", message: gate.reason });
       const normalizedPhone = normalizePhone(input.merchantMobileNumber);
       if (!normalizedPhone) return res.status(400).json({ error: "Enter a valid Tanzanian mobile number" });
       const payload = {
@@ -256,6 +261,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       return res.json({ ok: true, ...result });
     }
 
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled) return res.status(400).json({ error: "payment_method_unavailable", message: cardGate.reason });
     const config = requiredNrmsCoralConfig();
     if (!config) return res.status(503).json({ error: "Card payments are not configured" });
     const postbackParams = { kind: "nrms", propertyId: String(row.statement.account.propertyId) };

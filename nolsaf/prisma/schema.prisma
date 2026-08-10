@@ -1851,6 +1851,57 @@ model ReferralWithdrawal {
 // =========================================================
 //  SYSTEM SETTING MODEL - Singleton configuration table (id = 1)
 // =========================================================
+/// Admin-controlled geographic gate for the transport/driver add-on. Rows are
+/// opt-in: a region/district/ward with no row (or isEnabled=false) is locked,
+/// so a newly-listed property in a region with no driver coverage yet never
+/// offers transport until an admin explicitly opens that area. Lookup checks
+/// ward first, then district, then region (see lib/serviceAvailability.ts),
+/// so admin can open a whole region and later carve out ward-level exceptions.
+model TransportAvailability {
+  id       Int  @id @default(autoincrement())
+
+  regionId   String? @db.VarChar(50)
+  regionName String  @db.VarChar(120)
+  /// Empty string means "applies to the whole parent scope", NOT null. MySQL
+  /// treats NULLs as distinct in a UNIQUE index, so nullable columns here would
+  /// let duplicate region-wide rows be inserted and would break the upsert below.
+  district   String  @default("") @db.VarChar(120)
+  ward       String  @default("") @db.VarChar(120)
+
+  isEnabled Boolean @default(true)
+  reason    String? @db.VarChar(300)
+
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([regionName, district, ward])
+  @@index([regionName, district])
+  @@map("transport_availability")
+}
+
+/// Admin-controlled global on/off per payment provider. Unlike transport,
+/// this is opt-out: a provider with no row defaults to ENABLED (matches
+/// today's always-on behavior), so admin only needs to touch this when a
+/// specific rail (e.g. an unreleased API) needs to be pulled. Guests still
+/// see a disabled provider in the picker with `reason` explaining why, rather
+/// than the option disappearing.
+model PaymentMethodAvailability {
+  id Int @id @default(autoincrement())
+
+  provider String @unique @db.VarChar(40) // Airtel, Tigo, Mpesa, Halopesa, Azampesa, CARD, BANK_CRDB, BANK_NMB
+  label    String @db.VarChar(80)
+
+  isEnabled Boolean @default(true)
+  reason    String? @db.VarChar(300)
+
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("payment_method_availability")
+}
+
 model SystemSetting {
   id Int @id @default(1)
 

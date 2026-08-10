@@ -22,6 +22,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth } from "../middleware/auth.js";
 import { getAzamPayToken, invalidateAzamPayToken } from "../lib/azampay.auth.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import {
   AZAMPAY_MNO_API_URL,
   idemGet,
@@ -30,7 +31,7 @@ import {
   makePaymentRateLimiter,
   normalizePhone,
   maskAzamPayPhone,
-  SUPPORTED_BANK_CODES,
+  CHECKOUT_BANK_CODES,
 } from "../lib/azampay.helpers.js";
 
 const router = Router();
@@ -58,7 +59,7 @@ const bankTargetLimiter = makePaymentRateLimiter({
 
 export const bankInitiateSchema = z.object({
   invoiceId: z.number().int().positive(),
-  bankCode: z.enum(SUPPORTED_BANK_CODES),
+  bankCode: z.enum(CHECKOUT_BANK_CODES),
   accountNumber: z.string().min(1).max(30).regex(/^[\w\-]+$/),
   merchantMobileNumber: z.string().min(9).max(15).regex(
     /^[\d+]+$/,
@@ -132,6 +133,14 @@ router.post(
   idempotencyKey,
   accessToken,
 } = parsed.data;
+
+      const bankGate = await getPaymentMethodAvailability(`BANK_${bankCode}`);
+      if (!bankGate.enabled) {
+        return res.status(400).json({
+          error: "payment_method_unavailable",
+          message: bankGate.reason,
+        });
+      }
 
 const normalizedBankMobile = normalizePhone(merchantMobileNumber);
 if (!normalizedBankMobile) {

@@ -164,12 +164,21 @@ const confirmContactChangeSchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
+const payoutBankSchema = z.preprocess(
+  (value) => {
+    const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+    const match = ["CRDB", "NBC", "NMB"].find((bank) => normalized === bank || normalized === `${bank}BANK`);
+    return match ?? value;
+  },
+  z.enum(["CRDB", "NBC", "NMB"], { message: "Select CRDB, NBC, or NMB" })
+);
+
 const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
   z
     .object({
       payoutPreferred: z.literal("BANK"),
       bankAccountName: z.string().trim().min(2).max(160),
-      bankName: z.string().trim().min(2).max(30),
+      bankName: payoutBankSchema,
       bankAccountNumber: z.string().trim().regex(/^[A-Za-z0-9]{4,40}$/, "Enter a valid bank account number"),
       bankBranch: z.string().trim().max(100).optional().default(""),
     })

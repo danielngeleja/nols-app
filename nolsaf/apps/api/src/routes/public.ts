@@ -20,6 +20,7 @@ import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
 import publicReportsRouter from "./public.reports";
+import publicServiceAvailabilityRouter from "./public.service-availability";
 import publicSupportRouter from "./public.support";
 import publicTourBookingsRouter from "./public.tourBookings";
 import publicTourismSitesRouter from "./public.tourismSites";
@@ -42,6 +43,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/podcasts", publicPodcastsRouter);
   app.use("/api/public/booking", publicBookingRouter);
   app.use("/api/public/bookings", publicBookingsRouter);
+  app.use("/api/public/service-availability", publicServiceAvailabilityRouter);
   app.use("/api/public/invoices", publicInvoicesRouter);
   app.use("/api/public/owner-payout-receipts", publicOwnerPayoutReceiptsRouter);
   app.use("/api/public/reports", publicReportsRouter);

@@ -49,8 +49,19 @@ const payoutProviders = [
   { value: "halopesa", label: "HaloPesa", supported: false, logo: "/assets/halopesa.png" },
 ] as const;
 
+const payoutBanks = [
+  { value: "CRDB", label: "CRDB Bank" },
+  { value: "NBC", label: "NBC Bank" },
+  { value: "NMB", label: "NMB Bank" },
+] as const;
+
 function clean(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function normalizeBankCode(value: unknown): string {
+  const normalized = clean(value).toUpperCase().replace(/[^A-Z]/g, "");
+  return payoutBanks.find((bank) => normalized === bank.value || normalized === `${bank.value}BANK`)?.value ?? "";
 }
 
 function maskDestination(value: unknown): string {
@@ -191,7 +202,21 @@ export default function SecurePayoutPreferenceCard({
             {preferred === "BANK" && (
               <div className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-slate-50/40 p-3.5 sm:grid-cols-2 sm:p-4">
                 <Field icon={<Building2 />} label="Bank name">
-                  <input className={inputClass} value={value.bankName || ""} onChange={(event) => onChange({ bankName: event.target.value })} maxLength={100} autoComplete="organization" disabled={disabled} />
+                  <div className="relative min-w-0">
+                    <select
+                      className={`${inputClass} appearance-none pr-10`}
+                      value={normalizeBankCode(value.bankName)}
+                      onChange={(event) => onChange({ bankName: event.target.value })}
+                      disabled={disabled}
+                      aria-label="Bank name"
+                    >
+                      <option value="" disabled>Select bank</option>
+                      {payoutBanks.map((bank) => (
+                        <option key={bank.value} value={bank.value}>{bank.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden />
+                  </div>
                 </Field>
                 <Field icon={<User />} label="Account holder name">
                   <input className={inputClass} value={value.bankAccountName || ""} onChange={(event) => onChange({ bankAccountName: event.target.value })} maxLength={160} autoComplete="name" disabled={disabled} />

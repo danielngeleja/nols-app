@@ -24,6 +24,7 @@ import {
   coralPostJson64,
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 
 const router = Router();
 
@@ -470,6 +471,11 @@ router.post(
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
     }
 
+    const providerGate = await getPaymentMethodAvailability(provider);
+    if (!providerGate.enabled) {
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: providerGate.reason });
+    }
+
     const normalizedPhone = normalizePhone(phoneNumber);
     if (!normalizedPhone) {
       return res.status(400).json({
@@ -668,6 +674,10 @@ router.post(
     if (!verifyTourBookingAccessToken(accessToken, id))
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
 
+    const bankGate = await getPaymentMethodAvailability(`BANK_${bankCode}`);
+    if (!bankGate.enabled)
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: bankGate.reason });
+
     const booking = await prisma.tourBooking.findUnique({
       where:  { id },
       select: { id: true, bookingCode: true, status: true, paymentStatus: true,
@@ -776,6 +786,10 @@ router.post(
 
     if (!verifyTourBookingAccessToken(accessToken, id))
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled)
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: cardGate.reason });
 
     const coralConfig = requiredCoralTourConfig();
     if (!coralConfig) {

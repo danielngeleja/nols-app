@@ -19,6 +19,7 @@ import jwt from "jsonwebtoken";
 import { getAzamPayToken, invalidateAzamPayToken } from "../lib/azampay.auth.js";
 import { requireAuth } from "../middleware/auth.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import {
   AZAMPAY_API_URL,
   AZAMPAY_MNO_API_URL,
@@ -128,7 +129,15 @@ router.post("/initiate", requireAuth, paymentUserLimiter, paymentTargetLimiter, 
       });
     }
     const { invoiceId, phoneNumber, provider, idempotencyKey, accessToken } = parsed.data;
-    
+
+    const providerGate = await getPaymentMethodAvailability(provider);
+    if (!providerGate.enabled) {
+      return res.status(400).json({
+        error: "payment_method_unavailable",
+        message: providerGate.reason,
+      });
+    }
+
 
     // Normalise & validate phone before anything else (fast-fail)
     const normalizedPhone = normalizePhone(phoneNumber);

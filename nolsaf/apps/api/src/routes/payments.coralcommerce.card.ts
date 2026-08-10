@@ -13,6 +13,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth } from "../middleware/auth.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import {
   idemGet,
   idemSet,
@@ -207,6 +208,15 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
     }
 
     const { invoiceId, idempotencyKey, accessToken } = parsed.data;
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled) {
+      return res.status(400).json({
+        error: "payment_method_unavailable",
+        message: cardGate.reason,
+      });
+    }
+
     const config = requiredCoralConfig();
     if (!config) {
       return res.status(503).json({ error: "payment_unavailable", message: "Card payments are not configured" });

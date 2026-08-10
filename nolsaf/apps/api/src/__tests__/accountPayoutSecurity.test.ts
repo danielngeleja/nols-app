@@ -104,6 +104,41 @@ describe("secure payout destination update", () => {
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
   });
 
+  it("accepts only the supported payout banks and stores their canonical code", async () => {
+    mocks.lookup.mockResolvedValue({
+      name: "AGREY MBILINYI",
+      status: true,
+      statusCode: 200,
+      accountNumber: "12345678901234",
+      bankName: "CRDB",
+    });
+
+    const response = await request(app()).post("/account/payouts/verify").send({
+      payoutPreferred: "BANK",
+      bankName: "CRDB Bank",
+      bankAccountName: "AGREY MBILINYI",
+      bankAccountNumber: "12345678901234",
+      bankBranch: "MLIMANI CITY",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.destination.provider).toBe("CRDB");
+    expect(mocks.lookup).toHaveBeenCalledWith({ bankName: "CRDB", accountNumber: "12345678901234" });
+  });
+
+  it("rejects a bank outside CRDB, NBC, and NMB before provider lookup", async () => {
+    const response = await request(app()).post("/account/payouts/verify").send({
+      payoutPreferred: "BANK",
+      bankName: "OTHER BANK",
+      bankAccountName: "AGREY MBILINYI",
+      bankAccountNumber: "12345678901234",
+      bankBranch: "MLIMANI CITY",
+    });
+
+    expect(response.status).toBe(400);
+    expect(mocks.lookup).not.toHaveBeenCalled();
+  });
+
   it("persists only the verified active method and deactivates older destinations", async () => {
     const now = new Date();
     mocks.lookup.mockResolvedValue({

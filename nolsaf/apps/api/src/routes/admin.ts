@@ -60,6 +60,7 @@ import adminNrmsSystemRouter from "./admin.nrms.system.js";
 import adminNrmsChannelsRouter from "./admin.nrms.channels.js";
 import adminFxRouter from "./admin.fx";
 import adminSettingsRouter from "./admin.settings";
+import adminServiceAvailabilityRouter from "./admin.service-availability";
 import adminStatsRouter from "./admin.stats";
 import adminSummaryRouter from "./admin.summary";
 import adminTrustPartnersRouter from "./admin.trustPartners";
@@ -106,6 +107,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/payments", adminPaymentsRouter as RequestHandler);
   app.use("/admin/settings", adminSettingsRouter);
   app.use("/api/admin/settings", adminSettingsRouter as RequestHandler);
+  app.use("/admin/service-availability", adminServiceAvailabilityRouter);
+  app.use("/api/admin/service-availability", adminServiceAvailabilityRouter as RequestHandler);
   app.use("/admin/fx", adminFxRouter);
   app.use("/api/admin/fx", adminFxRouter as RequestHandler);
   app.use("/admin/drivers/summary", adminDriversSummaryRouter);

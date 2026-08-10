@@ -230,6 +230,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/trust-partners", label: "Trust Partners", Icon: Award },
   { href: "/admin/management/nolscope", label: "NoLScope Rates", Icon: Calculator },
   { href: "/admin/management/currency", label: "Currency Rates", Icon: Coins },
+  { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },
   { href: "/admin/management/settings", label: "Settings", Icon: Settings },
   { href: "/admin/management/updates", label: "Updates", Icon: Megaphone },
   { href: "/admin/management/users", label: "Users", Icon: Users },
