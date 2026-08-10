@@ -30,6 +30,10 @@ function dbFor(value: any) {
   return {
     booking: { findUnique: vi.fn().mockResolvedValue(value), update: vi.fn() },
     reservation: { upsert: vi.fn().mockResolvedValue({ id: 100 }) },
+    reservationEvent: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 200 }),
+    },
     reservationRoomAllocation: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn().mockResolvedValue({ count: 1 }), updateMany: vi.fn() },
     roomUnit: { findFirst: vi.fn().mockResolvedValue({ id: 15, roomTypeId: 5 }) },
     roomType: { findFirst: vi.fn() },
@@ -75,6 +79,15 @@ describe("NoLSAF marketplace to NRMS connection", () => {
         guestProfileId: 80,
       }),
     });
+    expect(db.reservation.upsert.mock.calls[0][0].create).not.toHaveProperty("events");
+    expect(db.reservationEvent.create).toHaveBeenCalledWith({
+      data: {
+        reservationId: 100,
+        type: "MARKETPLACE_CONNECTED",
+        data: { bookingId: 42, source: "NOLSAF", status: "CONFIRMED" },
+      },
+    });
+    expect(db.reservation.upsert.mock.invocationCallOrder[0]).toBeLessThan(db.reservationEvent.create.mock.invocationCallOrder[0]);
     expect(db.guestProfile.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         propertyId: 7,
@@ -108,6 +121,20 @@ describe("NoLSAF marketplace to NRMS connection", () => {
     expect(db.reservation.upsert).toHaveBeenCalledWith(expect.objectContaining({
       update: expect.objectContaining({ guestProfileId: 81 }),
     }));
+  });
+
+  it("does not duplicate the marketplace connection event during a retry", async () => {
+    const db = dbFor(booking());
+    db.reservationEvent.findFirst.mockResolvedValue({ id: 201 });
+    const { syncNoLsafBookingToNrms } = await import("./nolsafMarketplaceNrms.js");
+
+    await syncNoLsafBookingToNrms(db, 42);
+
+    expect(db.reservationEvent.findFirst).toHaveBeenCalledWith({
+      where: { reservationId: 100, type: "MARKETPLACE_CONNECTED" },
+      select: { id: true },
+    });
+    expect(db.reservationEvent.create).not.toHaveBeenCalled();
   });
 
   it("releases the linked allocation when NoLSAF cancels", async () => {

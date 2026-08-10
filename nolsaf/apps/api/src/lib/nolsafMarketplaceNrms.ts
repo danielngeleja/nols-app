@@ -178,9 +178,28 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
     create: {
       ...operational,
       bookingId: booking.id,
-      events: { create: { type: "MARKETPLACE_CONNECTED", data: { bookingId: booking.id, source: "NOLSAF", status: mappedStatus } } },
     },
   });
+
+  // Keep the child FK write out of the reservation upsert. The MariaDB driver
+  // adapter can surface a nested reservation_event failure as an unidentified
+  // P2003 on `reservation.upsert()`, making a valid checkout look as though its
+  // property/owner/booking parent were missing. Creating the event after the
+  // parent also makes the FK order explicit. The lookup keeps retries and
+  // self-healing projections from duplicating the connection event.
+  const connectedEvent = await db.reservationEvent.findFirst({
+    where: { reservationId: reservation.id, type: "MARKETPLACE_CONNECTED" },
+    select: { id: true },
+  });
+  if (!connectedEvent) {
+    await db.reservationEvent.create({
+      data: {
+        reservationId: reservation.id,
+        type: "MARKETPLACE_CONNECTED",
+        data: { bookingId: booking.id, source: "NOLSAF", status: mappedStatus },
+      },
+    });
+  }
 
   if (mappedStatus === "CANCELLED") {
     await db.reservationRoomAllocation.updateMany({
