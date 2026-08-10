@@ -650,9 +650,24 @@ router.post("/:id/checkin", async (req, res) => {
 /** POST /admin/bookings/:id/checkout - mark as CHECKED_OUT (admin observed) */
 router.post("/:id/checkout", async (req, res) => {
   const id = Number(req.params.id);
-  const before = await prisma.booking.findUnique({ where: { id }, select: { status: true, propertyId: true } });
+  const before = await prisma.booking.findUnique({
+    where: { id },
+    select: { status: true, propertyId: true, property: { select: { nrmsActivatedAt: true } } },
+  });
   if (!before) return res.status(404).json({ error: "Booking not found" });
   if (before.status === "CHECKED_OUT") return res.status(400).json({ error: "Already checked out" });
+
+  // NRMS owns check-out for its properties. Flipping the booking here would
+  // reach the reservation through the marketplace projection and skip folio
+  // settlement, charge verification and housekeeping, leaving a departed guest
+  // with an open balance and a room nobody was told to clean. The owner must
+  // complete it at the NRMS front desk.
+  if (before.property?.nrmsActivatedAt) {
+    return res.status(409).json({
+      error: "This property is managed in NRMS. The owner must complete check-out from the NRMS front desk.",
+      code: "NRMS_CHECKOUT_MANAGED",
+    });
+  }
 
   const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(tx, id, "CHECKED_OUT"));
   try { await audit(req, "BOOKING_CHECKOUT", "BOOKING", before, { status: "CHECKED_OUT" }); } catch {}

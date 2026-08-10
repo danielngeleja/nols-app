@@ -101,6 +101,7 @@ type AttentionItem = {
 };
 
 const SOURCE_LABELS: Record<string, string> = {
+  NOLSAF: "NoLSAF marketplace",
   WALK_IN: "Walk-in",
   PHONE: "Phone",
   DIRECT: "Direct",

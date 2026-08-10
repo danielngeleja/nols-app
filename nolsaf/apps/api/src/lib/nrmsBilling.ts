@@ -34,12 +34,17 @@ function billedKey(allocationId: number, day: Date): string {
 export function buildNrmsUsageRows(input: {
   accountId: number; propertyId: number; reservationId: number; policyId: number;
   trialEndsAt: Date; currency: string; roomNightPrice: number; source: string;
+  bookingId?: number | null;
   allocations: Array<{ id: number; startDate: Date; endDate: Date }>;
   postThroughDate?: Date;
   alreadyBilled?: Set<string>;
 }) {
   const trialEnd = utcDay(input.trialEndsAt);
-  const commissionOnly = input.source.trim().toUpperCase() === "NOLSAF";
+  // A linked Booking is the authoritative marketplace signal: NoLSAF already
+  // earned commission on that stay, so the PAYG room-night fee must not apply
+  // on top. The source string is only a fallback, because the FK is what every
+  // other marketplace code path keys on and the two must never disagree.
+  const commissionOnly = input.bookingId != null || input.source.trim().toUpperCase() === "NOLSAF";
   const cutoff = input.postThroughDate ? utcDay(input.postThroughDate) : null;
   const rows: any[] = [];
   for (const allocation of input.allocations) {
@@ -109,6 +114,32 @@ export async function applyNrmsUsageRows(tx: any, account: any, rows: any[]) {
   return { usageEvents: rows.length, billableAmount: billable, paygStatus: status, unpaidBalance: newBalance };
 }
 
+export async function completeMarketplaceBookingCheckout(tx: any, reservation: any) {
+  if (reservation.bookingId == null) return { linked: false, alreadyCheckedOut: false };
+
+  const bookingChanged = await tx.booking.updateMany({
+    where: {
+      id: reservation.bookingId,
+      propertyId: reservation.propertyId,
+      status: "CHECKED_IN",
+    },
+    data: { status: "CHECKED_OUT" },
+  });
+  if (bookingChanged.count === 1) return { linked: true, alreadyCheckedOut: false };
+
+  const linkedBooking = await tx.booking.findUnique({
+    where: { id: reservation.bookingId },
+    select: { propertyId: true, status: true },
+  });
+  const linkedStatus = linkedBooking?.propertyId === reservation.propertyId
+    ? String(linkedBooking.status || "UNKNOWN").toUpperCase()
+    : "MISSING";
+  if (linkedStatus !== "CHECKED_OUT") {
+    throw new Error(`NRMS_MARKETPLACE_STATUS_CONFLICT:${linkedStatus}`);
+  }
+  return { linked: true, alreadyCheckedOut: true };
+}
+
 export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: number, verifiedChargeIds: number[] = []) {
   const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount] = await Promise.all([
     tx.reservation.findUnique({
@@ -165,6 +196,11 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   });
   if (changed.count !== 1) throw new Error("NRMS_INVALID_TRANSITION_RACE");
 
+  // A marketplace stay has two deliberately different records: Reservation
+  // owns operations and Booking owns commerce. Checkout must advance both in
+  // this same transaction so neither workspace can observe a split state.
+  await completeMarketplaceBookingCheckout(tx, reservation);
+
   const allocations = await tx.reservationRoomAllocation.findMany({ where: { reservationId: reservation.id, status: "ACTIVE" } });
   await markRoomsDirtyOnCheckout(tx, {
     propertyId: reservation.propertyId,
@@ -178,7 +214,7 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   const rows = buildNrmsUsageRows({
     accountId: account.id, propertyId: reservation.propertyId, reservationId: reservation.id, policyId: account.policyId,
     trialEndsAt: account.trialEndsAt, currency: account.policy.currency, roomNightPrice: Number(account.policy.roomNightPrice),
-    source: reservation.source, allocations, alreadyBilled,
+    source: reservation.source, bookingId: reservation.bookingId ?? null, allocations, alreadyBilled,
   });
   const result = await applyNrmsUsageRows(tx, account, rows);
   await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CHECKED_OUT", actorId: ownerId, data: { usageEvents: result.usageEvents, billableAmount: result.billableAmount } } });

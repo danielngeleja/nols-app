@@ -1,7 +1,7 @@
 // apps/api/src/routes/owner.nrms.reservations.ts
 // NRMS external reservation lifecycle + front desk (doc 6.3, 6.4, 7.3, 7.4).
-// External/direct/walk-in stays only: marketplace bookings keep their own
-// validated check-in flow and never pass through here (doc 6.5).
+// Marketplace bookings keep their code-validated check-in flow. Once NRMS is
+// active, check-out is completed here so there is only one lifecycle writer.
 // Every state change writes a ReservationEvent audit row (doc 14).
 // PAYG usage events at checkout arrive with Phase 3.
 import { Router, type Response } from "express";
@@ -379,7 +379,9 @@ async function loadOwnedReservation(
     return null;
   }
   if (reservation.bookingId != null && !options.allowMarketplace) {
-    // Marketplace stays keep the existing booking-code check-in flow (doc 6.5).
+    // Marketplace check-in remains protected by the existing single-use code
+    // flow. Specific NRMS operations (currently checkout) may opt in after
+    // they have implemented atomic synchronization back to Booking.
     res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
     return null;
   }
@@ -1462,8 +1464,10 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     const verification = checkoutVerificationSchema.safeParse(req.body ?? {});
     if (!verification.success) return res.status(400).json({ error: "Invalid charge verification list" });
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { allowMarketplace: true });
     if (!reservation) return;
+    const activeProperty = await loadOwnedActiveNrmsProperty(res, ownerId, reservation.propertyId);
+    if (!activeProperty) return;
     if (reservation.status !== "CHECKED_IN") return res.status(409).json({ error: "Only checked-in stays can be checked out", code: "INVALID_TRANSITION" });
     const billing = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
@@ -1514,6 +1518,14 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     }
     if (err instanceof Error && err.message === "NRMS_INVALID_TRANSITION_RACE") {
       return res.status(409).json({ error: "Reservation changed before checkout confirmation", code: "INVALID_TRANSITION" });
+    }
+    if (err instanceof Error && err.message.startsWith("NRMS_MARKETPLACE_STATUS_CONFLICT:")) {
+      const status = err.message.split(":")[1] || "UNKNOWN";
+      return res.status(409).json({
+        error: `The linked NoLSAF booking is ${status.toLowerCase().replace(/_/g, " ")} and cannot be checked out. Refresh the stay before trying again.`,
+        code: "MARKETPLACE_STATUS_CONFLICT",
+        bookingStatus: status,
+      });
     }
     console.error("[owner.nrms.reservations] checkout failed", err);
     res.status(500).json({ error: "Failed to check out reservation" });
