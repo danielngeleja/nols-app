@@ -39,11 +39,11 @@ describe("NRMS physical service transition", () => {
 
 describe("NRMS outlet order folio transition", () => {
   it("posts the charge and links the folio in one atomic nested write", async () => {
-    const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44 } });
+    const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44, reservationId: 9, category: "RESTAURANT", description: "Order", amount: 25_000, currency: "TZS" } });
     const tx = {
       nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder()), update: orderUpdate },
       reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 25_000 } }) },
-      reservation: { update: vi.fn().mockResolvedValue({}) },
+      reservation: { findUnique: vi.fn().mockResolvedValue({ id: 9, groupId: null }), update: vi.fn().mockResolvedValue({}) },
       reservationEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     const result = await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12 });
@@ -56,7 +56,7 @@ describe("NRMS outlet order folio transition", () => {
         status: "POSTED_TO_FOLIO",
         folioCharge: { create: expect.objectContaining({ reservationId: 9, postedById: 12, amount: 25_000 }) },
       }),
-      include: { folioCharge: { select: { id: true } } },
+      include: { folioCharge: { select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true } } },
     }));
     expect(tx.reservation.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { chargesTotal: 25_000 } });
   });

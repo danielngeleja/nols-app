@@ -13,6 +13,8 @@ import publicInvoicesRouter from "./public.invoices";
 import publicNolScopeRouter from "./public.nolscope";
 import publicNrmsMenuRouter from "./public.nrmsMenu";
 import publicNrmsGuestRouter from "./public.nrmsGuest";
+import publicNrmsRoomingListRouter from "./public.nrmsRoomingList";
+import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
@@ -53,6 +55,10 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/tourism-sites", publicTourismSitesRouter);
   app.use("/api/public/nolscope", publicNolScopeRouter);
   app.use("/api/public/nrms/guest", publicNrmsGuestRouter);
+  // Mounted before the menu router so /nrms/rooming-lists/* never falls through
+  // to its parameterized routes.
+  app.use("/api/public/nrms/rooming-lists", publicNrmsRoomingListRouter);
+  app.use("/api/public/nrms/pro-formas", publicNrmsProFormaRouter);
   app.use("/api/public/nrms", publicNrmsMenuRouter);
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);

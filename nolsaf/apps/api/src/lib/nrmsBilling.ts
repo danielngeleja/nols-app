@@ -3,6 +3,7 @@ import { getCheckoutSettlement } from "./nrmsFolio.js";
 import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
+import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -141,10 +142,10 @@ export async function completeMarketplaceBookingCheckout(tx: any, reservation: a
 }
 
 export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: number, verifiedChargeIds: number[] = []) {
-  const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount] = await Promise.all([
+  const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount, transferredToMaster] = await Promise.all([
     tx.reservation.findUnique({
       where: { id: reservation.id },
-      select: { status: true, totalAmount: true },
+      select: { status: true, totalAmount: true, groupId: true },
     }),
     tx.externalPaymentRecord.aggregate({
       where: { reservationId: reservation.id, voidedAt: null },
@@ -173,13 +174,14 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
         voidedAt: null,
       },
     }),
+    transferredToMasterForReservation(tx, reservation.id),
   ]);
   if (!currentFolio || currentFolio.status !== "CHECKED_IN") throw new Error("NRMS_INVALID_TRANSITION_RACE");
   if (openOutletOrderCount > 0) throw new Error(`NRMS_OPEN_OUTLET_ORDERS:${openOutletOrderCount}`);
   if (unclassifiedOutletPaymentCount > 0) throw new Error(`NRMS_UNCLASSIFIED_OUTLET_PAYMENTS:${unclassifiedOutletPaymentCount}`);
   const amountPaid = paymentAggregate._sum.amount ?? 0;
   const chargesTotal = chargeAggregate._sum.amount ?? 0;
-  const settlement = getCheckoutSettlement(currentFolio.totalAmount, chargesTotal, amountPaid);
+  const settlement = getCheckoutSettlement(currentFolio.totalAmount, chargesTotal, Number(amountPaid) + transferredToMaster);
   if (!settlement.settled) throw new Error(`NRMS_${settlement.code}:${settlement.balance}`);
   const verified = new Set(verifiedChargeIds);
   const missingChargeIds = activeCharges
@@ -187,6 +189,11 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
     .map((charge: { id: number }) => charge.id)
     .filter((id: number) => !verified.has(id));
   if (missingChargeIds.length > 0) throw new Error(`NRMS_CHARGES_NOT_VERIFIED:${missingChargeIds.join(",")}`);
+
+  const masterBlocker = currentFolio.groupId || transferredToMaster > 0
+    ? await getMasterCheckoutBlocker(tx, currentFolio.groupId, { reservationId: reservation.id })
+    : null;
+  if (masterBlocker) throw new Error(`NRMS_${masterBlocker.code}:${masterBlocker.balance}`);
 
   const account = await tx.ownerPaygAccount.findUnique({ where: { propertyId: reservation.propertyId }, include: { policy: true } });
   if (!account) throw new Error("NRMS_PAYG_ACCOUNT_MISSING");

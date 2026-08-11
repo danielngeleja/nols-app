@@ -1,3 +1,5 @@
+import { routeChargeToMasterFolio } from "./nrmsMasterFolio.js";
+
 function amount(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -78,9 +80,10 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
         },
       },
     },
-    include: { folioCharge: { select: { id: true } } },
+    include: { folioCharge: { select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true } } },
   });
   const chargeId = posted.folioCharge!.id;
+  await routeChargeToMasterFolio(tx, posted.folioCharge!);
   // Aggregate after the charge exists so the new posting is included.
   const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
   await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });

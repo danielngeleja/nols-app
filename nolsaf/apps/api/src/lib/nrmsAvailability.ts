@@ -133,7 +133,7 @@ export async function getRoomTypesAvailability(
   const uniqueIds = [...new Set(roomTypeIds.filter((id) => Number.isInteger(id) && id > 0))];
   if (!uniqueIds.length) return new Map();
 
-  const [roomTypes, consumers, bookings, blocks] = await Promise.all([
+  const [roomTypes, consumers, bookings, blocks, groupBlocks] = await Promise.all([
     db.roomType.findMany({
       where: { id: { in: uniqueIds }, propertyId },
       select: { id: true, name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
@@ -155,6 +155,20 @@ export async function getRoomTypesAvailability(
       },
       select: { roomCode: true, roomUnitId: true, bedsBlocked: true, roomUnit: { select: { roomTypeId: true } } },
     }),
+    // Group blocks hold rooms before any guest name exists. Only the rooms not
+    // yet picked up count here: a picked-up room is already consumed by the
+    // reservation it became, and counting both would double-block it. Past
+    // cutOffAt the block stops holding anything, the same lazy expiry a HELD
+    // reservation gets from holdExpiresAt, so no worker has to run.
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(start, end, "checkIn", "checkOut"),
+      },
+      select: { rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } } },
+    }),
   ]);
 
   const result = new Map<number, { capacity: number; consumed: number; available: number }>();
@@ -171,8 +185,11 @@ export async function getRoomTypesAvailability(
     const blockCount = blocks
       .filter((row: any) => row.roomUnit?.roomTypeId === roomType.id || matchesType(row.roomCode))
       .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.bedsBlocked ?? 1)), 0);
+    const groupBlockCount = groupBlocks.reduce((sum: number, block: any) => sum + block.rooms
+      .filter((room: any) => room.roomTypeId === roomType.id)
+      .reduce((held: number, room: any) => held + Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0)), 0), 0);
     const capacity = roomType._count.units;
-    const consumed = nrmsCount + bookingCount + blockCount;
+    const consumed = nrmsCount + bookingCount + blockCount + groupBlockCount;
     result.set(roomType.id, {
       capacity,
       consumed,
@@ -359,6 +376,51 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
       label: isOperational ? (blk.notes ? blk.notes.slice(0, 80) : "Blocked") : (blk.guestName ?? "External booking"),
       billable: false, // blocks are never billable (doc 4, 8.2)
     });
+  }
+
+  // Group blocks: rooms held for a party whose names are not in yet. These
+  // consume capacity in getRoomTypesAvailability, so without an entry here the
+  // calendar would show rooms free while the desk was refused a walk-in, with
+  // nothing on screen explaining why. One entry per room type still held.
+  const groupBlocks = await prisma.nrmsGroupBlock.findMany({
+    where: {
+      propertyId,
+      status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+      cutOffAt: { gt: new Date() },
+      ...overlapWhere(start, end, "checkIn", "checkOut"),
+    },
+    select: {
+      id: true,
+      name: true,
+      reference: true,
+      agencyName: true,
+      checkIn: true,
+      checkOut: true,
+      rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } },
+    },
+  });
+  for (const groupBlock of groupBlocks) {
+    for (const room of groupBlock.rooms) {
+      const held = Math.max(0, room.quantity - room.pickedUp);
+      if (held < 1) continue;
+      entries.push({
+        kind: "BLOCK",
+        id: groupBlock.id,
+        startDate: groupBlock.checkIn,
+        endDate: groupBlock.checkOut,
+        status: "GROUP_BLOCK",
+        source: groupBlock.agencyName ?? null,
+        roomTypeId: room.roomTypeId,
+        roomUnitId: null,
+        roomCode: null,
+        quantity: held,
+        guestName: null,
+        // Names are exactly what a block does not have yet, so the label says
+        // whose rooms these are and how many are still waiting on a name.
+        label: `${groupBlock.name} · ${held} awaiting names`,
+        billable: false,
+      });
+    }
   }
 
   return entries.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());

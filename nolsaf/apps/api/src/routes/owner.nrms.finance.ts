@@ -135,12 +135,14 @@ type Posting = {
 
 async function buildPostings(propertyId: number, key: string): Promise<Posting[]> {
   const { start, end } = dayRange(key);
-  const [reservations, payments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
+  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
     db.reservation.findMany({
       where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: end }, checkOut: { gt: start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
     }),
     db.externalPaymentRecord.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    db.nrmsMasterFolioItem.findMany({ where: { masterFolio: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    db.nrmsMasterFolioPayment.findMany({ where: { masterFolio: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] }, include: { masterFolio: { select: { billToName: true } } } }),
     db.reservationCharge.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
     // Direct outlet-payment sales are matched by settlement OR by void, independent
     // of the order's current status, so a same-day settle-then-void posts both the
@@ -182,6 +184,17 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
       { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
     ] });
   }
+  for (const item of masterItems) {
+    const amount = money(item.amount);
+    if (new Date(item.createdAt) >= start && new Date(item.createdAt) < end) postings.push({ sourceKey: `MASTER_ITEM:${propertyId}:${item.id}`, sourceType: "MASTER_FOLIO_TRANSFER", sourceId: item.id, description: item.description || `${item.kind} transferred to master folio`, currency: item.currency, occurredAt: item.createdAt, entries: [
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (item.voidedAt && new Date(item.voidedAt) >= start && new Date(item.voidedAt) < end) postings.push({ sourceKey: `MASTER_ITEM_VOID:${propertyId}:${item.id}`, sourceType: "MASTER_FOLIO_TRANSFER_REVERSAL", sourceId: item.id, description: `Reversal: ${item.description || `${item.kind} transferred to master folio`}`, currency: item.currency, occurredAt: item.voidedAt, entries: [
+      { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+  }
   for (const payment of payments) {
     const tender = accountForPayment(payment.method);
     const amount = money(payment.amount);
@@ -191,6 +204,18 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     ] });
     if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: ${payment.method.replace(/_/g, " ")} guest payment`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
       { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+  }
+  for (const payment of masterPayments) {
+    const tender = accountForPayment(payment.method);
+    const amount = money(payment.amount);
+    if (new Date(payment.createdAt) >= start && new Date(payment.createdAt) < end) postings.push({ sourceKey: `MASTER_PAYMENT:${propertyId}:${payment.id}`, sourceType: "MASTER_FOLIO_PAYMENT", sourceId: payment.id, description: `${payment.method.replace(/_/g, " ")} agency payment from ${payment.masterFolio.billToName}`, currency: payment.currency, occurredAt: payment.createdAt, entries: [
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `MASTER_PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "MASTER_FOLIO_PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: agency payment from ${payment.masterFolio.billToName}`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
       { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
     ] });
   }

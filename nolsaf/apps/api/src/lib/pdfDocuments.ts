@@ -688,7 +688,8 @@ export interface NrmsInvoiceData {
   }>;
   chargesTotal: number | string;
   amountPaid: number | string;
-  /** roomTotal + chargesTotal - amountPaid */
+  transferredToMaster?: number | string;
+  /** roomTotal + chargesTotal - amountPaid - transferredToMaster */
   balanceDue: number;
 }
 
@@ -709,6 +710,8 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
   const folioTotal = Number(data.roomTotal) + Number(data.chargesTotal);
   const totalGuestSpend = folioTotal + outletPaidTotal;
   const totalCollected = Number(data.amountPaid) + outletPaidTotal;
+  const transferredToMaster = Number(data.transferredToMaster || 0);
+  const totalSettled = totalCollected + transferredToMaster;
   const folioPaymentTotals = data.payments.reduce<Record<string, number>>((totals, payment) => {
     const method = payment.method || "OTHER";
     totals[method] = (totals[method] ?? 0) + Number(payment.amount || 0);
@@ -721,7 +724,8 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       return `${label} ${fmtMoney(amount, cur)}`;
     })
     .join(" · ");
-  const settled = data.balanceDue <= 0 && totalCollected > 0;
+  const settled = data.balanceDue <= 0 && totalSettled > 0;
+  const clearedByMaster = settled && transferredToMaster > 0;
   const docTitle = settled ? "RECEIPT" : "INVOICE";
   const CONTENT_LIMIT = A5_H - 96; // keep clear of the signature/footer zone
 
@@ -934,7 +938,7 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
     const folioBreakdownHeight = folioPaymentBreakdown
       ? Math.min(16, doc.heightOfString(folioPaymentBreakdown, { width: totalsW, lineGap: 0.5 }))
       : 0;
-    const totalsRequiredHeight = 155 + (folioBreakdownHeight ? folioBreakdownHeight + 3 : 0);
+    const totalsRequiredHeight = 155 + (transferredToMaster > 0 ? 14 : 0) + (folioBreakdownHeight ? folioBreakdownHeight + 3 : 0);
     if (y + totalsRequiredHeight > CONTENT_LIMIT) {
       doc.addPage({ size: "A5", margin: M });
       drawWatermark();
@@ -955,14 +959,15 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       y += folioBreakdownHeight + 3;
     }
     totalsLine("Outlet payments", fmtMoney(outletPaidTotal, cur));
-    totalsLine("Total collected", fmtMoney(totalCollected, cur), true, TEAL);
+    if (transferredToMaster > 0) totalsLine("Transferred to master", fmtMoney(transferredToMaster, cur));
+    totalsLine("Total settled", fmtMoney(totalSettled, cur), true, TEAL);
     doc.strokeColor(BORDER).lineWidth(0.5).moveTo(totalsX, y + 2).lineTo(M + W, y + 2).stroke();
     y += 5;
     const dueBoxH = 22;
     doc.roundedRect(totalsX, y, totalsW, dueBoxH, 3).fill(settled ? "#dcfce7" : "#fef3c7");
     doc.font(fonts.bold).fontSize(9).fillColor(settled ? "#166534" : AMBER);
     if (settled) {
-      doc.text("PAID IN FULL", totalsX + 8, y + 7, { width: totalsW - 16, align: "center", lineBreak: false });
+      doc.text(clearedByMaster ? "CLEARED TO MASTER FOLIO" : "PAID IN FULL", totalsX + 8, y + 7, { width: totalsW - 16, align: "center", lineBreak: false });
     } else {
       doc.text("FOLIO BALANCE DUE", totalsX + 8, y + 7, { width: totalsLabelW - 8, lineBreak: false });
       doc.font(fonts.bold).fontSize(9).fillColor(AMBER)
@@ -993,6 +998,198 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
 }
 
 // ─── NRMS breakfast list ──────────────────────────────────────
+
+export interface NrmsProFormaPdfData {
+  number: string;
+  revision: number;
+  issuedAt: Date | string;
+  dueAt: Date | string;
+  validUntil: Date | string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  propertyTin?: string | null;
+  propertyEmail?: string | null;
+  propertyPhone?: string | null;
+  billToName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string | null;
+  groupName: string;
+  groupReference: string;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  currency: string;
+  items: Array<{ description: string; detail?: string | null; quantity: number; nights?: number | null; unitRate: number; amount: number }>;
+  payments: Array<{ date: Date | string; method: string; reference?: string | null; receiptNumber: string; amount: number }>;
+  quotedTotal: number;
+  paidAtIssue: number;
+  balanceDue: number;
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankBranch?: string | null;
+  bankSource: string;
+  bankCurrency?: string | null;
+  bankAddress?: string | null;
+  bankSwiftCode?: string | null;
+  bankIban?: string | null;
+  bankRoutingCode?: string | null;
+  bankInstructions?: string | null;
+  paymentReference: string;
+  notes?: string | null;
+  verificationUrl: string;
+  qrPng: Buffer;
+}
+
+/** A4 direct-to-property agency payment request with a secure verification QR. */
+export async function generateNrmsProFormaPdf(data: NrmsProFormaPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const addPage = () => {
+      doc.addPage({ size: "A4", margin: MARGIN });
+      y = MARGIN;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.number} · Revision ${data.revision}`, left, y, { width, align: "right" });
+      y += 22;
+    };
+    const ensure = (height: number) => { if (y + height > pageHeight - 72) addPage(); };
+    const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "—", x, rowY + 11, { width: rowW, ellipsis: true });
+    };
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(21).fillColor(TEAL).text("PRO FORMA INVOICE", left, y, { width, align: "right" });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.number, left, y + 29, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text(`Revision ${data.revision}`, left, y + 42, { width, align: "right" });
+    y += 66;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 16;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("BILL TO", left + 12, y + 11, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.billToName, left + 12, y + 27, { width: cardW - 24, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text(data.contactName, left + 12, y + 47, { width: cardW - 24, ellipsis: true })
+      .text(data.contactEmail, left + 12, y + 61, { width: cardW - 24, ellipsis: true });
+    if (data.contactPhone) doc.text(data.contactPhone, left + 12, y + 75, { width: cardW - 24 });
+    const rightX = left + cardW + cardGap + 12;
+    keyValue("Issue date", dateOnly(data.issuedAt), rightX, y + 11, 105);
+    keyValue("Due date", dateOnly(data.dueAt), rightX + 112, y + 11, 105);
+    keyValue("Valid until", dateOnly(data.validUntil), rightX, y + 52, 105);
+    keyValue("Group reference", data.groupReference, rightX + 112, y + 52, 105);
+    y += 114;
+
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("GROUP DETAILS", left, y, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN).text(data.groupName, left, y + 14, { width: width * 0.55, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(`${dateOnly(data.checkIn)} to ${dateOnly(data.checkOut)}`, left, y + 30, { width: width * 0.55 });
+    if (data.propertyTin) doc.text(`TIN: ${data.propertyTin}`, left, y + 44, { width: width * 0.55 });
+    const propertyContact = [data.propertyEmail, data.propertyPhone].filter(Boolean).join(" · ");
+    if (propertyContact) doc.text(propertyContact, left, y + 58, { width: width * 0.75 });
+    y += 78;
+
+    const cols = { description: 250, qty: 48, rate: 90, amount: width - 388 };
+    const tableHeader = () => {
+      doc.rect(left, y, width, 22).fill(TEAL);
+      doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+        .text("DESCRIPTION", left + 8, y + 7, { width: cols.description - 8 })
+        .text("QTY", left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text("RATE", left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text("AMOUNT", left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      y += 22;
+    };
+    tableHeader();
+    for (const item of data.items) {
+      ensure(42);
+      const detail = item.detail || (item.nights ? `${item.nights} night${item.nights === 1 ? "" : "s"}` : "");
+      const rowH = detail ? 34 : 25;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN).text(item.description, left + 8, y + 6, { width: cols.description - 16, ellipsis: true });
+      if (detail) doc.font(fonts.regular).fontSize(6.8).fillColor(TEXT_MUTED).text(detail, left + 8, y + 19, { width: cols.description - 16, ellipsis: true });
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+        .text(String(item.quantity), left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text(fmtMoney(item.unitRate, cur), left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text(fmtMoney(item.amount, cur), left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(left, y + rowH).lineTo(left + width, y + rowH).stroke();
+      y += rowH;
+    }
+
+    ensure(112 + data.payments.length * 28);
+    y += 13;
+    if (data.payments.length) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("PAYMENTS ALREADY RECEIVED", left, y, { characterSpacing: 1 });
+      y += 16;
+      for (const payment of data.payments) {
+        doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+          .text(dateOnly(payment.date), left, y, { width: 72 })
+          .text(payment.method.replace(/_/g, " "), left + 76, y, { width: 80 })
+          .text(payment.reference || payment.receiptNumber, left + 160, y, { width: 190, ellipsis: true })
+          .text(fmtMoney(payment.amount, cur), left + 355, y, { width: width - 355, align: "right" });
+        y += 18;
+      }
+      y += 6;
+    }
+
+    const totalsX = left + width - 230;
+    const totalLine = (label: string, value: number, bold = false, color = TEXT_MAIN) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text(label, totalsX, y, { width: 120 });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(9).fillColor(color).text(fmtMoney(value, cur), totalsX + 120, y, { width: 110, align: "right" });
+      y += 17;
+    };
+    totalLine("Pro Forma total", data.quotedTotal);
+    totalLine("Payments received", data.paidAtIssue);
+    doc.strokeColor(BORDER).lineWidth(0.8).moveTo(totalsX, y).lineTo(left + width, y).stroke();
+    y += 8;
+    totalLine("AMOUNT REQUESTED", data.balanceDue, true, data.balanceDue > 0 ? AMBER : TEAL);
+    y += 12;
+
+    const hasExtendedBankDetails = Boolean(data.bankSwiftCode || data.bankIban || data.bankRoutingCode || data.bankAddress);
+    const bankCardH = hasExtendedBankDetails ? 146 : 112;
+    ensure(bankCardH + 64);
+    doc.roundedRect(left, y, width, bankCardH, 8).fillAndStroke(LIGHT_TEAL, BORDER);
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text("PAY DIRECTLY TO THE PROPERTY", left + 14, y + 12, { characterSpacing: 0.8 });
+    doc.font(fonts.bold).fontSize(6).fillColor(TEAL)
+      .text("BANK TRANSFER DETAILS", left + 285, y + 13, { width: width - 390, align: "right", characterSpacing: 0.45 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN).text(data.bankName, left + 14, y + 31, { width: 200 });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+      .text(`Account name: ${data.bankAccountName}`, left + 14, y + 48, { width: 285 })
+      .text(`Account number: ${data.bankAccountNumber}`, left + 14, y + 64, { width: 285 })
+      .text(`Payment reference: ${data.paymentReference}`, left + 14, y + 80, { width: 285 });
+    if (data.bankCurrency) doc.text(`Account currency: ${data.bankCurrency}`, left + 300, y + 32, { width: 120 });
+    if (data.bankBranch) doc.text(`Branch: ${data.bankBranch}`, left + 300, y + 48, { width: 120, ellipsis: true });
+    if (data.bankSwiftCode) doc.text(`SWIFT/BIC: ${data.bankSwiftCode}`, left + 300, y + 64, { width: 120, ellipsis: true });
+    if (data.bankRoutingCode) doc.text(`Routing code: ${data.bankRoutingCode}`, left + 300, y + 80, { width: 120, ellipsis: true });
+    if (data.bankIban) doc.text(`IBAN: ${data.bankIban}`, left + 14, y + 98, { width: 405, ellipsis: true });
+    if (data.bankAddress) doc.text(`Bank address: ${data.bankAddress}`, left + 14, y + 114, { width: 405, ellipsis: true });
+    doc.image(data.qrPng, left + width - 88, y + 9, { fit: [76, 76], align: "center", valign: "center" });
+    doc.font(fonts.bold).fontSize(5.8).fillColor(TEXT_MUTED).text("SCAN TO VIEW", left + width - 93, y + 86, { width: 86, align: "center" });
+    y += bankCardH + 14;
+    if (data.bankInstructions) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("TRANSFER INSTRUCTIONS", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.bankInstructions, left, y + 12, { width });
+      y += Math.min(42, doc.heightOfString(data.bankInstructions, { width })) + 18;
+    }
+    if (data.notes) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("NOTES", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.notes, left, y + 12, { width });
+      y += Math.min(50, doc.heightOfString(data.notes, { width })) + 18;
+    }
+    ensure(32);
+    y += 4;
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`${data.number} · REV ${data.revision}`, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
+  }, { size: "A4", margin: MARGIN });
+}
 
 export type BreakfastListPdfRow = {
   sn: number;

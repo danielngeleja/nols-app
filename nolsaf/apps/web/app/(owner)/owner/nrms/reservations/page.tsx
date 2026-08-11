@@ -3,13 +3,14 @@
 // NRMS reservations (doc 7.3, 7.4): list, create external/walk-in
 // reservations, and run the stay lifecycle with payments and balances.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { useNrms } from "../_components/NrmsProvider";
+import ModalFrame from "../_components/NrmsModalFrame";
 
 type Allocation = {
   id: number;
@@ -120,24 +121,7 @@ type GuestSearchResult = {
 type GuestHistory = GuestSearchResult & {
   notes?: string | null;
   createdAt?: string | null;
-  reservations: Array<{ id: number; bookingId: number | null; commercialManaged?: boolean; status: string; source: string; checkIn: string; checkOut: string; currency: string; totalAmount: number | null; amountPaid?: number | null }>;
-};
-
-type ReservationGroup = {
-  id: number;
-  reference: string;
-  name: string;
-  notes: string | null;
-  status: string;
-  memberCount: number;
-  members: Array<{
-    id: number;
-    status: string;
-    checkIn: string;
-    checkOut: string;
-    guestProfile: { id: number; fullName: string; phone: string | null } | null;
-    rooms: Array<{ roomUnitCode: string | null; roomTypeName: string | null }>;
-  }>;
+  reservations: Array<{ id: number; bookingId: number | null; commercialManaged?: boolean; status: string; source: string; checkIn: string; checkOut: string; currency: string; totalAmount: number | null; amountPaid?: number | null; chargesTotal?: number; transferredToMaster?: number; balance?: number | null }>;
 };
 
 type RoomType = {
@@ -317,17 +301,14 @@ export default function NrmsReservationsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults>({});
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
-  const [groups, setGroups] = useState<ReservationGroup[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
     setLoading(true);
     setError(null);
     try {
-      const [reservationResponse, groupResponse] = await Promise.all([
+      const [reservationResponse] = await Promise.all([
         apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}`, {
           params: {
             ...(statusFilter ? { status: statusFilter } : {}),
@@ -338,11 +319,9 @@ export default function NrmsReservationsPage() {
             sortOrder,
           },
         }),
-        apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/groups`),
       ]);
       setReservations(reservationResponse.data?.reservations ?? []);
       setTotalReservations(Number(reservationResponse.data?.total ?? 0));
-      setGroups(groupResponse.data?.groups ?? []);
       setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id)));
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load reservations");
@@ -355,10 +334,10 @@ export default function NrmsReservationsPage() {
     void load();
   }, [load]);
 
+
   useEffect(() => {
     setPage(1);
     setSelectedIds([]);
-    setSelectedGroupId(null);
   }, [selectedPropertyId]);
 
   const changeSort = (field: SortField) => {
@@ -458,35 +437,27 @@ export default function NrmsReservationsPage() {
         </button>
       </div>
 
-      {(selectedIds.length > 0 || groups.length > 0) && (
-        <section className="mb-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Users className="h-4 w-4" /></span>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-neutral-900">Group operations</p>
-                <p className="text-xs text-neutral-500">Coordinate party arrivals and departures while each room keeps its own checks.</p>
-              </div>
+      {selectedIds.length > 0 && (
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Users className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-bold text-emerald-950">{selectedIds.length} selected</p>
+              <p className="m-0 mt-0.5 text-xs text-emerald-800">
+                {selectedIds.length < 2 ? "Select at least two stays to work them as one party." : "Carry them over to Group reservations to create a group or add to an existing one."}
+              </p>
             </div>
-            {selectedIds.length >= 2 && (
-              <button type="button" onClick={() => setShowCreateGroup(true)} className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800">
-                <Plus className="h-3.5 w-3.5" /> Create group from {selectedIds.length}
-              </button>
-            )}
           </div>
-          {groups.length > 0 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-              {groups.map((group) => (
-                <button key={group.id} type="button" onClick={() => setSelectedGroupId(group.id)} className="min-w-[210px] rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-bold text-neutral-900">{group.name}</span>
-                    <span className="shrink-0 text-[10px] font-bold text-emerald-700">{group.memberCount} rooms</span>
-                  </span>
-                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-400">{group.reference} · {group.status.replace(/_/g, " ")}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setSelectedIds([])} className="cursor-pointer rounded-lg border border-solid border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-900 transition hover:bg-emerald-100">Clear</button>
+            <Link
+              href={`/owner/nrms/groups?select=${selectedIds.join(",")}`}
+              aria-disabled={selectedIds.length < 2}
+              className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold text-white no-underline transition ${selectedIds.length < 2 ? "pointer-events-none bg-emerald-700/40" : "bg-emerald-700 hover:bg-emerald-800"}`}
+            >
+              Continue to Group reservations <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </section>
       )}
 
@@ -577,7 +548,7 @@ export default function NrmsReservationsPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="font-bold text-neutral-900">{reservation.guestProfile?.fullName ?? "Guest"}</div>
-                        {reservation.group && <button type="button" onClick={() => setSelectedGroupId(reservation.group!.id)} className="mt-1 cursor-pointer appearance-none border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700 hover:underline">{reservation.group.name}</button>}
+                        {reservation.group && <Link href="/owner/nrms/groups" className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-emerald-700 no-underline hover:underline">{reservation.group.name}</Link>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-600">
                         {reservation.guestProfile?.phone ?? "—"}
@@ -586,7 +557,7 @@ export default function NrmsReservationsPage() {
                         {reservation.guestProfile?.nationality ?? "—"}
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="font-semibold text-neutral-800">{fmtDate(reservation.checkIn)} – {fmtDate(reservation.checkOut)}</div>
+                        <div className="font-semibold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</div>
                         <div className="mt-0.5 text-xs text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</div>
                       </td>
                       <td className="px-4 py-3.5">
@@ -660,27 +631,6 @@ export default function NrmsReservationsPage() {
           onChanged={load}
         />
       )}
-      {showCreateGroup && (
-        <CreateReservationGroupModal
-          propertyId={selectedPropertyId}
-          reservationIds={selectedIds}
-          reservations={reservations.filter((reservation) => selectedIds.includes(reservation.id))}
-          onClose={() => setShowCreateGroup(false)}
-          onSaved={async (groupId) => {
-            setShowCreateGroup(false);
-            setSelectedIds([]);
-            await load();
-            setSelectedGroupId(groupId);
-          }}
-        />
-      )}
-      {selectedGroupId && (
-        <ReservationGroupModal
-          groupId={selectedGroupId}
-          onClose={() => setSelectedGroupId(null)}
-          onChanged={load}
-        />
-      )}
     </div>
   );
 }
@@ -720,85 +670,6 @@ function SortableHeader({
         )}
       </button>
     </th>
-  );
-}
-
-function ModalFrame({
-  title,
-  subtitle,
-  icon,
-  footer,
-  onClose,
-  children,
-  wide,
-  extraWide,
-  elevated = false,
-  closeOnEscape = true,
-  compact = false,
-}: {
-  title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  footer?: React.ReactNode;
-  onClose: () => void;
-  children: React.ReactNode;
-  wide?: boolean;
-  extraWide?: boolean;
-  elevated?: boolean;
-  closeOnEscape?: boolean;
-  compact?: boolean;
-}) {
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && closeOnEscape) onClose();
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [closeOnEscape, onClose]);
-
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div className={`fixed inset-0 ${elevated ? "z-[1100]" : "z-[1000]"} flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-6`}>
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-neutral-950/45 backdrop-blur-[2px]" onClick={onClose} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={`relative flex w-full min-w-0 flex-col rounded-2xl border border-white/70 bg-white shadow-2xl ${compact ? "max-w-2xl overflow-hidden" : `max-h-[calc(100dvh-1.5rem)] overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : "max-w-md"}`}`}
-      >
-        <div className={`flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 ${compact ? "px-4 py-2.5" : "px-5 py-4 sm:px-6"}`}>
-          {compact ? (
-            <div className="flex items-center gap-2.5">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
-              <span className="h-4 w-px bg-neutral-200" aria-hidden="true" />
-              <h3 className="mb-0 text-sm font-bold tracking-tight text-neutral-950">{title}</h3>
-            </div>
-          ) : (
-            <div className="flex min-w-0 items-center gap-3">
-              {icon && <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">{icon}</span>}
-              <div className="min-w-0">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
-                <h3 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h3>
-                {subtitle && <p className="mb-0 mt-0.5 text-xs text-neutral-500">{subtitle}</p>}
-              </div>
-            </div>
-          )}
-          <button type="button" onClick={onClose} aria-label="Close dialog" className={`flex shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-neutral-500 shadow-none transition hover:bg-neutral-100 hover:text-neutral-900 ${compact ? "h-7 w-7" : "h-9 w-9"}`}>
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className={compact ? "overflow-visible p-3" : "min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6"}>{children}</div>
-        {footer && <div className="shrink-0 border-t border-neutral-100 bg-white px-5 py-4 sm:px-6">{footer}</div>}
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -1068,9 +939,10 @@ function CreateReservationModal({
   const calculatedTotal = type?.baseRate != null ? Number(type.baseRate) * nights : null;
   const previewStats = useMemo(() => {
     const rows = previewDetail?.reservations ?? [];
-    const spend = rows.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0);
+    const spend = rows.reduce((sum, row) => sum + (row.totalAmount ?? 0) + (row.chargesTotal ?? 0), 0);
     const paid = rows.reduce((sum, row) => sum + (row.amountPaid ?? 0), 0);
-    return { rows, spend, paid, balance: spend - paid, currency: rows[0]?.currency || "TZS", stays: rows.length };
+    const balance = rows.reduce((sum, row) => sum + Math.max(0, row.balance ?? ((row.totalAmount ?? 0) + (row.chargesTotal ?? 0) - (row.amountPaid ?? 0) - (row.transferredToMaster ?? 0))), 0);
+    return { rows, spend, paid, balance, currency: rows[0]?.currency || "TZS", stays: rows.length };
   }, [previewDetail]);
 
   useEffect(() => {
@@ -1302,7 +1174,7 @@ function CreateReservationModal({
                   {guestHistory.reservations.slice(0, 3).map((stay) => (
                     <div key={stay.id} className="rounded-lg border border-white bg-white/80 px-3 py-2">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">{stay.status.replace(/_/g, " ")}</p>
-                      <p className="mt-1 text-xs font-semibold text-neutral-800">{fmtDate(stay.checkIn)} – {fmtDate(stay.checkOut)}</p>
+                      <p className="mt-1 text-xs font-semibold text-neutral-800">{fmtDate(stay.checkIn)} to {fmtDate(stay.checkOut)}</p>
                       <p className="mt-0.5 text-[10px] text-neutral-500">{SOURCE_LABEL[stay.source] ?? stay.source}</p>
                     </div>
                   ))}
@@ -1491,13 +1363,13 @@ function CreateReservationModal({
                   {previewStats.rows.length ? (
                     <div className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white">
                       {previewStats.rows.slice(0, 8).map((row) => {
-                        const rowBalance = Math.max(0, (row.totalAmount ?? 0) - (row.amountPaid ?? 0));
+                        const rowBalance = Math.max(0, row.balance ?? ((row.totalAmount ?? 0) + (row.chargesTotal ?? 0) - (row.amountPaid ?? 0) - (row.transferredToMaster ?? 0)));
                         return (
                         <div key={row.id} className="grid gap-3 px-4 py-3.5 transition hover:bg-neutral-50 sm:grid-cols-[1fr_auto] sm:items-center">
                           <div className="flex min-w-0 items-center gap-3">
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500"><BedDouble className="h-4 w-4" /></span>
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">{fmtDate(row.checkIn)} – {fmtDate(row.checkOut)}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${STATUS_CLS[row.status] ?? "bg-neutral-100 text-neutral-600"}`}>{row.status.replace(/_/g, " ")}</span></div>
+                              <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">{fmtDate(row.checkIn)} to {fmtDate(row.checkOut)}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${STATUS_CLS[row.status] ?? "bg-neutral-100 text-neutral-600"}`}>{row.status.replace(/_/g, " ")}</span></div>
                               <p className="mb-0 mt-1 text-[10px] text-neutral-500">{SOURCE_LABEL[row.source] ?? row.source}</p>
                             </div>
                           </div>
@@ -1517,208 +1389,6 @@ function CreateReservationModal({
           </ModalFrame>
         )}
       </div>
-    </ModalFrame>
-  );
-}
-
-function CreateReservationGroupModal({
-  propertyId,
-  reservationIds,
-  reservations,
-  onClose,
-  onSaved,
-}: {
-  propertyId: number;
-  reservationIds: number[];
-  reservations: Reservation[];
-  onClose: () => void;
-  onSaved: (groupId: number) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    if (name.trim().length < 2) return setError("Enter a clear group name");
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/property/${propertyId}/groups`, {
-        name: name.trim(),
-        notes: notes.trim() || null,
-        reservationIds,
-      });
-      await onSaved(Number(response.data?.group?.id));
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to create reservation group");
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ModalFrame title="Create reservation group" onClose={onClose} wide>
-      <div className="space-y-5">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <div className="flex items-start gap-3">
-            <Users className="mt-0.5 h-5 w-5 text-emerald-700" />
-            <div>
-              <p className="text-sm font-bold text-emerald-950">{reservationIds.length} reservations selected</p>
-              <p className="mt-1 text-xs leading-5 text-emerald-800">The group coordinates arrival and departure. Each reservation keeps its own room, folio, payment checks and audit history.</p>
-            </div>
-          </div>
-        </div>
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-semibold text-neutral-700">Group name</span>
-          <input className={inputCls} value={name} onChange={(event) => setName(event.target.value)} placeholder="Kilimanjaro delegation" autoFocus />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-semibold text-neutral-700">Front-desk note <span className="font-normal text-neutral-400">(optional)</span></span>
-          <textarea className="min-h-24 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tour leader, arrival transport, shared preferences…" />
-        </label>
-        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Members</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {reservations.map((reservation) => (
-              <div key={reservation.id} className="rounded-lg bg-white px-3 py-2 text-xs">
-                <p className="font-bold text-neutral-900">{reservation.guestProfile?.fullName ?? "Guest"}</p>
-                <p className="mt-0.5 text-neutral-500">{reservation.allocations?.map((allocation) => allocation.roomUnitCode || allocation.roomTypeName).filter(Boolean).join(", ") || "Room not assigned"} · {reservation.status.replace(/_/g, " ")}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        <div className="flex justify-end gap-2 border-t border-neutral-100 pt-4">
-          <button type="button" onClick={onClose} className="cursor-pointer appearance-none rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-sm font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
-          <button type="button" onClick={() => void save()} disabled={busy || name.trim().length < 2} className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Create group
-          </button>
-        </div>
-      </div>
-    </ModalFrame>
-  );
-}
-
-type GroupPreviewMember = {
-  reservation: ReservationGroup["members"][number];
-  eligible: boolean;
-  blockers: Array<{ code: string; message: string }>;
-  requiredChargeIds: number[];
-};
-
-function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId: number; onClose: () => void; onChanged: () => Promise<void> }) {
-  const [group, setGroup] = useState<ReservationGroup | null>(null);
-  const [action, setAction] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
-  const [preview, setPreview] = useState<GroupPreviewMember[] | null>(null);
-  const [verifyCharges, setVerifyCharges] = useState(false);
-  const [overrideRoomReadiness, setOverrideRoomReadiness] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
-
-  const loadGroup = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await apiClient.get<any>(`/api/owner/nrms/reservations/groups/${groupId}`);
-      setGroup(response.data?.group ?? null);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to load reservation group");
-    } finally {
-      setLoading(false);
-    }
-  }, [groupId]);
-
-  useEffect(() => { void loadGroup(); }, [loadGroup]);
-  useEffect(() => { setPreview(null); setResultMessage(null); }, [action, verifyCharges, overrideRoomReadiness]);
-
-  const review = async () => {
-    setBusy(true);
-    setError(null);
-    setResultMessage(null);
-    try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/preview`, {
-        action,
-        verifyCharges,
-        overrideRoomReadiness,
-      });
-      setPreview(response.data?.members ?? []);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to review group readiness");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const execute = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const path = action === "CHECK_IN" ? "check-in" : "check-out";
-      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/${path}`, { verifyCharges, overrideRoomReadiness });
-      const changed = Number(response.data?.changedCount ?? 0);
-      const blocked = Number(response.data?.blockedCount ?? 0);
-      setResultMessage(`${changed} reservation${changed === 1 ? "" : "s"} updated${blocked ? `; ${blocked} remained blocked` : ""}.`);
-      setPreview(null);
-      await loadGroup();
-      await onChanged();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to run the group operation");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const eligibleCount = preview?.filter((member) => member.eligible).length ?? 0;
-  return (
-    <ModalFrame title={group?.name || "Reservation group"} onClose={onClose} extraWide>
-      {loading ? <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div> : !group ? <p className="py-10 text-center text-sm text-neutral-500">Group not found.</p> : (
-        <div className="space-y-5">
-          <div className="grid gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-[1fr_auto]">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">{group.reference}</p>
-              <p className="mt-1 text-sm font-bold text-neutral-900">{group.memberCount} reservations · {group.status.replace(/_/g, " ")}</p>
-              {group.notes && <p className="mt-1 text-xs text-neutral-500">{group.notes}</p>}
-            </div>
-            <div className="flex rounded-lg border border-neutral-200 bg-white p-1">
-              <button type="button" onClick={() => setAction("CHECK_IN")} className={`rounded-md px-3 py-2 text-xs font-bold ${action === "CHECK_IN" ? "bg-emerald-700 text-white" : "text-neutral-500"}`}>Group check-in</button>
-              <button type="button" onClick={() => setAction("CHECK_OUT")} className={`rounded-md px-3 py-2 text-xs font-bold ${action === "CHECK_OUT" ? "bg-emerald-700 text-white" : "text-neutral-500"}`}>Group checkout</button>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-neutral-200">
-            <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><span>Guest and room</span><span>Status</span></div>
-            <div className="divide-y divide-neutral-100">
-              {group.members.map((member) => {
-                const inspected = preview?.find((item) => item.reservation.id === member.id);
-                return (
-                  <div key={member.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-bold text-neutral-900">{member.guestProfile?.fullName ?? "Guest"}</p>
-                      <p className="mt-0.5 text-xs text-neutral-500">{member.rooms.map((room) => room.roomUnitCode || room.roomTypeName).filter(Boolean).join(", ") || "Room not assigned"} · {fmtDate(member.checkIn)} – {fmtDate(member.checkOut)}</p>
-                      {inspected && !inspected.eligible && <div className="mt-2 space-y-1">{inspected.blockers.map((blocker) => <p key={blocker.code} className="text-[11px] font-medium text-red-700">{blocker.message}</p>)}</div>}
-                    </div>
-                    <span className={`h-fit rounded-full px-2.5 py-1 text-[10px] font-bold ${inspected ? inspected.eligible ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700" : STATUS_CLS[member.status] ?? "bg-neutral-100 text-neutral-600"}`}>
-                      {inspected ? inspected.eligible ? "Ready" : "Blocked" : member.status.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            {action === "CHECK_IN" && <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><input type="checkbox" checked={overrideRoomReadiness} onChange={(event) => setOverrideRoomReadiness(event.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-700" /><span><strong>Override housekeeping readiness</strong><br />Use only after staff physically confirm every blocked room.</span></label>}
-            {action === "CHECK_OUT" && <label className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><input type="checkbox" checked={verifyCharges} onChange={(event) => setVerifyCharges(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" /><span><strong>I verified every active extra charge</strong><br />Required before group checkout can close charged folios.</span></label>}
-          </div>
-          {resultMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
-          {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-          <div className="flex flex-wrap justify-end gap-2 border-t border-neutral-100 pt-4">
-            <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-bold text-neutral-700 disabled:opacity-50">{busy && <Loader2 className="h-4 w-4 animate-spin" />} Review readiness</button>
-            <button type="button" onClick={() => void execute()} disabled={busy || !preview || eligibleCount === 0} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40">Confirm {action === "CHECK_IN" ? "group check-in" : "group checkout"}{preview ? ` (${eligibleCount})` : ""}</button>
-          </div>
-        </div>
-      )}
     </ModalFrame>
   );
 }
@@ -1926,7 +1596,7 @@ function ReservationDetailModal({
 
   return (
     <>
-    <ModalFrame title={r ? `Reservation #${r.id}` : "Reservation"} onClose={onClose} closeOnEscape={!voidingCharge} extraWide>
+    <ModalFrame title="Reservation" onClose={onClose} closeOnEscape={!voidingCharge} extraWide>
       {!r ? (
         <div className="flex justify-center py-10 text-neutral-400">
           <Loader2 className="w-5 h-5 animate-spin" />
@@ -2164,32 +1834,51 @@ function ReservationDetailModal({
           )}
 
           {!isMarketplace && !["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section className="rounded-xl border border-neutral-200 bg-white p-3">
-              <div>
-                <p className="m-0 text-xs font-bold text-neutral-900">Record a guest payment</p>
-                <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Enter only money actually received from the guest. Recording it reduces the outstanding folio balance.</p>
-              </div>
+            <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white px-4 py-3.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                    <WalletCards className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-xs font-bold text-neutral-950">Record guest payment</p>
+                    <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Post money already received directly to this guest folio.</p>
+                  </div>
+                </div>
+                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800">
+                  Outstanding&nbsp; {money(r.balance, r.currency)}
+                </span>
+              </header>
               {paymentLocked ? (
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                  <LockKeyhole className="h-3.5 w-3.5" />
-                  The folio is fully paid. Additional payment entry is locked.
+                <div className="m-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
+                  This folio is fully paid. Additional payment entry is locked.
                 </div>
               ) : (
-                <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
-                  <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:col-span-2 xl:col-span-6">
-                    Amount received ({r.currency})
-                    <input type="number" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder={`Outstanding: ${money(r.balance, r.currency)}`} />
-                  </label>
-                  <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500 xl:col-span-3">
-                    How was it paid?
-                    <select className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
-                      <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
-                    </select>
-                  </label>
-                  <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-10 w-full items-center justify-center rounded-lg border-0 bg-neutral-900 px-3 text-xs font-bold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 sm:col-span-2 xl:col-span-3">{busyAction === "payments" ? "Recording..." : "Record received payment"}</button>
+                <div className="p-4">
+                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
+                    <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 sm:col-span-2 xl:col-span-5">
+                      <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-600">{r.currency}</span></span>
+                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
+                    </label>
+                    <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 xl:col-span-3">
+                      Payment method
+                      <span className="mt-1.5 block">
+                        <select className="box-border !h-11 w-full min-w-0 rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
+                          <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
+                        </select>
+                      </span>
+                    </label>
+                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
+                      {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Confirm received payment</>}
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-start gap-2 rounded-xl bg-neutral-50 px-3 py-2.5 text-[10px] leading-4 text-neutral-500">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    <span>The amount cannot exceed {money(r.balance, r.currency)}. Confirm the actual payment method before recording.</span>
+                  </div>
                 </div>
               )}
-              {!paymentLocked && <p className="mb-0 mt-2 text-[10px] leading-4 text-neutral-500">The amount cannot exceed the current outstanding balance. Choose the method the guest actually used.</p>}
             </section>
           )}
 

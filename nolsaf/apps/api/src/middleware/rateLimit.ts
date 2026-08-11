@@ -652,6 +652,16 @@ export const limitPublicNrmsGuestCapability = rateLimit({
   message: { error: "Too many guest-link requests. Please wait a moment." },
 });
 
+// A rooming list is submitted a handful of times at most: once, plus fixes
+// after the desk sends it back. Reads use the shared capability limiter.
+export const limitPublicNrmsRoomingListSubmit = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many rooming list submissions. Please wait a moment before sending again." },
+});
+
 export const limitDisbursementAdminRead = rateLimit({
   windowMs: 60_000,
   limit: 180,

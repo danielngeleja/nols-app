@@ -288,6 +288,16 @@ model User {
   nrmsReservationsOwned     Reservation[]                @relation("NrmsReservationOwner")
   nrmsReservationsCreated   Reservation[]                @relation("NrmsReservationCreator")
   nrmsReservationGroups     NrmsReservationGroup[]       @relation("NrmsReservationGroupOwner")
+  nrmsGroupBlocksOwned      NrmsGroupBlock[]             @relation("NrmsGroupBlockOwner")
+  nrmsGroupBlocksCreated    NrmsGroupBlock[]             @relation("NrmsGroupBlockCreator")
+  nrmsMasterFoliosOwned     NrmsMasterFolio[]            @relation("NrmsMasterFolioOwner")
+  nrmsMasterPaymentsMade    NrmsMasterFolioPayment[]     @relation("NrmsMasterPaymentRecordedBy")
+  nrmsProFormasCreated      NrmsMasterFolioProForma[]    @relation("NrmsProFormaCreatedBy")
+  nrmsProFormasSent         NrmsMasterFolioProForma[]    @relation("NrmsProFormaSentBy")
+  nrmsManualBanksOwned      NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankOwner")
+  nrmsManualBanksAccepted   NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankPolicyAcceptedBy")
+  nrmsRoomingListsMade      NrmsRoomingList[]            @relation("NrmsRoomingListCreator")
+  nrmsRoomingListsReviewed  NrmsRoomingList[]            @relation("NrmsRoomingListReviewer")
   nrmsReservationGroupsMade NrmsReservationGroup[]       @relation("NrmsReservationGroupCreator")
   nrmsGuestProfiles         GuestProfile[]               @relation("NrmsGuestProfileOwner")
   roomUnitStatusChanges     RoomUnitStatusHistory[]      @relation("RoomUnitStatusChangedBy")
@@ -468,6 +478,9 @@ model Property {
   roomUnits              RoomUnit[]
   nrmsReservations       Reservation[]
   nrmsReservationGroups  NrmsReservationGroup[]
+  nrmsGroupBlocks        NrmsGroupBlock[]
+  nrmsMasterFolios       NrmsMasterFolio[]
+  nrmsProFormaBankAccount NrmsProFormaBankAccount?
   guestProfiles          GuestProfile[]
   nrmsPaygAccount        OwnerPaygAccount?
   nrmsUsageEvents        NrmsUsageEvent[]
@@ -3773,6 +3786,7 @@ model RoomType {
   ratePlans           NrmsRatePlan[]
   rateRestrictions    NrmsRateRestriction[]
   pricingGuidance     NrmsPricingRecommendation[]
+  groupBlockRooms     NrmsGroupBlockRoom[]
 
   @@unique([propertyId, name])
   @@index([propertyId, status])
@@ -4034,11 +4048,13 @@ model Reservation {
 
   allocations               ReservationRoomAllocation[]
   events                    ReservationEvent[]
+  roomingListRow            NrmsRoomingListRow?
   channelInboundEvents      ChannelInboundEvent[]
   channelOutboundDeliveries ChannelOutboundDelivery[]
   channelCalendarEvents     ChannelCalendarEventMap[]
   payments                  ExternalPaymentRecord[]
   charges                   ReservationCharge[]
+  masterFolioItems          NrmsMasterFolioItem[]
   outletOrders              NrmsOutletOrder[]
   nrmsUsageEvents           NrmsUsageEvent[]
   housekeepingTasks         NrmsHousekeepingTask[]
@@ -4080,10 +4096,383 @@ model NrmsReservationGroup {
   owner        User          @relation("NrmsReservationGroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   createdBy    User?         @relation("NrmsReservationGroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
   reservations Reservation[]
+  block        NrmsGroupBlock?
 
   @@index([propertyId, status])
   @@index([ownerId, createdAt])
   @@map("nrms_reservation_group")
+}
+
+/// A group block (allotment): rooms held for a party before any guest names
+/// exist. This is the first half of the standard group flow. The second half is
+/// the rooming list, where the agency supplies who occupies which room, and
+/// pickup, where those names materialise into real Reservations.
+///
+/// Inventory: an un-picked-up block room consumes capacity exactly like a
+/// reservation does, so the desk cannot oversell rooms it has promised. Once a
+/// room is picked up, the Reservation consumes it instead and the block stops
+/// counting that one, otherwise the same room would be counted twice.
+///
+/// Cut-off is evaluated lazily, the same way a HELD reservation's holdExpiresAt
+/// is: past cutOffAt the block simply stops consuming and the rooms return to
+/// sale. No worker has to run for inventory to be correct.
+model NrmsGroupBlock {
+  id         Int  @id @default(autoincrement())
+  propertyId Int
+  ownerId    Int
+  /// Set once the first room is picked up: the operational group that the
+  /// materialised reservations are worked through at the front desk.
+  groupId    Int? @unique
+
+  reference String @unique @db.VarChar(32)
+  name      String @db.VarChar(160)
+
+  /// Who the block was agreed with. A tour operator is the common case.
+  agencyName   String? @db.VarChar(160)
+  contactName  String? @db.VarChar(160)
+  contactPhone String? @db.VarChar(40)
+  contactEmail String? @db.VarChar(160)
+
+  checkIn  DateTime @db.Date
+  checkOut DateTime @db.Date
+  /// Rooms still unnamed after this moment release back to sale.
+  cutOffAt DateTime
+
+  /// HELD, PARTIALLY_PICKED_UP, PICKED_UP, RELEASED, CANCELLED
+  status   String @default("HELD") @db.VarChar(30)
+  currency String @default("TZS") @db.VarChar(3)
+  /// MASTER, SPLIT, INDIVIDUAL. Recorded from the start so the commercial terms
+  /// are captured at agreement time; the master folio that MASTER and SPLIT
+  /// need arrives with the group billing work.
+  billingMode String @default("INDIVIDUAL") @db.VarChar(20)
+
+  notes       String? @db.Text
+  createdById Int?
+  releasedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property  Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner     User                  @relation("NrmsGroupBlockOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdBy User?                 @relation("NrmsGroupBlockCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  group     NrmsReservationGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  rooms       NrmsGroupBlockRoom[]
+  roomingList NrmsRoomingList?
+  masterFolio NrmsMasterFolio?
+
+  @@index([propertyId, status])
+  @@index([ownerId, createdAt])
+  @@index([status, cutOffAt])
+  @@map("nrms_group_block")
+}
+
+/// One line of a block: how many rooms of a type, at what agreed nightly rate.
+/// `pickedUp` is the count already materialised into reservations, so the rooms
+/// still being held is always `quantity - pickedUp`.
+model NrmsGroupBlockRoom {
+  id          Int     @id @default(autoincrement())
+  blockId     Int
+  roomTypeId  Int
+  ratePlanId  Int?
+  quantity    Int     @default(1)
+  pickedUp    Int     @default(0)
+  nightlyRate Decimal @default(0.00) @db.Decimal(12, 2)
+  mealPlan    String? @db.VarChar(20)
+
+  block           NrmsGroupBlock       @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  roomType        RoomType             @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  ratePlan        NrmsRatePlan?        @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
+  roomingListRows NrmsRoomingListRow[]
+
+  @@unique([blockId, roomTypeId, ratePlanId], map: "nrms_group_block_room_line_key")
+  @@index([roomTypeId])
+  @@map("nrms_group_block_room")
+}
+
+/// The rooming list: a capability link the desk shares with the agency or group
+/// leader so they fill in who is staying, instead of the desk typing twenty
+/// names off a phone call.
+///
+/// `publicToken` is a bearer credential, handled exactly like
+/// NrmsGuestPaymentRequest.publicToken: no-store, no-referrer, noindex.
+///
+/// Submitting NEVER touches inventory. Rows land in staging and only the desk
+/// pressing confirm materialises reservations, otherwise an agency submitting
+/// at midnight could oversell the property.
+model NrmsRoomingList {
+  id      Int @id @default(autoincrement())
+  blockId Int @unique
+
+  publicToken String    @unique @db.VarChar(80)
+  /// DRAFT, SENT, SUBMITTED, RETURNED, CONFIRMED, REVOKED
+  status      String    @default("DRAFT") @db.VarChar(20)
+  expiresAt   DateTime
+  sentAt      DateTime?
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  reviewedById Int?
+
+  /// Who filled it in, captured on submit so the desk knows who to call back.
+  submitterName  String? @db.VarChar(160)
+  submitterEmail String? @db.VarChar(160)
+  /// Desk feedback shown to the agency when a list is sent back for fixing.
+  deskNotes      String? @db.Text
+  /// Instructions the desk writes for the agency, shown on the public page.
+  instructions   String? @db.Text
+
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  block      NrmsGroupBlock       @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  createdBy  User?                @relation("NrmsRoomingListCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  reviewedBy User?                @relation("NrmsRoomingListReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rows       NrmsRoomingListRow[]
+
+  @@index([status, expiresAt])
+  @@map("nrms_rooming_list")
+}
+
+/// One proposed occupant. Staging only: a row is just text until the desk
+/// accepts it and pickup turns it into a Reservation, which is recorded here as
+/// `reservationId` so a confirmed row can never be picked up twice.
+model NrmsRoomingListRow {
+  id            Int  @id @default(autoincrement())
+  roomingListId Int
+  /// Which block line the agency wants this guest in. Nullable because the
+  /// agency may leave the choice to the desk.
+  blockRoomId   Int?
+
+  fullName    String  @db.VarChar(160)
+  phone       String? @db.VarChar(40)
+  email       String? @db.VarChar(160)
+  nationality String? @db.VarChar(80)
+  adults      Int     @default(1)
+  children    Int     @default(0)
+  /// Free text from the agency, e.g. "sharing with Amina Juma".
+  sharingWith String? @db.VarChar(160)
+  notes       String? @db.Text
+
+  /// PENDING, ACCEPTED, REJECTED
+  status          String  @default("PENDING") @db.VarChar(20)
+  rejectionReason String? @db.VarChar(300)
+  reservationId   Int?    @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roomingList NrmsRoomingList     @relation(fields: [roomingListId], references: [id], onDelete: Cascade)
+  blockRoom   NrmsGroupBlockRoom? @relation(fields: [blockRoomId], references: [id], onDelete: SetNull)
+  reservation Reservation?        @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  @@index([roomingListId, status])
+  @@map("nrms_rooming_list_row")
+}
+
+/// The commercial bill for a group block. Guest reservations retain their
+/// original room and charge values for revenue reporting; items here record
+/// which of those values the agency or group organiser accepted liability for.
+/// One agency payment settles this folio directly and is never fanned out into
+/// invented per-reservation payment rows.
+model NrmsMasterFolio {
+  id         Int @id @default(autoincrement())
+  blockId    Int @unique
+  propertyId Int
+  ownerId    Int
+
+  reference String @unique @db.VarChar(40)
+  /// SPLIT or MASTER. Snapshotted on first pickup and frozen afterwards.
+  billingMode String @db.VarChar(20)
+  currency    String @default("TZS") @db.VarChar(3)
+  /// OPEN while money remains due, SETTLED at zero, CREDIT after a later void
+  /// leaves the agency overpaid and the refund still unresolved.
+  status String @default("OPEN") @db.VarChar(20)
+  /// The first implementation is deliberately strict. APPROVED_CREDIT is
+  /// reserved for a future agency-credit account with limits and approval.
+  settlementPolicy String @default("PAY_BEFORE_DEPARTURE") @db.VarChar(30)
+
+  /// Bill-to snapshot: later edits to the block must not rewrite an issued bill.
+  billToName    String  @db.VarChar(160)
+  contactName   String? @db.VarChar(160)
+  contactPhone  String? @db.VarChar(40)
+  contactEmail  String? @db.VarChar(160)
+  settledAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  block    NrmsGroupBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  property Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner    User           @relation("NrmsMasterFolioOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  items    NrmsMasterFolioItem[]
+  payments NrmsMasterFolioPayment[]
+  proFormas NrmsMasterFolioProForma[]
+
+  @@index([propertyId, status])
+  @@index([ownerId, createdAt])
+  @@map("nrms_master_folio")
+}
+
+/// An amount routed from a source reservation onto its group's master bill.
+/// sourceKey makes automatic posting idempotent across retries and concurrency.
+model NrmsMasterFolioItem {
+  id                  Int @id @default(autoincrement())
+  masterFolioId       Int
+  reservationId       Int
+  reservationChargeId Int? @unique
+
+  sourceKey   String  @unique @db.VarChar(80)
+  kind        String  @db.VarChar(20) // ROOM, EXTRA
+  description String? @db.VarChar(300)
+  amount      Decimal @db.Decimal(12, 2)
+  currency    String  @default("TZS") @db.VarChar(3)
+
+  voidedAt   DateTime?
+  voidReason String?   @db.VarChar(300)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  masterFolio      NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade)
+  reservation      Reservation     @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  reservationCharge ReservationCharge? @relation(fields: [reservationChargeId], references: [id], onDelete: SetNull)
+
+  @@index([masterFolioId, voidedAt])
+  @@index([reservationId, voidedAt])
+  @@map("nrms_master_folio_item")
+}
+
+/// One real payment from the agency/group organiser. Corrections retain the
+/// original row and mark it void, mirroring guest folio payments.
+model NrmsMasterFolioPayment {
+  id            Int @id @default(autoincrement())
+  masterFolioId Int
+  amount        Decimal @db.Decimal(12, 2)
+  currency      String  @default("TZS") @db.VarChar(3)
+  method        String  @db.VarChar(30)
+  reference     String? @db.VarChar(120)
+  receiptNumber String  @unique @db.VarChar(40)
+  note          String? @db.VarChar(300)
+  recordedById  Int?
+
+  voidedAt   DateTime?
+  voidReason String?   @db.VarChar(300)
+  createdAt  DateTime  @default(now())
+
+  masterFolio NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade)
+  recordedBy  User?           @relation("NrmsMasterPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([masterFolioId, createdAt])
+  @@index([method])
+  @@map("nrms_master_folio_payment")
+}
+
+/// Property-owned manual bank instructions used only on NRMS Pro Forma
+/// documents when the bank is outside supported payout rails. This is not a
+/// PayoutAccount, is never sent to AzamPay, and must never be represented as
+/// verified by NoLSAF. The account number is encrypted at rest and the owner
+/// acceptance is retained as an audit record.
+model NrmsProFormaBankAccount {
+  id         Int @id @default(autoincrement())
+  propertyId Int @unique
+  ownerId    Int
+
+  bankName        String @db.VarChar(120)
+  accountName     String @db.VarChar(160)
+  accountNumberEnc String @db.Text
+  accountCurrency String @default("TZS") @db.VarChar(3)
+  branchName      String? @db.VarChar(120)
+  bankAddress     String? @db.VarChar(240)
+  swiftCode       String? @db.VarChar(32)
+  iban            String? @db.VarChar(64)
+  routingCode     String? @db.VarChar(64)
+  instructions   String? @db.VarChar(500)
+  active          Boolean @default(true)
+
+  policyVersion      String   @db.VarChar(30)
+  policyAcceptedAt   DateTime
+  policyAcceptedById Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner            User     @relation("NrmsProFormaBankOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  policyAcceptedBy User     @relation("NrmsProFormaBankPolicyAcceptedBy", fields: [policyAcceptedById], references: [id], onDelete: Restrict)
+
+  @@index([ownerId, active])
+  @@map("nrms_pro_forma_bank_account")
+}
+
+/// An immutable payment request issued by the property to the agency. Charges,
+/// payments, bill-to details and the verified receiving account are snapshotted
+/// at generation time so an old PDF never changes when the block or profile is
+/// edited later. The QR token opens a read-only verification page; NoLSAF does
+/// not collect or hold the agency's payment.
+model NrmsMasterFolioProForma {
+  id            Int @id @default(autoincrement())
+  masterFolioId Int
+  number        String @unique @db.VarChar(48)
+  revision      Int @default(1)
+  status        String @default("DRAFT") @db.VarChar(20)
+  currency      String @default("TZS") @db.VarChar(3)
+
+  issuedAt   DateTime @default(now())
+  dueAt      DateTime @db.Date
+  validUntil DateTime @db.Date
+
+  billToName    String @db.VarChar(160)
+  contactName   String @db.VarChar(160)
+  contactEmail  String @db.VarChar(160)
+  contactPhone  String? @db.VarChar(40)
+
+  propertyName     String @db.VarChar(200)
+  propertyLocation String? @db.VarChar(500)
+  propertyTin      String? @db.VarChar(50)
+  propertyEmail    String? @db.VarChar(160)
+  propertyPhone    String? @db.VarChar(40)
+
+  bankName             String @db.VarChar(80)
+  bankAccountName      String @db.VarChar(160)
+  bankAccountNumberEnc String @db.Text
+  bankBranch           String? @db.VarChar(120)
+  bankSource           String @default("VERIFIED_PAYOUT") @db.VarChar(30)
+  bankCurrency         String? @db.VarChar(3)
+  bankAddress          String? @db.VarChar(240)
+  bankSwiftCode        String? @db.VarChar(32)
+  bankIban             String? @db.VarChar(64)
+  bankRoutingCode      String? @db.VarChar(64)
+  bankInstructions     String? @db.VarChar(500)
+
+  itemsSnapshot    Json
+  paymentsSnapshot Json
+  quotedTotal      Decimal @db.Decimal(12, 2)
+  paidAtIssue      Decimal @db.Decimal(12, 2)
+  balanceDue       Decimal @db.Decimal(12, 2)
+  notes            String? @db.VarChar(1000)
+
+  publicToken String @unique @db.VarChar(96)
+  viewCount   Int @default(0)
+  lastViewedAt DateTime?
+
+  createdById Int?
+  sentById    Int?
+  sentAt      DateTime?
+  sentToEmail String? @db.VarChar(160)
+  deliveryProvider  String? @db.VarChar(30)
+  deliveryMessageId String? @db.VarChar(160)
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  masterFolio NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade)
+  createdBy   User? @relation("NrmsProFormaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  sentBy      User? @relation("NrmsProFormaSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+
+  @@unique([masterFolioId, revision])
+  @@index([masterFolioId, status, createdAt])
+  @@index([contactEmail, sentAt])
+  @@map("nrms_master_folio_pro_forma")
 }
 
 /// Room-type or room-unit allocation for a reservation (doc 9.3). One row per
@@ -4616,6 +5005,7 @@ model ReservationCharge {
   reservation Reservation      @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   postedBy    User?            @relation("NrmsChargePostedBy", fields: [postedById], references: [id], onDelete: SetNull)
   outletOrder NrmsOutletOrder? @relation("NrmsOrderFolioCharge")
+  masterFolioItem NrmsMasterFolioItem?
 
   @@index([reservationId, createdAt])
   @@index([category])
@@ -5325,6 +5715,7 @@ model NrmsRatePlan {
   seasons      NrmsRateSeason[]
   restrictions NrmsRateRestriction[]
   allocations  ReservationRoomAllocation[]
+  groupBlockRooms NrmsGroupBlockRoom[]
 
   @@unique([propertyId, code])
   @@index([propertyId, status])

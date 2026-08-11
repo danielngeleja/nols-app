@@ -530,7 +530,7 @@ function StayActionModal({
         <div className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-7">
           <div>
             <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">NRMS · {isCheckIn ? "Check-in review" : "Check-out review"}</p>
-            <h2 id="stay-action-title" className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">Reservation #{reservation.id}</h2>
+            <h2 id="stay-action-title" className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">Reservation</h2>
           </div>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close review" className="flex h-9 w-9 appearance-none items-center justify-center rounded-full border-0 bg-neutral-100 p-0 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-900 disabled:opacity-50">
             <X className="h-4 w-4" />

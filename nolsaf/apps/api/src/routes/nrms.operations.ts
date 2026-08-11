@@ -10,6 +10,7 @@ import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillS
 import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
+import { voidRoutedCharge } from "../lib/nrmsMasterFolio.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -253,10 +254,11 @@ function formatOrder(order: any) {
   // guest's whole stay is settled, not per outlet ticket. Once that reservation
   // balance is at zero, "no tip recorded" is a finished fact, not an open task
   // for staff to keep chasing on this specific order.
+  const transferredToMaster = (order.reservation?.masterFolioItems ?? []).reduce((sum: number, item: any) => sum + number(item.amount), 0);
   const reservationSettled = order.settlementMode === "ROOM_FOLIO" && order.reservation
-    ? computeOutstanding(order.reservation.totalAmount, order.reservation.chargesTotal, order.reservation.amountPaid) <= 0
+    ? computeOutstanding(order.reservation.totalAmount, order.reservation.chargesTotal, number(order.reservation.amountPaid) + transferredToMaster) <= 0
     : false;
-  const { totalAmount: _totalAmount, chargesTotal: _chargesTotal, amountPaid: _amountPaid, ...reservationPublic } = order.reservation ?? {};
+  const { totalAmount: _totalAmount, chargesTotal: _chargesTotal, amountPaid: _amountPaid, masterFolioItems: _masterFolioItems, ...reservationPublic } = order.reservation ?? {};
   return {
     ...order,
     subtotal: number(order.subtotal),
@@ -280,6 +282,7 @@ const orderInclude = {
       totalAmount: true,
       chargesTotal: true,
       amountPaid: true,
+      masterFolioItems: { where: { voidedAt: null }, select: { amount: true } },
       guestProfile: { select: { fullName: true } },
       allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } },
     },
@@ -1417,6 +1420,7 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
       const now = new Date();
       if (order.status === "POSTED_TO_FOLIO" && order.folioChargeId) {
         await tx.reservationCharge.update({ where: { id: order.folioChargeId }, data: { voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
+        await voidRoutedCharge(tx, order.folioChargeId, sanitizeText(parsed.data.reason));
         const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
         await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });
         await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });

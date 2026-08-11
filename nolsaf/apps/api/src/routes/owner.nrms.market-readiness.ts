@@ -7,6 +7,7 @@ import { type AuthedRequest, requireAuth, requireRole } from "../middleware/auth
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { NRMS_REVIEW_CATEGORIES, NRMS_REVIEW_CATEGORY_KEYS, averageCategoryRatings, resolveReviewCategories } from "../lib/nrmsReviewCategories.js";
 import { NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME } from "../lib/nrmsCheckInWelcome.js";
+import { computeOutstanding } from "../lib/nrmsFolio.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -368,7 +369,7 @@ router.patch("/:propertyId/service-cases/:caseId", (async (req: AuthedRequest, r
 
 router.post("/:propertyId/payment-requests", (async (req: AuthedRequest, res: Response) => {
   const parsed = paymentRequestSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid payment request", details: parsed.error.flatten() });
-  try { const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const reservation = await prisma.reservation.findFirst({ where: { id: parsed.data.reservationId, propertyId }, include: { property: { select: { nrmsGuestPayInstructions: true } } } }); if (!reservation) return res.status(404).json({ error: "Reservation not found" }); const request = await prisma.nrmsGuestPaymentRequest.create({ data: { ...parsed.data, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null, publicToken: token(), instructions: reservation.property.nrmsGuestPayInstructions ?? undefined, createdById: req.user!.id } }); res.status(201).json({ paymentRequest: request }); }
+  try { const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const reservation = await prisma.reservation.findFirst({ where: { id: parsed.data.reservationId, propertyId }, include: { property: { select: { nrmsGuestPayInstructions: true } }, masterFolioItems: { where: { voidedAt: null }, select: { amount: true } } } }); if (!reservation) return res.status(404).json({ error: "Reservation not found" }); const transferred = reservation.masterFolioItems.reduce((sum, item) => sum + Number(item.amount), 0); const guestOutstanding = computeOutstanding(reservation.totalAmount, reservation.chargesTotal, Number(reservation.amountPaid) + transferred); if (parsed.data.amount > guestOutstanding + 0.005) return res.status(400).json({ error: `Guest payment request cannot exceed the guest balance of ${guestOutstanding.toLocaleString()}`, code: "PAYMENT_EXCEEDS_GUEST_BALANCE" }); const request = await prisma.nrmsGuestPaymentRequest.create({ data: { ...parsed.data, dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null, publicToken: token(), instructions: reservation.property.nrmsGuestPayInstructions ?? undefined, createdById: req.user!.id } }); res.status(201).json({ paymentRequest: request }); }
   catch (error) { console.error("[owner.nrms.market-readiness] payment request failed", error); res.status(500).json({ error: "Failed to create payment request" }); }
 }) as RequestHandler);
 

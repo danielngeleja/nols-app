@@ -17,6 +17,8 @@ import ownerNrmsRouter from "./owner.nrms";
 import ownerNrmsRoomsRouter from "./owner.nrms.rooms";
 import ownerNrmsCalendarRouter from "./owner.nrms.calendar";
 import ownerNrmsReservationsRouter from "./owner.nrms.reservations";
+import ownerNrmsGroupBlocksRouter from "./owner.nrms.groupBlocks";
+import ownerNrmsRoomingListRouter from "./owner.nrms.roomingList";
 import ownerNrmsGuestsRouter from "./owner.nrms.guests";
 import ownerNrmsSmsRouter from "./owner.nrms.sms";
 import ownerNrmsBillingRouter from "./owner.nrms.billing";
@@ -49,6 +51,8 @@ export function registerOwnerBusinessRoutes(app: Express): void {
   app.use("/api/owner/nrms/rooms", ownerNrmsRoomsRouter as RequestHandler);
   app.use("/api/owner/nrms/calendar", ownerNrmsCalendarRouter as RequestHandler);
   app.use("/api/owner/nrms/reservations", ownerNrmsReservationsRouter as RequestHandler);
+  app.use("/api/owner/nrms/group-blocks", ownerNrmsGroupBlocksRouter as RequestHandler);
+  app.use("/api/owner/nrms/rooming-lists", ownerNrmsRoomingListRouter as RequestHandler);
   app.use("/api/owner/nrms/guests", ownerNrmsGuestsRouter as RequestHandler);
   app.use("/api/owner/nrms/sms", ownerNrmsSmsRouter as RequestHandler);
   app.use("/api/owner/nrms/billing", ownerNrmsBillingRouter as RequestHandler);

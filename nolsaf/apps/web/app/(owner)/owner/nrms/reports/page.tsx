@@ -19,6 +19,7 @@ import {
   BarChart3,
   BedDouble,
   BookOpenCheck,
+  Building2,
   CalendarCheck2,
   CalendarDays,
   Check,
@@ -63,16 +64,23 @@ type CurrencyReport = {
     outletPaidRevenue: number;
     totalRevenue: number;
     folioPayments: number;
+    agencyPayments: number;
     outletPayments: number;
     totalCollected: number;
     amountDue: number;
+    guestAmountDue: number;
+    agencyAmountDue: number;
+    agencyFoliosDue: number;
   };
   collectionTiming: {
     currentStayCollections: number;
+    currentGroupCollections: number;
     currentOutletCollections: number;
     currentPeriodCollections: number;
     priorStayCollections: number;
+    priorGroupCollections: number;
     advanceDeposits: number;
+    advanceGroupDeposits: number;
     unclassifiedCollections: number;
     totalCollected: number;
     revenueToCollectionDifference: number;
@@ -120,7 +128,7 @@ type PaymentRow = {
   id: string;
   type: string;
   occurredAt: string;
-  reservationId: number;
+  reservationId: number | null;
   referenceNumber: string | null;
   guest: string;
   room: string;
@@ -693,9 +701,12 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
           </div>
           <div className="pdf-panel"><h3>Collections recorded</h3>
             <div className="pdf-list-row"><span>Current-period stays<small>Folio payments for arrivals in this report period</small></span><strong>{money(timing.currentStayCollections)}</strong></div>
+            <div className="pdf-list-row"><span>Current group stays<small>Agency payments for group arrivals in this period</small></span><strong>{money(timing.currentGroupCollections)}</strong></div>
             <div className="pdf-list-row"><span>Current outlet sales<small>Restaurant and bar sales settled in this period</small></span><strong>{money(timing.currentOutletCollections)}</strong></div>
             <div className="pdf-list-row"><span>Older balances settled<small>Payments for stays that arrived before this period</small></span><strong>{money(timing.priorStayCollections)}</strong></div>
+            <div className="pdf-list-row"><span>Older group balances<small>Agency payments for earlier group stays</small></span><strong>{money(timing.priorGroupCollections)}</strong></div>
             <div className="pdf-list-row"><span>Advance deposits<small>Payments for stays arriving after this period</small></span><strong>{money(timing.advanceDeposits)}</strong></div>
+            <div className="pdf-list-row"><span>Advance group deposits<small>Agency payments for future group stays</small></span><strong>{money(timing.advanceGroupDeposits)}</strong></div>
             {timing.unclassifiedCollections > 0 && <div className="pdf-list-row"><span>Unclassified timing<small>Payment timing could not be assigned</small></span><strong>{money(timing.unclassifiedCollections)}</strong></div>}
             <div className="pdf-list-row"><span><b>Total collections</b></span><strong>{money(summary.totalCollected)}</strong></div>
           </div>
@@ -1365,7 +1376,7 @@ function ManagerReport({ data, currencyReport, money }: { data: ReportsResponse;
   return <>
     <ReportTitle icon={ClipboardCheck} eyebrow="Management control" title="Daily manager report" text="The essential operational and financial position for the selected period." />
     <section className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6"><Metric label="Arrivals" value={manager.arrivals} icon={CalendarDays} /><Metric label="Departures" value={manager.departures} icon={ArrowUpRight} /><Metric label="In house now" value={manager.inHouse} icon={Users} tone="emerald" /><Metric label="Open orders" value={manager.openOrders} icon={Clock3} tone={manager.openOrders ? "amber" : "neutral"} /><Metric label="Cancellations" value={manager.cancellations} icon={XCircle} tone={manager.cancellations ? "red" : "neutral"} /><Metric label="No-shows" value={manager.noShows} icon={AlertCircle} tone={manager.noShows ? "red" : "neutral"} /></section>
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Total hotel revenue" value={money(summary.totalRevenue)} note="Rooms, folio extras and outlet-paid sales" icon={TrendingUp} tone="emerald" /><MoneyMetric label="Total collected" value={money(summary.totalCollected)} note="Front desk and outlet collections" icon={WalletCards} tone="blue" /><MoneyMetric label="Outstanding folios" value={money(summary.amountDue)} note={`${dueGuests} guest ${dueGuests === 1 ? "balance" : "balances"} require attention`} icon={ReceiptText} tone={summary.amountDue > 0 ? "amber" : "emerald"} /><MoneyMetric label="Outlet-paid revenue" value={money(summary.outletPaidRevenue)} note="Collected directly by restaurant and bar" icon={Store} tone="violet" /></section>
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Total hotel revenue" value={money(summary.totalRevenue)} note="Rooms, folio extras and outlet-paid sales" icon={TrendingUp} tone="emerald" /><MoneyMetric label="Total collected" value={money(summary.totalCollected)} note="Guest, agency and outlet collections" icon={WalletCards} tone="blue" /><MoneyMetric label="Outstanding folios" value={money(summary.amountDue)} note={`${dueGuests} guest · ${summary.agencyFoliosDue} agency ${summary.agencyFoliosDue === 1 ? "folio" : "folios"} due`} icon={ReceiptText} tone={summary.amountDue > 0 ? "amber" : "emerald"} /><MoneyMetric label="Outlet-paid revenue" value={money(summary.outletPaidRevenue)} note="Collected directly by restaurant and bar" icon={Store} tone="violet" /></section>
     <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]"><Panel title="Room position" description="Current physical room availability"><div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200 sm:grid-cols-5"><SmallStat label="All rooms" value={manager.rooms.total} /><SmallStat label="Operational" value={manager.rooms.active} /><SmallStat label="Occupied" value={manager.rooms.occupiedNow} /><SmallStat label="Available" value={manager.rooms.availableNow} good /><SmallStat label="Out of service" value={manager.rooms.outOfService} warning={manager.rooms.outOfService > 0} /></div></Panel><Panel title="Management attention" description="Items that should be reviewed before closing the day"><div className="space-y-2"><AttentionRow ok={data.control.status === "BALANCED"} text={data.control.status === "BALANCED" ? "Automated report reconciliation is balanced." : `${data.control.warnings.length} report data-quality items require review.`} /><AttentionRow ok={summary.amountDue <= 0.005} text={summary.amountDue > 0 ? `${dueGuests} folios still have an outstanding balance.` : "All report-period folios are settled."} /><AttentionRow ok={manager.openOrders === 0} text={manager.openOrders ? `${manager.openOrders} outlet orders are still open.` : "No restaurant or bar orders are waiting."} /><AttentionRow ok={manager.rooms.outOfService === 0} text={manager.rooms.outOfService ? `${manager.rooms.outOfService} rooms are unavailable for sale.` : "All configured rooms are operational."} /></div></Panel></section>
   </>;
 }
@@ -1378,7 +1389,7 @@ function RevenueReport({ data, currencyReport, money }: { data: ReportsResponse;
     <ReportTitle icon={TrendingUp} eyebrow="Financial performance" title="Revenue report" text="Recognized room, guest-service and outlet revenue with reservation-channel contribution." />
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Room revenue" value={money(summary.roomRevenue)} note="Stay value allocated to occupied nights in this period" icon={BedDouble} tone="blue" /><MoneyMetric label="Folio extras" value={money(summary.folioExtras)} note="Non-voided charges posted to guest folios" icon={ReceiptText} tone="violet" /><MoneyMetric label="Paid at outlet" value={money(summary.outletPaidRevenue)} note="Settled separately at restaurant or bar" icon={Store} tone="emerald" /><MoneyMetric label="Total revenue" value={money(summary.totalRevenue)} note="Combined hotel operating revenue" icon={BarChart3} tone="emerald" /></section>
     <Panel title="Revenue and collection timing" description="Explains exactly why money collected can be higher or lower than revenue recognized in the same report period.">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Collected for this period" value={money(timing.currentPeriodCollections)} note="Current-arrival folios plus outlet sales" icon={WalletCards} tone="emerald" /><MoneyMetric label="Older balances paid" value={money(timing.priorStayCollections)} note="Cash received now for earlier-arrival stays" icon={History} tone="blue" /><MoneyMetric label="Advance deposits" value={money(timing.advanceDeposits)} note="Cash received for stays arriving later" icon={CalendarCheck2} tone="violet" /><MoneyMetric label="Collections versus revenue" value={`${timing.revenueToCollectionDifference >= 0 ? "+" : "−"}${money(Math.abs(timing.revenueToCollectionDifference))}`} note={timing.revenueToCollectionDifference >= 0 ? "Collections are ahead because of timing" : "Some period revenue remains uncollected"} icon={ArrowUpDown} tone="amber" /></section>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Collected for this period" value={money(timing.currentPeriodCollections)} note="Current guest/group folios plus outlet sales" icon={WalletCards} tone="emerald" /><MoneyMetric label="Older balances paid" value={money(timing.priorStayCollections + timing.priorGroupCollections)} note="Cash received now for earlier guest and group stays" icon={History} tone="blue" /><MoneyMetric label="Advance deposits" value={money(timing.advanceDeposits + timing.advanceGroupDeposits)} note="Guest and agency cash for future arrivals" icon={CalendarCheck2} tone="violet" /><MoneyMetric label="Collections versus revenue" value={`${timing.revenueToCollectionDifference >= 0 ? "+" : "−"}${money(Math.abs(timing.revenueToCollectionDifference))}`} note={timing.revenueToCollectionDifference >= 0 ? "Collections are ahead because of timing" : "Some period revenue remains uncollected"} icon={ArrowUpDown} tone="amber" /></section>
       <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-[11px] leading-5 text-blue-900"><strong>Plain explanation:</strong> total revenue is what the hotel earned in this report period. Total collected is all money received in this period, including older folios and future-stay deposits. The difference is timing, not extra revenue.</div>
     </Panel>
     <Panel title="Reservation source and platform mix" description="Compare NoLSAF, online travel agencies and direct reservation channels for active stays arriving in this period.">
@@ -1435,9 +1446,10 @@ function PaymentsReport({ data, rows, currencyReport, money }: { data: ReportsRe
 
   return (
     <>
-      <ReportTitle icon={WalletCards} eyebrow="Collection control" title="Payments and cashier report" text="Every recorded collection with its method, operator, guest and source." />
-      <section className="grid gap-3 sm:grid-cols-3">
-        <MoneyMetric label="Front desk / folio" value={money(currencyReport.summary.folioPayments)} note="Payments recorded against guest folios" icon={Banknote} tone="blue" />
+      <ReportTitle icon={WalletCards} eyebrow="Collection control" title="Payments and cashier report" text="Every recorded collection with its method, operator, guest or agency, and source." />
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MoneyMetric label="Guest folios" value={money(currencyReport.summary.folioPayments)} note="Payments recorded against guest folios" icon={Banknote} tone="blue" />
+        <MoneyMetric label="Agency master folios" value={money(currencyReport.summary.agencyPayments)} note="Single payments recorded against group agency bills" icon={Building2} tone="blue" />
         <MoneyMetric label="Collected at outlets" value={money(currencyReport.summary.outletPayments)} note="Restaurant and bar direct settlement" icon={Store} tone="violet" />
         <MoneyMetric label="Total collections" value={money(currencyReport.summary.totalCollected)} note={`${rows.filter((row) => !row.voidedAt).length} active collection records`} icon={CheckCircle2} tone="emerald" />
       </section>
@@ -1459,7 +1471,7 @@ function PaymentsReport({ data, rows, currencyReport, money }: { data: ReportsRe
           {pageRows.map((row) => (
             <tr key={row.id}>
               <Cell><span className="whitespace-nowrap">{dateTime(row.occurredAt)}</span></Cell>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell>{row.reservationId != null ? <Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link> : <span className="font-bold text-neutral-900">{row.guest}</span>}<span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
               <Cell strong>{label(row.method)}</Cell>
               <Cell>{row.recordedBy}</Cell>
               <Cell>{row.reference || row.referenceNumber || "Not recorded"}</Cell>

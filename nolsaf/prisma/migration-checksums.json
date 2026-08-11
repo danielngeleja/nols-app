@@ -137,6 +137,11 @@
     "20260809120000_add_allocation_meal_plan": "9fe8015813c1492216644699fcacbeba24d13f5d1af2a1875c243d672fc193d3",
     "20260810100000_harden_nrms_rate_restrictions": "cf4d128fbcc22cfd20f7f5def850433ceac88448fd09027d3a080e0705c4d6b7",
     "20260810120000_add_service_availability_gates": "428fa30fdd3bb70a918e61a9e4aaf6c11e0e2de7d6f716a95acf7c36aaf6a925",
-    "20260810130000_harden_service_availability_gates": "6cd0bc16379c8ffe43a7525f2575d2e9de04fbea6c64d30c5ec001e1bf6015f4"
+    "20260810130000_harden_service_availability_gates": "6cd0bc16379c8ffe43a7525f2575d2e9de04fbea6c64d30c5ec001e1bf6015f4",
+    "20260811090000_add_nrms_group_block": "89499e5589808bf600e6a5f2d0f460cffa3fa63f28e5a4a9ec9ef0cddf26e969",
+    "20260811140000_add_nrms_rooming_list": "7408d2759dac440e10a5f24bf364cc8d24c81b22bdb2d78999ebd9ada05ff29f",
+    "20260811170000_add_nrms_master_folio": "0c1c4f3ba46cb7facef7601705ff4156acbb7283dabbd2a5bffdac4c1a594b59",
+    "20260811200000_add_nrms_master_pro_forma": "6931b26231a1366bd8e4df5c08ec2abf118b3ead56baac7f08f9c41d168cfbc2",
+    "20260811213000_add_nrms_manual_pro_forma_bank": "c0f6dd819ab9ab3a267ba0d54c7017c7143c4def674b340258a63eaf3fdf0f4a"
   }
 }
