@@ -99,6 +99,17 @@ export function buildProFormaSnapshot(block: any) {
       receiptNumber: String(payment.receiptNumber),
       amount: money(payment.amount),
     }));
+  for (const refund of block.masterFolio?.refunds ?? []) {
+    if (refund.voidedAt) continue;
+    payments.push({
+      date: new Date(refund.createdAt).toISOString(),
+      method: `REFUND · ${String(refund.method || "OTHER")}`,
+      reference: refund.reference ? String(refund.reference) : null,
+      receiptNumber: String(refund.refundNumber),
+      amount: -money(refund.amount),
+    });
+  }
+  payments.sort((a, b) => a.date.localeCompare(b.date));
   const quotedTotal = money(items.reduce((sum, item) => sum + item.amount, 0));
   const paidAtIssue = money(payments.reduce((sum, payment) => sum + payment.amount, 0));
   return { items, payments, quotedTotal, paidAtIssue, balanceDue: money(Math.max(0, quotedTotal - paidAtIssue)) };
@@ -189,7 +200,9 @@ export async function createMasterProForma(tx: any, block: any, input: {
 }
 
 export function serializeProForma(record: any) {
-  const paidNow = money((record.masterFolio?.payments ?? []).filter((payment: any) => !payment.voidedAt).reduce((sum: number, payment: any) => sum + money(payment.amount), 0));
+  const paymentsReceived = money((record.masterFolio?.payments ?? []).filter((payment: any) => !payment.voidedAt).reduce((sum: number, payment: any) => sum + money(payment.amount), 0));
+  const refunded = money((record.masterFolio?.refunds ?? []).filter((refund: any) => !refund.voidedAt).reduce((sum: number, refund: any) => sum + money(refund.amount), 0));
+  const paidNow = money(paymentsReceived - refunded);
   const total = money(record.quotedTotal);
   const liveBalance = money(Math.max(0, total - paidNow));
   const paymentStatus = liveBalance <= 0.005 ? "PAID" : paidNow > 0.005 ? "PARTIALLY_PAID" : "UNPAID";
@@ -334,7 +347,13 @@ export function publicProFormaView(record: any) {
       reference: payment.reference,
       receiptNumber: payment.receiptNumber,
       amount: money(payment.amount),
-    })),
+    })).concat((record.masterFolio.refunds ?? []).filter((refund: any) => !refund.voidedAt).map((refund: any) => ({
+      paidAt: refund.createdAt,
+      method: `REFUND · ${refund.method}`,
+      reference: refund.reference,
+      receiptNumber: refund.refundNumber,
+      amount: -money(refund.amount),
+    }))).sort((a: any, b: any) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()),
     paymentAccount: {
       bankName: record.bankName,
       accountName: record.bankAccountName,

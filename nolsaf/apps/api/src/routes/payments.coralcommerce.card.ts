@@ -338,8 +338,8 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
       });
     }
 
-    await prisma.invoice.update({
-      where: { id: invoice.id },
+    await prisma.invoice.updateMany({
+      where: { id: invoice.id, status: { not: "PAID" } },
       data: {
         paymentRef: invoice.paymentRef ?? paymentRef,
         paymentMethod: "CARD",

@@ -22,6 +22,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { encrypt } from "../lib/crypto.js";
 import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
+import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
@@ -33,7 +34,9 @@ import {
 } from "../lib/nrmsGroupPickup.js";
 import {
   billingUsesMasterFolio,
+  buildGroupChargeRegister,
   buildMasterPaymentReceiptNumber,
+  buildMasterRefundNumber,
   ensureMasterFolioForBlock,
   getMasterFolioTotals,
   refreshMasterFolioStatus,
@@ -45,6 +48,7 @@ import {
   renderMasterProFormaPdf,
   serializeProForma,
 } from "../lib/nrmsProForma.js";
+import { emailMasterStatement, renderMasterStatementPdf } from "../lib/nrmsMasterStatement.js";
 
 export const router = Router();
 
@@ -81,7 +85,13 @@ const createBlockSchema = z.object({
   rooms: z.array(blockRoomSchema).min(1).max(40),
 });
 
-const editBlockSchema = createBlockSchema.partial().omit({ rooms: true });
+const editBlockSchema = createBlockSchema.partial().omit({ rooms: true }).extend({
+  rooms: z.array(z.object({
+    id: z.number().int().positive(),
+    quantity: z.number().int().min(1).max(200),
+    nightlyRate: z.number().min(0).max(100_000_000),
+  })).min(1).max(40).optional(),
+});
 
 const pickupSchema = z.object({
   blockRoomId: z.number().int().positive(),
@@ -106,12 +116,19 @@ const masterPaymentSchema = z.object({
 });
 
 const paymentVoidSchema = z.object({ reason: z.string().trim().min(2).max(300) });
+const masterRefundSchema = z.object({
+  amount: z.number().positive().max(1_000_000_000),
+  method: z.enum(PAYMENT_METHODS),
+  reference: z.string().trim().max(120).optional().nullable(),
+  reason: z.string().trim().min(2).max(300),
+});
 const proFormaCreateSchema = z.object({
   dueAt: dayString.optional(),
   validUntil: dayString.optional(),
   notes: z.string().trim().max(1000).optional().nullable(),
 });
 const proFormaSendSchema = z.object({ email: z.string().trim().email().max(160).optional() });
+const masterStatementSendSchema = z.object({ email: z.string().trim().email().max(160).optional() });
 const manualProFormaBankSchema = z.object({
   bankName: z.string().trim().min(2).max(120),
   accountName: z.string().trim().min(2).max(160),
@@ -140,12 +157,16 @@ function formatBlock(block: any) {
   const stayNights = nights(block.checkIn, block.checkOut);
   // Value of the whole block at the agreed rates, the number the desk quotes.
   const blockValue = rooms.reduce((sum: number, room: any) => sum + Number(room.nightlyRate) * room.quantity * stayNights, 0);
+  const chargeRegister = buildGroupChargeRegister(block);
   const masterFolio = block.masterFolio
     ? (() => {
         const activeItems = (block.masterFolio.items ?? []).filter((item: any) => !item.voidedAt);
         const activePayments = (block.masterFolio.payments ?? []).filter((payment: any) => !payment.voidedAt);
+        const activeRefunds = (block.masterFolio.refunds ?? []).filter((refund: any) => !refund.voidedAt);
         const billed = activeItems.reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0);
-        const paid = activePayments.reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
+        const paymentsReceived = activePayments.reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
+        const refunded = activeRefunds.reduce((sum: number, refund: any) => sum + Number(refund.amount ?? 0), 0);
+        const paid = paymentsReceived - refunded;
         const proFormas = (block.masterFolio.proFormas ?? []).map((record: any) => serializeProForma({ ...record, masterFolio: block.masterFolio }));
         const latestProForma = proFormas.find((record: any) => !record.supersededAt) ?? proFormas[0] ?? null;
         const quoted = Number(latestProForma?.quotedTotal ?? 0);
@@ -158,18 +179,24 @@ function formatBlock(block: any) {
           status: block.masterFolio.status,
           currency: block.masterFolio.currency,
           billed: Number(billed.toFixed(2)),
+          paymentsReceived: Number(paymentsReceived.toFixed(2)),
+          refunded: Number(refunded.toFixed(2)),
           paid: Number(paid.toFixed(2)),
           balance: Number((billed - paid).toFixed(2)),
+          credit: Number(Math.max(0, paid - billed).toFixed(2)),
           quoted: Number(quoted.toFixed(2)),
           paymentDue: Number(Math.max(0, Math.max(billed, quoted) - paid).toFixed(2)),
           settledAt: block.masterFolio.settledAt,
+          revisionRequired: chargeRegister.revisionRequired,
           items: (block.masterFolio.items ?? []).map((item: any) => ({
             id: item.id,
             reservationId: item.reservationId,
             kind: item.kind,
             description: item.description,
             amount: Number(item.amount),
+            createdAt: item.createdAt,
             voidedAt: item.voidedAt,
+            voidReason: item.voidReason,
           })),
           payments: (block.masterFolio.payments ?? []).map((payment: any) => ({
             id: payment.id,
@@ -181,6 +208,17 @@ function formatBlock(block: any) {
             createdAt: payment.createdAt,
             voidedAt: payment.voidedAt,
             voidReason: payment.voidReason,
+          })),
+          refunds: (block.masterFolio.refunds ?? []).map((refund: any) => ({
+            id: refund.id,
+            amount: Number(refund.amount),
+            method: refund.method,
+            reference: refund.reference,
+            refundNumber: refund.refundNumber,
+            reason: refund.reason,
+            createdAt: refund.createdAt,
+            voidedAt: refund.voidedAt,
+            voidReason: refund.voidReason,
           })),
           proFormas,
         };
@@ -211,6 +249,7 @@ function formatBlock(block: any) {
     roomsPickedUp,
     blockValue,
     masterFolio,
+    chargeRegister: chargeRegister.rows,
     rooms: rooms.map((room: any) => ({
       id: room.id,
       roomTypeId: room.roomTypeId,
@@ -235,7 +274,57 @@ const blockInclude = {
     include: {
       items: { orderBy: { createdAt: "asc" as const } },
       payments: { orderBy: { createdAt: "asc" as const } },
+      refunds: { orderBy: { createdAt: "asc" as const } },
       proFormas: { orderBy: { revision: "desc" as const } },
+    },
+  },
+};
+
+// The list stays intentionally light. The modal detail adds the operational
+// sources needed for the charge-to-payer register only when one block opens.
+const blockDetailInclude = {
+  ...blockInclude,
+  group: {
+    select: {
+      reservations: {
+        orderBy: [{ checkIn: "asc" as const }, { id: "asc" as const }],
+        select: {
+          id: true,
+          externalRef: true,
+          status: true,
+          currency: true,
+          totalAmount: true,
+          amountPaid: true,
+          createdAt: true,
+          guestProfile: { select: { fullName: true } },
+          allocations: {
+            where: { status: "ACTIVE" },
+            select: {
+              roomUnit: { select: { code: true } },
+              roomType: { select: { name: true } },
+            },
+          },
+          charges: {
+            orderBy: { createdAt: "asc" as const },
+            select: {
+              id: true,
+              category: true,
+              description: true,
+              amount: true,
+              currency: true,
+              createdAt: true,
+              voidedAt: true,
+              outletOrder: {
+                select: {
+                  orderNumber: true,
+                  status: true,
+                  outlet: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
 };
@@ -244,6 +333,7 @@ const proFormaRecordInclude = {
   masterFolio: {
     include: {
       payments: { orderBy: { createdAt: "asc" as const } },
+      refunds: { orderBy: { createdAt: "asc" as const } },
       block: true,
     },
   },
@@ -264,34 +354,10 @@ async function loadOwnedBlock(res: Response, ownerId: number, blockId: number) {
   return block;
 }
 
-type GroupDocumentAccess = { role: "OWNER" | "MANAGER" | "FRONT_DESK"; property: { id: number; ownerId: number } };
+type GroupDocumentAccess = NrmsPropertyAccess;
 
 async function loadGroupDocumentAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
-  if (!Number.isInteger(propertyId) || propertyId <= 0) {
-    res.status(400).json({ error: "Invalid property id" });
-    return null;
-  }
-  const property = await prisma.property.findUnique({
-    where: { id: propertyId },
-    select: { id: true, ownerId: true, status: true, nrmsActivatedAt: true },
-  });
-  if (!property || property.status !== "APPROVED" || !property.nrmsActivatedAt) {
-    res.status(404).json({ error: "Active NRMS property not found" });
-    return null;
-  }
-  if (property.ownerId === req.user!.id) {
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, property.id);
-    return active ? { role: "OWNER", property } : null;
-  }
-  const membership = await prisma.nrmsStaffMembership.findFirst({
-    where: { propertyId, userId: req.user!.id, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } },
-    select: { role: true },
-  });
-  if (!membership) {
-    res.status(403).json({ error: "Only the property owner, manager, or front desk can access group billing", code: "NRMS_GROUP_BILLING_FORBIDDEN" });
-    return null;
-  }
-  return { role: membership.role as "MANAGER" | "FRONT_DESK", property };
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
 }
 
 async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, blockId: number) {
@@ -299,7 +365,7 @@ async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, bl
     res.status(400).json({ error: "Invalid group block id" });
     return null;
   }
-  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockInclude });
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockDetailInclude });
   if (!block) {
     res.status(404).json({ error: "Group block not found" });
     return null;
@@ -632,6 +698,57 @@ router.post("/blocks/:blockId/pro-formas/:proFormaId/send", (async (req: AuthedR
   }
 }) as RequestHandler);
 
+async function loadMasterStatementBlock(blockId: number) {
+  return prisma.nrmsGroupBlock.findUnique({
+    where: { id: blockId },
+    include: {
+      property: true,
+      owner: { select: { email: true, phone: true, tin: true } },
+      masterFolio: {
+        include: {
+          items: { orderBy: { createdAt: "asc" } },
+          payments: { orderBy: { createdAt: "asc" } },
+          refunds: { orderBy: { createdAt: "asc" } },
+        },
+      },
+    },
+  });
+}
+
+router.get("/blocks/:blockId/master-folio/statement.pdf", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    const block = await loadMasterStatementBlock(accessible.block.id);
+    if (!block?.masterFolio) return res.status(404).json({ error: "Agency master folio not found" });
+    const rendered = await renderMasterStatementPdf(block);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${rendered.number}.pdf"`);
+    res.send(rendered.pdf);
+  } catch (err) {
+    console.error("[owner.nrms.groupBlocks] master statement PDF failed", err);
+    res.status(500).json({ error: "Failed to generate the agency account document" });
+  }
+}) as RequestHandler);
+
+router.post("/blocks/:blockId/master-folio/statement/send", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = masterStatementSendSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Enter a valid recipient email" });
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    const block = await loadMasterStatementBlock(accessible.block.id);
+    if (!block?.masterFolio) return res.status(404).json({ error: "Agency master folio not found" });
+    const recipient = parsed.data.email || block.masterFolio.contactEmail || block.contactEmail;
+    if (!recipient) return res.status(400).json({ error: "The group billing email is missing", code: "BILLING_EMAIL_REQUIRED" });
+    const delivered = await emailMasterStatement(block, recipient);
+    res.json({ ok: true, number: delivered.number, title: delivered.title, sentToEmail: recipient, provider: delivered.delivery.provider });
+  } catch (err) {
+    console.error("[owner.nrms.groupBlocks] master statement email failed", err);
+    res.status(500).json({ error: "Failed to email the agency account document" });
+  }
+}) as RequestHandler);
+
 /**
  * PATCH /blocks/:blockId
  *
@@ -663,11 +780,21 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
     }
     const pickedUp = block.rooms.reduce((sum: number, room: any) => sum + room.pickedUp, 0);
     const datesTouched = data.checkIn !== undefined || data.checkOut !== undefined;
+    const roomsTouched = data.rooms !== undefined;
     if (datesTouched && pickedUp > 0) {
       return res.status(409).json({
         error: "Rooms have already been picked up from this block, so its dates are fixed. Edit the reservations instead.",
         code: "BLOCK_ALREADY_PICKED_UP",
       });
+    }
+    if (roomsTouched && pickedUp > 0) {
+      return res.status(409).json({ error: "Room quantities and rates are fixed after the first guest is picked up.", code: "BLOCK_ROOMS_LOCKED" });
+    }
+    if (roomsTouched) {
+      const existingIds = new Set(block.rooms.map((room: any) => room.id));
+      if (data.rooms!.length !== existingIds.size || data.rooms!.some((room) => !existingIds.has(room.id))) {
+        return res.status(400).json({ error: "Every current room line must be included in the amendment", code: "BLOCK_ROOM_LINES_MISMATCH" });
+      }
     }
     if (data.billingMode !== undefined && data.billingMode !== block.billingMode && pickedUp > 0) {
       return res.status(409).json({
@@ -694,6 +821,23 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
     if ("error" in dates) return res.status(400).json({ error: dates.error });
 
     await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, block.propertyId);
+      if (data.rooms) {
+        const byId = new Map(block.rooms.map((room: any) => [room.id, room]));
+        const availability = await getRoomTypesAvailability(
+          tx,
+          block.propertyId,
+          block.rooms.map((room: any) => room.roomTypeId),
+          dates.checkIn,
+          dates.checkOut,
+          { excludeGroupBlockId: block.id },
+        );
+        for (const room of data.rooms) {
+          const existing = byId.get(room.id) as any;
+          const capacity = availability.get(existing.roomTypeId);
+          if (!capacity || capacity.available < room.quantity) throw new Error(`NRMS_BLOCK_CAPACITY:${existing.roomTypeId}:${room.quantity}:${capacity?.available ?? 0}`);
+        }
+      }
       const changed = await tx.nrmsGroupBlock.update({
         where: { id: block.id },
         data: {
@@ -708,11 +852,24 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
           ...(data.cutOffAt !== undefined ? { cutOffAt: dates.cutOffAt } : {}),
         },
       });
+      if (data.rooms) {
+        for (const room of data.rooms) {
+          await tx.nrmsGroupBlockRoom.update({ where: { id: room.id }, data: { quantity: room.quantity, nightlyRate: room.nightlyRate } });
+        }
+        await tx.nrmsMasterFolioProForma.updateMany({
+          where: { masterFolio: { blockId: block.id }, status: { in: ["DRAFT", "SENT"] } },
+          data: { status: "SUPERSEDED", supersededAt: new Date() },
+        });
+      }
       await ensureMasterFolioForBlock(tx, changed);
-    });
+    }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.json({ block: formatBlock(updated) });
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith("NRMS_BLOCK_CAPACITY:")) {
+      const [, roomTypeId, requested, available] = err.message.split(":");
+      return res.status(409).json({ error: "There are not enough rooms of that type free for this amendment", code: "ROOM_TYPE_CAPACITY_CONFLICT", conflict: { roomTypeId: Number(roomTypeId), requested: Number(requested), available: Number(available) } });
+    }
     console.error("[owner.nrms.groupBlocks] edit failed", err);
     res.status(500).json({ error: "Failed to update the group block" });
   }
@@ -742,10 +899,13 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
         orderBy: { revision: "desc" },
         select: { quotedTotal: true },
       });
+      const hasActualLedgerHistory = await tx.nrmsMasterFolioItem.count({ where: { masterFolioId: folio.id } });
       // Before pickup, the ledger can legitimately have no room items yet.
       // The current Pro Forma is the approved ceiling for an advance payment;
       // after pickup, actual routed charges remain authoritative if higher.
-      const payableTotal = Math.max(totals.billed, Number(latestProForma?.quotedTotal ?? 0));
+      const payableTotal = hasActualLedgerHistory > 0
+        ? totals.billed
+        : Math.max(totals.billed, Number(latestProForma?.quotedTotal ?? 0));
       const payableBalance = Number((payableTotal - totals.paid).toFixed(2));
       if (payableBalance <= 0.005) throw new Error("NRMS_MASTER_PAYMENT_COMPLETE");
       if (data.amount > payableBalance + 0.005) throw new Error(`NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:${payableBalance}`);
@@ -810,6 +970,87 @@ router.post("/blocks/:blockId/master-folio/payments/:paymentId/void", (async (re
   }
 }) as RequestHandler);
 
+/** Record money actually returned to an overpaid agency account. */
+router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = masterRefundSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Enter the refund amount, method and reason", details: parsed.error.flatten() });
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    if (accessible.access.role === "FRONT_DESK") return res.status(403).json({ error: "Only the property owner or manager can record an agency refund", code: "AGENCY_REFUND_FORBIDDEN" });
+    const { block } = accessible;
+    if (!block.masterFolio) return res.status(404).json({ error: "Agency master folio not found" });
+    const masterFolioId = block.masterFolio.id;
+    const actorId = req.user!.id;
+    await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, block.propertyId);
+      const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, propertyId: block.propertyId, ownerId: block.ownerId } });
+      if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
+      const totals = await getMasterFolioTotals(tx, folio.id);
+      const availableCredit = Math.max(0, Number((-totals.balance).toFixed(2)));
+      if (availableCredit <= 0.005) throw new Error("NRMS_MASTER_REFUND_NO_CREDIT");
+      if (parsed.data.amount > availableCredit + 0.005) throw new Error(`NRMS_MASTER_REFUND_EXCEEDS_CREDIT:${availableCredit}`);
+      await tx.nrmsMasterFolioRefund.create({
+        data: {
+          masterFolioId: folio.id,
+          amount: parsed.data.amount,
+          currency: folio.currency,
+          method: parsed.data.method,
+          reference: parsed.data.reference ? sanitizeText(parsed.data.reference) : null,
+          refundNumber: buildMasterRefundNumber(folio.id),
+          reason: sanitizeText(parsed.data.reason),
+          recordedById: actorId,
+        },
+      });
+      await refreshMasterFolioStatus(tx, folio.id);
+    }, EXTENDED_TX_OPTIONS);
+    const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
+    res.status(201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NO_CREDIT") return res.status(409).json({ error: "This agency account has no credit available to refund", code: "NO_AGENCY_CREDIT" });
+    if (err instanceof Error && err.message.startsWith("NRMS_MASTER_REFUND_EXCEEDS_CREDIT:")) {
+      const credit = Number(err.message.split(":")[1] ?? 0);
+      return res.status(400).json({ error: `Refund cannot exceed the agency credit of ${credit.toLocaleString()}`, code: "REFUND_EXCEEDS_CREDIT", credit });
+    }
+    if (err instanceof Error && err.message === "NRMS_MASTER_FOLIO_MISSING") return res.status(409).json({ error: "The agency master folio is missing", code: "MASTER_FOLIO_MISSING" });
+    console.error("[owner.nrms.groupBlocks] master refund failed", err);
+    res.status(500).json({ error: "Failed to record the agency refund" });
+  }
+}) as RequestHandler);
+
+router.post("/blocks/:blockId/master-folio/refunds/:refundId/void", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = paymentVoidSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "A void reason is required" });
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    if (accessible.access.role === "FRONT_DESK") return res.status(403).json({ error: "Only the property owner or manager can void an agency refund", code: "AGENCY_REFUND_VOID_FORBIDDEN" });
+    const { block } = accessible;
+    if (!block.masterFolio) return res.status(404).json({ error: "Agency master folio not found" });
+    const masterFolioId = block.masterFolio.id;
+    const refundId = Number(req.params.refundId);
+    if (!Number.isInteger(refundId) || refundId <= 0) return res.status(400).json({ error: "Invalid agency refund id" });
+    await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, block.propertyId);
+      const refund = await tx.nrmsMasterFolioRefund.findFirst({ where: { id: refundId, masterFolioId } });
+      if (!refund) throw new Error("NRMS_MASTER_REFUND_NOT_FOUND");
+      if (refund.voidedAt) throw new Error("NRMS_MASTER_REFUND_ALREADY_VOID");
+      await tx.nrmsMasterFolioRefund.update({
+        where: { id: refund.id },
+        data: { voidedAt: new Date(), voidReason: sanitizeText(parsed.data.reason) },
+      });
+      await refreshMasterFolioStatus(tx, masterFolioId);
+    }, EXTENDED_TX_OPTIONS);
+    const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
+    res.json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NOT_FOUND") return res.status(404).json({ error: "Agency refund not found" });
+    if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_ALREADY_VOID") return res.status(409).json({ error: "Agency refund is already voided" });
+    console.error("[owner.nrms.groupBlocks] master refund void failed", err);
+    res.status(500).json({ error: "Failed to void the agency refund" });
+  }
+}) as RequestHandler);
+
 /**
  * POST /blocks/:blockId/pickup
  *
@@ -825,9 +1066,11 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
   try {
     const parsed = pickupSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid pickup", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const actorId = req.user!.id;
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    const { block } = accessible;
+    const ownerId = block.ownerId;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is no longer holding rooms", code: "INVALID_STATUS" });
     }
@@ -847,7 +1090,7 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
       children: data.children,
       roomUnitId: data.roomUnitId ?? null,
       notes: data.notes ?? null,
-      actorId: ownerId,
+      actorId,
     });
 
     if ("error" in outcome) return res.status(pickupStatus(outcome.error)).json(pickupErrorBody(outcome));

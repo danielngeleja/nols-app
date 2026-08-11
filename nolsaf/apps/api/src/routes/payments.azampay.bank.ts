@@ -292,8 +292,8 @@ const azamBankMobileNumber = normalizedBankMobile.replace(/^\+/, "");
         }
 
       // 11. Update invoice
-      await prisma.invoice.update({
-        where: { id: invoice.id },
+      await prisma.invoice.updateMany({
+        where: { id: invoice.id, status: { not: "PAID" } },
         data:  {
           paymentRef:        invoice.paymentRef ?? paymentRef,
           paymentMethod:     bankCode,

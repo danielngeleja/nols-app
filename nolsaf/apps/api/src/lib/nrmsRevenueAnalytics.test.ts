@@ -51,4 +51,20 @@ describe("NRMS revenue analytics settlement", () => {
       active: true,
     });
   });
+
+  it("reports collections net of agency refunds", () => {
+    expect(summarizeAnalyticsMasterFolio({
+      items: [{ amount: 450_000 }],
+      payments: [{ amount: 600_000 }],
+      refunds: [{ amount: 150_000 }],
+    })).toMatchObject({
+      billed: 450_000,
+      paymentsReceived: 600_000,
+      refunded: 150_000,
+      paid: 450_000,
+      balance: 0,
+      due: 0,
+      credit: 0,
+    });
+  });
 });

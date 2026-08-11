@@ -84,7 +84,16 @@ type Reservation = {
   totalAmount: number | null;
   amountPaid: number | null;
   chargesTotal: number | null;
+  transferredToMaster: number;
   balance: number | null;
+  agencySettlement: {
+    billingMode: string;
+    masterFolioReference: string;
+    status: string;
+    settled: boolean;
+    settledAt: string | null;
+    methods: string[];
+  } | null;
   cancelReason: string | null;
   guestProfile: { id: number; fullName: string; phone: string | null; email: string | null; nationality: string | null } | null;
   marketplaceBooking: {
@@ -250,6 +259,28 @@ function paymentMethodSummary(payments: Payment[] | undefined): { label: string;
   if (methods.length === 0) return { label: "Not recorded", title: "No payment method recorded" };
   if (methods.length === 1) return { label: methods[0], title: methods[0] };
   return { label: "Mixed", title: methods.join(" + ") };
+}
+
+function reservationPaymentMethod(reservation: Reservation): { label: string; title: string; agency: boolean } {
+  const guest = paymentMethodSummary(reservation.payments);
+  const agency = reservation.agencySettlement;
+  if (!agency) return { ...guest, agency: false };
+
+  const agencyMethods = agency.methods.map((method) => PAYMENT_METHOD_LABEL[method] ?? method.replace(/_/g, " ").toLowerCase());
+  const agencyMethod = agencyMethods.length === 0 ? "Master folio" : agencyMethods.length === 1 ? agencyMethods[0] : "Mixed";
+  const state = agency.settled ? "settled" : "still due";
+  if (guest.label === "Not recorded") {
+    return {
+      label: `Agency · ${agencyMethod}`,
+      title: `${agency.masterFolioReference} · Agency bill ${state}${agencyMethods.length > 1 ? ` · ${agencyMethods.join(" + ")}` : ""}`,
+      agency: true,
+    };
+  }
+  return {
+    label: "Guest + agency",
+    title: `Guest: ${guest.title} · Agency: ${agencyMethod} (${agency.masterFolioReference}, ${state})`,
+    agency: true,
+  };
 }
 
 function staffLabel(user: OutletOrder["settledBy"]): string {
@@ -530,9 +561,12 @@ export default function NrmsReservationsPage() {
                     .filter(Boolean)
                     .join(", ");
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
-                  const paymentMethod = paymentMethodSummary(reservation.payments);
+                  const paymentMethod = reservationPaymentMethod(reservation);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   const isMarketplace = reservation.bookingId != null;
+                  const agencySettlement = reservation.agencySettlement;
+                  const agencyBillDue = Boolean(agencySettlement && !agencySettlement.settled);
+                  const effectivePaid = Number(reservation.amountPaid ?? 0) + (agencySettlement?.settled ? Number(reservation.transferredToMaster ?? 0) : 0);
                   return (
                     <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
                       <td className="px-3 py-3.5 text-center">
@@ -572,19 +606,31 @@ export default function NrmsReservationsPage() {
                       <td className="px-4 py-3.5 text-center text-neutral-600">
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
                       </td>
-                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.amountPaid != null && reservation.amountPaid > 0 ? "text-emerald-700" : "text-neutral-400"}`}>
-                        {isMarketplace ? "NoLSAF managed" : money(reservation.amountPaid, reservation.currency)}
+                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
+                        {isMarketplace ? "NoLSAF managed" : (
+                          <>
+                            <span className="block">{money(effectivePaid, reservation.currency)}</span>
+                            {agencySettlement && (
+                              <span className={`mt-0.5 block text-[9px] font-bold uppercase tracking-wide ${agencySettlement.settled ? "text-emerald-600" : "text-amber-600"}`}>
+                                {agencySettlement.settled ? "Paid by agency" : "Agency payment pending"}
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-center">
                         <span
                           title={paymentMethod.title}
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : "bg-emerald-50 text-emerald-700"}`}
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
                         >
                           {isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
                         </span>
                       </td>
-                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-                        {isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : "Paid in full"}
+                      <td
+                        title={agencySettlement ? `${agencySettlement.masterFolioReference} · ${agencySettlement.settled ? "settled" : "payment outstanding"}` : undefined}
+                        className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 || agencyBillDue ? "text-amber-700" : "text-emerald-700"}`}
+                      >
+                        {isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>

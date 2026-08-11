@@ -21,6 +21,7 @@ import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDeliv
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
+import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 
 /**
@@ -103,6 +104,11 @@ export function startBackgroundWorkers(io: SocketServer): void {
     // applies the result through the same idempotent ledger path a callback
     // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
     startDisbursementReconciliationWorker();
+    // The same fallback for money coming IN. A SUCCESS callback writes its
+    // PaymentEvent before settlement runs, so a crash in between leaves a paid
+    // customer with an unconfirmed booking. This re-runs the idempotent
+    // settlement path and escalates anything that will not settle.
+    startUnsettledPaymentReconciliationWorker();
     // Submits authorized batches to AzamPay. Authorization is the human
     // decision; this is what actually moves the money, so that an HTTP
     // timeout can never strand a released batch half-submitted.

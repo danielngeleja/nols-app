@@ -102,7 +102,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const db = prisma as any;
     const dateWindow = { gte: rangeStart, lt: rangeEnd };
 
-    const [reservations, payments, masterPayments, masterFolios, charges, orders, events, roomTypes, allocations, blocks, expenses, outletStaff] = await Promise.all([
+    const [reservations, payments, masterPayments, masterRefunds, masterFolios, charges, orders, events, roomTypes, allocations, blocks, expenses, outletStaff] = await Promise.all([
       db.reservation.findMany({
         where: {
           propertyId,
@@ -184,12 +184,24 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { createdAt: "desc" },
         take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
+      db.nrmsMasterFolioRefund.findMany({
+        where: { masterFolio: { propertyId }, OR: [{ createdAt: dateWindow }, { voidedAt: dateWindow }] },
+        select: {
+          id: true, amount: true, currency: true, method: true, reference: true, refundNumber: true,
+          reason: true, createdAt: true, voidedAt: true, voidReason: true,
+          recordedBy: { select: { fullName: true, name: true, email: true } },
+          masterFolio: { select: { reference: true, billToName: true, block: { select: { checkIn: true, checkOut: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
+      }),
       db.nrmsMasterFolio.findMany({
         where: { propertyId, block: { checkIn: { lt: rangeEnd }, checkOut: { gt: rangeStart } } },
         select: {
           id: true, reference: true, billToName: true, currency: true, status: true,
           items: { where: { voidedAt: null }, select: { amount: true } },
           payments: { where: { voidedAt: null }, select: { amount: true } },
+          refunds: { where: { voidedAt: null }, select: { amount: true } },
         },
         take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
@@ -332,6 +344,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       ["reservations", reservations],
       ["payments", payments],
       ["agency payments", masterPayments],
+      ["agency refunds", masterRefunds],
       ["master folios", masterFolios],
       ["charges", charges],
       ["outlet orders", orders],
@@ -352,6 +365,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const activeCharges = charges.filter((charge: any) => !charge.voidedAt && inRange(charge.createdAt, rangeStart, rangeEnd));
     const activePayments = payments.filter((payment: any) => !payment.voidedAt && inRange(payment.createdAt, rangeStart, rangeEnd));
     const activeMasterPayments = masterPayments.filter((payment: any) => !payment.voidedAt && inRange(payment.createdAt, rangeStart, rangeEnd));
+    const activeMasterRefunds = masterRefunds.filter((refund: any) => !refund.voidedAt && inRange(refund.createdAt, rangeStart, rangeEnd));
     const settledOutletOrders = orders.filter((order: any) => order.status === "SETTLED" && order.settlementMode === "OUTLET_PAYMENT" && !order.voidedAt && inRange(order.settledAt, rangeStart, rangeEnd));
     const activeExpenses = expenses.filter((expense: any) => !expense.voidedAt && inRange(expense.incurredAt, rangeStart, rangeEnd));
     // Staff performance is scoped to whoever actually settled the order, on
@@ -379,6 +393,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     for (const charge of activeCharges) currencies.add(charge.currency || "TZS");
     for (const payment of activePayments) currencies.add(payment.currency || "TZS");
     for (const payment of activeMasterPayments) currencies.add(payment.currency || "TZS");
+    for (const refund of activeMasterRefunds) currencies.add(refund.currency || "TZS");
     for (const folio of masterFolios) currencies.add(folio.currency || "TZS");
     for (const order of settledOutletOrders) currencies.add(order.currency || "TZS");
     for (const expense of activeExpenses) currencies.add(expense.currency || "TZS");
@@ -424,18 +439,22 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const currencyPayments = activePayments.filter((item: any) => (item.currency || "TZS") === currency);
       const folioPayments = currencyPayments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const currencyMasterPayments = activeMasterPayments.filter((item: any) => (item.currency || "TZS") === currency);
-      const agencyPayments = currencyMasterPayments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const currencyMasterRefunds = activeMasterRefunds.filter((item: any) => (item.currency || "TZS") === currency);
+      const agencyRefunds = currencyMasterRefunds.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const agencyPayments = currencyMasterPayments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0) - agencyRefunds;
       const agencyAmountDue = masterFolios
         .filter((item: any) => (item.currency || "TZS") === currency)
         .reduce((sum: number, item: any) => {
           const billed = item.items.reduce((itemSum: number, row: any) => itemSum + decimal(row.amount), 0);
-          const paid = item.payments.reduce((paymentSum: number, row: any) => paymentSum + decimal(row.amount), 0);
+          const paid = item.payments.reduce((paymentSum: number, row: any) => paymentSum + decimal(row.amount), 0)
+            - item.refunds.reduce((refundSum: number, row: any) => refundSum + decimal(row.amount), 0);
           return sum + Math.max(0, billed - paid);
         }, 0);
       const agencyFoliosDue = masterFolios.filter((item: any) => {
         if ((item.currency || "TZS") !== currency) return false;
         const billed = item.items.reduce((sum: number, row: any) => sum + decimal(row.amount), 0);
-        const paid = item.payments.reduce((sum: number, row: any) => sum + decimal(row.amount), 0);
+        const paid = item.payments.reduce((sum: number, row: any) => sum + decimal(row.amount), 0)
+          - item.refunds.reduce((sum: number, row: any) => sum + decimal(row.amount), 0);
         return billed - paid > 0.005;
       }).length;
       const guestAmountDue = guestBalances.filter((item: any) => item.currency === currency).reduce((sum: number, item: any) => sum + item.amountDue, 0);
@@ -451,13 +470,16 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const currentGroupCollections = currencyMasterPayments
         .filter((item: any) => inRange(item.masterFolio?.block?.checkIn, rangeStart, rangeEnd))
-        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => inRange(item.masterFolio?.block?.checkIn, rangeStart, rangeEnd)).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const priorGroupCollections = currencyMasterPayments
         .filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() < rangeStart.getTime())
-        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() < rangeStart.getTime()).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const advanceGroupDeposits = currencyMasterPayments
         .filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() >= rangeEnd.getTime())
-        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() >= rangeEnd.getTime()).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const classifiedFolioPayments = currentStayCollections + priorStayCollections + advanceDeposits + currentGroupCollections + priorGroupCollections + advanceGroupDeposits;
       const unclassifiedCollections = Math.max(0, folioPayments + agencyPayments - classifiedFolioPayments);
       const currentPeriodCollections = currentStayCollections + currentGroupCollections + outletPaidRevenue;
@@ -484,6 +506,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       };
       for (const payment of currencyPayments) addMethod(payment.method, decimal(payment.amount));
       for (const payment of currencyMasterPayments) addMethod(payment.method, decimal(payment.amount));
+      for (const refund of currencyMasterRefunds) addMethod(`REFUND_${refund.method}`, -decimal(refund.amount));
       for (const order of currencyOutlet) addMethod(order.settlementMethod || "UNCLASSIFIED_OUTLET_PAYMENT", decimal(order.total));
 
       return {
@@ -495,6 +518,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           totalRevenue: round(totalRevenue),
           folioPayments: round(folioPayments),
           agencyPayments: round(agencyPayments),
+          agencyRefunds: round(agencyRefunds),
           outletPayments: round(outletPaidRevenue),
           totalCollected: round(totalCollected),
           amountDue: round(amountDue),
@@ -661,6 +685,22 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         voidedAt: payment.voidedAt,
         voidReason: payment.voidReason,
       })),
+      ...masterRefunds.map((refund: any) => ({
+        id: `master-refund-${refund.id}`,
+        type: "MASTER_FOLIO_REFUND",
+        occurredAt: refund.createdAt,
+        reservationId: null,
+        referenceNumber: refund.refundNumber,
+        guest: refund.masterFolio.billToName,
+        room: "Agency master folio",
+        method: `REFUND_${refund.method}`,
+        reference: refund.reference || refund.masterFolio.reference,
+        currency: refund.currency,
+        amount: round(-decimal(refund.amount)),
+        recordedBy: userLabel(refund.recordedBy),
+        voidedAt: refund.voidedAt,
+        voidReason: refund.voidReason,
+      })),
       ...settledOutletOrders.map((order: any) => ({
         id: `order-${order.id}`,
         type: "OUTLET_PAYMENT",
@@ -811,6 +851,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           folioCharges: activeCharges.length,
           payments: activePayments.length,
           agencyPayments: activeMasterPayments.length,
+          agencyRefunds: activeMasterRefunds.length,
           outletOrders: outletRows.length,
           auditEvents: auditRows.length,
           expenses: activeExpenses.length,

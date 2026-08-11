@@ -501,7 +501,7 @@ export default function Page() {
     setError(null);
     try {
       const promises = Array.from(selectedIds).map(id =>
-        api.post(`/api/admin/revenue/invoices/${id}/mark-paid`, { 
+        api.post(`/api/admin/invoices/${id}/mark-paid`, {
           method: "BANK", 
           ref: paymentRef.trim() 
         }).catch(err => ({ error: err }))

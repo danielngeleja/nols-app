@@ -592,7 +592,7 @@ export default function AdminRevenue() {
     setBulkActionLoading(true);
     try {
       const promises = Array.from(selectedIds).map(id =>
-        api.post(`/api/admin/revenue/invoices/${id}/mark-paid`, { method: "BANK", ref: paymentRef }).catch(err => ({ error: err }))
+        api.post(`/api/admin/invoices/${id}/mark-paid`, { method: "BANK", ref: paymentRef }).catch(err => ({ error: err }))
       );
       await Promise.all(promises);
       await load();

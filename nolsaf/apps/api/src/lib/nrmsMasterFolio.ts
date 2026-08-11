@@ -16,8 +16,185 @@ export function billingRoutesExtras(mode: unknown): boolean {
   return String(mode || "").toUpperCase() === "MASTER";
 }
 
+/**
+ * Read-only settlement context for a reservation whose liability was routed to
+ * a group master folio. This deliberately does not allocate the agency's one
+ * payment across guest payment rows; it only gives reservation views enough
+ * context to describe who paid and whether the group bill is truly clear.
+ */
+export function summarizeReservationMasterSettlement(group: any, transferredAmount: unknown) {
+  const transferred = money(transferredAmount);
+  const block = group?.block;
+  const folio = block?.masterFolio;
+  if (transferred <= 0.005 || !folio || !billingUsesMasterFolio(block?.billingMode ?? folio.billingMode)) return null;
+
+  const methods = [...new Set(
+    (folio.payments ?? [])
+      .filter((payment: any) => !payment.voidedAt)
+      .map((payment: any) => String(payment.method || "").trim().toUpperCase())
+      .filter(Boolean),
+  )];
+  const status = String(folio.status || "OPEN").toUpperCase();
+
+  return {
+    billingMode: String(block?.billingMode ?? folio.billingMode).toUpperCase(),
+    masterFolioReference: String(folio.reference),
+    status,
+    settled: status === "SETTLED" || status === "CREDIT",
+    settledAt: folio.settledAt ?? null,
+    methods,
+  };
+}
+
+export type GroupChargeRegisterRow = {
+  id: string;
+  occurredAt: Date | string;
+  sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE";
+  sourceReference: string;
+  category: string;
+  description: string;
+  outlet: string | null;
+  orderStatus: string | null;
+  reservationId: number;
+  reservationStatus: string;
+  guestName: string;
+  room: string;
+  payer: "AGENCY" | "GUEST";
+  destination: string;
+  settlementStatus: "PAID_BY_AGENCY" | "AGENCY_DUE" | "GUEST_FOLIO_SETTLED" | "GUEST_DUE" | "VOIDED";
+  documentRevisionRequired: boolean;
+  amount: number;
+  currency: string;
+};
+
+/**
+ * One read model for explaining every group liability from its operational
+ * source to the folio that owns it. It never allocates payments or mutates the
+ * ledger; the register is derived entirely from authoritative rows.
+ */
+export function buildGroupChargeRegister(block: any): { rows: GroupChargeRegisterRow[]; revisionRequired: boolean } {
+  const reservations = block?.group?.reservations ?? [];
+  const folio = block?.masterFolio ?? null;
+  const allMasterItems = folio?.items ?? [];
+  const activeMasterItems = allMasterItems.filter((item: any) => !item.voidedAt);
+  const currentProForma = (folio?.proFormas ?? []).find((record: any) => !record.supersededAt && record.status !== "SUPERSEDED") ?? null;
+  const proFormaIssuedAt = currentProForma?.issuedAt ? new Date(currentProForma.issuedAt).getTime() : null;
+  const agencySettled = ["SETTLED", "CREDIT"].includes(String(folio?.status || "").toUpperCase());
+  const rows: GroupChargeRegisterRow[] = [];
+
+  for (const reservation of reservations) {
+    const reservationItems = activeMasterItems.filter((item: any) => item.reservationId === reservation.id);
+    const transferred = reservationItems.reduce((sum: number, item: any) => sum + money(item.amount), 0);
+    const activeCharges = (reservation.charges ?? []).filter((charge: any) => !charge.voidedAt);
+    const guestBalance = money(
+      money(reservation.totalAmount)
+      + activeCharges.reduce((sum: number, charge: any) => sum + money(charge.amount), 0)
+      - money(reservation.amountPaid)
+      - transferred,
+    );
+    const room = (reservation.allocations ?? [])
+      .map((allocation: any) => allocation.roomUnit?.code ?? allocation.roomType?.name)
+      .filter(Boolean)
+      .join(", ") || "Unassigned";
+    const guestName = reservation.guestProfile?.fullName || "Guest not recorded";
+    const reservationVoided = ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(String(reservation.status || "").toUpperCase());
+    const roomItem = allMasterItems.find((item: any) => item.reservationId === reservation.id && item.kind === "ROOM");
+    const roomPayer: "AGENCY" | "GUEST" = roomItem ? "AGENCY" : "GUEST";
+
+    if (money(reservation.totalAmount) > 0.005 || roomItem) {
+      rows.push({
+        id: roomItem ? `MASTER_ITEM:${roomItem.id}` : `ROOM:${reservation.id}`,
+        occurredAt: roomItem?.createdAt ?? reservation.createdAt,
+        sourceType: "ROOM",
+        sourceReference: reservation.externalRef || `Reservation ${reservation.id}`,
+        category: "ROOM",
+        description: roomItem?.description || "Room accommodation",
+        outlet: null,
+        orderStatus: null,
+        reservationId: reservation.id,
+        reservationStatus: reservation.status,
+        guestName,
+        room,
+        payer: roomPayer,
+        destination: roomPayer === "AGENCY" ? (currentProForma?.number || folio?.reference || "Agency master folio") : `Guest folio · ${reservation.externalRef || reservation.id}`,
+        settlementStatus: reservationVoided || roomItem?.voidedAt
+          ? "VOIDED"
+          : roomPayer === "AGENCY"
+            ? agencySettled ? "PAID_BY_AGENCY" : "AGENCY_DUE"
+            : guestBalance <= 0.005 ? "GUEST_FOLIO_SETTLED" : "GUEST_DUE",
+        documentRevisionRequired: false,
+        amount: money(roomItem?.amount ?? reservation.totalAmount),
+        currency: roomItem?.currency || reservation.currency,
+      });
+    }
+
+    for (const charge of reservation.charges ?? []) {
+      const masterItem = allMasterItems.find((item: any) => item.reservationChargeId === charge.id);
+      // A void preserves the original routing for audit display even though it
+      // removes the amount from every live balance.
+      const payer: "AGENCY" | "GUEST" = masterItem ? "AGENCY" : "GUEST";
+      const occurredAt = masterItem?.createdAt ?? charge.createdAt;
+      const revisionRequired = Boolean(
+        payer === "AGENCY"
+        && currentProForma
+        && proFormaIssuedAt != null
+        && new Date(occurredAt).getTime() > proFormaIssuedAt,
+      );
+      const order = charge.outletOrder ?? null;
+      rows.push({
+        id: masterItem ? `MASTER_ITEM:${masterItem.id}` : `CHARGE:${charge.id}`,
+        occurredAt,
+        sourceType: order ? "OUTLET_ORDER" : "MANUAL_CHARGE",
+        sourceReference: order?.orderNumber || `Charge ${charge.id}`,
+        category: charge.category || masterItem?.kind || "EXTRA",
+        description: charge.description || masterItem?.description || "Guest extra",
+        outlet: order?.outlet?.name ?? null,
+        orderStatus: order?.status ?? null,
+        reservationId: reservation.id,
+        reservationStatus: reservation.status,
+        guestName,
+        room,
+        payer,
+        destination: payer === "AGENCY" ? (currentProForma?.number || folio?.reference || "Agency master folio") : `Guest folio · ${reservation.externalRef || reservation.id}`,
+        settlementStatus: charge.voidedAt || masterItem?.voidedAt
+          ? "VOIDED"
+          : payer === "AGENCY"
+            ? agencySettled ? "PAID_BY_AGENCY" : "AGENCY_DUE"
+            : guestBalance <= 0.005 ? "GUEST_FOLIO_SETTLED" : "GUEST_DUE",
+        documentRevisionRequired: revisionRequired,
+        amount: money(masterItem?.amount ?? charge.amount),
+        currency: masterItem?.currency || charge.currency || reservation.currency,
+      });
+    }
+  }
+
+  rows.sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
+  return { rows, revisionRequired: rows.some((row) => row.documentRevisionRequired && row.settlementStatus !== "VOIDED") };
+}
+
+export type MasterFolioJoinConflict = "CURRENCY_MISMATCH" | "GUEST_PAYMENT_RECORDED" | "OTHER_MASTER_FOLIO";
+
+/**
+ * Moving an existing stay onto an agency bill is safe only before money has
+ * landed on the guest folio and while no other agency already owns liability.
+ */
+export function masterFolioJoinConflict(
+  reservation: {
+    currency: string;
+    payments?: Array<{ amount: unknown }>;
+    masterFolioItems?: Array<{ masterFolioId: number }>;
+  },
+  masterFolio: { id: number; currency: string },
+): MasterFolioJoinConflict | null {
+  if (reservation.currency !== masterFolio.currency) return "CURRENCY_MISMATCH";
+  const guestPaid = (reservation.payments ?? []).reduce((sum, payment) => sum + money(payment.amount), 0);
+  if (guestPaid > 0.005) return "GUEST_PAYMENT_RECORDED";
+  if ((reservation.masterFolioItems ?? []).some((item) => item.masterFolioId !== masterFolio.id)) return "OTHER_MASTER_FOLIO";
+  return null;
+}
+
 export async function getMasterFolioTotals(tx: any, masterFolioId: number) {
-  const [items, payments] = await Promise.all([
+  const [items, payments, refunds] = await Promise.all([
     tx.nrmsMasterFolioItem.aggregate({
       where: { masterFolioId, voidedAt: null },
       _sum: { amount: true },
@@ -26,10 +203,18 @@ export async function getMasterFolioTotals(tx: any, masterFolioId: number) {
       where: { masterFolioId, voidedAt: null },
       _sum: { amount: true },
     }),
+    tx.nrmsMasterFolioRefund?.aggregate
+      ? tx.nrmsMasterFolioRefund.aggregate({
+          where: { masterFolioId, voidedAt: null },
+          _sum: { amount: true },
+        })
+      : Promise.resolve({ _sum: { amount: null } }),
   ]);
   const billed = money(items._sum.amount);
-  const paid = money(payments._sum.amount);
-  return { billed, paid, balance: money(billed - paid) };
+  const paymentsReceived = money(payments._sum.amount);
+  const refunded = money(refunds._sum.amount);
+  const paid = money(paymentsReceived - refunded);
+  return { billed, paymentsReceived, refunded, paid, balance: money(billed - paid) };
 }
 
 export async function refreshMasterFolioStatus(tx: any, masterFolioId: number) {
@@ -218,4 +403,8 @@ export async function getMasterCheckoutBlocker(
 
 export function buildMasterPaymentReceiptNumber(masterFolioId: number): string {
   return `MFP-${masterFolioId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`.slice(0, 40);
+}
+
+export function buildMasterRefundNumber(masterFolioId: number): string {
+  return `MFR-${masterFolioId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`.slice(0, 40);
 }

@@ -4,7 +4,7 @@ import { buildProFormaSnapshot, defaultProFormaDates } from "./nrmsProForma.js";
 import { generateNrmsProFormaPdf } from "./pdfDocuments.js";
 
 describe("NRMS agency Pro Forma", () => {
-  it("quotes the agreed room block and active master extras, less payments already received", () => {
+  it("quotes the agreed room block and active master extras, less net payments after refunds", () => {
     const snapshot = buildProFormaSnapshot({
       checkIn: new Date("2026-09-10T00:00:00.000Z"),
       checkOut: new Date("2026-09-13T00:00:00.000Z"),
@@ -22,6 +22,9 @@ describe("NRMS agency Pro Forma", () => {
           { amount: 400_000, method: "BANK", reference: "TRX-44", receiptNumber: "MFP-1", createdAt: new Date("2026-08-11T08:00:00Z") },
           { amount: 50_000, method: "CARD", receiptNumber: "MFP-2", createdAt: new Date(), voidedAt: new Date() },
         ],
+        refunds: [
+          { amount: 100_000, method: "BANK", reference: "RF-44", refundNumber: "MFR-1", createdAt: new Date("2026-08-12T08:00:00Z") },
+        ],
       },
     });
 
@@ -30,10 +33,11 @@ describe("NRMS agency Pro Forma", () => {
       expect.objectContaining({ description: "Single", detail: "3 nights", quantity: 2, nights: 3, unitRate: 80_000, amount: 480_000 }),
       expect.objectContaining({ kind: "EXTRA", description: "Airport transfer", amount: 35_000 }),
     ]);
-    expect(snapshot.payments).toHaveLength(1);
+    expect(snapshot.payments).toHaveLength(2);
+    expect(snapshot.payments[1]).toMatchObject({ method: "REFUND · BANK", receiptNumber: "MFR-1", amount: -100_000 });
     expect(snapshot.quotedTotal).toBe(1_955_000);
-    expect(snapshot.paidAtIssue).toBe(400_000);
-    expect(snapshot.balanceDue).toBe(1_555_000);
+    expect(snapshot.paidAtIssue).toBe(300_000);
+    expect(snapshot.balanceDue).toBe(1_655_000);
   });
 
   it("defaults payment due to the day before arrival when there is enough notice", () => {

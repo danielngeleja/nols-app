@@ -8,7 +8,7 @@
 // rest of the party booked.
 import { useCallback, useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Check, Copy, Link2, Loader2, RotateCcw, Send, ShieldOff, UserCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Copy, Link2, Loader2, Mail, RotateCcw, Send, ShieldOff, Upload, UserCheck, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import type { GroupBlockRoom } from "./NrmsGroupBlockModals";
 
@@ -90,6 +90,21 @@ function publicLink(token: string): string {
   return `${origin}/nrms/rooming-list/${token}`;
 }
 
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"' && quoted && line[index + 1] === '"') { value += '"'; index += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) { cells.push(value.trim()); value = ""; }
+    else value += char;
+  }
+  cells.push(value.trim());
+  return cells;
+}
+
 export default function NrmsRoomingListModal({
   blockId,
   blockRooms,
@@ -113,6 +128,7 @@ export default function NrmsRoomingListModal({
   const [deskNotes, setDeskNotes] = useState("");
   const [failures, setFailures] = useState<Array<{ rowId: number; fullName: string; error: string }>>([]);
   const [roomChoice, setRoomChoice] = useState<Record<number, number | "">>({});
+  const [deliveryNotice, setDeliveryNotice] = useState<string | null>(null);
 
   const applyList = useCallback((next: RoomingList | null) => {
     setList(next);
@@ -157,6 +173,47 @@ export default function NrmsRoomingListModal({
     await apiClient.post<any>(`/api/owner/nrms/rooming-lists/blocks/${blockId}`, {});
     await load();
   });
+
+  const emailLink = () => run(async () => {
+    const response = await apiClient.post<any>(`/api/owner/nrms/rooming-lists/blocks/${blockId}/send`, {});
+    setDeliveryNotice(`Rooming-list link sent to ${response.data?.sentToEmail}.`);
+    await load();
+  });
+
+  const importCsv = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const text = (await file.text()).replace(/^\uFEFF/, "");
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+      if (lines.length < 2) throw new Error("CSV_EMPTY");
+      const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/[^a-z0-9]/g, ""));
+      const indexOf = (...names: string[]) => names.map((name) => headers.indexOf(name)).find((index) => index >= 0) ?? -1;
+      const nameIndex = indexOf("fullname", "guestname", "name");
+      if (nameIndex < 0) throw new Error("CSV_NAME_HEADER");
+      const field = (cells: string[], ...names: string[]) => { const index = indexOf(...names); return index >= 0 ? cells[index]?.trim() || null : null; };
+      const rows = lines.slice(1).map(parseCsvLine).filter((cells) => cells[nameIndex]?.trim()).map((cells) => ({
+        fullName: cells[nameIndex].trim(),
+        phone: field(cells, "phone", "phonenumber"),
+        email: field(cells, "email", "emailaddress"),
+        nationality: field(cells, "nationality"),
+        adults: Number(field(cells, "adults") || 1),
+        children: Number(field(cells, "children") || 0),
+        roomType: field(cells, "roomtype", "room"),
+        sharingWith: field(cells, "sharingwith"),
+        notes: field(cells, "notes", "note"),
+      }));
+      if (!rows.length) throw new Error("CSV_EMPTY");
+      await run(async () => {
+        const response = await apiClient.post<any>(`/api/owner/nrms/rooming-lists/blocks/${blockId}/import`, { rows });
+        setDeliveryNotice(`${response.data?.importedCount ?? rows.length} guest names imported for review.`);
+        await load();
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "CSV_NAME_HEADER") setError("The CSV needs a Full Name column");
+      else if (error instanceof Error && error.message === "CSV_EMPTY") setError("The CSV has no guest rows to import");
+      else setError("The CSV could not be read");
+    }
+  };
 
   const revoke = () => run(async () => {
     await apiClient.post<any>(`/api/owner/nrms/rooming-lists/blocks/${blockId}/revoke`, {});
@@ -280,6 +337,7 @@ export default function NrmsRoomingListModal({
                 {list.submittedAt ? ` on ${fmtDate(list.submittedAt)}` : ""}
               </p>
             )}
+            {deliveryNotice && <p className="m-0 mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800">{deliveryNotice}</p>}
           </div>
 
           {list.rows.length === 0 ? (
@@ -413,26 +471,54 @@ export default function NrmsRoomingListModal({
           {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
           {live && !returning && (
-            <div className="flex flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 pt-4">
-              <span className="mr-auto text-[11px] font-semibold text-neutral-500">
-                {list.counts.accepted} accepted · {list.counts.pending} waiting · {list.counts.confirmed} booked
-              </span>
-              <button type="button" onClick={revoke} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-600 transition hover:border-red-300 hover:text-red-700 disabled:opacity-50">
-                <ShieldOff className="h-3.5 w-3.5" /> Revoke link
-              </button>
-              <button type="button" onClick={regenerate} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
-                <RotateCcw className="h-3.5 w-3.5" /> New link
-              </button>
-              {list.rows.length > 0 && (
-                <button type="button" onClick={() => { setReturning(true); setDeskNotes(list.deskNotes ?? ""); }} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-amber-300 hover:text-amber-800 disabled:opacity-50">
-                  <Send className="h-3.5 w-3.5" /> Send back
+            <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-neutral-50/70 shadow-sm">
+              <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">List progress</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {list.counts.accepted} accepted
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    {list.counts.pending} waiting
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-neutral-700 ring-1 ring-inset ring-neutral-200">
+                    <Check className="h-3 w-3 text-emerald-600" />
+                    {list.counts.confirmed} booked
+                  </span>
+                </div>
+
+                {list.counts.accepted > list.counts.confirmed && (
+                  <button type="button" onClick={confirmAccepted} disabled={busy} className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 hover:shadow disabled:cursor-not-allowed disabled:opacity-50">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+                    Confirm accepted names
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 border-0 border-t border-solid border-neutral-200 bg-white px-3 py-2">
+                <span className="mr-1 hidden text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400 sm:inline">Link tools</span>
+                <button type="button" onClick={emailLink} disabled={busy} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
+                  <Mail className="h-3.5 w-3.5" /> Email link
                 </button>
-              )}
-              {list.counts.accepted > list.counts.confirmed && (
-                <button type="button" onClick={confirmAccepted} disabled={busy} className="inline-flex cursor-pointer appearance-none items-center gap-2 rounded-lg border-0 bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">
-                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserCheck className="h-3.5 w-3.5" />} Confirm accepted names
+                <label className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-bold text-neutral-600 transition hover:bg-neutral-100 ${busy ? "pointer-events-none opacity-50" : ""}`}>
+                  <Upload className="h-3.5 w-3.5" /> Import CSV
+                  <input type="file" accept=".csv,text/csv" className="sr-only" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void importCsv(file); }} />
+                </label>
+                {list.rows.length > 0 && (
+                  <button type="button" onClick={() => { setReturning(true); setDeskNotes(list.deskNotes ?? ""); }} disabled={busy} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-[11px] font-bold text-neutral-600 transition hover:bg-amber-50 hover:text-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
+                    <Send className="h-3.5 w-3.5" /> Send back
+                  </button>
+                )}
+                <span className="mx-0.5 hidden h-4 w-px bg-neutral-200 sm:block" aria-hidden="true" />
+                <button type="button" onClick={regenerate} disabled={busy} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-[11px] font-bold text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50">
+                  <RotateCcw className="h-3.5 w-3.5" /> New link
                 </button>
-              )}
+                <button type="button" onClick={revoke} disabled={busy} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-[11px] font-bold text-neutral-500 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  <ShieldOff className="h-3.5 w-3.5" /> Revoke
+                </button>
+              </div>
             </div>
           )}
 

@@ -16,9 +16,10 @@ import crypto from "node:crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
-import { requireAuth, requireRole, type AuthedRequest } from "../middleware/auth.js";
-import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { sendMail } from "../lib/mailer.js";
 import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
@@ -30,7 +31,7 @@ import {
 
 export const router = Router();
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+router.use(requireAuth as RequestHandler);
 
 const DEFAULT_VALID_DAYS = 14;
 const MAX_VALID_DAYS = 90;
@@ -43,6 +44,23 @@ const createSchema = z.object({
 const rejectSchema = z.object({ rejectionReason: z.string().trim().min(2).max(300) });
 const acceptSchema = z.object({ blockRoomId: z.number().int().positive().optional().nullable() });
 const returnSchema = z.object({ deskNotes: z.string().trim().min(2).max(2000) });
+const sendSchema = z.object({ email: z.string().trim().email().max(160).optional() });
+const importSchema = z.object({ rows: z.array(z.object({
+  fullName: z.string().trim().min(1).max(160),
+  phone: z.string().trim().max(40).optional().nullable(),
+  email: z.string().trim().email().max(160).optional().nullable(),
+  nationality: z.string().trim().max(80).optional().nullable(),
+  adults: z.number().int().min(1).max(20).default(1),
+  children: z.number().int().min(0).max(20).default(0),
+  roomType: z.string().trim().max(160).optional().nullable(),
+  sharingWith: z.string().trim().max(160).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})).min(1).max(200) });
+
+function publicRoomingListUrl(token: string): string {
+  const origin = String(process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+  return `${origin}/nrms/rooming-list/${encodeURIComponent(token)}`;
+}
 
 function newToken(): string {
   return crypto.randomBytes(32).toString("base64url");
@@ -118,31 +136,30 @@ const blockInclude = {
   rooms: { include: { roomType: { select: { name: true } } }, orderBy: { id: "asc" as const } },
 };
 
-async function loadOwnedBlock(res: Response, ownerId: number, blockId: number) {
+async function loadAccessibleBlock(req: AuthedRequest, res: Response, blockId: number) {
   if (!Number.isInteger(blockId) || blockId <= 0) {
     res.status(400).json({ error: "Invalid group block id" });
     return null;
   }
-  const block = await prisma.nrmsGroupBlock.findFirst({ where: { id: blockId, ownerId }, include: blockInclude });
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockInclude });
   if (!block) {
     res.status(404).json({ error: "Group block not found" });
     return null;
   }
-  const active = await loadOwnedActiveNrmsProperty(res, ownerId, block.propertyId);
-  if (!active) return null;
-  return block;
+  const access = await loadNrmsPropertyAccess(req, res, block.propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+  return access ? { block, access } : null;
 }
 
 /** Loads the block and its list together, answering for both if either is missing. */
-async function loadOwnedList(res: Response, ownerId: number, blockId: number) {
-  const block = await loadOwnedBlock(res, ownerId, blockId);
-  if (!block) return null;
-  const list = await prisma.nrmsRoomingList.findUnique({ where: { blockId: block.id }, include: listInclude });
+async function loadAccessibleList(req: AuthedRequest, res: Response, blockId: number) {
+  const loaded = await loadAccessibleBlock(req, res, blockId);
+  if (!loaded) return null;
+  const list = await prisma.nrmsRoomingList.findUnique({ where: { blockId: loaded.block.id }, include: listInclude });
   if (!list) {
     res.status(404).json({ error: "No rooming list has been started for this block yet", code: "NO_ROOMING_LIST" });
     return null;
   }
-  return { block, list };
+  return { ...loaded, list };
 }
 
 /**
@@ -157,9 +174,10 @@ router.post("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
     const parsed = createSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid rooming list", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!loaded) return;
+    const { block } = loaded;
     if (!BLOCK_LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is no longer holding rooms, so there are no names left to collect", code: "INVALID_STATUS" });
     }
@@ -191,7 +209,7 @@ router.post("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
           expiresAt,
           sentAt: new Date(),
           instructions,
-          createdById: ownerId,
+          createdById: actorId,
         },
       });
     }
@@ -207,14 +225,72 @@ router.post("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
 /** GET /blocks/:blockId */
 router.get("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const loaded = await loadAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!loaded) return;
+    const { block } = loaded;
     const list = await prisma.nrmsRoomingList.findUnique({ where: { blockId: block.id }, include: listInclude });
     res.json({ roomingList: list ? formatList(list, block) : null });
   } catch (err) {
     console.error("[owner.nrms.roomingList] detail failed", err);
     res.status(500).json({ error: "Failed to load the rooming list" });
+  }
+}) as RequestHandler);
+
+/** Email the live capability link to the group billing contact. */
+router.post("/blocks/:blockId/send", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = sendSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Enter a valid recipient email" });
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
+    if (!loaded) return;
+    if (["REVOKED", "CONFIRMED"].includes(loaded.list.status)) return res.status(409).json({ error: "This rooming-list link is no longer active", code: "INVALID_STATUS" });
+    const recipient = parsed.data.email || loaded.block.contactEmail;
+    if (!recipient) return res.status(400).json({ error: "The group contact email is missing", code: "CONTACT_EMAIL_REQUIRED" });
+    const url = publicRoomingListUrl(loaded.list.publicToken);
+    const html = `<div style="font-family:Arial,sans-serif;color:#1f2937"><p>Dear ${loaded.block.contactName || "Group coordinator"},</p><p>${loaded.access.property.title} has shared the rooming list for <strong>${loaded.block.name}</strong>.</p><p><a href="${url}" style="display:inline-block;padding:11px 18px;background:#047857;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Open rooming list</a></p><p>Please submit the guest names by ${new Date(loaded.list.expiresAt).toLocaleDateString("en-GB")}.</p></div>`;
+    const delivery = await sendMail(recipient, `Rooming list for ${loaded.block.name}`, html, undefined, { sensitiveContent: true });
+    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { status: "SENT", sentAt: new Date() } });
+    const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
+    res.json({ roomingList: formatList(list, loaded.block), sentToEmail: recipient, provider: delivery.provider });
+  } catch (err) {
+    console.error("[owner.nrms.roomingList] send failed", err);
+    res.status(500).json({ error: "Failed to email the rooming-list link" });
+  }
+}) as RequestHandler);
+
+/** Import a spreadsheet after the browser has parsed it into safe row data. */
+router.post("/blocks/:blockId/import", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = importSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "The CSV contains invalid guest rows", details: parsed.error.flatten() });
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
+    if (!loaded) return;
+    if (["REVOKED", "CONFIRMED"].includes(loaded.list.status)) return res.status(409).json({ error: "This rooming list is closed", code: "INVALID_STATUS" });
+    const capacity = loaded.block.rooms.reduce((sum: number, room: any) => sum + Math.max(0, room.quantity - room.pickedUp), 0);
+    const existingOpen = loaded.list.rows.filter((row: any) => row.reservationId == null).length;
+    if (existingOpen + parsed.data.rows.length > capacity) return res.status(409).json({ error: `The import would exceed the ${capacity} rooms still available in this block`, code: "ROOMING_LIST_CAPACITY_EXCEEDED", availableRows: Math.max(0, capacity - existingOpen) });
+    const byRoomType = new Map(loaded.block.rooms.map((room: any) => [String(room.roomType?.name || "").trim().toLowerCase(), room.id]));
+    await prisma.nrmsRoomingListRow.createMany({
+      data: parsed.data.rows.map((row) => ({
+        roomingListId: loaded.list.id,
+        blockRoomId: row.roomType ? byRoomType.get(row.roomType.toLowerCase()) ?? null : null,
+        fullName: sanitizeText(row.fullName),
+        phone: row.phone ? sanitizeText(row.phone) : null,
+        email: row.email ? row.email.toLowerCase() : null,
+        nationality: row.nationality ? sanitizeText(row.nationality) : null,
+        adults: row.adults,
+        children: row.children,
+        sharingWith: row.sharingWith ? sanitizeText(row.sharingWith) : null,
+        notes: row.notes ? sanitizeText(row.notes) : null,
+        status: "PENDING",
+      })),
+    });
+    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { status: "SUBMITTED", submittedAt: new Date(), submitterName: "Front desk CSV import" } });
+    const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
+    res.status(201).json({ roomingList: formatList(list, loaded.block), importedCount: parsed.data.rows.length });
+  } catch (err) {
+    console.error("[owner.nrms.roomingList] import failed", err);
+    res.status(500).json({ error: "Failed to import the rooming-list CSV" });
   }
 }) as RequestHandler);
 
@@ -226,7 +302,7 @@ router.get("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
  */
 router.post("/blocks/:blockId/revoke", (async (req: AuthedRequest, res: Response) => {
   try {
-    const loaded = await loadOwnedList(res, req.user!.id, Number(req.params.blockId));
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
     if (!loaded) return;
     if (loaded.list.status === "REVOKED") return res.status(409).json({ error: "This link is already revoked", code: "INVALID_STATUS" });
     await prisma.nrmsRoomingList.update({
@@ -253,8 +329,8 @@ router.post("/blocks/:blockId/rows/:rowId/accept", (async (req: AuthedRequest, r
   try {
     const parsed = acceptSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid update", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const loaded = await loadOwnedList(res, ownerId, Number(req.params.blockId));
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
     if (!loaded) return;
     const row = loaded.list.rows.find((item: any) => item.id === Number(req.params.rowId));
     if (!row) return res.status(404).json({ error: "That name is not on this rooming list" });
@@ -269,7 +345,7 @@ router.post("/blocks/:blockId/rows/:rowId/accept", (async (req: AuthedRequest, r
       where: { id: row.id },
       data: { status: "ACCEPTED", rejectionReason: null, blockRoomId: blockRoomId ?? null },
     });
-    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { reviewedAt: new Date(), reviewedById: ownerId } });
+    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { reviewedAt: new Date(), reviewedById: actorId } });
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
     res.json({ roomingList: formatList(list, loaded.block) });
   } catch (err) {
@@ -283,8 +359,8 @@ router.post("/blocks/:blockId/rows/:rowId/reject", (async (req: AuthedRequest, r
   try {
     const parsed = rejectSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Say why the name was sent back so the agency can fix it", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const loaded = await loadOwnedList(res, ownerId, Number(req.params.blockId));
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
     if (!loaded) return;
     const row = loaded.list.rows.find((item: any) => item.id === Number(req.params.rowId));
     if (!row) return res.status(404).json({ error: "That name is not on this rooming list" });
@@ -299,7 +375,7 @@ router.post("/blocks/:blockId/rows/:rowId/reject", (async (req: AuthedRequest, r
       where: { id: row.id },
       data: { status: "REJECTED", rejectionReason: sanitizeText(parsed.data.rejectionReason) },
     });
-    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { reviewedAt: new Date(), reviewedById: ownerId } });
+    await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { reviewedAt: new Date(), reviewedById: actorId } });
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
     res.json({ roomingList: formatList(list, loaded.block) });
   } catch (err) {
@@ -319,8 +395,8 @@ router.post("/blocks/:blockId/return", (async (req: AuthedRequest, res: Response
   try {
     const parsed = returnSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Write a note telling the agency what to fix", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const loaded = await loadOwnedList(res, ownerId, Number(req.params.blockId));
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
     if (!loaded) return;
     if (loaded.list.status === "REVOKED") return res.status(409).json({ error: "This link is revoked. Issue a new one before sending the list back.", code: "INVALID_STATUS" });
 
@@ -331,7 +407,7 @@ router.post("/blocks/:blockId/return", (async (req: AuthedRequest, res: Response
         status: "RETURNED",
         deskNotes: sanitizeText(parsed.data.deskNotes),
         reviewedAt: new Date(),
-        reviewedById: ownerId,
+        reviewedById: actorId,
         // Sending a list back through a dead link would be sending it nowhere.
         ...(expired ? { expiresAt: expiryFrom(undefined, loaded.block) } : {}),
       },
@@ -354,10 +430,11 @@ router.post("/blocks/:blockId/return", (async (req: AuthedRequest, res: Response
  */
 router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const loaded = await loadOwnedList(res, ownerId, Number(req.params.blockId));
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleList(req, res, Number(req.params.blockId));
     if (!loaded) return;
     const { block } = loaded;
+    const ownerId = loaded.access.ownerId;
     if (!BLOCK_LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is no longer holding rooms", code: "INVALID_STATUS" });
     }
@@ -394,7 +471,7 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
           children: row.children,
           notes: row.notes ?? null,
           roomingListRowId: row.id,
-          actorId: ownerId,
+          actorId,
         });
         if ("error" in outcome) {
           const body = pickupErrorBody(outcome as { error: PickupErrorCode });
@@ -423,7 +500,7 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
     const after = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
     const outstanding = (after?.rows ?? []).some((row: any) => row.reservationId == null && row.status !== "REJECTED");
     if (after && !outstanding && after.status !== "CONFIRMED") {
-      await prisma.nrmsRoomingList.update({ where: { id: after.id }, data: { status: "CONFIRMED", reviewedAt: new Date(), reviewedById: ownerId } });
+      await prisma.nrmsRoomingList.update({ where: { id: after.id }, data: { status: "CONFIRMED", reviewedAt: new Date(), reviewedById: actorId } });
     }
 
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });

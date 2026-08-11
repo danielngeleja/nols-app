@@ -276,11 +276,16 @@ router.post("/:id/submit", async (req, res) => {
     return res.json({ ok: true, status: inv.status, alreadySubmitted: true });
   }
 
-  const updated = await prisma.invoice.update({
-    where: { id: inv.id },
+  const claimed = await prisma.invoice.updateMany({
+    where: { id: inv.id, status: "DRAFT" },
     // Align to schema statuses: REQUESTED → (admin) VERIFIED → APPROVED → PROCESSING → PAID / REJECTED
     data: { status: "REQUESTED" },
   });
+  if (claimed.count !== 1) {
+    const current = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
+    return res.json({ ok: true, status: current.status, alreadySubmitted: true });
+  }
+  const updated = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
   await invalidateOwnerReports(updated.ownerId);
   // Notify admins only once, when the invoice first transitions to REQUESTED.
   try {

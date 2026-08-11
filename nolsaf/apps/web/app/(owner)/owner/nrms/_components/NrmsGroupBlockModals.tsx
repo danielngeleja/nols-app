@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { AlertTriangle, ArrowLeftRight, Building2, CalendarClock, Check, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BedDouble, Building2, CalendarClock, Check, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, ReceiptText, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsRoomingListModal from "./NrmsRoomingListModal";
 
@@ -54,10 +54,14 @@ export type GroupBlock = {
     currency: string;
     billed: number;
     quoted: number;
+    paymentsReceived: number;
+    refunded: number;
     paid: number;
     balance: number;
+    credit: number;
     paymentDue: number;
     settledAt: string | null;
+    revisionRequired: boolean;
     proFormas: Array<{
       id: number;
       number: string;
@@ -91,9 +95,30 @@ export type GroupBlock = {
       supersededAt: string | null;
       createdAt: string;
     }>;
-    items: Array<{ id: number; reservationId: number; kind: string; description: string | null; amount: number; voidedAt: string | null }>;
+    items: Array<{ id: number; reservationId: number; kind: string; description: string | null; amount: number; createdAt: string; voidedAt: string | null; voidReason: string | null }>;
     payments: Array<{ id: number; amount: number; method: string; reference: string | null; receiptNumber: string; note: string | null; createdAt: string; voidedAt: string | null; voidReason: string | null }>;
+    refunds: Array<{ id: number; amount: number; method: string; reference: string | null; refundNumber: string; reason: string; createdAt: string; voidedAt: string | null; voidReason: string | null }>;
   } | null;
+  chargeRegister: Array<{
+    id: string;
+    occurredAt: string;
+    sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE";
+    sourceReference: string;
+    category: string;
+    description: string;
+    outlet: string | null;
+    orderStatus: string | null;
+    reservationId: number;
+    reservationStatus: string;
+    guestName: string;
+    room: string;
+    payer: "AGENCY" | "GUEST";
+    destination: string;
+    settlementStatus: "PAID_BY_AGENCY" | "AGENCY_DUE" | "GUEST_FOLIO_SETTLED" | "GUEST_DUE" | "VOIDED";
+    documentRevisionRequired: boolean;
+    amount: number;
+    currency: string;
+  }>;
   rooms: GroupBlockRoom[];
 };
 
@@ -182,6 +207,105 @@ function nightsBetween(checkIn: string, checkOut: string): number {
   const end = new Date(`${checkOut}T00:00:00`).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
   return Math.round((end - start) / 86_400_000);
+}
+
+const CHARGE_STATUS_LABEL: Record<string, string> = {
+  PAID_BY_AGENCY: "Paid by agency",
+  AGENCY_DUE: "Agency due",
+  GUEST_FOLIO_SETTLED: "Guest folio settled",
+  GUEST_DUE: "Guest due",
+  VOIDED: "Voided",
+};
+
+function chargeStatusClass(status: string): string {
+  if (status === "PAID_BY_AGENCY" || status === "GUEST_FOLIO_SETTLED") return "bg-emerald-100 text-emerald-800";
+  if (status === "AGENCY_DUE" || status === "GUEST_DUE") return "bg-amber-100 text-amber-800";
+  return "bg-neutral-100 text-neutral-500";
+}
+
+function GroupChargeRegister({ block }: { block: GroupBlock }) {
+  const rows = block.chargeRegister ?? [];
+  const activeRows = rows.filter((row) => row.settlementStatus !== "VOIDED");
+  const agencyRows = activeRows.filter((row) => row.payer === "AGENCY");
+  const guestRows = activeRows.filter((row) => row.payer === "GUEST");
+  const agencyAmount = agencyRows.reduce((sum, row) => sum + row.amount, 0);
+  const guestAmount = guestRows.reduce((sum, row) => sum + row.amount, 0);
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-200 bg-neutral-50/80 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700"><ReceiptText className="h-4 w-4" /></span>
+          <div className="min-w-0">
+            <p className="m-0 text-sm font-bold text-neutral-950">Group charge register</p>
+            <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Every room and extra traced from its source to the person responsible for payment.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-800">Agency · {agencyAmount.toLocaleString()} {block.currency}</span>
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">Guests · {guestAmount.toLocaleString()} {block.currency}</span>
+          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 ring-1 ring-inset ring-neutral-200">{activeRows.length} active</span>
+        </div>
+      </div>
+
+      {block.masterFolio?.revisionRequired && (
+        <div className="flex items-start gap-2.5 border-0 border-b border-solid border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <div>
+            <p className="m-0 text-xs font-bold text-amber-950">New agency charges need a Pro Forma revision</p>
+            <p className="m-0 mt-0.5 text-[10px] leading-4 text-amber-800">At least one extra was posted after the current document was issued. Generate a revision before requesting the remaining payment.</p>
+          </div>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <div className="px-4 py-8 text-center">
+          <p className="m-0 text-xs font-bold text-neutral-700">No routed charges yet</p>
+          <p className="m-0 mt-1 text-[10px] text-neutral-500">Room charges appear after pickup; food, bar and service orders appear after they are posted to a room folio.</p>
+        </div>
+      ) : (
+        <div className="max-h-[360px] overflow-auto">
+          <table className="w-full min-w-[860px] border-collapse text-left">
+            <thead className="sticky top-0 z-[1] bg-white shadow-[0_1px_0_0_#e5e5e5]">
+              <tr className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
+                <th className="px-3 py-2.5">Source</th>
+                <th className="px-3 py-2.5">Guest / room</th>
+                <th className="px-3 py-2.5">Responsible payer</th>
+                <th className="px-3 py-2.5">Invoice / folio</th>
+                <th className="px-3 py-2.5">Settlement</th>
+                <th className="px-3 py-2.5 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {rows.map((row) => {
+                const SourceIcon = row.sourceType === "ROOM" ? BedDouble : ReceiptText;
+                return (
+                  <tr key={row.id} className={row.settlementStatus === "VOIDED" ? "bg-neutral-50 opacity-60" : "hover:bg-neutral-50/80"}>
+                    <td className="px-3 py-3 align-top">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${row.sourceType === "ROOM" ? "bg-sky-50 text-sky-700" : "bg-violet-50 text-violet-700"}`}><SourceIcon className="h-3.5 w-3.5" /></span>
+                        <div className="min-w-0">
+                          <p className="m-0 text-[11px] font-bold text-neutral-900">{row.sourceReference}</p>
+                          {(row.outlet || row.orderStatus) && <p className="m-0 mt-0.5 text-[9px] font-semibold text-neutral-500">{[row.outlet, row.orderStatus?.replace(/_/g, " ").toLowerCase()].filter(Boolean).join(" · ")}</p>}
+                          <p className="m-0 mt-0.5 max-w-56 truncate text-[9px] text-neutral-500" title={row.description}>{row.description}</p>
+                          <p className="m-0 mt-1 text-[9px] text-neutral-400">{fmtDateTime(row.occurredAt)}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 align-top"><p className="m-0 text-[11px] font-bold text-neutral-900">{row.guestName}</p><p className="m-0 mt-0.5 text-[9px] text-neutral-500">{row.room} · {row.category.replace(/_/g, " ")}</p></td>
+                    <td className="px-3 py-3 align-top"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-bold ${row.payer === "AGENCY" ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-800"}`}>{row.payer === "AGENCY" ? block.masterFolio?.billToName || "Agency" : row.guestName}</span></td>
+                    <td className="px-3 py-3 align-top"><p className="m-0 text-[10px] font-semibold text-neutral-700">{row.destination}</p>{row.documentRevisionRequired && <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-800">Revision required</span>}</td>
+                    <td className="px-3 py-3 align-top"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-bold ${chargeStatusClass(row.settlementStatus)}`}>{CHARGE_STATUS_LABEL[row.settlementStatus] || row.settlementStatus.replace(/_/g, " ")}</span></td>
+                    <td className={`whitespace-nowrap px-3 py-3 text-right align-top text-[11px] font-bold tabular-nums ${row.settlementStatus === "VOIDED" ? "text-neutral-400 line-through" : "text-neutral-950"}`}>{row.amount.toLocaleString()} {row.currency}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function CreateGroupBlockModal({
@@ -481,6 +605,7 @@ export function GroupBlockDetailModal({
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showRoomingList, setShowRoomingList] = useState(false);
   const [draft, setDraft] = useState({ name: "", agencyName: "", contactName: "", contactPhone: "", contactEmail: "", cutOffAt: "", billingMode: "INDIVIDUAL", notes: "" });
+  const [roomAmendments, setRoomAmendments] = useState<Array<{ id: number; roomTypeName: string; quantity: string; nightlyRate: string }>>([]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
@@ -491,6 +616,7 @@ export function GroupBlockDetailModal({
   const [agencyPaymentReference, setAgencyPaymentReference] = useState("");
   const [proFormaError, setProFormaError] = useState<{ message: string; code?: string } | null>(null);
   const [proFormaNotice, setProFormaNotice] = useState<string | null>(null);
+  const [statementNotice, setStatementNotice] = useState<string | null>(null);
   const [showManualBank, setShowManualBank] = useState(false);
   const [showManualAccountNumber, setShowManualAccountNumber] = useState(false);
   const [manualBankBusy, setManualBankBusy] = useState(false);
@@ -500,6 +626,13 @@ export function GroupBlockDetailModal({
   const [voidingAgencyPaymentId, setVoidingAgencyPaymentId] = useState<number | null>(null);
   const [agencyPaymentVoidReason, setAgencyPaymentVoidReason] = useState("");
   const [agencyPaymentVoidError, setAgencyPaymentVoidError] = useState<string | null>(null);
+  const [agencyRefundAmount, setAgencyRefundAmount] = useState("");
+  const [agencyRefundMethod, setAgencyRefundMethod] = useState("BANK");
+  const [agencyRefundReference, setAgencyRefundReference] = useState("");
+  const [agencyRefundReason, setAgencyRefundReason] = useState("");
+  const [voidingAgencyRefundId, setVoidingAgencyRefundId] = useState<number | null>(null);
+  const [agencyRefundVoidReason, setAgencyRefundVoidReason] = useState("");
+  const [agencyRefundError, setAgencyRefundError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const response = await apiClient.get<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}`);
@@ -530,15 +663,18 @@ export function GroupBlockDetailModal({
       billingMode: block.billingMode,
       notes: block.notes ?? "",
     });
+    setRoomAmendments(block.rooms.map((room) => ({ id: room.id, roomTypeName: room.roomTypeName || "Room type", quantity: String(room.quantity), nightlyRate: String(room.nightlyRate) })));
     setError(null);
     setEditing(true);
   };
 
   const saveEdit = async () => {
+    if (!block) return;
     if (draft.name.trim().length < 2) return setError("Give the block a name the desk will recognise");
     if (draft.contactName.trim().length < 2) return setError("Enter the group leader or agency contact name");
     if (!/^\S+@\S+\.\S+$/.test(draft.contactEmail.trim())) return setError("Enter the email address that should receive the group documents");
     if (draft.billingMode !== "INDIVIDUAL" && draft.agencyName.trim().length < 2) return setError("Enter the agency or company that will receive the bill");
+    if (block.roomsPickedUp === 0 && roomAmendments.some((room) => !Number.isInteger(Number(room.quantity)) || Number(room.quantity) < 1 || !Number.isFinite(Number(room.nightlyRate)) || Number(room.nightlyRate) < 0)) return setError("Enter a valid quantity and rate for every room line");
     setBusy(true);
     setError(null);
     try {
@@ -551,6 +687,7 @@ export function GroupBlockDetailModal({
         cutOffAt: draft.cutOffAt,
         billingMode: draft.billingMode,
         notes: draft.notes.trim() || null,
+        ...(block.roomsPickedUp === 0 ? { rooms: roomAmendments.map((room) => ({ id: room.id, quantity: Number(room.quantity), nightlyRate: Number(room.nightlyRate) })) } : {}),
       });
       await reload();
       await onChanged();
@@ -628,12 +765,12 @@ export function GroupBlockDetailModal({
     setBusy(true);
     setError(null);
     try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments`, {
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments`, {
         amount,
         method: agencyPaymentMethod,
         reference: agencyPaymentReference.trim() || null,
       });
-      setBlock(response.data?.block ?? null);
+      await reload();
       setAgencyPaymentAmount("");
       setAgencyPaymentReference("");
       await onChanged();
@@ -650,8 +787,8 @@ export function GroupBlockDetailModal({
     setProFormaError(null);
     setProFormaNotice(null);
     try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/pro-formas`, {});
-      setBlock(response.data?.block ?? null);
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/pro-formas`, {});
+      await reload();
       await onChanged();
     } catch (e: any) {
       setProFormaError({
@@ -712,8 +849,8 @@ export function GroupBlockDetailModal({
     setError(null);
     setProFormaError(null);
     try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/pro-formas/${proFormaId}/send`, {});
-      setBlock(response.data?.block ?? null);
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/pro-formas/${proFormaId}/send`, {});
+      await reload();
       await onChanged();
     } catch (e: any) {
       setProFormaError({ message: e?.response?.data?.error || "Failed to email the Pro Forma invoice", code: e?.response?.data?.code });
@@ -741,6 +878,40 @@ export function GroupBlockDetailModal({
     }
   };
 
+  const downloadMasterStatement = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiClient.get<Blob>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/statement.pdf`, { responseType: "blob" });
+      const disposition = String(response.headers?.["content-disposition"] || "");
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `${block?.masterFolio?.reference || "agency-account"}.pdf`;
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to download the agency account document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendMasterStatement = async () => {
+    setBusy(true);
+    setError(null);
+    setStatementNotice(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/statement/send`, {});
+      setStatementNotice(`${response.data?.title === "FINAL PAYMENT RECEIPT" ? "Final receipt" : "Account statement"} sent to ${response.data?.sentToEmail || block?.contactEmail}.`);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Failed to email the agency account document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const voidAgencyPayment = async () => {
     if (!voidingAgencyPaymentId) return;
     const reason = agencyPaymentVoidReason.trim();
@@ -749,8 +920,8 @@ export function GroupBlockDetailModal({
     setError(null);
     setAgencyPaymentVoidError(null);
     try {
-      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments/${voidingAgencyPaymentId}/void`, { reason });
-      setBlock(response.data?.block ?? null);
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments/${voidingAgencyPaymentId}/void`, { reason });
+      await reload();
       setVoidingAgencyPaymentId(null);
       setAgencyPaymentVoidReason("");
       await onChanged();
@@ -761,9 +932,56 @@ export function GroupBlockDetailModal({
     }
   };
 
+  const recordAgencyRefund = async () => {
+    if (!block?.masterFolio) return;
+    const amount = Number(agencyRefundAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return setAgencyRefundError("Enter the amount actually returned to the agency");
+    if (agencyRefundReason.trim().length < 2) return setAgencyRefundError("Enter the reason for this refund");
+    setBusy(true);
+    setAgencyRefundError(null);
+    try {
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/refunds`, {
+        amount,
+        method: agencyRefundMethod,
+        reference: agencyRefundReference.trim() || null,
+        reason: agencyRefundReason.trim(),
+      });
+      await reload();
+      setAgencyRefundAmount("");
+      setAgencyRefundReference("");
+      setAgencyRefundReason("");
+      await onChanged();
+    } catch (e: any) {
+      setAgencyRefundError(e?.response?.data?.error || "Failed to record the agency refund");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const voidAgencyRefund = async () => {
+    if (!voidingAgencyRefundId) return;
+    if (agencyRefundVoidReason.trim().length < 2) return setAgencyRefundError("Enter a clear reason before voiding this refund");
+    setBusy(true);
+    setAgencyRefundError(null);
+    try {
+      await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/refunds/${voidingAgencyRefundId}/void`, { reason: agencyRefundVoidReason.trim() });
+      await reload();
+      setVoidingAgencyRefundId(null);
+      setAgencyRefundVoidReason("");
+      await onChanged();
+    } catch (e: any) {
+      setAgencyRefundError(e?.response?.data?.error || "Failed to void the agency refund");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const live = block ? ["HELD", "PARTIALLY_PICKED_UP"].includes(block.status) : false;
-  const canRunBlockOperations = accessRole === "OWNER";
+  const canPickupRooms = ["OWNER", "MANAGER", "FRONT_DESK"].includes(accessRole);
+  const canWorkRoomingList = ["OWNER", "MANAGER", "FRONT_DESK"].includes(accessRole);
+  const canManageBlockAgreement = accessRole === "OWNER";
   const canVoidAgencyPayment = accessRole === "OWNER" || accessRole === "MANAGER";
+  const canManageAgencyRefunds = accessRole === "OWNER" || accessRole === "MANAGER";
 
   return (
     <ModalFrame title={block?.name || "Group block"} onClose={onClose} extraWide>
@@ -802,15 +1020,15 @@ export function GroupBlockDetailModal({
                       <p className="m-0 mt-1 text-sm font-bold text-sky-950">Bill to {block.masterFolio.billToName}</p>
                       <p className="m-0 mt-0.5 text-xs text-sky-800">{block.billingMode === "SPLIT" ? "Rooms on agency; extras on guests" : "Rooms and extras on agency"}</p>
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${block.masterFolio.status === "SETTLED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${block.masterFolio.status === "SETTLED" ? "bg-emerald-100 text-emerald-800" : block.masterFolio.status === "CREDIT" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"}`}>
                       {block.masterFolio.status}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Quoted</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.quoted.toLocaleString()}</p></div>
                     <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Billed</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.billed.toLocaleString()}</p></div>
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Paid</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.paid.toLocaleString()}</p></div>
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Payment due</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-sky-950">{block.masterFolio.paymentDue.toLocaleString()} {block.masterFolio.currency}</p></div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Net paid</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.paid.toLocaleString()}</p>{block.masterFolio.refunded > 0 && <p className="m-0 mt-0.5 text-[9px] text-neutral-500">Received {block.masterFolio.paymentsReceived.toLocaleString()} · refunded {block.masterFolio.refunded.toLocaleString()}</p>}</div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">{block.masterFolio.credit > 0.005 ? "Credit to refund" : "Payment due"}</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${block.masterFolio.credit > 0.005 ? "text-blue-800" : "text-sky-950"}`}>{(block.masterFolio.credit > 0.005 ? block.masterFolio.credit : block.masterFolio.paymentDue).toLocaleString()} {block.masterFolio.currency}</p></div>
                   </div>
 
                   <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
@@ -883,6 +1101,21 @@ export function GroupBlockDetailModal({
                     {block.masterFolio.status === "SETTLED" && <p className="m-0 mt-3 text-[10px] font-semibold text-emerald-800">This agency account is settled. Use the final receipt or statement rather than issuing another request for payment.</p>}
                   </div>
 
+                  <div className="flex flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${block.masterFolio.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`}><FileText className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                        <p className="m-0 text-sm font-bold text-neutral-950">{block.masterFolio.status === "SETTLED" ? "Final payment receipt" : "Agency account statement"}</p>
+                        <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">Consolidated charges, payments, refunds and the current balance, issued directly by this property.</p>
+                        {statementNotice && <p className="m-0 mt-1 text-[10px] font-semibold text-emerald-700">{statementNotice}</p>}
+                      </div>
+                    </div>
+                    <div className="grid shrink-0 grid-cols-2 gap-2">
+                      <button type="button" onClick={() => void downloadMasterStatement()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[10px] font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"><Download className="h-3 w-3" /> Download PDF</button>
+                      <button type="button" onClick={() => void sendMasterStatement()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-sky-700 px-3 text-[10px] font-bold text-white hover:bg-sky-800 disabled:opacity-50"><Mail className="h-3 w-3" /> Email agency</button>
+                    </div>
+                  </div>
+
                   {block.masterFolio.paymentDue > 0.005 && (
                     <div className="grid gap-2 sm:grid-cols-[1fr_160px_1fr_auto]">
                       <input className={inputCls} type="number" min="0.01" max={block.masterFolio.paymentDue} step="0.01" value={agencyPaymentAmount} onChange={(e) => setAgencyPaymentAmount(e.target.value)} placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`} />
@@ -951,10 +1184,57 @@ export function GroupBlockDetailModal({
                       ))}
                     </div>
                   )}
+                  {block.masterFolio.credit > 0.005 && canManageAgencyRefunds && (
+                    <div className="rounded-xl border border-solid border-blue-200 bg-blue-50 p-3">
+                      <div className="mb-3">
+                        <p className="m-0 text-xs font-bold text-blue-950">Record money returned to the agency</p>
+                        <p className="m-0 mt-0.5 text-[10px] leading-4 text-blue-800">Available credit: {block.masterFolio.credit.toLocaleString()} {block.masterFolio.currency}. Record this only after the refund has actually been sent.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
+                        <input className={inputCls} type="number" min="0.01" max={block.masterFolio.credit} step="0.01" value={agencyRefundAmount} onChange={(e) => { setAgencyRefundAmount(e.target.value); setAgencyRefundError(null); }} placeholder={`Refund amount (max ${block.masterFolio.credit.toLocaleString()})`} />
+                        <select className={inputCls} value={agencyRefundMethod} onChange={(e) => setAgencyRefundMethod(e.target.value)}><option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="CASH">Cash</option><option value="OTHER">Other</option></select>
+                        <input className={inputCls} value={agencyRefundReference} onChange={(e) => setAgencyRefundReference(e.target.value)} placeholder="Refund reference (optional)" />
+                      </div>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <input className={inputCls} value={agencyRefundReason} onChange={(e) => { setAgencyRefundReason(e.target.value); setAgencyRefundError(null); }} maxLength={300} placeholder="Reason, for example: one room released after advance payment" />
+                        <button type="button" onClick={() => void recordAgencyRefund()} disabled={busy} className="min-h-11 shrink-0 cursor-pointer rounded-xl border-0 bg-blue-700 px-4 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50">Confirm refund sent</button>
+                      </div>
+                      {agencyRefundError && <p className="m-0 mt-2 text-[10px] font-semibold text-red-700">{agencyRefundError}</p>}
+                    </div>
+                  )}
+                  {block.masterFolio.refunds.length > 0 && (
+                    <div className="overflow-hidden rounded-lg border border-solid border-blue-200 bg-white">
+                      <div className="border-0 border-b border-solid border-blue-100 bg-blue-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-blue-800">Agency refunds</div>
+                      {block.masterFolio.refunds.map((refund) => (
+                        <div key={refund.id} className="border-0 border-b border-solid border-blue-100 last:border-b-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                            <div className={refund.voidedAt ? "opacity-50 line-through" : ""}>
+                              <p className="m-0 text-xs font-bold text-neutral-900">-{refund.amount.toLocaleString()} {block.masterFolio!.currency} · {refund.method.replace(/_/g, " ")}</p>
+                              <p className="m-0 mt-0.5 text-[10px] text-neutral-500">{refund.refundNumber}{refund.reference ? ` · ${refund.reference}` : ""}</p>
+                              <p className="m-0 mt-1 text-[10px] text-neutral-600">{refund.reason} · {fmtDateTime(refund.createdAt)}</p>
+                            </div>
+                            {!refund.voidedAt && canManageAgencyRefunds && <button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(refund.id); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold text-red-700 hover:bg-red-100 disabled:opacity-50">Void</button>}
+                          </div>
+                          {refund.voidedAt && <p className="mx-3 mb-2 mt-0 rounded-md bg-neutral-50 px-2.5 py-2 text-[10px] text-neutral-600"><span className="font-bold">Voided at:</span> {fmtDateTime(refund.voidedAt)}{refund.voidReason ? ` · Reason: ${refund.voidReason}` : ""}</p>}
+                          {voidingAgencyRefundId === refund.id && (
+                            <div className="border-0 border-t border-solid border-red-100 bg-red-50 p-3">
+                              <p className="m-0 text-xs font-bold text-red-950">Void this refund record?</p>
+                              <p className="m-0 mt-1 text-[10px] text-red-800">Use this only when the refund was entered incorrectly; it restores the agency credit.</p>
+                              <textarea value={agencyRefundVoidReason} onChange={(e) => { setAgencyRefundVoidReason(e.target.value); setAgencyRefundError(null); }} rows={2} maxLength={300} autoFocus placeholder="Reason for voiding" className="mt-2 box-border w-full resize-y rounded-lg border border-solid border-red-200 bg-white px-3 py-2 text-xs outline-none focus:border-red-500" />
+                              {agencyRefundError && <p className="m-0 mt-2 text-[10px] font-semibold text-red-700">{agencyRefundError}</p>}
+                              <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void voidAgencyRefund()} className="cursor-pointer rounded-lg border-0 bg-red-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Confirm void</button><button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(null); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-[10px] font-bold text-neutral-700">Keep refund</button></div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
+
+          {block.groupId && <GroupChargeRegister block={block} />}
 
           {block.cutOffPassed && live && (
             <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
@@ -990,7 +1270,7 @@ export function GroupBlockDetailModal({
                       <td className="px-4 py-2.5 text-center font-semibold tabular-nums text-emerald-700">{room.held}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-neutral-700">{room.nightlyRate.toLocaleString()}</td>
                       <td className="px-4 py-2.5 text-right">
-                        {canRunBlockOperations && live && room.held > 0 && (
+                        {canPickupRooms && live && room.held > 0 && (
                           <button
                             type="button"
                             onClick={() => { setNamingLine(room); setNameError(null); }}
@@ -1110,6 +1390,20 @@ export function GroupBlockDetailModal({
                   <p className="m-0 mt-1.5 text-[11px] leading-4 text-neutral-500">Push this back if the agency needs longer.</p>
                 </div>
               </div>
+              {block.roomsPickedUp === 0 && (
+                <div className="mt-3 rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                  <div className="mb-2 flex items-baseline justify-between gap-3"><p className="m-0 text-xs font-bold text-neutral-800">Room amendment</p><p className="m-0 text-[10px] text-neutral-500">Updates availability and supersedes the current Pro Forma.</p></div>
+                  <div className="space-y-2">
+                    {roomAmendments.map((room, index) => (
+                      <div key={room.id} className="grid items-end gap-2 sm:grid-cols-[1fr_110px_160px]">
+                        <p className="m-0 pb-3 text-xs font-semibold text-neutral-700">{room.roomTypeName}</p>
+                        <label className="block"><span className={labelCls}>Rooms</span><input className={inputCls} type="number" min="1" max="200" value={room.quantity} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: e.target.value } : item))} /></label>
+                        <label className="block"><span className={labelCls}>Rate per night</span><input className={inputCls} type="number" min="0" step="0.01" value={room.nightlyRate} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, nightlyRate: e.target.value } : item))} /></label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-3">
                 <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <span className="text-xs font-semibold text-neutral-700">Who settles the bill</span>
@@ -1135,22 +1429,28 @@ export function GroupBlockDetailModal({
             </div>
           )}
 
-          {canRunBlockOperations && live && !confirmRelease && !confirmCancel && !editing && (
+          {(canWorkRoomingList || canManageBlockAgreement) && live && !confirmRelease && !confirmCancel && !editing && (
             <div className="flex flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 pt-4">
-              <button type="button" onClick={openEditor} disabled={busy} className="mr-auto cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
-                Edit details
-              </button>
-              <button type="button" onClick={() => setShowRoomingList(true)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3.5 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:opacity-50">
-                <Link2 className="h-3.5 w-3.5" /> Rooming list
-              </button>
-              {block.roomsPickedUp === 0 && (
+              {canManageBlockAgreement && (
+                <button type="button" onClick={openEditor} disabled={busy} className="mr-auto cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
+                  Edit details
+                </button>
+              )}
+              {canWorkRoomingList && (
+                <button type="button" onClick={() => setShowRoomingList(true)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3.5 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:opacity-50">
+                  <Link2 className="h-3.5 w-3.5" /> Rooming list
+                </button>
+              )}
+              {canManageBlockAgreement && block.roomsPickedUp === 0 && (
                 <button type="button" onClick={() => setConfirmCancel(true)} disabled={busy} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-600 transition hover:border-amber-300 hover:text-amber-800 disabled:opacity-50">
                   Cancel block
                 </button>
               )}
-              <button type="button" onClick={() => setConfirmRelease(true)} disabled={busy} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-600 transition hover:border-amber-300 hover:text-amber-800 disabled:opacity-50">
-                Release held rooms
-              </button>
+              {canManageBlockAgreement && (
+                <button type="button" onClick={() => setConfirmRelease(true)} disabled={busy} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-600 transition hover:border-amber-300 hover:text-amber-800 disabled:opacity-50">
+                  Release held rooms
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@ import { Router, type Request, type RequestHandler, type Response } from "expres
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
+import { nrmsOrderPlacementSettlement } from "../lib/nrmsOrders.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
 import {
   limitPublicQrMenu,
@@ -290,21 +291,23 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
   });
   if (!outlet) return res.status(400).json({ error: "This outlet is not taking orders right now" });
 
-  // m5: "charge to my room" needs a checked-in stay on this exact room. The
-  // point->stay link is the capability (room QR + an active CHECKED_IN
-  // allocation on it); no guest-typed name is required. Failure falls back
-  // to pay-at-counter client-side.
-  let stay: { id: number; currency: string | null } | null = null;
-  if (parsed.data.chargeToRoom) {
-    const found = await findStayForPoint(point);
-    if (!found) {
-      return res.status(409).json({
-        error: "Adding to the room bill is not available for this room right now. You can pay now instead.",
-        code: "ROOM_CHARGE_UNAVAILABLE",
-      });
-    }
-    stay = { id: found.id, currency: found.currency };
+  // Resolve the room occupant for both payment paths. Pay-at-outlet orders
+  // retain this link for guest/room attribution but do not become folio
+  // charges. Charging the room still requires an active checked-in stay.
+  const found = await findStayForPoint(point);
+  const stay = found ? { id: found.id, currency: found.currency } : null;
+  if (parsed.data.chargeToRoom && !stay) {
+    return res.status(409).json({
+      error: "Adding to the room bill is not available for this room right now. You can pay now instead.",
+      code: "ROOM_CHARGE_UNAVAILABLE",
+    });
   }
+  const settlement = nrmsOrderPlacementSettlement({
+    chargeToRoom: Boolean(parsed.data.chargeToRoom),
+    paymentMethod: parsed.data.paymentMethod ?? null,
+    stay,
+    outletCurrency: outlet.currency,
+  });
 
   // Abuse cap: a point can only hold a handful of unfinished orders at once.
   const openOrders = await db.nrmsOutletOrder.count({
@@ -349,15 +352,15 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
         data: {
           propertyId: point.propertyId,
           outletId: outlet.id,
-          reservationId: stay?.id ?? null,
+          reservationId: settlement.reservationId,
           customerLabel: pointCustomerLabel(point),
           orderPointId: point.id,
           publicCode,
           orderNumber,
           status: autoAccept ? "CONFIRMED" : "PLACED",
-          settlementMode: stay ? "ROOM_FOLIO" : "OUTLET_PAYMENT",
-          guestPaymentMethod: stay ? null : parsed.data.paymentMethod,
-          currency: stay?.currency ?? outlet.currency,
+          settlementMode: settlement.settlementMode,
+          guestPaymentMethod: settlement.guestPaymentMethod,
+          currency: settlement.currency,
           subtotal: total,
           total,
           note: parsed.data.note ? sanitizeText(parsed.data.note) : null,

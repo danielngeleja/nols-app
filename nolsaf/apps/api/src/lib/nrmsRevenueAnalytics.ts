@@ -39,12 +39,17 @@ export function summarizeAnalyticsGuestFolio(input: {
 export function summarizeAnalyticsMasterFolio(input: {
   items?: MoneyRow[] | null;
   payments?: MoneyRow[] | null;
+  refunds?: MoneyRow[] | null;
 }) {
   const billed = sumMoney(input.items);
-  const paid = sumMoney(input.payments);
+  const paymentsReceived = sumMoney(input.payments);
+  const refunded = sumMoney(input.refunds);
+  const paid = money(paymentsReceived - refunded);
   const balance = money(billed - paid);
   return {
     billed,
+    paymentsReceived,
+    refunded,
     paid,
     balance,
     due: Math.max(0, balance),

@@ -93,19 +93,14 @@ export default function NrmsGroupReservationsPage() {
     try {
       const blockResponse = await apiClient.get<any>(`/api/owner/nrms/group-blocks/property/${selectedPropertyId}/blocks`);
       setBlocks(blockResponse.data?.blocks ?? []);
-      if (ownerWorkspace) {
-        const groupResponse = await apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/groups`);
-        setGroups(groupResponse.data?.groups ?? []);
-      } else {
-        setGroups([]);
-        setTab("BLOCKS");
-      }
+      const groupResponse = await apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/groups`);
+      setGroups(groupResponse.data?.groups ?? []);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load group reservations");
     } finally {
       setLoading(false);
     }
-  }, [ownerWorkspace, selectedPropertyId]);
+  }, [selectedPropertyId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -197,7 +192,7 @@ export default function NrmsGroupReservationsPage() {
           {([
             ["BLOCKS", "Blocks", blocks.filter((block) => block.roomsHeld > 0).length],
             ["GROUPS", "Groups in house", groups.length],
-          ] as const).filter(([value]) => ownerWorkspace || value === "BLOCKS").map(([value, label, count]) => {
+          ] as const).map(([value, label, count]) => {
             const active = tab === value;
             return (
               <button
@@ -340,13 +335,14 @@ export default function NrmsGroupReservationsPage() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
                   <th className="px-4 py-3">Group</th>
                   <th className="px-4 py-3">Reference</th>
                   <th className="px-4 py-3 text-center">Rooms</th>
                   <th className="px-4 py-3">Party window</th>
+                  <th className="px-4 py-3">Billing</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
@@ -365,6 +361,9 @@ export default function NrmsGroupReservationsPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-xs font-semibold tracking-wide text-neutral-500">{group.reference}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-center font-semibold text-neutral-700">{group.memberCount}</td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-600">{groupWindow(group)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-neutral-600">
+                      {group.billingMode === "MASTER" ? "Agency · all" : group.billingMode === "SPLIT" ? "Agency · rooms" : "Individual"}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${GROUP_STATUS_CLS[group.status] ?? "bg-neutral-100 text-neutral-600"}`}>
                         {group.status.replace(/_/g, " ")}

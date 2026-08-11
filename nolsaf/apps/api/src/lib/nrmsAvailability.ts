@@ -59,7 +59,7 @@ export async function getNrmsCapacityConsumers(
   propertyId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
 ): Promise<NrmsCapacityConsumer[]> {
   const rows = await db.reservationRoomAllocation.findMany({
     where: {
@@ -104,7 +104,7 @@ export async function getRoomTypeAvailability(
   roomTypeId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
 ): Promise<{ capacity: number; consumed: number; available: number }> {
   const result = await getRoomTypesAvailability(
     db,
@@ -128,7 +128,7 @@ export async function getRoomTypesAvailability(
   roomTypeIds: number[],
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
 ): Promise<Map<number, { capacity: number; consumed: number; available: number }>> {
   const uniqueIds = [...new Set(roomTypeIds.filter((id) => Number.isInteger(id) && id > 0))];
   if (!uniqueIds.length) return new Map();
@@ -163,6 +163,7 @@ export async function getRoomTypesAvailability(
     db.nrmsGroupBlock.findMany({
       where: {
         propertyId,
+        ...(opts?.excludeGroupBlockId ? { id: { not: opts.excludeGroupBlockId } } : {}),
         status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
         cutOffAt: { gt: new Date() },
         ...overlapWhere(start, end, "checkIn", "checkOut"),

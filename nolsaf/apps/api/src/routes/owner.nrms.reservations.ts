@@ -18,10 +18,17 @@ import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode
 import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
 import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 import { summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
 import {
+  billingRoutesExtras,
+  billingUsesMasterFolio,
+  ensureMasterFolioForBlock,
   getMasterCheckoutBlocker,
+  masterFolioJoinConflict,
   routeChargeToMasterFolio,
+  routeRoomToMasterFolio,
+  summarizeReservationMasterSettlement,
   syncRoutedRoomAmount,
   transferredToMasterForReservation,
   voidRoutedCharge,
@@ -37,7 +44,16 @@ export const router = Router();
 // property's inventory lock indefinitely.
 const EXTENDED_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+router.use(requireAuth as RequestHandler);
+const requireOwnerRole = requireRole("OWNER") as RequestHandler;
+router.use(((req, res, next) => {
+  const groupScoped = /^\/groups(?:\/|$)/.test(req.path) || /^\/property\/\d+\/groups(?:\/|$)/.test(req.path);
+  if (groupScoped) return next();
+  return requireOwnerRole(req, res, (roleError?: unknown) => {
+    if (roleError) return next(roleError);
+    return requireNrms(req, res, next);
+  });
+}) as RequestHandler);
 
 const RESERVATION_SOURCES = ["WALK_IN", "PHONE", "DIRECT", "AIRBNB", "BOOKING_COM", "EXPEDIA", "OTHER"] as const;
 const PAYMENT_METHODS = ["CASH", "MOBILE_MONEY", "BANK", "CARD", "OTHER"] as const;
@@ -134,6 +150,7 @@ const groupActionSchema = z.object({
   overrideRoomReadiness: z.boolean().optional().default(false),
   verifyCharges: z.boolean().optional().default(false),
 });
+const groupTerminalSchema = z.object({ reason: z.string().trim().min(2).max(300) });
 
 const paymentSchema = z.object({
   amount: z.number().positive(),
@@ -167,6 +184,7 @@ function formatReservation(r: any) {
   const transferredToMaster = Array.isArray(r.masterFolioItems)
     ? r.masterFolioItems.filter((item: any) => !item.voidedAt).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0)
     : 0;
+  const agencySettlement = summarizeReservationMasterSettlement(r.group, transferredToMaster);
   return {
     id: r.id,
     propertyId: r.propertyId,
@@ -189,6 +207,7 @@ function formatReservation(r: any) {
     amountPaid: decimal(r.amountPaid),
     chargesTotal: decimal(r.chargesTotal),
     transferredToMaster,
+    agencySettlement,
     openOutletOrderCount: Array.isArray(r.outletOrders)
       ? r.outletOrders.filter((order: any) => !order.status || ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status)).length
       : undefined,
@@ -319,6 +338,30 @@ function formatReservation(r: any) {
   };
 }
 
+const reservationGroupSelect = {
+  id: true,
+  reference: true,
+  name: true,
+  status: true,
+  block: {
+    select: {
+      billingMode: true,
+      masterFolio: {
+        select: {
+          reference: true,
+          billingMode: true,
+          status: true,
+          settledAt: true,
+          payments: {
+            select: { method: true, voidedAt: true },
+            orderBy: { createdAt: "asc" as const },
+          },
+        },
+      },
+    },
+  },
+};
+
 const detailInclude = {
   guestProfile: true,
   booking: {
@@ -340,7 +383,7 @@ const detailInclude = {
       },
     },
   },
-  group: { select: { id: true, reference: true, name: true, status: true } },
+  group: { select: reservationGroupSelect },
   allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
   masterFolioItems: { orderBy: { createdAt: "asc" as const } },
@@ -478,7 +521,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         include: {
           guestProfile: true,
           booking: detailInclude.booking,
-          group: { select: { id: true, reference: true, name: true, status: true } },
+          group: { select: reservationGroupSelect },
           allocations: {
             where: { status: "ACTIVE" },
             include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } },
@@ -522,7 +565,21 @@ const groupMemberInclude = {
   },
 };
 
+const groupInclude = {
+  reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" as const }, { id: "asc" as const }] },
+  block: {
+    select: {
+      id: true,
+      reference: true,
+      billingMode: true,
+      masterFolio: { select: { reference: true, status: true } },
+    },
+  },
+  _count: { select: { reservations: true } },
+};
+
 function deriveGroupStatus(statuses: string[]): string {
+  if (statuses.length > 0 && statuses.every((status) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(status))) return "CANCELLED";
   if (statuses.length > 0 && statuses.every((status) => status === "CHECKED_OUT")) return "CHECKED_OUT";
   if (statuses.some((status) => status === "CHECKED_OUT")) return "PARTIALLY_CHECKED_OUT";
   if (statuses.length > 0 && statuses.every((status) => status === "CHECKED_IN")) return "CHECKED_IN";
@@ -571,6 +628,15 @@ function formatGroup(group: any) {
     status: group.status,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
+    billingMode: group.block?.billingMode ?? "INDIVIDUAL",
+    sourceBlock: group.block
+      ? {
+          id: group.block.id,
+          reference: group.block.reference,
+          masterFolioReference: group.block.masterFolio?.reference ?? null,
+          masterFolioStatus: group.block.masterFolio?.status ?? null,
+        }
+      : null,
     memberCount: group._count?.reservations ?? group.reservations?.length ?? 0,
     members: Array.isArray(group.reservations) ? group.reservations.map(groupMemberSummary) : undefined,
   };
@@ -636,33 +702,31 @@ function inspectGroupMember(
   return { eligible: blockers.length === 0, blockers, requiredChargeIds };
 }
 
-async function loadOwnedGroup(res: Response, ownerId: number, groupId: number) {
+async function loadAccessibleGroup(req: AuthedRequest, res: Response, groupId: number) {
   if (!Number.isInteger(groupId) || groupId <= 0) {
     res.status(400).json({ error: "Invalid reservation group id" });
     return null;
   }
-  const group = await prisma.nrmsReservationGroup.findFirst({
-    where: { id: groupId, ownerId },
-    include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+  const group = await prisma.nrmsReservationGroup.findUnique({
+    where: { id: groupId },
+    include: groupInclude,
   });
   if (!group) {
     res.status(404).json({ error: "Reservation group not found" });
     return null;
   }
-  const active = await loadOwnedActiveNrmsProperty(res, ownerId, group.propertyId);
-  if (!active) return null;
-  return group;
+  const access = await loadNrmsPropertyAccess(req, res, group.propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+  return access ? { group, access } : null;
 }
 
 /** List operational reservation groups for one property. */
 router.get("/property/:propertyId/groups", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ["OWNER", "MANAGER", "FRONT_DESK"]);
+    if (!access) return;
     const groups = await prisma.nrmsReservationGroup.findMany({
-      where: { propertyId: active.property.id as number, ownerId },
-      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      where: { propertyId: access.property.id, ownerId: access.ownerId },
+      include: groupInclude,
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: 100,
     });
@@ -678,10 +742,11 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
   try {
     const parsed = createGroupSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Enter a group name and select at least two reservations", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const propertyId = active.property.id as number;
+    const actorId = req.user!.id;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ["OWNER", "MANAGER", "FRONT_DESK"]);
+    if (!access) return;
+    const ownerId = access.ownerId;
+    const propertyId = access.property.id;
     const reservationIds = [...new Set(parsed.data.reservationIds)];
     if (reservationIds.length < 2) return res.status(400).json({ error: "Select at least two different reservations" });
     const reference = `GRP-${Date.now().toString(36).toUpperCase()}-${generateNrmsRandomCode()}`.slice(0, 32);
@@ -702,19 +767,19 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
           name: sanitizeText(parsed.data.name),
           notes: parsed.data.notes ? sanitizeText(parsed.data.notes) : null,
           status: deriveGroupStatus(members.map((member: any) => member.status)),
-          createdById: ownerId,
+          createdById: actorId,
         },
       });
       const assigned = await tx.reservation.updateMany({ where: { id: { in: reservationIds }, propertyId, ownerId, groupId: null }, data: { groupId: group.id } });
       if (assigned.count !== reservationIds.length) throw new Error("NRMS_GROUP_ASSIGNMENT_RACE");
       await tx.reservationEvent.createMany({
-        data: reservationIds.map((reservationId) => ({ reservationId, type: "GROUP_ASSIGNED", actorId: ownerId, data: { groupId: group.id, groupReference: reference, groupName: parsed.data.name } })),
+        data: reservationIds.map((reservationId) => ({ reservationId, type: "GROUP_ASSIGNED", actorId, data: { groupId: group.id, groupReference: reference, groupName: parsed.data.name } })),
       });
       return group.id;
     }, EXTENDED_TX_OPTIONS);
     const group = await prisma.nrmsReservationGroup.findUnique({
       where: { id: created },
-      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      include: groupInclude,
     });
     res.status(201).json({ group: formatGroup(group) });
   } catch (err) {
@@ -729,9 +794,9 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
 
 router.get("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const group = await loadOwnedGroup(res, req.user!.id, Number(req.params.groupId));
-    if (!group) return;
-    res.json({ group: formatGroup(group) });
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    res.json({ group: formatGroup(loaded.group), accessRole: loaded.access.role });
   } catch (err) {
     console.error("[owner.nrms.reservations] group detail failed", err);
     res.status(500).json({ error: "Failed to load reservation group" });
@@ -750,9 +815,9 @@ router.patch("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
   try {
     const parsed = editGroupSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Enter a valid group name or note", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
     if (parsed.data.name === undefined && parsed.data.notes === undefined) {
       return res.status(400).json({ error: "Nothing to update" });
     }
@@ -765,7 +830,7 @@ router.patch("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
     });
     const updated = await prisma.nrmsReservationGroup.findUnique({
       where: { id: group.id },
-      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      include: groupInclude,
     });
     res.json({ group: formatGroup(updated) });
   } catch (err) {
@@ -778,37 +843,79 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
   try {
     const parsed = addGroupMembersSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Select at least one reservation to add", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
+    const ownerId = loaded.access.ownerId;
     const reservationIds = [...new Set(parsed.data.reservationIds)];
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, group.propertyId);
+      const block = await tx.nrmsGroupBlock.findUnique({
+        where: { groupId: group.id },
+        include: { masterFolio: { select: { id: true, currency: true } } },
+      });
+      const agencyBilling = billingUsesMasterFolio(block?.billingMode);
+      if (agencyBilling && loaded.access.role === "FRONT_DESK") throw new Error("NRMS_GROUP_AGENCY_BILLING_MANAGER_REQUIRED");
+      const masterFolio = agencyBilling ? await ensureMasterFolioForBlock(tx, block) : null;
       const members = await tx.reservation.findMany({
         where: { id: { in: reservationIds }, propertyId: group.propertyId, ownerId, bookingId: null },
-        select: { id: true, status: true, groupId: true },
+        select: {
+          id: true,
+          status: true,
+          groupId: true,
+          currency: true,
+          totalAmount: true,
+          externalRef: true,
+          payments: { where: { voidedAt: null }, select: { amount: true } },
+          masterFolioItems: { where: { voidedAt: null }, select: { masterFolioId: true } },
+          charges: {
+            where: { voidedAt: null },
+            select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true },
+          },
+        },
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
       if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      if (agencyBilling) {
+        const conflict = members.map((member: any) => masterFolioJoinConflict(member, masterFolio)).find(Boolean);
+        if (conflict === "CURRENCY_MISMATCH") throw new Error("NRMS_GROUP_MEMBER_CURRENCY_MISMATCH");
+        if (conflict === "GUEST_PAYMENT_RECORDED") throw new Error("NRMS_GROUP_MEMBER_HAS_GUEST_PAYMENT");
+        if (conflict === "OTHER_MASTER_FOLIO") throw new Error("NRMS_GROUP_MEMBER_OTHER_MASTER_FOLIO");
+      }
       const assigned = await tx.reservation.updateMany({
         where: { id: { in: reservationIds }, propertyId: group.propertyId, ownerId, groupId: null },
         data: { groupId: group.id },
       });
       if (assigned.count !== reservationIds.length) throw new Error("NRMS_GROUP_ASSIGNMENT_RACE");
+      if (agencyBilling) {
+        for (const member of members) {
+          await routeRoomToMasterFolio(tx, block, member);
+          if (billingRoutesExtras(block.billingMode)) {
+            for (const charge of member.charges) await routeChargeToMasterFolio(tx, charge);
+          }
+        }
+      }
       await tx.reservationEvent.createMany({
         data: reservationIds.map((reservationId) => ({
           reservationId,
           type: "GROUP_ASSIGNED",
-          actorId: ownerId,
-          data: { groupId: group.id, groupReference: group.reference, groupName: group.name },
+          actorId,
+          data: {
+            groupId: group.id,
+            groupReference: group.reference,
+            groupName: group.name,
+            billingMode: block?.billingMode ?? "INDIVIDUAL",
+            transferredToMaster: agencyBilling,
+          },
         })),
       });
       await refreshGroupStatus(tx, group.id);
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.nrmsReservationGroup.findUnique({
       where: { id: group.id },
-      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      include: groupInclude,
     });
     res.json({ group: formatGroup(updated) });
   } catch (err) {
@@ -816,6 +923,10 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while it was being added" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_AGENCY_BILLING_MANAGER_REQUIRED") return res.status(403).json({ error: "Only the property owner or manager can add an existing stay to an agency-billed group", code: "AGENCY_BILLING_MANAGER_REQUIRED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_CURRENCY_MISMATCH") return res.status(409).json({ error: "Every reservation added to an agency bill must use the same currency as the master folio", code: "MASTER_FOLIO_CURRENCY_MISMATCH" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_HAS_GUEST_PAYMENT") return res.status(409).json({ error: "A reservation with a guest payment cannot be moved onto the agency bill. Resolve or refund the guest payment first.", code: "GUEST_PAYMENT_ALREADY_RECORDED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_OTHER_MASTER_FOLIO") return res.status(409).json({ error: "A reservation already belongs to a different agency bill", code: "OTHER_MASTER_FOLIO" });
     console.error("[owner.nrms.reservations] group add member failed", err);
     res.status(500).json({ error: "Failed to add reservations to the group" });
   }
@@ -823,12 +934,16 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
 
 router.delete("/groups/:groupId/members/:reservationId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
+    const ownerId = loaded.access.ownerId;
     const reservationId = Number(req.params.reservationId);
     if (!Number.isInteger(reservationId) || reservationId <= 0) return res.status(400).json({ error: "Invalid reservation id" });
     const outcome = await prisma.$transaction(async (tx: any) => {
+      const block = await tx.nrmsGroupBlock.findUnique({ where: { groupId: group.id }, select: { billingMode: true } });
+      if (billingUsesMasterFolio(block?.billingMode)) throw new Error("NRMS_AGENCY_BILLED_GROUP_LOCKED");
       const detached = await tx.reservation.updateMany({
         where: { id: reservationId, groupId: group.id, propertyId: group.propertyId, ownerId },
         data: { groupId: null },
@@ -838,7 +953,7 @@ router.delete("/groups/:groupId/members/:reservationId", (async (req: AuthedRequ
         data: {
           reservationId,
           type: "GROUP_REMOVED",
-          actorId: ownerId,
+          actorId,
           data: { groupId: group.id, groupReference: group.reference, groupName: group.name },
         },
       });
@@ -856,10 +971,11 @@ router.delete("/groups/:groupId/members/:reservationId", (async (req: AuthedRequ
     if (outcome.groupDeleted) return res.json({ group: null, groupDeleted: true });
     const updated = await prisma.nrmsReservationGroup.findUnique({
       where: { id: group.id },
-      include: { reservations: { include: groupMemberInclude, orderBy: [{ checkIn: "asc" }, { id: "asc" }] }, _count: { select: { reservations: true } } },
+      include: groupInclude,
     });
     res.json({ group: formatGroup(updated), groupDeleted: false });
   } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_AGENCY_BILLED_GROUP_LOCKED") return res.status(409).json({ error: "Agency-billed members stay linked to their operational group. Use the block amendment or cancellation workflow instead.", code: "AGENCY_BILLED_GROUP_LOCKED" });
     console.error("[owner.nrms.reservations] group remove member failed", err);
     res.status(500).json({ error: "Failed to remove the reservation from the group" });
   }
@@ -868,18 +984,21 @@ router.delete("/groups/:groupId/members/:reservationId", (async (req: AuthedRequ
 /** Disbands the group only. Every member reservation is left exactly as it is. */
 router.delete("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
     const memberIds = group.reservations.map((member: any) => member.id);
     await prisma.$transaction(async (tx: any) => {
+      const block = await tx.nrmsGroupBlock.findUnique({ where: { groupId: group.id }, select: { billingMode: true } });
+      if (billingUsesMasterFolio(block?.billingMode)) throw new Error("NRMS_AGENCY_BILLED_GROUP_LOCKED");
       await tx.reservation.updateMany({ where: { groupId: group.id }, data: { groupId: null } });
       if (memberIds.length) {
         await tx.reservationEvent.createMany({
           data: memberIds.map((reservationId: number) => ({
             reservationId,
             type: "GROUP_REMOVED",
-            actorId: ownerId,
+            actorId,
             data: { groupId: group.id, groupReference: group.reference, groupName: group.name, disbanded: true },
           })),
         });
@@ -888,10 +1007,67 @@ router.delete("/groups/:groupId", (async (req: AuthedRequest, res: Response) => 
     }, EXTENDED_TX_OPTIONS);
     res.json({ ok: true, disbandedMembers: memberIds.length });
   } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_AGENCY_BILLED_GROUP_LOCKED") return res.status(409).json({ error: "An agency-billed group cannot be ungrouped while its master folio is active. Use the block amendment or cancellation workflow instead.", code: "AGENCY_BILLED_GROUP_LOCKED" });
     console.error("[owner.nrms.reservations] group disband failed", err);
     res.status(500).json({ error: "Failed to disband the reservation group" });
   }
 }) as RequestHandler);
+
+function executeGroupTerminalAction(action: "CANCELLED" | "NO_SHOW") {
+  return (async (req: AuthedRequest, res: Response) => {
+    try {
+      const parsed = groupTerminalSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ error: "Enter a clear reason for this group action" });
+      const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+      if (!loaded) return;
+      if (action === "CANCELLED" && loaded.access.role === "FRONT_DESK") {
+        return res.status(403).json({ error: "Only the property owner or manager can cancel an entire group", code: "GROUP_CANCELLATION_FORBIDDEN" });
+      }
+      const { group } = loaded;
+      const actorId = req.user!.id;
+      const ownerId = loaded.access.ownerId;
+      const allowed = action === "CANCELLED" ? ["DRAFT", "HELD", "CONFIRMED"] : ["CONFIRMED"];
+      const reason = sanitizeText(parsed.data.reason);
+      const memberIds = group.reservations.map((member: any) => member.id);
+      if (!memberIds.length || group.reservations.some((member: any) => !allowed.includes(member.status))) {
+        return res.status(409).json({
+          error: action === "CANCELLED" ? "Only a fully pre-arrival group can be cancelled together" : "Every member must still be confirmed before the group can be marked no-show",
+          code: "GROUP_TERMINAL_ACTION_BLOCKED",
+        });
+      }
+      await prisma.$transaction(async (tx: any) => {
+        await lockPropertyInventory(tx, group.propertyId);
+        const current = await tx.reservation.findMany({ where: { id: { in: memberIds }, groupId: group.id, propertyId: group.propertyId, ownerId }, select: { id: true, status: true } });
+        if (current.length !== memberIds.length || current.some((member: any) => !allowed.includes(member.status))) throw new Error("NRMS_GROUP_TERMINAL_RACE");
+        await tx.reservation.updateMany({
+          where: { id: { in: memberIds }, groupId: group.id, status: { in: allowed } },
+          data: action === "CANCELLED"
+            ? { status: "CANCELLED", cancelledAt: new Date(), cancelReason: reason }
+            : { status: "NO_SHOW", noShowAt: new Date() },
+        });
+        await tx.reservationRoomAllocation.updateMany({ where: { reservationId: { in: memberIds }, status: "ACTIVE" }, data: { status: "RELEASED" } });
+        for (const reservationId of memberIds) await voidRoutedRoom(tx, reservationId, reason);
+        await tx.reservationEvent.createMany({
+          data: memberIds.map((reservationId: number) => ({ reservationId, type: action, actorId, data: { reason, groupId: group.id, groupReference: group.reference, groupAction: true } })),
+        });
+        await tx.nrmsReservationGroup.update({ where: { id: group.id }, data: { status: "CANCELLED" } });
+        await tx.nrmsGroupBlock.updateMany({
+          where: { groupId: group.id },
+          data: { status: action === "CANCELLED" ? "CANCELLED" : "PICKED_UP", releasedAt: new Date() },
+        });
+      }, EXTENDED_TX_OPTIONS);
+      const updated = await prisma.nrmsReservationGroup.findUnique({ where: { id: group.id }, include: groupInclude });
+      res.json({ group: formatGroup(updated), affectedCount: memberIds.length, action });
+    } catch (err) {
+      if (err instanceof Error && err.message === "NRMS_GROUP_TERMINAL_RACE") return res.status(409).json({ error: "A reservation changed before the group action completed", code: "GROUP_CHANGED" });
+      console.error(`[owner.nrms.reservations] group ${action.toLowerCase()} failed`, err);
+      res.status(500).json({ error: action === "CANCELLED" ? "Failed to cancel the group" : "Failed to mark the group no-show" });
+    }
+  }) as RequestHandler;
+}
+
+router.post("/groups/:groupId/cancel", executeGroupTerminalAction("CANCELLED"));
+router.post("/groups/:groupId/no-show", executeGroupTerminalAction("NO_SHOW"));
 
 router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Response) => {
   try {
@@ -899,8 +1075,9 @@ router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Respons
     if (!action) return res.status(400).json({ error: "Choose CHECK_IN or CHECK_OUT" });
     const parsed = groupActionSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid group action options" });
-    const group = await loadOwnedGroup(res, req.user!.id, Number(req.params.groupId));
-    if (!group) return;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
     let members = group.reservations.map((member: any) => ({
       reservation: groupMemberSummary(member),
       ...inspectGroupMember(member, action, parsed.data),
@@ -951,9 +1128,11 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
     try {
       const parsed = groupActionSchema.safeParse(req.body ?? {});
       if (!parsed.success) return res.status(400).json({ error: "Invalid group action options" });
-      const ownerId = req.user!.id;
-      const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-      if (!group) return;
+      const actorId = req.user!.id;
+      const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+      if (!loaded) return;
+      const { group } = loaded;
+      const ownerId = loaded.access.ownerId;
       const results: any[] = [];
       if (action === "CHECK_OUT") {
         const masterBlocker = await getMasterCheckoutBlocker(prisma, group.id, { groupBatch: true });
@@ -986,12 +1165,12 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
               });
               if (changed.count !== 1) throw new Error("NRMS_INVALID_TRANSITION_RACE");
               await tx.reservationEvent.create({
-                data: { reservationId: member.id, type: "CHECKED_IN", actorId: ownerId, data: { groupId: group.id, groupReference: group.reference, ...(parsed.data.overrideRoomReadiness ? { overrideRoomReadiness: true } : {}) } },
+                data: { reservationId: member.id, type: "CHECKED_IN", actorId, data: { groupId: group.id, groupReference: group.reference, ...(parsed.data.overrideRoomReadiness ? { overrideRoomReadiness: true } : {}) } },
               });
               await queueNrmsCheckInWelcome(tx, member.id);
               return { changed: true };
             }
-            const billing = await finalizeNrmsCheckout(tx, member, ownerId, inspection.requiredChargeIds);
+            const billing = await finalizeNrmsCheckout(tx, member, actorId, inspection.requiredChargeIds);
             return { changed: true, billing };
           }, EXTENDED_TX_OPTIONS);
           results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", ...outcome });
@@ -1021,9 +1200,9 @@ router.post("/groups/:groupId/check-out", executeGroupAction("CHECK_OUT"));
  */
 router.get("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
 
     const members = group.reservations.filter((member: any) => ASSIGNABLE_STATUSES.includes(member.status));
     const roomTypeIds = Array.from(new Set(members.flatMap((member: any) => (member.allocations ?? []).map((allocation: any) => allocation.roomTypeId))));
@@ -1089,9 +1268,11 @@ router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response)
   try {
     const parsed = assignGroupRoomsSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid room assignment", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const group = await loadOwnedGroup(res, ownerId, Number(req.params.groupId));
-    if (!group) return;
+    const actorId = req.user!.id;
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    if (!loaded) return;
+    const { group } = loaded;
+    const ownerId = loaded.access.ownerId;
 
     const data = parsed.data;
     if (!data.assignments?.length && !data.autoAssignRemaining) {
@@ -1114,7 +1295,7 @@ router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response)
         data: outcome.assigned.map((row) => ({
           reservationId: row.reservationId,
           type: "ROOM_ASSIGNED",
-          actorId: ownerId,
+          actorId,
           data: { groupId: group.id, groupReference: group.reference, roomUnitId: row.roomUnitId, roomUnitCode: row.roomUnitCode },
         })),
       });
@@ -1198,6 +1379,7 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
         block: { select: { checkIn: true } },
         items: { where: { voidedAt: null }, select: { amount: true } },
         payments: { where: { voidedAt: null }, select: { amount: true, currency: true, method: true } },
+        refunds: { where: { voidedAt: null }, select: { amount: true, currency: true, method: true } },
       },
       orderBy: { block: { checkIn: "asc" } },
     })]);
@@ -1336,6 +1518,14 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
         methodBucket.count += 1;
         methodBucket.amount += decimal(payment.amount) ?? 0;
         paymentBucket.paymentMethods.set(payment.method, methodBucket);
+      }
+      for (const refund of folio.refunds) {
+        const refundBucket = currencyBucket(refund.currency);
+        const method = `REFUND_${refund.method}`;
+        const methodBucket = refundBucket.paymentMethods.get(method) ?? { method, count: 0, amount: 0 };
+        methodBucket.count += 1;
+        methodBucket.amount -= decimal(refund.amount) ?? 0;
+        refundBucket.paymentMethods.set(method, methodBucket);
       }
     }
 
