@@ -4,6 +4,7 @@ Set these values in the EAS `production` environment before creating a store bui
 
 ```
 EXPO_PUBLIC_API_URL=https://<production-api-origin>
+EXPO_PUBLIC_WEB_URL=https://nolsaf.com
 EXPO_PUBLIC_SOCKET_URL=https://<production-api-origin>
 EXPO_PUBLIC_MAPBOX_TOKEN=<public-mapbox-token>
 ```

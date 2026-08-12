@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 
 import { env } from "./env";
+import { resolveLocalhostUrl } from "./localUrl";
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -12,6 +13,19 @@ export type ApiError = Error & {
   status?: number;
   payload?: unknown;
 };
+
+type UnauthorizedHandler = () => void | Promise<void>;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+}
+
+function handleUnauthorized(status: number, hadToken: boolean) {
+  if (status === 401 && hadToken && unauthorizedHandler) {
+    void unauthorizedHandler();
+  }
+}
 
 /**
  * Extracts a human-readable message from an API error. Prefers `payload.reasons`
@@ -31,16 +45,20 @@ export function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function apiBaseUrl() {
-  const base = env.apiUrl.trim().replace(/\/+$/, "");
+  const base = resolveLocalhostUrl(env.apiUrl);
   if (!base) {
     throw Object.assign(new Error("Mobile API URL is not configured. Set EXPO_PUBLIC_API_URL."), {
       status: 0
     });
   }
-  if (Platform.OS === "android") {
-    return base.replace(/^http:\/\/(localhost|127\.0\.0\.1)(?=:\d+|$)/i, "http://10.0.2.2");
-  }
   return base;
+}
+
+function connectionMessage(baseUrl: string): string {
+  if (__DEV__) {
+    return `Could not connect to the local NoLSAF API at ${baseUrl}. Start the API and confirm this device can reach your computer.`;
+  }
+  return "We could not connect to NoLSAF right now. Check your connection and try again.";
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -66,7 +84,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Network request failed";
-    throw Object.assign(new Error("We could not connect to NoLSAF right now. Check your connection and try again."), {
+    throw Object.assign(new Error(connectionMessage(baseUrl)), {
       status: 0,
       payload: { baseUrl, path, reason }
     }) as ApiError;
@@ -76,6 +94,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const payload = text ? safeJson(text) : null;
 
   if (!response.ok) {
+    handleUnauthorized(response.status, Boolean(options.token));
     const message =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: unknown }).message)
@@ -126,7 +145,7 @@ export async function apiUploadFile<T>(
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Network request failed";
-    throw Object.assign(new Error("We could not connect to NoLSAF right now. Check your connection and try again."), {
+    throw Object.assign(new Error(connectionMessage(baseUrl)), {
       status: 0,
       payload: { baseUrl, path, reason }
     }) as ApiError;
@@ -135,6 +154,7 @@ export async function apiUploadFile<T>(
   const text = await response.text();
   const payload = text ? safeJson(text) : null;
   if (!response.ok) {
+    handleUnauthorized(response.status, Boolean(params.token));
     const message =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: unknown }).message)

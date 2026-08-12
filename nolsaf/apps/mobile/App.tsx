@@ -4,13 +4,19 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { configureApiClient } from "@nolsaf/native-ui";
 
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { NolsafLogoMark } from "./src/components";
+import { apiBaseUrl } from "./src/lib/apiClient";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
 
 const MIN_SPLASH_MS = 2000;
+
+// Shared native features such as passkeys use @nolsaf/native-ui's API client.
+// Configure it before any screen or authentication provider can invoke them.
+configureApiClient({ apiUrl: apiBaseUrl() });
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The splash may already be hidden during fast refresh.

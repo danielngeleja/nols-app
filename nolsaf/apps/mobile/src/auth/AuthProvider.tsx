@@ -4,6 +4,7 @@ import { signInWithNativePasskey } from "@nolsaf/native-ui";
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
 import { getCurrentAccount, loginWithPassword, logoutSession, registerCustomer, updateAccountProfile } from "./authApi";
 import { AuthState, AuthUser, RegisterCustomerInput, UpdateProfileInput } from "./types";
+import { setUnauthorizedHandler } from "../lib/apiClient";
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<void>;
@@ -63,6 +64,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      await clearStoredToken();
+      becomeGuest("Your session ended. Please sign in again.");
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [becomeGuest]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {

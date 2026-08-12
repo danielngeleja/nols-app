@@ -21,9 +21,10 @@ const TOGGLES: { key: keyof NotificationPreferences; Icon: IconType; title: stri
 ];
 
 const DELETE_WARNINGS = [
-  "Your profile, saved places, and travel history will be permanently deleted.",
-  "Any active bookings linked to your account may be cancelled.",
-  "You will lose access immediately. No recovery is possible."
+  "Your profile, saved places, credentials, and notification history will be removed.",
+  "You cannot delete the account during an active trip; upcoming work may be returned for reassignment.",
+  "Booking and payment records may be retained where required for refunds, disputes, fraud prevention, accounting, or law.",
+  "You will lose access immediately. The account cannot be recovered."
 ];
 
 export function AccountPreferencesScreen({ navigation }: Props) {
@@ -139,7 +140,7 @@ export function AccountPreferencesScreen({ navigation }: Props) {
                 Account controls
               </AppText>
               <AppText variant="caption" tone="muted">
-                Permanently delete your NoLSAF account and personal data.
+                Delete access and personal profile data. Required transaction records may be retained.
               </AppText>
             </View>
           </View>

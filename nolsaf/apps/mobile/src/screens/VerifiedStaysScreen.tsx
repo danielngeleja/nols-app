@@ -242,7 +242,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
 
   const header = (
     <AppStack gap={5}>
-      <AppCard tone="success">
+      <AppCard tone="success" style={styles.heroCard}>
         <AppStack gap={4}>
           <View style={styles.topRow}>
             <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -265,7 +265,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
         </AppStack>
       </AppCard>
 
-      <AppCard>
+      <AppCard style={styles.filtersCard}>
         <AppStack gap={3}>
           <AppInput
             label="Search stays"
@@ -485,6 +485,12 @@ const styles = StyleSheet.create({
   rowSeparator: {
     height: spacing[5]
   },
+  heroCard: {
+    borderRadius: radius.sm
+  },
+  filtersCard: {
+    borderRadius: radius.sm
+  },
   topRow: {
     minWidth: 0,
     flexDirection: "row",
@@ -494,7 +500,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: radius.full,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.white,
@@ -509,7 +515,7 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 48,
     height: 48,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     backgroundColor: colors.white,
     alignItems: "center",
     justifyContent: "center"
@@ -519,7 +525,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing[2]
   },
   chip: {
-    borderRadius: radius.full,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
@@ -545,7 +551,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[2],
-    borderRadius: radius.full,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.brand[100],
     backgroundColor: colors.brand[50],
@@ -565,7 +571,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[1],
-    borderRadius: radius.full,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.brand[100],
     backgroundColor: colors.brand[50],

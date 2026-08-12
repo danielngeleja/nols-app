@@ -32,19 +32,18 @@ const searchPrompts = [
 const propertyTypes: Array<{
   key: PropertyTypeKey;
   title: string;
-  fallbackImage: ImageSourcePropType;
   accent: string;
 }> = [
-  { key: "HOTEL", title: "Hotel", fallbackImage: require("../../../web/public/assets/hotel.jpg"), accent: "#02b4f5" },
-  { key: "LODGE", title: "Lodge", fallbackImage: require("../../../web/public/assets/guest_house.jpg"), accent: "#10b981" },
-  { key: "APARTMENT", title: "Apartment", fallbackImage: require("../../../web/public/assets/Local_houses.jpg"), accent: "#fbbf24" },
-  { key: "VILLA", title: "Villa", fallbackImage: require("../../../web/public/assets/villa.jpg"), accent: "#a78bfa" },
-  { key: "GUEST_HOUSE", title: "Guest house", fallbackImage: require("../../../web/public/assets/Villagestay.jpg"), accent: "#fb7185" },
-  { key: "BUNGALOW", title: "Bungalow", fallbackImage: require("../../../web/public/assets/villa.jpg"), accent: "#02b4f5" },
-  { key: "CABIN", title: "Cabin", fallbackImage: require("../../../web/public/assets/campsite.jpg"), accent: "#10b981" },
-  { key: "HOMESTAY", title: "Homestay", fallbackImage: require("../../../web/public/assets/Local_houses.jpg"), accent: "#fbbf24" },
-  { key: "CONDO", title: "Condo", fallbackImage: require("../../../web/public/assets/Local_houses.jpg"), accent: "#a78bfa" },
-  { key: "HOUSE", title: "House", fallbackImage: require("../../../web/public/assets/Local_houses.jpg"), accent: "#fb7185" }
+  { key: "HOTEL", title: "Hotel", accent: "#02b4f5" },
+  { key: "LODGE", title: "Lodge", accent: "#10b981" },
+  { key: "APARTMENT", title: "Apartment", accent: "#fbbf24" },
+  { key: "VILLA", title: "Villa", accent: "#a78bfa" },
+  { key: "GUEST_HOUSE", title: "Guest house", accent: "#fb7185" },
+  { key: "BUNGALOW", title: "Bungalow", accent: "#02b4f5" },
+  { key: "CABIN", title: "Cabin", accent: "#10b981" },
+  { key: "HOMESTAY", title: "Homestay", accent: "#fbbf24" },
+  { key: "CONDO", title: "Condo", accent: "#a78bfa" },
+  { key: "HOUSE", title: "House", accent: "#fb7185" }
 ];
 
 const propertyTypeRows = [propertyTypes.slice(0, 5), propertyTypes.slice(5)];
@@ -450,7 +449,7 @@ export function OnboardingScreen({ navigation }: Props) {
                           key={item.key}
                           title={item.title}
                           width={propertyCardWidth}
-                          image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : item.fallbackImage}
+                          image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : null}
                           accent={item.accent}
                           count={typeCounts[item.key]}
                           onPress={() =>
@@ -923,7 +922,7 @@ function PropertyTypeCard({
   onPress
 }: {
   title: string;
-  image: ImageSourcePropType;
+  image: ImageSourcePropType | null;
   accent: string;
   count?: number | null;
   width: number;
@@ -986,9 +985,18 @@ function PropertyTypeCard({
       <Animated.View style={[styles.propertyTypeCard, cardAnimatedStyle]}>
         <View style={styles.propertyImageClip}>
           <Animated.View style={[styles.propertyImageZoom, imageAnimatedStyle]}>
-            <ImageBackground source={image} resizeMode="cover" style={styles.propertyImage} imageStyle={styles.propertyImageRadius}>
-              <View style={styles.propertyOverlay} />
-            </ImageBackground>
+            {image ? (
+              <ImageBackground source={image} resizeMode="cover" style={styles.propertyImage} imageStyle={styles.propertyImageRadius}>
+                <View style={styles.propertyOverlay} />
+              </ImageBackground>
+            ) : (
+              <View style={[styles.propertyImage, styles.propertyImageFallback, { backgroundColor: accent }]}>
+                <Building2 color={colors.white} size={34} strokeWidth={1.8} />
+                <AppText variant="caption" weight="bold" tone="inverse">
+                  Verified {title}
+                </AppText>
+              </View>
+            )}
           </Animated.View>
           <View style={[styles.propertyStatus, { borderColor: accent }]}>
             <View style={[styles.propertyStatusDot, { backgroundColor: accent }]} />
@@ -2254,6 +2262,11 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     alignItems: "flex-end",
     backgroundColor: colors.surface
+  },
+  propertyImageFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing[2]
   },
   propertyImageRadius: {
     borderTopLeftRadius: 22,

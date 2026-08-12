@@ -7,20 +7,16 @@
     "userInterfaceStyle": "light",
     "scheme": "nolsaf",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/Splash.png",
-      "backgroundColor": "#ffffff",
-      "resizeMode": "contain"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "1",
+      "buildNumber": "2",
       "bundleIdentifier": "com.nolsaf.app",
       "associatedDomains": [
-        "webcredentials:nolsaf.com"
+        "webcredentials:nolsaf.com",
+        "applinks:nolsaf.com"
       ],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "NoLSAF uses your location to set your pickup point so a driver can collect you and bring you to your booked stay."
@@ -28,12 +24,33 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "nolsaf.com",
+              "pathPrefix": "/register"
+            },
+            {
+              "scheme": "https",
+              "host": "www.nolsaf.com",
+              "pathPrefix": "/register"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
@@ -44,6 +61,15 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "NoLSAF uses your location to set your pickup point so a driver can collect you and bring you to your booked stay."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/Splash.png",
+          "backgroundColor": "#ffffff",
+          "resizeMode": "contain",
+          "imageWidth": 240
         }
       ],
       "expo-web-browser"

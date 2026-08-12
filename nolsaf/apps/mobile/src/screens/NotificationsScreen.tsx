@@ -14,6 +14,7 @@ import {
   NotificationItem
 } from "../notifications";
 import { colors, radius, shadows, spacing } from "../theme";
+import { connectCustomerRealtime } from "../lib/realtime";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Notifications">;
 
@@ -37,14 +38,14 @@ export function NotificationsScreen({ navigation }: Props) {
   const [viewedCount, setViewedCount] = useState(0);
 
   const load = useCallback(
-    async (mode: "initial" | "refresh" = "initial") => {
+    async (mode: "initial" | "refresh" | "silent" = "initial") => {
       if (!token) {
         setError("Please sign in to view your notifications.");
         setLoading(false);
         return;
       }
       if (mode === "refresh") setRefreshing(true);
-      else setLoading(true);
+      else if (mode === "initial") setLoading(true);
       setError(null);
       try {
         const response = await fetchCustomerNotifications(token, { tab, page: 1, pageSize: 50 });
@@ -78,6 +79,21 @@ export function NotificationsScreen({ navigation }: Props) {
     void load();
     void loadOtherCount();
   }, [load, loadOtherCount]);
+
+  useEffect(() => {
+    if (!token) return;
+    const socket = connectCustomerRealtime(token);
+    if (!socket) return;
+    const refreshNotifications = () => {
+      void load("silent");
+      void loadOtherCount();
+    };
+    socket.on("notification:new", refreshNotifications);
+    return () => {
+      socket.off("notification:new", refreshNotifications);
+      socket.disconnect();
+    };
+  }, [load, loadOtherCount, token]);
 
   const markRead = useCallback(
     async (id: NotificationItem["id"]) => {

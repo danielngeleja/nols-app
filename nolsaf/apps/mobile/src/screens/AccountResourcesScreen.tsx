@@ -21,7 +21,7 @@ import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, V
 
 import { AppButton, AppCard, AppStack, AppText, SafeScreen, ScreenHeader } from "../components";
 import { apiRequest } from "../lib/apiClient";
-import { env } from "../lib/env";
+import { webOrigin } from "../lib/webOrigin";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
@@ -278,21 +278,6 @@ const HELP_ITEMS: ResourceItem[] = [
     ]
   }
 ];
-
-function webOrigin() {
-  const raw = env.apiUrl.trim().replace(/\/+$/, "");
-  if (!raw) return "http://localhost:3000";
-  try {
-    const url = new URL(raw);
-    if (/^(localhost|127\.0\.0\.1|10\.0\.2\.2)$/i.test(url.hostname) && url.port === "4000") url.port = "3000";
-    url.pathname = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return raw.replace(/\/api.*$/i, "");
-  }
-}
 
 function openWeb(path: string) {
   WebBrowser.openBrowserAsync(`${webOrigin()}${path}`).catch(() => Alert.alert("NoLSAF", "Could not open this page right now."));
