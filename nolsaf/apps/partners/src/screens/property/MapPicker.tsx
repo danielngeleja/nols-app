@@ -23,7 +23,7 @@ type Props = {
 };
 
 export function MapPicker({ latitude, longitude, onChange }: Props) {
-  const camera  = useRef<MapboxGL.Camera>(null);
+  const camera  = useRef<any>(null);
   const [locating, setLocating] = useState(false);
 
   // Local mirror — lets user type freely; committed on blur if valid
@@ -96,7 +96,7 @@ export function MapPicker({ latitude, longitude, onChange }: Props) {
           styleURL={MapboxGL.StyleURL.Street}
           attributionEnabled={false}
           logoEnabled={false}
-          onPress={(e) => {
+          onPress={(e: any) => {
             const coords = (e.geometry as unknown as { coordinates: [number, number] }).coordinates;
             placePin(coords[0], coords[1]);
           }}
@@ -112,7 +112,7 @@ export function MapPicker({ latitude, longitude, onChange }: Props) {
               id="property-pin"
               coordinate={pinCoord}
               draggable
-              onDragEnd={(e) => {
+              onDragEnd={(e: any) => {
                 const [lng, lat] = e.geometry.coordinates as [number, number];
                 placePin(lng, lat);
               }}
