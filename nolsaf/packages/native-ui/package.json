@@ -7,14 +7,23 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
+  "peerDependencies": {
     "expo-secure-store": "~56.0.4",
     "lucide-react-native": "^0.545.0",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-passkeys": "^0.4.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": ">=15.15.4 <16"
+  },
+  "peerDependenciesMeta": {
+    "expo-secure-store": { "optional": true },
+    "lucide-react-native": { "optional": true },
+    "react": { "optional": true },
+    "react-native": { "optional": true },
+    "react-native-passkeys": { "optional": true },
+    "react-native-safe-area-context": { "optional": true },
+    "react-native-svg": { "optional": true }
   },
   "devDependencies": {
     "@types/react": "~19.2.14",
