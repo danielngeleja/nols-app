@@ -59,7 +59,7 @@ export async function getNrmsCapacityConsumers(
   propertyId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<NrmsCapacityConsumer[]> {
   const rows = await db.reservationRoomAllocation.findMany({
     where: {
@@ -104,7 +104,7 @@ export async function getRoomTypeAvailability(
   roomTypeId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<{ capacity: number; consumed: number; available: number }> {
   const result = await getRoomTypesAvailability(
     db,
@@ -128,7 +128,7 @@ export async function getRoomTypesAvailability(
   roomTypeIds: number[],
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<Map<number, { capacity: number; consumed: number; available: number }>> {
   const uniqueIds = [...new Set(roomTypeIds.filter((id) => Number.isInteger(id) && id > 0))];
   if (!uniqueIds.length) return new Map();
@@ -151,6 +151,7 @@ export async function getRoomTypesAvailability(
       where: {
         propertyId,
         migratedReservationId: null,
+        ...(opts?.excludeBlockId ? { id: { not: opts.excludeBlockId } } : {}),
         ...overlapWhere(start, end, "startDate", "endDate"),
       },
       select: { roomCode: true, roomUnitId: true, bedsBlocked: true, roomUnit: { select: { roomTypeId: true } } },
@@ -198,6 +199,107 @@ export async function getRoomTypesAvailability(
     });
   }
   return result;
+}
+
+export type DailyAvailability = { day: Date; capacity: number; consumed: number; available: number };
+
+/**
+ * Availability for one room type, night by night.
+ *
+ * getRoomTypesAvailability answers "can this range be sold as a whole", which
+ * collapses a twelve-month window into a single sold-out verdict the moment one
+ * night is taken. A calendar export needs the opposite: which individual nights
+ * are gone. Same four inventory consumers, kept dated instead of counted.
+ */
+export async function getRoomTypeDailyAvailability(
+  db: DbLike,
+  propertyId: number,
+  roomTypeId: number,
+  start: Date,
+  end: Date,
+): Promise<DailyAvailability[]> {
+  const dayMs = 86_400_000;
+  const utcDay = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  const from = utcDay(start);
+  const to = utcDay(end);
+  if (to.getTime() <= from.getTime()) return [];
+
+  const [roomType, consumers, bookings, blocks, groupBlocks] = await Promise.all([
+    db.roomType.findUnique({
+      where: { id: roomTypeId },
+      select: { id: true, name: true, propertyId: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
+    }),
+    getNrmsCapacityConsumers(db, propertyId, from, to),
+    db.booking.findMany({
+      where: {
+        propertyId,
+        status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
+        ...overlapWhere(from, to, "checkIn", "checkOut"),
+      },
+      select: { roomCode: true, roomsQty: true, checkIn: true, checkOut: true },
+    }),
+    db.propertyAvailabilityBlock.findMany({
+      where: {
+        propertyId,
+        migratedReservationId: null,
+        ...overlapWhere(from, to, "startDate", "endDate"),
+      },
+      select: { roomCode: true, bedsBlocked: true, startDate: true, endDate: true, roomUnit: { select: { roomTypeId: true } } },
+    }),
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(from, to, "checkIn", "checkOut"),
+      },
+      select: { checkIn: true, checkOut: true, rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } } },
+    }),
+  ]);
+  if (!roomType || roomType.propertyId !== propertyId) return [];
+
+  const name = roomType.name.trim().toLowerCase();
+  const matchesType = (code: string | null | undefined) => {
+    const value = String(code ?? "").trim().toLowerCase();
+    return value === name || value.startsWith(`${name}-`);
+  };
+
+  // One pass over each consumer, adding its weight to every night it covers,
+  // rather than one query per night.
+  const nights = Math.round((to.getTime() - from.getTime()) / dayMs);
+  const consumedPerDay = new Array<number>(nights).fill(0);
+  const addSpan = (spanStart: Date, spanEnd: Date, weight: number) => {
+    if (weight <= 0) return;
+    const first = Math.max(0, Math.floor((utcDay(spanStart).getTime() - from.getTime()) / dayMs));
+    const last = Math.min(nights, Math.ceil((utcDay(spanEnd).getTime() - from.getTime()) / dayMs));
+    for (let index = first; index < last; index += 1) consumedPerDay[index] += weight;
+  };
+
+  for (const consumer of consumers) {
+    if (consumer.roomTypeId === roomTypeId) addSpan(consumer.startDate, consumer.endDate, 1);
+  }
+  for (const booking of bookings as any[]) {
+    if (matchesType(booking.roomCode)) addSpan(booking.checkIn, booking.checkOut, Math.max(1, Number(booking.roomsQty ?? 1)));
+  }
+  for (const block of blocks as any[]) {
+    if (block.roomUnit?.roomTypeId === roomTypeId || matchesType(block.roomCode)) {
+      addSpan(block.startDate, block.endDate, Math.max(1, Number(block.bedsBlocked ?? 1)));
+    }
+  }
+  for (const group of groupBlocks as any[]) {
+    const held = group.rooms
+      .filter((room: any) => room.roomTypeId === roomTypeId)
+      .reduce((sum: number, room: any) => sum + Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0)), 0);
+    addSpan(group.checkIn, group.checkOut, held);
+  }
+
+  const capacity = roomType._count.units;
+  return consumedPerDay.map((consumed, index) => ({
+    day: new Date(from.getTime() + index * dayMs),
+    capacity,
+    consumed,
+    available: Math.max(0, capacity - consumed),
+  }));
 }
 
 /**

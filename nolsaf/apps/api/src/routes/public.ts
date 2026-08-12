@@ -14,6 +14,7 @@ import publicNolScopeRouter from "./public.nolscope";
 import publicNrmsMenuRouter from "./public.nrmsMenu";
 import publicNrmsGuestRouter from "./public.nrmsGuest";
 import publicNrmsRoomingListRouter from "./public.nrmsRoomingList";
+import publicNrmsCalendarRouter from "./public.nrmsCalendar";
 import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
 import publicAgentsRouter from "./public.agents";
@@ -59,6 +60,8 @@ export function registerPublicContentRoutes(app: Express): void {
   // to its parameterized routes.
   app.use("/api/public/nrms/rooming-lists", publicNrmsRoomingListRouter);
   app.use("/api/public/nrms/pro-formas", publicNrmsProFormaRouter);
+  // Also ahead of the menu router, whose /:token routes would otherwise swallow it.
+  app.use("/api/public/nrms/calendars", publicNrmsCalendarRouter);
   app.use("/api/public/nrms", publicNrmsMenuRouter);
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);

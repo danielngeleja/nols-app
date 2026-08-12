@@ -16,6 +16,7 @@ import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
+import { startIcalCalendarSyncWorker } from "../lib/channels/icalSync.js";
 import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
@@ -114,6 +115,10 @@ export function startBackgroundWorkers(io: SocketServer): void {
     // timeout can never strand a released batch half-submitted.
     startDisbursementBatchWorker();
     startChannelOperationsWorker();
+    // Calendar feeds need no credentials and no provider partnership, so this
+    // one runs unconditionally: with no feeds attached it is a single indexed
+    // query per tick.
+    startIcalCalendarSyncWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
       startBookingComReservationSyncWorker();
       startBookingComOutboundDeliveryWorker();

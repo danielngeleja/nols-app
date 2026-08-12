@@ -1,5 +1,6 @@
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { prisma } from "@nolsaf/prisma";
+import crypto from "node:crypto";
 
 const rateDb = prisma as any;
 
@@ -650,6 +651,22 @@ export const limitPublicNrmsGuestCapability = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many guest-link requests. Please wait a moment." },
+});
+
+/** OTA calendar pollers may share one egress IP across many properties. */
+export const limitPublicNrmsCalendarCapability = rateLimit({
+  windowMs: 5 * 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const token = String(req.params?.token || "");
+    if (/^[A-Za-z0-9_-]{24,80}$/.test(token)) {
+      return `nrms-calendar:${crypto.createHash("sha256").update(token).digest("hex")}`;
+    }
+    return `nrms-calendar-invalid:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+  message: { error: "Calendar polling is temporarily limited. Please retry shortly." },
 });
 
 // A rooming list is submitted a handful of times at most: once, plus fixes
