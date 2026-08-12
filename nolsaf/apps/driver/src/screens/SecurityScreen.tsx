@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppCard, AppText, colors, radius, spacing } from "@nolsaf/native-ui";
 import { ArrowLeft, ChevronRight, Clock, Fingerprint, Lock, ShieldAlert, ShieldCheck } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import type { ReactElement } from "react";
 
 import { RootStackParamList } from "../navigation/types";
 
@@ -11,7 +12,7 @@ const LINKS: Array<{
   key: "ChangePassword" | "Passkeys" | "TwoFactor" | "LoginHistory" | "Safety";
   label: string;
   description: string;
-  icon: (color: string) => JSX.Element;
+  icon: (color: string) => ReactElement;
 }> = [
   { key: "ChangePassword", label: "Password", description: "Change your account password", icon: (c) => <Lock color={c} size={20} /> },
   { key: "Passkeys", label: "Passkeys", description: "Use fingerprint, Face ID, or device lock", icon: (c) => <Fingerprint color={c} size={20} /> },

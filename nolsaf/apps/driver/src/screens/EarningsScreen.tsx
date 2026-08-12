@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppCard, AppText, colors, radius, spacing } from "@nolsaf/native-ui";
 import { FileText, Gift, Trophy, Users, Wallet } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import type { ReactElement } from "react";
 
 import { DriverBottomNav } from "../components/DriverBottomNav";
 import { RootStackParamList } from "../navigation/types";
@@ -12,7 +13,7 @@ const QUICK_LINKS: Array<{
   key: "Payouts" | "Bonus" | "Level" | "Referral" | "Invoices";
   label: string;
   description: string;
-  icon: (color: string) => JSX.Element;
+  icon: (color: string) => ReactElement;
 }> = [
   { key: "Payouts", label: "Payouts", description: "Your completed payouts", icon: (c) => <Wallet color={c} size={20} /> },
   { key: "Bonus", label: "Bonus", description: "Eligibility and history", icon: (c) => <Gift color={c} size={20} /> },

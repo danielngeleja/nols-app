@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppButton, AppCard, AppText, colors, radius, SafeScreen, spacing } from "@nolsaf/native-ui";
 import { ChevronRight, FileText, HelpCircle, Settings, ShieldCheck, UserCircle } from "lucide-react-native";
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
@@ -14,7 +14,7 @@ const LINKS: Array<{
   key: "Profile" | "Management" | "Security" | "Policies" | "Support";
   label: string;
   description: string;
-  icon: (color: string) => JSX.Element;
+  icon: (color: string) => ReactElement;
 }> = [
   { key: "Profile", label: "Profile", description: "Personal, vehicle, and payout details", icon: (c) => <UserCircle color={c} size={20} /> },
   { key: "Management", label: "Management", description: "License, insurance, and contract", icon: (c) => <FileText color={c} size={20} /> },

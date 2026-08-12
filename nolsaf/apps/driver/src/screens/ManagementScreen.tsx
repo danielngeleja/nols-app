@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppCard, AppText, colors, radius, spacing } from "@nolsaf/native-ui";
 import { ArrowLeft, ChevronRight, FileText, IdCard, ShieldCheck } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import type { ReactElement } from "react";
 
 import { RootStackParamList } from "../navigation/types";
 
@@ -11,7 +12,7 @@ const LINKS: Array<{
   key: "License" | "Insurance" | "Contract";
   label: string;
   description: string;
-  icon: (color: string) => JSX.Element;
+  icon: (color: string) => ReactElement;
 }> = [
   { key: "License", label: "License", description: "Your driving license details", icon: (c) => <IdCard color={c} size={20} /> },
   { key: "Insurance", label: "Insurance", description: "Your vehicle insurance document", icon: (c) => <ShieldCheck color={c} size={20} /> },

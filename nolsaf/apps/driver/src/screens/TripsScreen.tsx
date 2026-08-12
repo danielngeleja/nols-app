@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppCard, AppStack, AppText, colors, spacing, StateView } from "@nolsaf/native-ui";
 import { Calendar, History, ListChecks, Star } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
@@ -16,7 +16,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Trips">;
 const QUICK_LINKS: Array<{
   key: "ScheduledTrips" | "History" | "Reminders" | "Rating";
   label: string;
-  icon: (color: string) => JSX.Element;
+  icon: (color: string) => ReactElement;
 }> = [
   { key: "ScheduledTrips", label: "Scheduled trips", icon: (c) => <Calendar color={c} size={20} /> },
   { key: "History", label: "History", icon: (c) => <History color={c} size={20} /> },
