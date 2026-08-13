@@ -40,9 +40,12 @@ export const router = Router();
 // Availability/conflict checks (findUnitConflicts, getRoomTypeAvailability) and checkout
 // finalization (settlement verification, usage billing, dunning, statement generation)
 // inside these transactions can run long under real load; Prisma's 5s interactive-transaction
-// default was tripping with P2028 in production. 15s gives real headroom without holding the
-// property's inventory lock indefinitely.
+// default was tripping with P2028 in production. Most reservation mutations stay capped at
+// 15s; assigning a whole group can legitimately run more conflict checks, so that route gets
+// a separate 30s ceiling below without extending every transaction in this module.
 const EXTENDED_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+const GROUP_ROOM_ASSIGNMENT_TX_OPTIONS = { maxWait: 5000, timeout: 30000 };
+const SLOW_GROUP_ROOM_ASSIGNMENT_MS = 5000;
 
 router.use(requireAuth as RequestHandler);
 const requireOwnerRole = requireRole("OWNER") as RequestHandler;
@@ -1265,6 +1268,10 @@ router.get("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response) 
  * room to two guests.
  */
 router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response) => {
+  const startedAt = Date.now();
+  let inventoryLockMs: number | null = null;
+  let assignmentMs: number | null = null;
+  let failureCode: string | null = null;
   try {
     const parsed = assignGroupRoomsSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid room assignment", details: parsed.error.flatten() });
@@ -1280,15 +1287,20 @@ router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response)
     }
 
     const outcome = await prisma.$transaction(async (tx: any) => {
+      const lockStartedAt = Date.now();
       await lockPropertyInventory(tx, group.propertyId);
-      return assignGroupRooms(tx, {
+      inventoryLockMs = Date.now() - lockStartedAt;
+      const assignmentStartedAt = Date.now();
+      const result = await assignGroupRooms(tx, {
         groupId: group.id,
         propertyId: group.propertyId,
         ownerId,
         requested: data.assignments,
         autoAssignRemaining: data.autoAssignRemaining,
       });
-    }, EXTENDED_TX_OPTIONS);
+      assignmentMs = Date.now() - assignmentStartedAt;
+      return result;
+    }, GROUP_ROOM_ASSIGNMENT_TX_OPTIONS);
 
     if (outcome.assigned.length) {
       await prisma.reservationEvent.createMany({
@@ -1303,8 +1315,20 @@ router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response)
 
     res.json({ groupId: group.id, assignedCount: outcome.assigned.length, failedCount: outcome.failed.length, assigned: outcome.assigned, failed: outcome.failed });
   } catch (err) {
+    failureCode = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code ?? "UNKNOWN") : "UNKNOWN";
     console.error("[owner.nrms.reservations] group room assignment failed", err);
     res.status(500).json({ error: "Failed to assign rooms for this group" });
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= SLOW_GROUP_ROOM_ASSIGNMENT_MS) {
+      console.warn("[owner.nrms.reservations] slow group room assignment", {
+        groupId: Number(req.params.groupId),
+        durationMs,
+        inventoryLockMs,
+        assignmentMs,
+        ...(failureCode ? { errorCode: failureCode } : {}),
+      });
+    }
   }
 }) as RequestHandler);
 
