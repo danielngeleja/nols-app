@@ -69,6 +69,7 @@ export const publicSeoRoutes: MetadataRoute.Sitemap = [
   { url: `${SITE_URL}/careers`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.45 },
   { url: `${SITE_URL}/terms`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.4 },
   { url: `${SITE_URL}/privacy`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.4 },
+  { url: `${SITE_URL}/account-deletion`, lastModified: new Date("2026-08-13"), changeFrequency: "yearly", priority: 0.4 },
   { url: `${SITE_URL}/cookies-policy`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.35 },
   { url: `${SITE_URL}/cancellation-policy`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.4 },
   { url: `${SITE_URL}/disbursement-policy`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.35 },

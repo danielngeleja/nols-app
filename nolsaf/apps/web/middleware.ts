@@ -88,7 +88,13 @@ export function middleware(req: NextRequest) {
   // Edge runtime reads process.env at request time (not build time in Next.js 15+).
   // Set MAINTENANCE_MODE=true in your .env.local or AWS EB environment variables.
   const maintenance = process.env.MAINTENANCE_MODE === "true";
-  if (maintenance && path !== "/maintenance") {
+  // Keep legally required privacy and account-deletion resources available
+  // even while the transactional product is undergoing maintenance.
+  const isAlwaysAvailablePolicyRoute =
+    path === "/maintenance" ||
+    path === "/account-deletion" ||
+    path === "/privacy";
+  if (maintenance && !isAlwaysAvailablePolicyRoute) {
     url.pathname = "/maintenance";
     return NextResponse.redirect(url);
   }

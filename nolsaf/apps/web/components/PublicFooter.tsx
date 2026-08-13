@@ -436,6 +436,7 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
                   {[
                     { href: "/terms", label: "Terms" },
                     { href: "/privacy", label: "Privacy" },
+                    { href: "/account-deletion", label: "Delete account" },
                     { href: "/stay-safe", label: "Stay Safe" },
                     { href: "/cookies-policy", label: "Cookies" },
                     { href: "/verification-policy", label: "Verification" },

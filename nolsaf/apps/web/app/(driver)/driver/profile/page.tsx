@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import Link from "next/link";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import Image from "next/image";
@@ -946,7 +946,7 @@ export default function DriverProfile() {
                                             <div className="col-span-2 mt-1.5">
                         <div style={{ background: "#ffffff", borderRadius: "3px", padding: "4px 6px 2px" }}>
                           <svg width="100%" height="28" viewBox="0 0 210 28" preserveAspectRatio="xMidYMid meet" aria-hidden style={{ display: "block" }}>
-                            {(()=>{ const p=[1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,1,3,1,2,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,3,1,2,1,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,1,3,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3]; const r:JSX.Element[]=[]; let x=2; p.forEach((w,i)=>{ if(i%2===0){r.push(<rect key={i} x={x} y={1} width={w} height={26} fill="#1a1a1a"/>);} x+=w; }); return r; })()}
+                            {(()=>{ const p=[1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,1,3,1,2,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,3,1,2,1,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,1,3,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; p.forEach((w,i)=>{ if(i%2===0){r.push(<rect key={i} x={x} y={1} width={w} height={26} fill="#1a1a1a"/>);} x+=w; }); return r; })()}
                           </svg>
                           <p style={{ textAlign:"center", fontFamily:"monospace", fontSize:"5.5px", letterSpacing:"0.28em", color:"#444", marginTop:"1px", lineHeight:1 }}>NLS-{String(me.id).padStart(4,"0")}-{new Date().getFullYear()}</p>
                         </div>
@@ -1003,7 +1003,7 @@ export default function DriverProfile() {
                       <div className="flex items-center gap-2">
                         <p className="text-[7px] font-black uppercase tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NoLSAF \u00a9 {new Date().getFullYear()}</p>
                         <svg className="flex-1" height="16" viewBox="0 0 130 16" preserveAspectRatio="xMidYMid meet" aria-hidden style={{background:"rgba(255,255,255,0.12)",borderRadius:"2px"}}>
-                          {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:JSX.Element[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
+                          {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
                         </svg>
                         <p className="text-[7px] font-mono tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NLS-{String(me.id).padStart(4,"0")}</p>
                       </div>
