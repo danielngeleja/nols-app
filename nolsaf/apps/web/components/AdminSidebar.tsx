@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -33,38 +33,50 @@ function Item({
   const active = path === href || path?.startsWith(href + "/");
   const dark = variant === "dark";
 
+  // Dark variant mirrors the NRMS workspace sidebar exactly (see
+  // app/(owner)/owner/nrms/layout.tsx): no icon border, tile tints only, and the
+  // glyph inherits the row's text colour instead of a fixed teal.
   const iconWrapClass = dark
     ? active
-      ? "bg-white/10 border-white/15"
-      : "bg-white/5 border-white/10"
+      ? "bg-emerald-950/10"
+      : "bg-white/[0.04] group-hover:bg-white/[0.08]"
     : active
-      ? "bg-[#02665e]/10 border-[#02665e]/15"
-      : "bg-[#02665e]/5 border-[#02665e]/10";
+      ? "bg-[#02665e]/10 border border-[#02665e]/15"
+      : "bg-[#02665e]/5 border border-[#02665e]/10";
 
-  const iconClass = dark
-    ? "text-teal-200"
-    : "text-[#02665e]";
+  const iconClass = dark ? "" : "text-[#02665e]";
   
   if (collapsed) {
     return (
       <Link
         href={href}
         title={label}
-        className={`group relative no-underline flex items-center justify-center rounded-2xl p-3 text-sm font-medium transition-colors duration-200
-          ${dark ? "bg-white/5 border border-white/10" : "bg-white/70 border shadow-sm backdrop-blur-[2px]"}
-          ${dark
-            ? active
-              ? "text-slate-100 bg-white/10 border-white/15"
-              : "text-slate-200 hover:bg-white/10 hover:border-white/15"
-            : active
+        className={dark
+          ? `group relative no-underline hover:no-underline flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition
+            ${active
+              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20`
+          : `group relative no-underline flex items-center justify-center rounded-2xl p-3 text-sm font-medium transition-colors duration-200
+            bg-white/70 border shadow-sm backdrop-blur-[2px]
+            ${active
               ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
               : "text-[#02665e] border-[#02665e]/10 hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-          focus:outline-none focus-visible:ring-2 ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25`}
       >
         {Icon ? (
-          <span className={`grid place-items-center rounded-xl h-12 w-12 border ${iconWrapClass}`}>
-            <Icon className={`h-6 w-6 ${iconClass}`} aria-hidden />
-          </span>
+          dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-12 w-12 ${iconWrapClass}`}>
+              <Icon className={`h-6 w-6 ${iconClass}`} aria-hidden />
+            </span>
+          )
         ) : null}
         {/* Tooltip for collapsed state */}
         <span className={`absolute left-full ml-2 px-2 py-1 text-xs font-medium rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity duration-200 ${dark ? "text-white bg-black/70 border border-white/10" : "text-white bg-gray-900"}`}>
@@ -78,38 +90,54 @@ function Item({
     <Link
       href={href}
       title={label}
-      className={`group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
-        transition-colors duration-200 border
-        ${dark ? "bg-white/5 border-white/10" : "bg-white/90 shadow-sm border-[#02665e]/10"}
-        ${dark
-          ? active
-            ? "text-slate-100 bg-white/10 border-white/15"
-            : "text-slate-200 hover:bg-white/10 hover:border-white/15"
-          : active
+      className={dark
+        ? `group relative no-underline hover:no-underline flex min-h-9 items-center gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition
+          ${active
+            ? isSubItem
+              ? "border-transparent bg-white/10 text-white"
+              : "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+            : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+          ${isSubItem ? "min-h-8 font-medium" : ""}`
+        : `group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
+          transition-colors duration-200 border bg-white/90 shadow-sm
+          ${active
             ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
             : "text-[#02665e] border-[#02665e]/10 hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-        focus:outline-none focus-visible:ring-2 ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}
-        ${isSubItem ? "ml-3 pl-3" : ""}`}
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25
+          ${isSubItem ? "ml-3 pl-3" : ""}`}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        {Icon ? (
-          <span className={`grid place-items-center rounded-xl h-9 w-9 border ${iconWrapClass}`}>
-            <Icon className={`h-4 w-4 ${iconClass}`} aria-hidden />
-          </span>
-        ) : null}
-        <span className={`${isSubItem ? "text-[13px]" : ""} truncate whitespace-nowrap`}>{label}</span>
-      </div>
-      <ChevronRight
-        className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-85" : "group-hover:opacity-85"}`}
-        aria-hidden
-      />
+      {dark ? (
+        <>
+          {Icon && !isSubItem ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 min-w-0">
+            {Icon ? (
+              <span className={`grid place-items-center rounded-xl h-9 w-9 ${iconWrapClass}`}>
+                <Icon className={`h-4 w-4 ${iconClass}`} aria-hidden />
+              </span>
+            ) : null}
+            <span className={`${isSubItem ? "text-[13px]" : ""} truncate whitespace-nowrap`}>{label}</span>
+          </div>
+          <ChevronRight
+            className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity text-[#02665e] ${active ? "opacity-85" : "group-hover:opacity-85"}`}
+            aria-hidden
+          />
+        </>
+      )}
     </Link>
   );
 }
 
 const adminDetails: Item[] = [
   { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/admin/finance", label: "All Revenue", Icon: TrendingUp },
   { href: "/admin/owners", label: "Owners", Icon: Building2 },
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
@@ -159,6 +187,24 @@ const cancellationsDetails: Item[] = [
   { href: "/admin/cancellations", label: "Dashboard", Icon: LayoutDashboard },
 ];
 
+const nrmsDetails: Item[] = [
+  { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/channels", label: "OTA Control", Icon: KeyRound },
+  { href: "/admin/nrms/billing", label: "PAYG Billing", Icon: Wallet },
+  { href: "/admin/nrms/pricing", label: "Pricing & Levers", Icon: Coins },
+  { href: "/admin/nrms/reconciliation", label: "Reconciliation", Icon: Receipt },
+  { href: "/admin/nrms/integrity", label: "Integrity Signals", Icon: Activity },
+  { href: "/admin/nrms/support", label: "Support Snapshot", Icon: Eye },
+  { href: "/admin/nrms/health", label: "System Health", Icon: Activity },
+];
+
+const salesDetails: Item[] = [
+  { href: "/admin/sales/partners", label: "Sales partners", Icon: Users },
+  { href: "/admin/sales", label: "Conversion review", Icon: ShieldCheck },
+  { href: "/admin/sales/finance", label: "Finance", Icon: Wallet },
+  { href: "/admin/sales/materials", label: "Learning materials", Icon: FileText },
+];
+
 const userDetails: Item[] = [
   { href: "/admin/users", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/users/list", label: "All Users", Icon: Users },
@@ -168,8 +214,9 @@ const userDetails: Item[] = [
 
 const managementDetails: Item[] = [
   { href: "/admin/management", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/lifecycle-health", label: "Lifecycle Health", Icon: Activity },
   { href: "/admin/observability", label: "Observability", Icon: Activity },
-  { href: "/admin/impact-center", label: "Impact Center", Icon: AlertTriangle },
+  { href: "/admin/impact-center", label: "Technical Impact", Icon: AlertTriangle },
   { href: "/admin/management/reports", label: "Reports", Icon: FileText },
   { href: "/admin/management/audit-log", label: "Audit Log", Icon: ShieldCheck },
   { href: "/admin/management/no4p-otp", label: "No4P OTP", Icon: KeyRound },
@@ -183,6 +230,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/trust-partners", label: "Trust Partners", Icon: Award },
   { href: "/admin/management/nolscope", label: "NoLScope Rates", Icon: Calculator },
   { href: "/admin/management/currency", label: "Currency Rates", Icon: Coins },
+  { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },
   { href: "/admin/management/settings", label: "Settings", Icon: Settings },
   { href: "/admin/management/updates", label: "Updates", Icon: Megaphone },
   { href: "/admin/management/users", label: "Users", Icon: Users },
@@ -201,16 +249,22 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [groupStayOpen, setGroupStayOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
+  const [nrmsOpen, setNrmsOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
 
   const activeSection = (() => {
     if (!path) return null;
     if (path === "/admin/home") return "Home";
+    if (path.startsWith("/admin/action-center")) return "Action Center";
+    if (path.startsWith("/admin/nrms")) return "NRMS";
+    if (path.startsWith("/admin/sales")) return "Sales";
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
     if (path.startsWith("/admin/agents")) return "No4P Agents";
     if (path.startsWith("/admin/cancellations")) return "Cancellations";
     if (path.startsWith("/admin/observability")) return "Management";
+    if (path.startsWith("/admin/lifecycle-health")) return "Management";
     if (path.startsWith("/admin/impact-center")) return "Management";
     if (path.startsWith("/admin/management")) return "Management";
     if (
@@ -231,23 +285,41 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     return null;
   })();
 
-  const SectionHeader = ({ title, active }: { title: string; active: boolean }) => (
-    <div className="px-1">
-      <div className="flex items-center gap-3 px-3">
-        <span className={`h-1.5 w-1.5 rounded-full ${dark ? (active ? "bg-teal-200" : "bg-white/25") : (active ? "bg-[#02665e]" : "bg-[#02665e]/35")}`} />
-        <div className={`text-[10px] font-semibold tracking-[0.22em] uppercase ${dark ? "text-white/45" : "text-[#02665e]/55"}`}>
+  // Dark variant uses the NRMS group label: plain uppercase text, no leading dot
+  // and no hairline rule.
+  const SectionHeader = ({ title, active }: { title: string; active: boolean }) => {
+    if (dark) {
+      return (
+        <p className="mb-1.5 mt-0 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">
           {title}
+        </p>
+      );
+    }
+    return (
+      <div className="px-1">
+        <div className="flex items-center gap-3 px-3">
+          <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#02665e]" : "bg-[#02665e]/35"}`} />
+          <div className="text-[10px] font-semibold tracking-[0.22em] uppercase text-[#02665e]/55">
+            {title}
+          </div>
+          <div className="h-px flex-1 bg-[#02665e]/10" />
         </div>
-        <div className={`h-px flex-1 ${dark ? "bg-white/10" : "bg-[#02665e]/10"}`} />
       </div>
-    </div>
-  );
+    );
+  };
 
   const GroupHeader = ({ title }: { title: string }) => {
     if (collapsed) return null;
+    if (dark) {
+      return (
+        <p className="mb-1.5 mt-2 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">
+          {title}
+        </p>
+      );
+    }
     return (
       <div className="pt-2">
-        <div className={`px-3 text-[10px] font-semibold tracking-[0.26em] uppercase ${dark ? "text-white/35" : "text-[#02665e]/45"}`}>
+        <div className="px-3 text-[10px] font-semibold tracking-[0.26em] uppercase text-[#02665e]/45">
           {title}
         </div>
       </div>
@@ -267,6 +339,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     const isGroupStay = path.startsWith("/admin/group-stays");
     const isAgents = path.startsWith("/admin/agents");
     const isCancellations = path.startsWith("/admin/cancellations");
+    const isNrms = path.startsWith("/admin/nrms");
+    const isSales = path.startsWith("/admin/sales");
     // Owner (admin) mini-sidebar: open when on /admin (owners dashboard) or admin child routes
     // but NOT on /admin/home (which is the admin , not owners)
     const isAdminChildRoute = (path === "/admin" ||
@@ -292,6 +366,10 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // Cancellations mini-sidebar
     if (isCancellations) setCancellationsOpen(true);
     else setCancellationsOpen(false);
+    // NRMS mini-sidebar
+    if (isNrms) setNrmsOpen(true);
+    else setNrmsOpen(false);
+    setSalesOpen(isSales);
     // Visual chevrons for Users
     setUsersOpen(isUsers);
   }, [path]);
@@ -317,22 +395,30 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         <button
           onClick={onClick}
           title={label}
-          className={`group relative w-full flex items-center justify-center rounded-2xl p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
-            ${dark ? "text-slate-200 bg-white/5 border-white/10" : "text-[#02665e] bg-white/70 border-[#02665e]/10"}
-            ${dark
-              ? active
-                ? "bg-white/10 border-white/15"
-                : "hover:bg-white/10 hover:border-white/15"
-              : active
+          className={dark
+            ? `group relative w-full appearance-none flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+              ${active
+                ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+                // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
+            : `group relative w-full flex items-center justify-center rounded-2xl p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+              text-[#02665e] bg-white/70 border-[#02665e]/10
+              ${active
                 ? "bg-[#02665e]/6 border-[#02665e]/25"
                 : "hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-            ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+              focus-visible:ring-[#02665e]/25`}
         >
-          <span
-            className={`grid place-items-center rounded-xl h-12 w-12 border ${dark ? (active ? "bg-white/10 border-white/15" : "bg-white/5 border-white/10") : (active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10")}`}
-          >
-            <Icon className={`h-6 w-6 ${dark ? "text-teal-200" : "text-[#02665e]"}`} aria-hidden />
-          </span>
+          {dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-12 w-12 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+              <Icon className="h-6 w-6 text-[#02665e]" aria-hidden />
+            </span>
+          )}
           {/* Tooltip for collapsed state */}
           <span className={`absolute left-full ml-2 px-2 py-1 text-xs font-medium rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity duration-200 ${dark ? "text-white bg-black/70 border border-white/10" : "text-white bg-gray-900"}`}>
             {label}
@@ -345,29 +431,88 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
       <button
         onClick={onClick}
         title={label}
-        className={`group w-full flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
-          ${dark ? "text-slate-200 bg-white/5 border-white/10" : "text-[#02665e] bg-white/90 border-[#02665e]/10 shadow-sm"}
-          ${dark
-            ? active
-              ? "bg-white/10 border-white/15"
-              : "hover:bg-white/10 hover:border-white/15"
-            : active
+        className={dark
+          ? `group w-full appearance-none flex min-h-9 items-center justify-between gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+            ${active
+              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              // bg-transparent is required, not redundant: Tailwind preflight is
+              // disabled, so a <button> with no background falls back to the UA
+              // default (light grey) and hides the label.
+              : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
+          : `group w-full flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+            text-[#02665e] bg-white/90 border-[#02665e]/10 shadow-sm
+            ${active
               ? "bg-[#02665e]/6 border-[#02665e]/25"
               : "hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
-          ${dark ? "focus-visible:ring-white/20" : "focus-visible:ring-[#02665e]/25"}`}
+            focus-visible:ring-[#02665e]/25`}
       >
-        <span className="flex items-center gap-3 min-w-0">
-          <span className={`grid place-items-center rounded-xl h-9 w-9 border ${dark ? (active ? "bg-white/10 border-white/15" : "bg-white/5 border-white/10") : (active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10")}`}>
-            <Icon className={`h-4 w-4 ${dark ? "text-teal-200" : "text-[#02665e]"}`} aria-hidden />
-          </span>
-          <span className={`${dark ? "text-slate-100" : ""} truncate whitespace-nowrap`}>{label}</span>
+        <span className={`flex min-w-0 items-center ${dark ? "gap-2.5" : "gap-3"}`}>
+          {dark ? (
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : (
+            <span className={`grid place-items-center rounded-xl h-9 w-9 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+              <Icon className="h-4 w-4 text-[#02665e]" aria-hidden />
+            </span>
+          )}
+          <span className="truncate whitespace-nowrap">{label}</span>
         </span>
         {isOpen ? (
-          <ChevronDown className={`h-4 w-4 ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
         ) : (
-          <ChevronRight className={`h-4 w-4 ${dark ? "text-slate-200" : "text-[#02665e]"} ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
         )}
       </button>
+    );
+  };
+
+  // Expanded children of a collapsible section. Dark variant renders them
+  // Cloudflare-style: no repeated section header, children indented under a
+  // single vertical guide-line rail, animated open/close. Light variant keeps
+  // its existing header + spaced tiles so other surfaces are unaffected.
+  const NestedGroup = ({
+    open,
+    title,
+    active,
+    items,
+  }: {
+    open: boolean;
+    title: string;
+    active: boolean;
+    items: Item[];
+  }) => {
+    if (collapsed) return null;
+
+    if (!dark) {
+      if (!open) return null;
+      return (
+        <div className="mt-2">
+          <SectionHeader title={title} active={active} />
+          <div className="mt-2 space-y-2">
+            {items.map(({ href, label, Icon }) => (
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        aria-hidden={!open}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          open ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="ml-[1.35rem] mt-0.5 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2.5">
+            {items.map(({ href, label, Icon }) => (
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+            ))}
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -375,15 +520,29 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     <div
       className={
         dark
-          ? `rounded-3xl border border-white/10 bg-gradient-to-b from-[#0b1220] via-[#0a1624] to-[#070f1a] shadow-[0_20px_60px_rgba(0,0,0,0.35)] ${collapsed ? "p-2" : "p-3"}`
+          // The NRMS sidebar panel is the <aside> itself. This wrapper must stay
+          // transparent or it paints a second panel inside the green rail.
+          // h-full lets the nav scroll internally while the footer stays pinned.
+          ? "flex h-full min-h-0 flex-col"
           : `rounded-3xl border border-[#02665e]/10 shadow-[0_12px_30px_rgba(2,102,94,0.08)] ${collapsed ? "p-2 bg-gradient-to-b from-white via-white to-[#02665e]/[0.09]" : "p-3 bg-white"}`
       }
     >
-      <div className={`space-y-2 ${collapsed ? "space-y-1" : ""}`}>
+      <div className={dark ? "sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto" : `space-y-2 ${collapsed ? "space-y-1" : ""}`}>
         <GroupHeader title="PAGES" />
 
         {/* Home */}
         <Item href="/admin/home" label="Home" Icon={Home} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
+        <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
+        <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Cross-flow AzamPay payout queue (owner/tour/driver/sales). Self-contained
+            workspace (own sidebar, own chrome) — this is just the entry point,
+            same pattern as the owner-side NRMS Workspace link. */}
+        <Item href="/admin/disbursements" label="Disbursements" Icon={Send} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Admin/Owners */}
         {collapsed ? (
@@ -398,16 +557,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Owners"}
             />
-            {adminOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Owners" active={activeSection === "Owners"} />
-                <div className="mt-2 space-y-2">
-                  {adminDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={adminOpen} title="Owners" active={activeSection === "Owners"} items={adminDetails} />
           </div>
         )}
 
@@ -424,16 +574,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Drivers"}
             />
-            {driverOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Drivers" active={activeSection === "Drivers"} />
-                <div className="mt-2 space-y-2">
-                  {driverDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={driverOpen} title="Drivers" active={activeSection === "Drivers"} items={driverDetails} />
           </div>
         )}
 
@@ -450,16 +591,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Users"}
             />
-            {usersOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Users" active={activeSection === "Users"} />
-                <div className="mt-2 space-y-2">
-                  {userDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={usersOpen} title="Users" active={activeSection === "Users"} items={userDetails} />
           </div>
         )}
 
@@ -478,16 +610,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Group Stay"}
             />
-            {groupStayOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Group Stay" active={activeSection === "Group Stay"} />
-                <div className="mt-2 space-y-2">
-                  {groupStayDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={groupStayOpen} title="Group Stay" active={activeSection === "Group Stay"} items={groupStayDetails} />
           </div>
         )}
 
@@ -504,16 +627,41 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "No4P Agents"}
             />
-            {agentsOpen && (
-              <div className="mt-2">
-                <SectionHeader title="No4P Agents" active={activeSection === "No4P Agents"} />
-                <div className="mt-2 space-y-2">
-                  {agentsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={agentsOpen} title="No4P Agents" active={activeSection === "No4P Agents"} items={agentsDetails} />
+          </div>
+        )}
+
+        {/* NRMS */}
+        {collapsed ? (
+          <Item href="/admin/nrms" label="NRMS" Icon={Hotel} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="NRMS"
+              Icon={Hotel}
+              isOpen={nrmsOpen}
+              onClick={() => setNrmsOpen(v => !v)}
+              collapsed={collapsed}
+              active={activeSection === "NRMS"}
+            />
+            <NestedGroup open={nrmsOpen} title="NRMS" active={activeSection === "NRMS"} items={nrmsDetails} />
+          </div>
+        )}
+
+        {/* Sales partners */}
+        {collapsed ? (
+          <Item href="/admin/sales" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
+        ) : (
+          <div>
+            <CollapsibleButton
+              label="Sales partners"
+              Icon={Briefcase}
+              isOpen={salesOpen}
+              onClick={() => setSalesOpen((value) => !value)}
+              collapsed={collapsed}
+              active={activeSection === "Sales"}
+            />
+            <NestedGroup open={salesOpen} title="Sales partners" active={activeSection === "Sales"} items={salesDetails} />
           </div>
         )}
 
@@ -532,16 +680,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Cancellations"}
             />
-            {cancellationsOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Cancellations" active={activeSection === "Cancellations"} />
-                <div className="mt-2 space-y-2">
-                  {cancellationsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={cancellationsOpen} title="Cancellations" active={activeSection === "Cancellations"} items={cancellationsDetails} />
           </div>
         )}
 
@@ -558,20 +697,28 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Management"}
             />
-            {managementOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Management" active={activeSection === "Management"} />
-                <div className="mt-2 space-y-2">
-                  {managementDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={managementOpen} title="Management" active={activeSection === "Management"} items={managementDetails} />
           </div>
         )}
 
       </div>
+
+      {/* Collapse control, mirroring the NRMS sidebar footer. The admin layout owns
+          the open/closed state and already listens for this event, so no prop
+          plumbing is needed. Hidden below md because the rail itself is md-and-up. */}
+      {dark && (
+        <div className="mt-3 shrink-0 border-0 border-t border-solid border-white/10 bg-black/5 p-2.5">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("toggle-admin-sidebar"))}
+            className={`hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white md:flex ${collapsed ? "justify-center" : "justify-between px-2.5"}`}
+            aria-label={collapsed ? "Expand admin sidebar" : "Collapse admin sidebar"}
+          >
+            {!collapsed && "Collapse sidebar"}
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

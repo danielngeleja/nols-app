@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import { Building2, Download, ChevronDown, Sliders } from "lucide-react";
 import DatePickerField from "./DatePickerField";
@@ -114,13 +115,26 @@ export default function ReportsFilter({
   exportHref?: string | null;
 }) {
   const today = new Date();
+  const searchParams = useSearchParams();
+  const queryFilters = useMemo(() => {
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    const propertyId = searchParams.get("propertyId");
+    const groupBy = searchParams.get("groupBy");
+    const parsedPropertyId = propertyId ? Number(propertyId) : null;
+    const initialFrom = from && !Number.isNaN(parseIsoDateOnly(from).getTime()) ? from : formatDate(firstOfMonth(today));
+    const initialTo = to && !Number.isNaN(parseIsoDateOnly(to).getTime()) ? to : formatDate(today);
+    const clamped = clampRangeToMax(initialFrom, initialTo);
+    return {
+      from: clamped.from,
+      to: clamped.to,
+      propertyId: parsedPropertyId && Number.isFinite(parsedPropertyId) ? parsedPropertyId : null,
+      groupBy: groupBy === "week" || groupBy === "month" ? groupBy : "day",
+    } satisfies ReportsFilters;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [props, setProps] = useState<any[]>([]);
-  const [filters, setFilters] = useState<ReportsFilters>({
-    from: formatDate(firstOfMonth(today)),
-    to: formatDate(today),
-    propertyId: null,
-    groupBy: "day",
-  });
+  const [filters, setFilters] = useState<ReportsFilters>(queryFilters);
 
   const clampInfo = clampRangeToMax(filters.from, filters.to);
 

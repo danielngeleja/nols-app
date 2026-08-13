@@ -5,8 +5,9 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
-import { ArrowLeft, Calendar, CheckCircle2, ClipboardList, CreditCard, MapPin, Phone, Route, User, Users, Handshake, ShieldCheck, Key } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Calendar, CheckCircle2, CircleDollarSign, ClipboardList, CreditCard, ExternalLink, FileText, MapPin, Phone, Route, Send, User, Users, Handshake, ShieldCheck, Key } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import TourCancellationWorkspace from "@/components/agent/TourCancellationWorkspace";
 
 const api = apiClient;
 
@@ -17,6 +18,8 @@ type TourBookingDetail = {
   description?: string | null;
   status?: string;
   paymentStatus?: string;
+  payoutStatus?: string | null;
+  operatorPayoutAmount?: number | null;
   createdAt?: string;
   updatedAt?: string;
   tripDate?: string | null;
@@ -36,6 +39,19 @@ type TourBookingDetail = {
     nationality?: string | null;
     travelerCount?: number | null;
   };
+};
+
+type TourCaseEvent = { id: number; type: string; message?: string | null; data?: any; createdAt: string };
+type TourCase = {
+  id: number;
+  type: string;
+  status: string;
+  severity: string;
+  title: string;
+  description: string;
+  resolutionAmount?: number | string | null;
+  createdAt: string;
+  events: TourCaseEvent[];
 };
 
 function InfoRow({
@@ -185,6 +201,17 @@ export default function AgentTourBookingDetailPage() {
   const [pickupValidationMsg, setPickupValidationMsg] = useState<string | null>(null);
   const [pickupValidationErr, setPickupValidationErr] = useState<string | null>(null);
   const [showCongratsPopup, setShowCongratsPopup] = useState(false);
+  const [tourCases, setTourCases] = useState<TourCase[]>([]);
+  const [caseWorking, setCaseWorking] = useState<number | null>(null);
+  const [caseMessages, setCaseMessages] = useState<Record<number, string>>({});
+  const [evidenceDrafts, setEvidenceDrafts] = useState<Record<number, { kind: "NON_REFUNDABLE_COMPONENT" | "CONSUMED_SERVICE" | "RECOVERY_COST"; description: string; amount: string; evidenceUrl: string; disclosedBeforePayment: boolean }>>({});
+  const [caseNotice, setCaseNotice] = useState<string | null>(null);
+
+  const loadTourCases = async () => {
+    if (!bookingId) return;
+    const res = await api.get(`/api/agent/tour-bookings/${encodeURIComponent(bookingId)}/cases`);
+    setTourCases(Array.isArray(res.data?.cases) ? res.data.cases : []);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -225,6 +252,40 @@ export default function AgentTourBookingDetailPage() {
       alive = false;
     };
   }, [bookingId]);
+
+  const caseAction = async (tourCase: TourCase, action: "ACKNOWLEDGE" | "ESCALATE" | "RESOLVE" | "REJECT") => {
+    const message = String(caseMessages[tourCase.id] || "").trim();
+    if (!message) return setCaseNotice("Add a response before updating the case.");
+    setCaseWorking(tourCase.id);
+    setCaseNotice(null);
+    try {
+      await api.post(`/api/agent/tour-bookings/${encodeURIComponent(bookingId)}/cases/${tourCase.id}/action`, { action, message });
+      setCaseMessages((old) => ({ ...old, [tourCase.id]: "" }));
+      setCaseNotice(`Case #${tourCase.id} updated.`);
+      await loadTourCases();
+    } catch (error: any) {
+      setCaseNotice(error?.response?.data?.error || "Could not update the case.");
+    } finally { setCaseWorking(null); }
+  };
+
+  const submitCostEvidence = async (tourCase: TourCase) => {
+    const draft = evidenceDrafts[tourCase.id] || { kind: "NON_REFUNDABLE_COMPONENT", description: "", amount: "", evidenceUrl: "", disclosedBeforePayment: false };
+    if (!draft.description.trim() || !(Number(draft.amount) > 0) || !/^https?:\/\//i.test(draft.evidenceUrl)) return setCaseNotice("Provide a description, positive amount, and valid evidence URL.");
+    setCaseWorking(tourCase.id);
+    setCaseNotice(null);
+    try {
+      await api.post(`/api/agent/tour-bookings/${encodeURIComponent(bookingId)}/cases/${tourCase.id}/cost-evidence`, {
+        message: String(caseMessages[tourCase.id] || "Documented supplier cost").trim(),
+        items: [{ ...draft, amount: Number(draft.amount) }],
+      });
+      setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { kind: "NON_REFUNDABLE_COMPONENT", description: "", amount: "", evidenceUrl: "", disclosedBeforePayment: false } }));
+      setCaseMessages((old) => ({ ...old, [tourCase.id]: "" }));
+      setCaseNotice("Cost evidence submitted to NoLSAF for review.");
+      await loadTourCases();
+    } catch (error: any) {
+      setCaseNotice(error?.response?.data?.error || "Could not submit cost evidence.");
+    } finally { setCaseWorking(null); }
+  };
 
   useEffect(() => {
     if (!showCongratsPopup) return;
@@ -752,6 +813,42 @@ export default function AgentTourBookingDetailPage() {
               </div>
             </section>
           </div>
+
+          <TourCancellationWorkspace
+            bookingId={bookingId}
+            bookingCode={bookingCode}
+            bookingStatus={String(item?.status || "")}
+            payoutStatus={item?.payoutStatus}
+            startDate={item?.tripDate}
+            currency={item?.currency}
+            operatorPayoutAmount={item?.operatorPayoutAmount}
+          />
+
+          <section className="hidden rounded-2xl border border-amber-200 bg-white p-5 sm:p-6 shadow-sm" aria-hidden="true">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-700" /><h2 className="text-sm font-bold text-slate-900">Traveler Cases & Refund Evidence</h2></div><p className="mt-1 text-xs text-slate-600">Respond to traveler cases and submit verifiable supplier costs. NoLSAF makes every cancellation and refund decision.</p></div>
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{tourCases.length} active record{tourCases.length === 1 ? "" : "s"}</span>
+            </div>
+            {caseNotice && <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">{caseNotice}</div>}
+            <div className="mt-4 space-y-4">
+              {tourCases.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-500">No traveler cases for this booking.</div> : tourCases.map((tourCase) => {
+                const eligibility = tourCase.events.find((event) => event.type === "ELIGIBILITY_CALCULATED")?.data;
+                const evidence = tourCase.events.filter((event) => event.type === "OPERATOR_COST_EVIDENCE").flatMap((event) => Array.isArray(event.data?.items) ? event.data.items : []);
+                const draft = evidenceDrafts[tourCase.id] || { kind: "NON_REFUNDABLE_COMPONENT" as const, description: "", amount: "", evidenceUrl: "", disclosedBeforePayment: false };
+                const financial = ["CANCELLATION", "REFUND"].includes(tourCase.type.toUpperCase());
+                const closed = ["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(tourCase.status.toUpperCase());
+                return <article key={tourCase.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">{tourCase.type} · Case #{tourCase.id}</div><h3 className="mt-1 font-bold text-slate-900">{tourCase.title}</h3><p className="mt-1 text-sm text-slate-700">{tourCase.description}</p></div><span className="h-fit rounded-full border bg-white px-2.5 py-1 text-xs font-bold">{tourCase.status.replaceAll("_", " ")}</span></div>
+                  {eligibility && <div className="mt-3 grid gap-2 sm:grid-cols-3"><MetricCard label="Policy" value={eligibility.eligibilityCode} tone="amber" /><MetricCard label="Provisional" value={`${eligibility.refundPercent}%`} tone="teal" /><MetricCard label="Estimate" value={`${item?.currency || "TZS"} ${Number(eligibility.estimatedRefundAmount || 0).toLocaleString()}`} tone="emerald" /></div>}
+                  {evidence.length > 0 && <div className="mt-3 rounded-xl border bg-white p-3"><div className="text-xs font-bold">Evidence submitted</div>{evidence.map((entry: any, index: number) => <a key={index} href={entry.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 flex justify-between text-xs text-teal-700 underline"><span>{entry.description}</span><strong>{Number(entry.amount).toLocaleString()} {item?.currency}</strong></a>)}</div>}
+                  {!closed && <><textarea value={caseMessages[tourCase.id] || ""} onChange={(e) => setCaseMessages((old) => ({ ...old, [tourCase.id]: e.target.value }))} rows={2} placeholder="Response to traveler or NoLSAF…" className="mt-3 w-full rounded-xl border p-3 text-sm" />
+                    {financial && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="text-xs font-bold text-amber-900">Add documented tour cost</div><div className="mt-2 grid gap-2 md:grid-cols-2"><select value={draft.kind} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, kind: e.target.value as any } }))} className="rounded-lg border px-3 py-2 text-xs"><option value="NON_REFUNDABLE_COMPONENT">Non-refundable component</option><option value="CONSUMED_SERVICE">Consumed service</option><option value="RECOVERY_COST">Recovery cost</option></select><input value={draft.description} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, description: e.target.value } }))} placeholder="Description" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.amount} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, amount: e.target.value } }))} placeholder="Amount" inputMode="decimal" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.evidenceUrl} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, evidenceUrl: e.target.value } }))} placeholder="Evidence URL" className="rounded-lg border px-3 py-2 text-xs" /></div><label className="mt-2 flex gap-2 text-xs"><input type="checkbox" checked={draft.disclosedBeforePayment} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, disclosedBeforePayment: e.target.checked } }))} />Disclosed before payment</label><button onClick={() => void submitCostEvidence(tourCase)} disabled={caseWorking === tourCase.id} className="mt-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Submit evidence</button></div>}
+                    <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void caseAction(tourCase, "ACKNOWLEDGE")} disabled={caseWorking === tourCase.id} className="rounded-lg border bg-white px-3 py-2 text-xs font-bold">Acknowledge</button><button onClick={() => void caseAction(tourCase, "ESCALATE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Escalate</button>{!financial && <button onClick={() => void caseAction(tourCase, "RESOLVE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Resolve</button>}</div></>}
+                  <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-slate-600">Audit timeline ({tourCase.events.length})</summary><div className="mt-2 space-y-2 border-l pl-3">{tourCase.events.map((event) => <div key={event.id} className="text-xs text-slate-600"><strong>{event.type.replaceAll("_", " ")}</strong> · {new Date(event.createdAt).toLocaleString()}<div>{event.message}</div></div>)}</div></details>
+                </article>;
+              })}
+            </div>
+          </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-2">

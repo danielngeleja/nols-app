@@ -469,7 +469,7 @@ export default function PropertyAvailabilitySelectionPage() {
             return (
               <Link
                 key={property.id}
-                href={`/owner/properties/${property.id}/availability/manage`}
+                href={`/owner/properties/${property.id}/availability`}
                 className="no-underline group block"
               >
                 <div className="relative rounded-3xl border border-white/10 bg-slate-900 backdrop-blur-sm overflow-hidden shadow-xl shadow-black/30 hover:-translate-y-1 hover:shadow-[0_28px_60px_-10px_rgba(2,102,94,0.35)] hover:border-emerald-500/30 transition-all duration-300">

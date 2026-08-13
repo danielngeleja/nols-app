@@ -236,7 +236,10 @@ router.post("/action", async (req: any, res) => {
     if (!adminId) return res.status(401).json({ ok: false, error: "Unauthorized" });
     if (!revenueId || !action) return res.status(400).json({ ok: false, error: "Missing required fields" });
 
-    const validActions = ["verify", "approve", "disburse", "reject"];
+    // "disburse" was retired — operator payouts now move exclusively through
+    // the AzamPay Disbursement ledger (services/payouts/ledger.ts), reached
+    // from this record once it is APPROVED. See admin.disbursements.ts.
+    const validActions = ["verify", "approve", "reject"];
     if (!validActions.includes(action)) {
       return res.status(400).json({ ok: false, error: "Invalid action" });
     }
@@ -272,10 +275,6 @@ router.post("/action", async (req: any, res) => {
     }
     if (action === "approve" && !actionReason) {
       return res.status(400).json({ ok: false, error: "Approval reason is required" });
-    }
-
-    if (action === "disburse" && currentStatus !== "APPROVED") {
-      return res.status(400).json({ ok: false, error: "Record must be APPROVED before DISBURSE" });
     }
 
     if (action === "reject") {
@@ -317,17 +316,6 @@ router.post("/action", async (req: any, res) => {
         at: nowIso,
         reason: actionReason,
         actor: { id: adminId, name: adminName },
-      };
-    } else if (action === "disburse") {
-      if (!paymentRef) return res.status(400).json({ ok: false, error: "Payment reference required" });
-      updatedData.payoutStatus = "DISBURSED";
-      updatedData.paymentRef = paymentRef;
-      updatedData.payoutPaidAt = new Date();
-      history.disbursed = {
-        ...(history.disbursed || {}),
-        at: nowIso,
-        actor: { id: adminId, name: adminName },
-        paymentRef: String(paymentRef),
       };
     } else if (action === "reject") {
       updatedData.payoutStatus = "REJECTED";
@@ -375,13 +363,11 @@ router.post("/action", async (req: any, res) => {
         const template =
           action === "verify" ? "agent_payout_verified" :
           action === "approve" ? "agent_payout_approved" :
-          action === "disburse" ? "agent_payout_disbursed" :
           "agent_payout_rejected";
         await notifyUser(operatorAgent.userId, template, {
           tourBookingId: updated.id,
           bookingCode: (updated as any).bookingCode,
           reason: actionReason || null,
-          paymentRef: paymentRef || null,
         });
       }
     } catch {

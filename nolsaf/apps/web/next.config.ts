@@ -12,10 +12,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 if (!apiOrigin) {
   throw new Error('Missing API_ORIGIN. Set API_ORIGIN to your API base URL (e.g. https://api.nolsaf.com).');
 }
-const socketOrigin = (process.env.NEXT_PUBLIC_SOCKET_URL || '').replace(/\/$/, '');
-
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Keep the local NRMS shell unobstructed; production never shows this badge.
+  devIndicators: false,
   // Generated maps are immediately moved out of public static assets by the
   // post-build collector and retained as private diagnostics artifacts.
   productionBrowserSourceMaps: true,
@@ -56,59 +56,15 @@ const nextConfig: NextConfig = {
       ]),
     ],
   },
-  turbopack: {},
-  async headers() {
-    const localConnectSrc = isProduction ? [] : [
-      'http://127.0.0.1:4000',
-      'http://localhost:4000',
-      'http://localhost:3001',
-      'ws:',
-    ];
-    const connectSrc = [
-      "'self'",
-      'https:',
-      'wss:',
-      'https://api.mapbox.com',
-      'https://events.mapbox.com',
-      apiOrigin,
-      socketOrigin,
-      ...localConnectSrc,
-    ].filter(Boolean);
-    const scriptSrc = [
-      "'self'",
-      ...(isProduction ? [] : ["'unsafe-eval'"]),
-      "'unsafe-inline'",
-      'https://api.mapbox.com',
-      'https://events.mapbox.com',
-    ].join(' ');
-    const imgSrc = [
-      "'self'",
-      'blob:',
-      'data:',
-      'https:',
-      ...(isProduction ? [] : ['http:']),
-      'res.cloudinary.com',
-      'img.youtube.com',
-      'https://api.mapbox.com',
-      'https://*.mapbox.com',
-    ].join(' ');
-    const frameSrc = [
-      "'self'",
-      'https://js.stripe.com',
-      'https://hooks.stripe.com',
-    ].join(' ');
-
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src ${imgSrc}; font-src 'self' data:; worker-src 'self' blob:; media-src 'self' blob: data: https:; connect-src ${connectSrc.join(' ')}; frame-ancestors 'self'; frame-src ${frameSrc};`,
-          },
-        ],
-      },
-    ];
+  turbopack: {
+    // ExcelJS exposes a browser bundle, but Turbopack can otherwise follow its
+    // Node entrypoint into `unzipper`. That package contains an optional S3
+    // adapter with a static `@aws-sdk/client-s3` require, which is intentionally
+    // absent from the web-only Vercel install. Force the browser-safe bundle so
+    // client-side report exports do not pull Node archive/storage dependencies.
+    resolveAlias: {
+      exceljs: 'exceljs/dist/exceljs.min.js',
+    },
   },
   async rewrites() {
     return {
@@ -154,7 +110,7 @@ const nextConfig: NextConfig = {
           // IMPORTANT: This runs AFTER Next.js pages, so Next.js admin pages always win.
           // The exclusion list is kept for safety but the afterFiles ordering is the main guard.
           source:
-            '/admin/:path((?!cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/\\d+|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
+            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/\\d+|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|nrms/integrity/\\d+|nrms/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
           // NOTE: removed trailing $ anchors so RSC sub-paths like /owners/3.segments/... are also excluded
           destination: `${apiOrigin}/admin/:path*`,
         },

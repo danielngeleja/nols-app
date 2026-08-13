@@ -6,6 +6,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { ChevronDown, ChevronRight, MapPin, Menu, X } from 'lucide-react';
 import { REGIONS } from '@/lib/tzRegions';
 import UserMenu from '@/components/UserMenu';
+import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
 
 import GlobalPicker from "@/components/GlobalPicker";
 import { usePathname } from "next/navigation";
@@ -215,6 +216,9 @@ export default function PublicHeader({
   const isPublicPath = pathname?.startsWith("/public") ?? false;
   // Detect non-public pages (like /account, /help, policy pages, etc.) that need strong visibility
   const isNonPublicPage = !isPublicPath && pathname !== "/public";
+  // Account workspaces should keep the navigation in document flow. A fixed
+  // marketing header can otherwise cover cancellation forms and case actions.
+  const useFlowHeader = pathname?.startsWith("/account/") ?? false;
 
   // Header is always dark/glass — matches the premium hero background.
   // 'overHero'  = floating pill state (transparent dark glass, not scrolled yet)
@@ -263,6 +267,7 @@ export default function PublicHeader({
     { href: '/public/tour-packages', label: 'Tour Packages' },
     { href: '/public/group-stays', label: 'Group Stays' },
     { href: '/public/nolscope', label: 'Cost Estimator' },
+    { href: '/public/nrms', label: 'NRMS' },
   ], []);
 
   const NavLink = ({ href, children, onClick }: { href: string; children: React.ReactNode; onClick?: () => void }) => {
@@ -295,7 +300,7 @@ export default function PublicHeader({
     <>
       <header 
         ref={headerRef}
-        className={`fixed z-50 text-white ${
+        className={`${useFlowHeader ? "sticky top-0" : "fixed"} z-50 text-white ${
           (isMobile || headerVisible)
             ? 'translate-y-0 opacity-100' 
             : '-translate-y-full opacity-0 pointer-events-none'
@@ -523,11 +528,10 @@ export default function PublicHeader({
                   <>
                     <Link
                       href="/account/login"
-                      className="hidden sm:inline-flex items-center justify-center rounded-full no-underline transition-all duration-300 hover:scale-105 active:scale-95 font-medium text-white/85 hover:text-white bg-white/[0.09] hover:bg-white/[0.15] ring-1 ring-white/[0.12]"
+                      className="hidden items-center justify-center rounded-full bg-white/95 font-semibold text-slate-900 no-underline shadow-[0_6px_20px_rgba(15,23,42,0.18)] ring-1 ring-white transition-all duration-300 hover:scale-105 hover:bg-white hover:text-emerald-800 active:scale-95 sm:inline-flex"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
-                        textShadow: '0 1px 3px rgba(0,0,0,0.35)',
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
@@ -625,6 +629,13 @@ export default function PublicHeader({
                 <ChevronRight className="w-3.5 h-3.5 text-white/35" />
               </button>
             </div>
+            {authed && (
+              <WorkspaceSwitcher
+                currentWorkspace="NORMAL"
+                variant="mobile-dark"
+                onSwitchStart={() => setMobileMenuOpen(false)}
+              />
+            )}
             {!authed && (
               <div className="pt-1.5 border-t border-white/[0.07] mt-0.5 flex flex-col gap-1.5 px-1 pb-2">
                 <Link
@@ -655,7 +666,9 @@ export default function PublicHeader({
         style={{
           // On /public we want the hero image to be treated as the header background,
           // but on mobile keep a small owner-like gap so the fixed header feels separate.
-          height: isPublicHome
+          height: useFlowHeader
+            ? 0
+            : isPublicHome
             ? (useOwnerLikeMobileHeader ? '76px' : 0)
             : (scrolled ? 'calc(64px + 24px)' : (compact ? '56px' : '80px')),
           transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',

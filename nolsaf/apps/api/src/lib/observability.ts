@@ -52,6 +52,11 @@ export type ImpactedUserSummary = {
   key: string;
   userId: number | null;
   role: string | null;
+  profile: {
+    kind: "admin" | "agent" | "customer" | "driver" | "owner";
+    href: string;
+    label: string;
+  } | null;
   name: string | null;
   email: string | null;
   label: string;
@@ -61,6 +66,14 @@ export type ImpactedUserSummary = {
   clientErrorCount: number;
   routes: string[];
   lastSeenAt: string | null;
+  // Timestamp of the most recent event that actually contributes to this
+  // item's current severity tier: the last server/client error (if any),
+  // and the last slow-but-otherwise-fine request. Tracked separately from
+  // lastSeenAt because lastSeenAt is "most recent event of any kind" and can
+  // be a benign slow-200 that arrived after the real error, which must not
+  // make an already-resolved-looking error read as "active right now".
+  lastErrorAt: string | null;
+  lastSlowAt: string | null;
   lastEvent: {
     action: string;
     route: string | null;
@@ -446,6 +459,7 @@ export async function getImpactedUsers(limit = 20): Promise<ImpactedUserSummary[
         key,
         userId: actorId,
         role,
+        profile: null,
         name: row.actor?.name ?? null,
         email: row.actor?.email ?? null,
         label: actorId
@@ -457,15 +471,28 @@ export async function getImpactedUsers(limit = 20): Promise<ImpactedUserSummary[
         clientErrorCount: 0,
         routes: [],
         lastSeenAt: createdAt,
+        lastErrorAt: null,
+        lastSlowAt: null,
         lastEvent: null,
         resolution: resolutions.get(key) ?? openImpactResolution(),
         attention: "none",
       } satisfies ImpactedUserSummary);
 
     existing.eventCount += 1;
-    if (row.action === "OBSERVABILITY_SLOW_REQUEST") existing.slowCount += 1;
-    if (row.action === "OBSERVABILITY_5XX_REQUEST" || row.action === "SERVER_EXCEPTION") existing.serverErrorCount += 1;
-    if (row.action === "CLIENT_ERROR") existing.clientErrorCount += 1;
+    // Rows are fetched newest-first, so the first row of a given action type
+    // seen for this key is that type's most recent occurrence.
+    if (row.action === "OBSERVABILITY_SLOW_REQUEST") {
+      existing.slowCount += 1;
+      if (!existing.lastSlowAt && createdAt) existing.lastSlowAt = createdAt;
+    }
+    if (row.action === "OBSERVABILITY_5XX_REQUEST" || row.action === "SERVER_EXCEPTION") {
+      existing.serverErrorCount += 1;
+      if (!existing.lastErrorAt && createdAt) existing.lastErrorAt = createdAt;
+    }
+    if (row.action === "CLIENT_ERROR") {
+      existing.clientErrorCount += 1;
+      if (!existing.lastErrorAt && createdAt) existing.lastErrorAt = createdAt;
+    }
     if (route && !existing.routes.includes(route)) existing.routes.push(route);
     if (!existing.lastSeenAt && createdAt) existing.lastSeenAt = createdAt;
     if (!existing.lastEvent) {
@@ -503,15 +530,70 @@ export async function getImpactedUsers(limit = 20): Promise<ImpactedUserSummary[
 
   applyAutomaticImpactRecovery(groups, resolutions, healthRows, apiHealthRows);
 
-  return Array.from(groups.values())
+  const impacted = Array.from(groups.values())
     .sort((a, b) => b.eventCount - a.eventCount || Date.parse(b.lastSeenAt ?? "0") - Date.parse(a.lastSeenAt ?? "0"))
     .slice(0, clampLimit(limit))
     .map((item) => ({ ...item, routes: item.routes.slice(0, 8), attention: computeAttention(item) }));
+
+  const agentUserIds = impacted
+    .filter((item) => item.userId != null && String(item.role || "").toUpperCase() === "AGENT")
+    .map((item) => item.userId as number);
+  const agentIdByUserId = new Map<number, number>();
+
+  if (agentUserIds.length > 0) {
+    const agents = await prisma.agent.findMany({
+      where: { userId: { in: agentUserIds } },
+      select: { id: true, userId: true },
+    });
+    for (const agent of agents) agentIdByUserId.set(agent.userId, agent.id);
+  }
+
+  return impacted.map((item) => ({
+    ...item,
+    profile: buildImpactProfile(item.userId, item.role, agentIdByUserId),
+  }));
+}
+
+function buildImpactProfile(
+  userId: number | null,
+  role: string | null,
+  agentIdByUserId: Map<number, number>
+): ImpactedUserSummary["profile"] {
+  if (userId == null) return null;
+
+  switch (String(role || "").toUpperCase()) {
+    case "OWNER":
+      return { kind: "owner", href: `/admin/owners/${userId}`, label: "View owner" };
+    case "DRIVER":
+      return { kind: "driver", href: `/admin/drivers/audit/${userId}`, label: "View driver" };
+    case "AGENT": {
+      const agentId = agentIdByUserId.get(userId);
+      return agentId
+        ? { kind: "agent", href: `/admin/agents/${agentId}`, label: "View agent" }
+        : { kind: "agent", href: `/admin/management/users?userId=${userId}`, label: "Review agent account" };
+    }
+    case "ADMIN":
+      return { kind: "admin", href: `/admin/management/users?userId=${userId}`, label: "View admin" };
+    case "CUSTOMER":
+    default:
+      return { kind: "customer", href: `/admin/users/${userId}`, label: "View customer" };
+  }
+}
+
+// The timestamp that should drive "is this still happening right now": the
+// last error if this item currently reads as Critical, otherwise the last
+// slow request if it currently reads as Warning. Falls back to lastSeenAt
+// only for the (practically unreachable, since every group is created by a
+// qualifying row) case where neither is set.
+function lastImpactfulEventAt(item: ImpactedUserSummary): string | null {
+  if (item.serverErrorCount > 0 || item.clientErrorCount > 0) return item.lastErrorAt ?? item.lastSeenAt;
+  if (item.slowCount > 0) return item.lastSlowAt ?? item.lastSeenAt;
+  return item.lastSeenAt;
 }
 
 function computeAttention(item: ImpactedUserSummary): ImpactedUserSummary["attention"] {
   if (item.resolution.status === "restored") return "none";
-  const lastImpactAt = Date.parse(item.lastSeenAt ?? "");
+  const lastImpactAt = Date.parse(lastImpactfulEventAt(item) ?? "");
   if (Number.isFinite(lastImpactAt) && Date.now() - lastImpactAt <= activeAttentionWindowMs) return "active";
   return "unconfirmed";
 }

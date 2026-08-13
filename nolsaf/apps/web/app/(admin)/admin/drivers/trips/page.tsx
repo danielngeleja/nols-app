@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import Link from "next/link";
 import {
   Calendar,
   Search,
@@ -402,7 +403,6 @@ export default function AdminDriversTripsPage() {
   // Payout acknowledgement modal
   const [commissionMounted, setCommissionMounted] = useState(false);
   const [commissionOpen, setCommissionOpen] = useState(false);
-  const [commissionAction, setCommissionAction] = useState<"approve" | "pay">("approve");
   const [commissionPayload, setCommissionPayload] = useState<CommissionAckPayload | null>(null);
   const [commissionAck, setCommissionAck] = useState(false);
   const [commissionBusy, setCommissionBusy] = useState(false);
@@ -674,8 +674,7 @@ export default function AdminDriversTripsPage() {
     }, 220);
   };
 
-  const openCommissionModal = (action: "approve" | "pay", payload: CommissionAckPayload) => {
-    setCommissionAction(action);
+  const openCommissionModal = (payload: CommissionAckPayload) => {
     setCommissionPayload(payload);
     setCommissionAck(false);
     setCommissionError(null);
@@ -693,13 +692,16 @@ export default function AdminDriversTripsPage() {
     }, 200);
   };
 
-  const submitPayoutAction = async (action: "approve" | "pay", acknowledgeCommission: boolean) => {
+  // Payout used to also accept "pay" here (manual "mark paid"); that action
+  // was retired — trips are paid exclusively through the AzamPay
+  // Disbursement queue once approved. See the "Send via AzamPay disbursement
+  // instead" link shown below when a trip's payout is APPROVED.
+  const submitPayoutAction = async (action: "approve", acknowledgeCommission: boolean) => {
     if (!detailsMounted || !detailsTripId) return;
     setPayoutError(null);
     setPayoutBusy(true);
     try {
-      const endpoint = action === "approve" ? "payout/approve" : "payout/pay";
-      await api.post(`/api/admin/drivers/trips/${detailsTripId}/${endpoint}`, {
+      await api.post(`/api/admin/drivers/trips/${detailsTripId}/payout/approve`, {
         acknowledgeCommission,
       });
       await refreshDetails();
@@ -717,7 +719,7 @@ export default function AdminDriversTripsPage() {
           commissionAmount: Number(data?.commissionAmount ?? 0),
           netPaid: Number(data?.netPaid ?? 0),
         };
-        openCommissionModal(action, payload);
+        openCommissionModal(payload);
         return { ok: false, needsAck: true } as const;
       }
       const msg = String(data?.error || data?.message || err?.message || "Failed");
@@ -1982,7 +1984,6 @@ export default function AdminDriversTripsPage() {
 
                       const hasDriver = Boolean(trip.driver);
                       const canApprove = eligible && hasDriver && payoutStatus !== "PAID" && payoutStatus !== "APPROVED";
-                      const canPay = eligible && hasDriver && payoutStatus !== "PAID";
                       const busy = payoutBusy || commissionBusy || actionBusy;
 
                       return (
@@ -2027,16 +2028,21 @@ export default function AdminDriversTripsPage() {
                               >
                                 Approve
                               </button>
-                              <button
-                                type="button"
-                                disabled={!canPay || busy}
-                                onClick={() => void submitPayoutAction("pay", false)}
-                                className="inline-flex items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                Mark Paid
-                              </button>
                             </div>
-                          ) : (
+                          ) : null}
+
+                          {payoutStatus === "APPROVED" && trip.payout?.id ? (
+                            <div className="mt-3 text-xs font-semibold text-emerald-700">
+                              <Link
+                                href={`/admin/disbursements?sourceType=DRIVER_TRIP&sourceId=${trip.payout.id}`}
+                                className="underline underline-offset-2"
+                              >
+                                Send via AzamPay disbursement instead
+                              </Link>
+                            </div>
+                          ) : null}
+
+                          {!eligible && (
                             <div className="mt-4 text-xs font-medium text-slate-400">
                               Payout actions available once trip is completed.
                             </div>
@@ -2625,9 +2631,7 @@ export default function AdminDriversTripsPage() {
                     disabled={commissionBusy}
                   />
                   <div className="text-sm text-gray-800">
-                    I acknowledge the NoLSAF commission deduction ({Number(commissionPayload.commissionPercent || 0)}%) before
-                    {" "}
-                    {commissionAction === "approve" ? "approving" : "marking as paid"}.
+                    I acknowledge the NoLSAF commission deduction ({Number(commissionPayload.commissionPercent || 0)}%) before approving.
                   </div>
                 </label>
 
@@ -2656,7 +2660,7 @@ export default function AdminDriversTripsPage() {
                     setCommissionBusy(true);
                     setCommissionError(null);
                     try {
-                      const r = await submitPayoutAction(commissionAction, true);
+                      const r = await submitPayoutAction("approve", true);
                       if (r && (r as any).ok) {
                         closeCommissionModal();
                       } else if (r && (r as any).needsAck) {
@@ -2676,10 +2680,8 @@ export default function AdminDriversTripsPage() {
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Processing...
                     </span>
-                  ) : commissionAction === "approve" ? (
-                    "Approve payout"
                   ) : (
-                    "Mark as paid"
+                    "Approve payout"
                   )}
                 </button>
               </div>

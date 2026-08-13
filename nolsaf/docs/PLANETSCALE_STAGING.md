@@ -31,21 +31,22 @@ The `sslaccept=strict` parameter is important. The API's Prisma MariaDB adapter 
 
 ## Load Schema Into Staging
 
-For a fresh PlanetScale staging branch, use Prisma db push:
-
-```powershell
-$env:DATABASE_URL="mysql://USERNAME:PASSWORD@HOST.connect.psdb.cloud/DATABASE?sslaccept=strict"
-npm run prisma:push
-```
-
-For environments where you intentionally want to replay the repo's migration history instead:
+For a fresh PlanetScale staging branch, replay the repository's migration
+history so later deploys remain safe:
 
 ```powershell
 $env:DATABASE_URL="mysql://USERNAME:PASSWORD@HOST.connect.psdb.cloud/DATABASE?sslaccept=strict"
 npm run prisma:migrate
 ```
 
-Use `prisma:push` for a fresh staging branch unless we specifically need migration-history parity.
+For the existing Aiven staging database, use the guarded project command instead:
+
+```powershell
+npm run prisma:migrate:staging
+```
+
+Do not use `prisma:push` for shared staging databases. It changes schema without
+recording migration history and makes future `prisma migrate deploy` runs fail.
 
 ## Render Staging API Env
 

@@ -75,7 +75,7 @@ export default function VerifyReportPage() {
     (async () => {
       try {
         const r = await fetch(`/api/public/reports/verify?token=${encodeURIComponent(token)}`, {
-          credentials: "omit",
+          credentials: "same-origin",
         });
         const j = await r.json();
         if (!alive) return;

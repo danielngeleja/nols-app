@@ -52,6 +52,14 @@ const createBlockSchema = z.object({
   }),
   roomCode: z.string().max(60).optional().nullable(),
   source: z.string().max(50).optional().nullable(),
+  guestName: z.string().max(160).optional().nullable(),
+  guestPhone: z.string().max(40).optional().nullable(),
+  nationality: z.string().max(80).optional().nullable(),
+  roomRate: z.number().nonnegative().optional().nullable(),
+  calculatedAmount: z.number().nonnegative().optional().nullable(),
+  amountPaid: z.number().nonnegative().optional().nullable(),
+  paidVia: z.enum(["CASH", "MOBILE"]).optional().nullable(),
+  currency: z.string().max(8).optional().nullable(),
   bedsBlocked: z.number().int().positive().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 });
@@ -71,9 +79,71 @@ const updateBlockSchema = z.object({
   }).optional(),
   roomCode: z.string().max(60).optional().nullable(),
   source: z.string().max(50).optional().nullable(),
+  guestName: z.string().max(160).optional().nullable(),
+  guestPhone: z.string().max(40).optional().nullable(),
+  nationality: z.string().max(80).optional().nullable(),
+  roomRate: z.number().nonnegative().optional().nullable(),
+  calculatedAmount: z.number().nonnegative().optional().nullable(),
+  amountPaid: z.number().nonnegative().optional().nullable(),
+  paidVia: z.enum(["CASH", "MOBILE"]).optional().nullable(),
+  currency: z.string().max(8).optional().nullable(),
   bedsBlocked: z.number().int().positive().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 });
+
+const availabilityBlockExtraSelect: any = {
+  guestName: true,
+  guestPhone: true,
+  nationality: true,
+  roomRate: true,
+  calculatedAmount: true,
+  amountPaid: true,
+  paidVia: true,
+  currency: true,
+};
+
+function decimalToNumber(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatAvailabilityBlock(block: any) {
+  return {
+    id: block.id,
+    propertyId: block.propertyId,
+    propertyTitle: block.property?.title,
+    startDate: block.startDate,
+    endDate: block.endDate,
+    roomCode: block.roomCode,
+    source: block.source,
+    guestName: block.guestName ?? null,
+    guestPhone: block.guestPhone ?? null,
+    nationality: block.nationality ?? null,
+    roomRate: decimalToNumber(block.roomRate),
+    calculatedAmount: decimalToNumber(block.calculatedAmount),
+    amountPaid: decimalToNumber(block.amountPaid),
+    paidVia: block.paidVia ?? null,
+    currency: block.currency ?? null,
+    bedsBlocked: block.bedsBlocked,
+    notes: block.notes,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
+  };
+}
+
+function cleanExternalBookingFields(data: z.infer<typeof createBlockSchema> | z.infer<typeof updateBlockSchema>) {
+  return {
+    guestName: data.guestName ? sanitizeText(data.guestName) : null,
+    guestPhone: data.guestPhone ? sanitizeText(data.guestPhone) : null,
+    nationality: data.nationality ? sanitizeText(data.nationality) : null,
+    roomRate: data.roomRate != null ? data.roomRate : null,
+    calculatedAmount: data.calculatedAmount != null ? data.calculatedAmount : null,
+    amountPaid: data.amountPaid != null ? data.amountPaid : null,
+    paidVia: data.paidVia ? sanitizeText(data.paidVia).toUpperCase() : null,
+    currency: data.currency ? sanitizeText(data.currency).toUpperCase() : null,
+  };
+}
 
 /**
  * GET /api/owner/availability/blocks
@@ -120,19 +190,7 @@ router.get("/blocks", (async (req: AuthedRequest, res: Response) => {
 
     res.json({
       ok: true,
-      blocks: blocks.map((block) => ({
-        id: block.id,
-        propertyId: block.propertyId,
-        propertyTitle: block.property.title,
-        startDate: block.startDate,
-        endDate: block.endDate,
-        roomCode: block.roomCode,
-        source: block.source,
-        bedsBlocked: block.bedsBlocked,
-        notes: block.notes,
-        createdAt: block.createdAt,
-        updatedAt: block.updatedAt,
-      })),
+      blocks: blocks.map(formatAvailabilityBlock),
     });
   } catch (error: any) {
     console.error("GET /api/owner/availability/blocks error:", error);
@@ -262,6 +320,8 @@ router.post("/blocks", (async (req: AuthedRequest, res: Response) => {
       }
     }
 
+    const externalBookingFields = cleanExternalBookingFields(data);
+
     // Create block
     const block = await prisma.propertyAvailabilityBlock.create({
       data: {
@@ -271,9 +331,10 @@ router.post("/blocks", (async (req: AuthedRequest, res: Response) => {
         endDate,
         roomCode: data.roomCode ? sanitizeText(data.roomCode) : null,
         source: data.source ? sanitizeText(data.source) : null,
+        ...externalBookingFields,
         bedsBlocked: data.bedsBlocked || 1,
         notes: data.notes ? sanitizeText(data.notes) : null,
-      },
+      } as any,
       include: {
         property: {
           select: {
@@ -284,19 +345,7 @@ router.post("/blocks", (async (req: AuthedRequest, res: Response) => {
       },
     });
 
-    const blockData = {
-      id: block.id,
-      propertyId: block.propertyId,
-      propertyTitle: block.property.title,
-      startDate: block.startDate,
-      endDate: block.endDate,
-      roomCode: block.roomCode,
-      source: block.source,
-      bedsBlocked: block.bedsBlocked,
-      notes: block.notes,
-      createdAt: block.createdAt,
-      updatedAt: block.updatedAt,
-    };
+    const blockData = formatAvailabilityBlock(block);
 
     // Emit Socket.IO event for real-time updates
     emitAvailabilityUpdate(req, data.propertyId, 'block_created', blockData);
@@ -395,6 +444,14 @@ router.put("/blocks/:id", (async (req: AuthedRequest, res: Response) => {
     if (data.source !== undefined) {
       updateData.source = data.source ? sanitizeText(data.source) : null;
     }
+    if (data.guestName !== undefined) updateData.guestName = data.guestName ? sanitizeText(data.guestName) : null;
+    if (data.guestPhone !== undefined) updateData.guestPhone = data.guestPhone ? sanitizeText(data.guestPhone) : null;
+    if (data.nationality !== undefined) updateData.nationality = data.nationality ? sanitizeText(data.nationality) : null;
+    if (data.roomRate !== undefined) updateData.roomRate = data.roomRate;
+    if (data.calculatedAmount !== undefined) updateData.calculatedAmount = data.calculatedAmount;
+    if (data.amountPaid !== undefined) updateData.amountPaid = data.amountPaid;
+    if (data.paidVia !== undefined) updateData.paidVia = data.paidVia ? sanitizeText(data.paidVia).toUpperCase() : null;
+    if (data.currency !== undefined) updateData.currency = data.currency ? sanitizeText(data.currency).toUpperCase() : null;
     if (data.bedsBlocked !== undefined) {
       updateData.bedsBlocked = data.bedsBlocked;
     }
@@ -443,7 +500,7 @@ router.put("/blocks/:id", (async (req: AuthedRequest, res: Response) => {
     // Update block
     const block = await prisma.propertyAvailabilityBlock.update({
       where: { id: blockId },
-      data: updateData,
+      data: updateData as any,
       include: {
         property: {
           select: {
@@ -454,19 +511,7 @@ router.put("/blocks/:id", (async (req: AuthedRequest, res: Response) => {
       },
     });
 
-    const blockData = {
-      id: block.id,
-      propertyId: block.propertyId,
-      propertyTitle: block.property.title,
-      startDate: block.startDate,
-      endDate: block.endDate,
-      roomCode: block.roomCode,
-      source: block.source,
-      bedsBlocked: block.bedsBlocked,
-      notes: block.notes,
-      createdAt: block.createdAt,
-      updatedAt: block.updatedAt,
-    };
+    const blockData = formatAvailabilityBlock(block);
 
     // Emit Socket.IO event for real-time updates
     emitAvailabilityUpdate(req, existingBlock.propertyId, 'block_updated', blockData);
@@ -560,6 +605,8 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
       select: {
         id: true,
         title: true,
+        currency: true,
+        basePrice: true,
         roomsSpec: true,
       },
     });
@@ -618,6 +665,7 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         endDate: true,
         roomCode: true,
         source: true,
+        ...availabilityBlockExtraSelect,
         bedsBlocked: true,
         notes: true,
         createdAt: true,
@@ -639,6 +687,8 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
           roomType: r.roomType || r.name || "Unknown",
           roomCode: r.roomCode || null,
           roomsCount: r.roomsCount || r.count || 0,
+          basePrice: Number(r.pricePerNight ?? r.price ?? property.basePrice ?? 0) || null,
+          currency: r.currency || property.currency || "TZS",
         })),
       },
       dateRange: {
@@ -654,14 +704,11 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         guestPhone: b.guestPhone,
         roomCode: b.roomCode,
       })),
-      blocks: blocks.map((b) => ({
-        id: b.id,
+      blocks: blocks.map((b: any) => ({
+        ...formatAvailabilityBlock(b),
+        propertyTitle: property.title,
         startDate: b.startDate.toISOString(),
         endDate: b.endDate.toISOString(),
-        roomCode: b.roomCode,
-        source: b.source,
-        bedsBlocked: b.bedsBlocked,
-        notes: b.notes,
         createdAt: b.createdAt.toISOString(),
         updatedAt: b.updatedAt.toISOString(),
       })),
@@ -729,6 +776,7 @@ router.post("/blocks/bulk", (async (req: AuthedRequest, res: Response) => {
         endDate,
         roomCode: block.roomCode ? sanitizeText(block.roomCode) : null,
         source: block.source ? sanitizeText(block.source) : null,
+        ...cleanExternalBookingFields(block),
         bedsBlocked: block.bedsBlocked || 1,
         notes: block.notes ? sanitizeText(block.notes) : null,
       };
@@ -738,7 +786,7 @@ router.post("/blocks/bulk", (async (req: AuthedRequest, res: Response) => {
     const createdBlocks = await prisma.$transaction(
       validatedBlocks.map((data) =>
         prisma.propertyAvailabilityBlock.create({
-          data,
+          data: data as any,
           include: {
             property: {
               select: {
@@ -752,17 +800,7 @@ router.post("/blocks/bulk", (async (req: AuthedRequest, res: Response) => {
     );
 
     const blocksData = createdBlocks.map((block) => ({
-      id: block.id,
-      propertyId: block.propertyId,
-      propertyTitle: block.property.title,
-      startDate: block.startDate,
-      endDate: block.endDate,
-      roomCode: block.roomCode,
-      source: block.source,
-      bedsBlocked: block.bedsBlocked,
-      notes: block.notes,
-      createdAt: block.createdAt,
-      updatedAt: block.updatedAt,
+      ...formatAvailabilityBlock(block),
     }));
 
     // Emit Socket.IO event for real-time updates
@@ -975,13 +1013,13 @@ router.get("/summary", (async (req: AuthedRequest, res: Response) => {
 /**
  * GET /api/owner/availability/calculate
  * Get detailed availability calculation with all bookings and blocks
- * Query: propertyId, startDate, endDate, roomCode?, roomType?
+ * Query: propertyId, startDate, endDate, roomCode?, roomType?, excludeBlockId?
  * Returns comprehensive breakdown by room type with all conflicts
  */
 router.get("/calculate", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const { propertyId, startDate, endDate, roomCode, roomType } = req.query;
+    const { propertyId, startDate, endDate, roomCode, roomType, excludeBlockId } = req.query;
 
     if (!propertyId || !startDate || !endDate) {
       res.status(400).json({ error: "propertyId, startDate, and endDate are required" });
@@ -989,10 +1027,11 @@ router.get("/calculate", (async (req: AuthedRequest, res: Response) => {
     }
 
     const propertyIdNum = Number(propertyId);
+    const excludeBlockIdNum = excludeBlockId ? Number(excludeBlockId) : undefined;
     const start = new Date(String(startDate));
     const end = new Date(String(endDate));
 
-    if (isNaN(propertyIdNum) || isNaN(start.getTime()) || isNaN(end.getTime())) {
+    if (isNaN(propertyIdNum) || isNaN(start.getTime()) || isNaN(end.getTime()) || (excludeBlockId !== undefined && isNaN(Number(excludeBlockIdNum)))) {
       res.status(400).json({ error: "Invalid propertyId or date format" });
       return;
     }
@@ -1020,7 +1059,8 @@ router.get("/calculate", (async (req: AuthedRequest, res: Response) => {
       start,
       end,
       roomCode ? String(roomCode) : null,
-      roomType ? String(roomType) : undefined
+      roomType ? String(roomType) : undefined,
+      excludeBlockIdNum ? { excludeBlockId: excludeBlockIdNum } : undefined
     );
 
     // Convert dates to ISO strings for JSON response

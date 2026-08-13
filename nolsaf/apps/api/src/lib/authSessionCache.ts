@@ -9,8 +9,6 @@ type CachedSession = {
 
 const CACHE_PREFIX = "auth:session:";
 const USER_INDEX_PREFIX = "auth:session:user:";
-const fallbackByToken = new Map<string, CachedSession>();
-const fallbackByUser = new Map<number, Set<string>>();
 
 function getTtlSeconds(): number {
   const raw = Number(process.env.AUTH_SESSION_CACHE_TTL_SECONDS ?? 45);
@@ -45,16 +43,10 @@ export async function getCachedAuthSession(token: string): Promise<AuthedUser | 
       return null;
     }
   } catch {
-    // Redis is an optimization; fall back to local cache if it is unavailable.
+    // Fail open to the authoritative database authentication path, never to a
+    // process-local identity cache that another instance cannot invalidate.
   }
-
-  const cached = fallbackByToken.get(key);
-  if (!cached) return null;
-  if (cached.expiresAt <= Date.now()) {
-    fallbackByToken.delete(key);
-    return null;
-  }
-  return cached.user;
+  return null;
 }
 
 export async function cacheAuthSession(token: string, user: AuthedUser, tokenExpSec?: number): Promise<void> {
@@ -86,13 +78,8 @@ export async function cacheAuthSession(token: string, user: AuthedUser, tokenExp
       return;
     }
   } catch {
-    // Redis is an optimization; fall back to process-local cache.
+    // Authentication continues through the authoritative database path.
   }
-
-  fallbackByToken.set(key, payload);
-  const userKeys = fallbackByUser.get(user.id) ?? new Set<string>();
-  userKeys.add(key);
-  fallbackByUser.set(user.id, userKeys);
 }
 
 export async function invalidateAuthSessionCacheForToken(token: string): Promise<void> {
@@ -103,7 +90,6 @@ export async function invalidateAuthSessionCacheForToken(token: string): Promise
   } catch {
     // best effort
   }
-  fallbackByToken.delete(key);
 }
 
 export async function invalidateAuthSessionCacheForUser(userId: number): Promise<void> {
@@ -117,12 +103,6 @@ export async function invalidateAuthSessionCacheForUser(userId: number): Promise
     }
   } catch {
     // best effort
-  }
-
-  const keys = fallbackByUser.get(userId);
-  if (keys) {
-    for (const key of keys) fallbackByToken.delete(key);
-    fallbackByUser.delete(userId);
   }
 }
 

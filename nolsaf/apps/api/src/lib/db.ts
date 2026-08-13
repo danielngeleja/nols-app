@@ -3,6 +3,7 @@
 // Elastic Beanstalk where file:../../packages/prisma is not available.
 import prismaPkg from '@prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import type { PrismaClient as PrismaClientType } from '@prisma/client';
 
 const { PrismaClient } = prismaPkg as unknown as { PrismaClient: new (config?: any) => any };
 
@@ -27,23 +28,35 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   const database = url.pathname.replace(/^\/+/, '');
 
   const allowPublicKeyRetrievalParam = url.searchParams.get('allowPublicKeyRetrieval');
-  const allowPublicKeyRetrieval =
-    allowPublicKeyRetrievalParam !== 'false' &&
-    allowPublicKeyRetrievalParam !== '0';
+  // Public-key retrieval is unnecessary over normal verified TLS and can make
+  // an unencrypted authentication handshake vulnerable to a malicious server.
+  // Enable it only when the deployment explicitly opts in.
+  const allowPublicKeyRetrieval = ['1', 'true', 'yes'].includes(
+    String(
+      allowPublicKeyRetrievalParam
+      || process.env.DB_ALLOW_PUBLIC_KEY_RETRIEVAL
+      || '',
+    ).trim().toLowerCase(),
+  );
 
   const sslAccept = url.searchParams.get('sslaccept');
   const sslMode = url.searchParams.get('ssl-mode') || url.searchParams.get('sslmode');
-  const wantsSsl = Boolean(sslAccept || sslMode);
-  const shouldRejectUnauthorized = sslAccept
-    ? sslAccept !== 'accept_invalid_certs'
-    : sslMode
-      ? !['REQUIRED', 'required', 'DISABLED', 'disabled'].includes(sslMode)
-      : false;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const normalizedSslMode = String(sslMode || '').trim().toUpperCase();
+  const acceptsInvalidCertificates = String(sslAccept || '').trim().toLowerCase() === 'accept_invalid_certs';
+
+  if (isProduction && (normalizedSslMode === 'DISABLED' || acceptsInvalidCertificates)) {
+    throw new Error('Production DATABASE_URL must use TLS with certificate verification enabled.');
+  }
+
+  const wantsSsl = isProduction || Boolean(sslAccept || sslMode);
+  const ca = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim();
   const ssl = wantsSsl
-    ? { rejectUnauthorized: shouldRejectUnauthorized }
-    : process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : undefined;
+    ? {
+        rejectUnauthorized: isProduction || !acceptsInvalidCertificates,
+        ...(ca ? { ca } : {}),
+      }
+    : undefined;
 
   return new PrismaMariaDb({
     host: url.hostname,
@@ -92,4 +105,9 @@ const prisma = new Proxy(
 ) as any;
 
 export { prisma, getOrCreatePrisma };
+// Mirrors the @nolsaf/prisma export surface. The build rewrites every
+// `@nolsaf/prisma` import to this file (see scripts/fix-esm-imports.mjs), so any
+// name exported there must also be exported here or it resolves to `undefined`
+// at runtime while still typechecking against the real package.
+export const typedPrisma = prisma as PrismaClientType;
 export default prisma;

@@ -7,6 +7,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { addDays, eachDay, fmtKey, GroupBy, startOfDayTZ } from "../lib/reporting";
 import { withCache, makeKey } from "../lib/cache";
 import { getEffectiveCommissionPercent, extractOwnerPayoutFromAccommodationGross } from "../lib/accommodationPayout.js";
+import { signOwnerReportPrintHandoff } from "../lib/ownerReportPrintHandoff.js";
 
 // If you have generated Prisma types, replace these any aliases.
 type Invoice = any;
@@ -15,8 +16,6 @@ type Booking = any;
 import type { RequestHandler, Response } from 'express';
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
-
-const REAL_BOOKING_STATUSES = ["CONFIRMED", "CHECKED_IN", "PENDING_CHECKIN", "CHECKED_OUT"] as const;
 
 function ownerRevenueVisibilityClause() {
   return {
@@ -31,6 +30,15 @@ function ownerRevenueVisibilityClause() {
     ],
   };
 }
+
+router.get(
+  "/print-token",
+  asyncHandler(async (req, res) => {
+    const r = req as AuthedRequest;
+    const token = signOwnerReportPrintHandoff(r.user!.id);
+    return res.json({ ok: true, token, expiresInSeconds: 5 * 60 });
+  })
+);
 
 /** Parse common query params */
 function parseQuery(q: any) {
@@ -94,6 +102,7 @@ router.get(
     const { from, to, groupBy, propertyId } = parseQuery(req.query);
 
     const key = makeKey(ownerId, "overview", {
+      v: 2,
       from: from.toISOString(),
       to: to.toISOString(),
       groupBy,
@@ -101,11 +110,15 @@ router.get(
     });
 
     const data = await withCache(key, async () => {
+      const rangeStart = startOfDayTZ(from);
+      const rangeEndExclusive = addDays(startOfDayTZ(to), 1);
+      const rangeEndInclusive = addDays(rangeEndExclusive, -1);
+
       const invoices: Invoice[] = await prisma.invoice.findMany({
         where: {
           AND: [ownerRevenueVisibilityClause()],
           ownerId,
-          issuedAt: { gte: from, lte: to },
+          issuedAt: { gte: rangeStart, lt: rangeEndExclusive },
           ...(propertyId ? { booking: { propertyId } } : {}),
         },
         include: {
@@ -120,36 +133,78 @@ router.get(
 
       const bookings: Booking[] = await prisma.booking.findMany({
         where: {
-          property: { ownerId },
-          status: { in: [...REAL_BOOKING_STATUSES] },
-          code: { isNot: null },
-          checkIn: { gte: from, lte: to },
-          ...(propertyId ? { propertyId } : {}),
+          property: { ownerId, ...(propertyId ? { id: propertyId } : {}) },
+          status: { notIn: ['NEW', 'VOID'] },
+          checkIn: { lt: rangeEndExclusive },
+          checkOut: { gt: rangeStart },
+        },
+        select: {
+          id: true,
+          propertyId: true,
+          checkIn: true,
+          checkOut: true,
+          status: true,
+          totalAmount: true,
+          transportFare: true,
+          roomsQty: true,
+          property: { select: { id: true, title: true, services: true } },
         },
       });
 
-      const gross = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
-      const net = invoices.reduce((s: number, i: any) => s + Number(i.netPayable), 0);
+      function nightsOverlap(aStart: Date, aEndExclusive: Date) {
+        const start = Math.max(+aStart, +rangeStart);
+        const end = Math.min(+aEndExclusive, +rangeEndExclusive);
+        const diff = Math.max(0, end - start);
+        return Math.max(0, Math.ceil(diff / 864e5));
+      }
+
+      const defaultCommissionPercent = await getEffectiveCommissionPercent(null);
+      const bookingsWithPayout = bookings.map((b: any) => {
+        const accommodationGross = Math.max(0, Number(b.totalAmount ?? 0) - Number(b.transportFare ?? 0));
+        const commissionPercent = (() => {
+          const v = Number(b.property?.services?.commissionPercent);
+          return Number.isFinite(v) && v >= 0 ? Math.min(100, v) : defaultCommissionPercent;
+        })();
+        const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(accommodationGross, commissionPercent);
+        return { ...b, ownerBaseAmount: ownerPayout };
+      });
+
+      const bookingGross = bookings.reduce((s: number, b: any) => {
+        if (String(b.status || '').toUpperCase() === 'CANCELED') return s;
+        return s + Number(b.totalAmount ?? 0);
+      }, 0);
+      const bookingNet = bookingsWithPayout.reduce((s: number, b: any) => {
+        if (String(b.status || '').toUpperCase() === 'CANCELED') return s;
+        return s + Number(b.ownerBaseAmount ?? 0);
+      }, 0);
+      const invoiceGross = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
+      const invoiceNet = invoices.reduce((s: number, i: any) => s + Number(i.netPayable), 0);
+      const gross = bookingGross > 0 ? bookingGross : invoiceGross;
+      const net = bookingNet > 0 ? bookingNet : invoiceNet;
       const bCnt = bookings.length;
-      const nights = bookings.reduce(
-        (s: number, b: any) => s + Math.max(1, Math.ceil((+b.checkOut - +b.checkIn) / 864e5)),
-        0
-      );
+      const nights = bookings.reduce((s: number, b: any) => s + nightsOverlap(b.checkIn, b.checkOut), 0);
       const adr = nights ? gross / nights : 0;
 
       // Time series buckets
       const series: Record<string, { gross: number; net: number; bookings: number }> = {};
-      for (const d of eachDay(from, to)) series[fmtKey(d, groupBy)] = { gross: 0, net: 0, bookings: 0 };
-      for (const inv of invoices) {
-        const k = fmtKey(startOfDayTZ(inv.issuedAt), groupBy);
-        if (!series[k]) series[k] = { gross: 0, net: 0, bookings: 0 };
-        series[k].gross += Number(inv.total);
-        series[k].net += Number(inv.netPayable);
-      }
-      for (const b of bookings) {
-        const k = fmtKey(startOfDayTZ(b.checkIn), groupBy);
+      for (const d of eachDay(rangeStart, rangeEndInclusive)) series[fmtKey(d, groupBy)] = { gross: 0, net: 0, bookings: 0 };
+      for (const b of bookingsWithPayout) {
+        const anchor = new Date(Math.max(+b.checkIn, +rangeStart));
+        const k = fmtKey(startOfDayTZ(anchor), groupBy);
         if (!series[k]) series[k] = { gross: 0, net: 0, bookings: 0 };
         series[k].bookings += 1;
+        if (String(b.status || '').toUpperCase() !== 'CANCELED') {
+          series[k].gross += Number(b.totalAmount ?? 0);
+          series[k].net += Number(b.ownerBaseAmount ?? 0);
+        }
+      }
+      if (bookingGross <= 0 && bookingNet <= 0) {
+        for (const inv of invoices) {
+          const k = fmtKey(startOfDayTZ(inv.issuedAt), groupBy);
+          if (!series[k]) series[k] = { gross: 0, net: 0, bookings: 0 };
+          series[k].gross += Number(inv.total);
+          series[k].net += Number(inv.netPayable);
+        }
       }
 
       // Booking status distribution
@@ -158,11 +213,20 @@ router.get(
 
       // Top properties by net
       const byProp: Record<number, { title: string; net: number }> = {};
-      for (const inv of invoices) {
-        const pid = inv.booking.propertyId;
-        const title = inv.booking.property?.title ?? `#${pid}`;
+      for (const b of bookingsWithPayout) {
+        if (String(b.status || '').toUpperCase() === 'CANCELED') continue;
+        const pid = b.propertyId;
+        const title = b.property?.title ?? `#${pid}`;
         if (!byProp[pid]) byProp[pid] = { title, net: 0 };
-        byProp[pid].net += Number(inv.netPayable);
+        byProp[pid].net += Number(b.ownerBaseAmount ?? 0);
+      }
+      if (Object.keys(byProp).length === 0) {
+        for (const inv of invoices) {
+          const pid = inv.booking.propertyId;
+          const title = inv.booking.property?.title ?? `#${pid}`;
+          if (!byProp[pid]) byProp[pid] = { title, net: 0 };
+          byProp[pid].net += Number(inv.netPayable);
+        }
       }
 
       return {
@@ -646,6 +710,13 @@ const staysHandler: RequestHandler = async (req, res) => {
           endDate: true,
           roomCode: true,
           source: true,
+          guestName: true,
+          guestPhone: true,
+          nationality: true,
+          roomRate: true,
+          calculatedAmount: true,
+          amountPaid: true,
+          currency: true,
           bedsBlocked: true,
           createdAt: true,
           property: {
@@ -804,10 +875,14 @@ const staysHandler: RequestHandler = async (req, res) => {
         return { ...b, ownerBaseAmount: String(ownerPayout) };
       });
 
-      const revenueTzs = bookingsWithPayout.reduce((sum: number, b: any) => {
+      const nolsafRevenueTzs = bookingsWithPayout.reduce((sum: number, b: any) => {
         if (String(b.status || '').toUpperCase() === 'CANCELED') return sum;
         return sum + Number(b.ownerBaseAmount ?? b.totalAmount ?? 0);
       }, 0);
+      const externalRevenueTzs = external.reduce((sum: number, blk: any) => {
+        return sum + Number(blk.amountPaid ?? blk.calculatedAmount ?? 0);
+      }, 0);
+      const revenueTzs = nolsafRevenueTzs + externalRevenueTzs;
       const nightsBooked = bookings.reduce((sum: number, b: any) => sum + nightsOverlap(b.checkIn, b.checkOut), 0);
       const nightsBlocked = external.reduce((sum: number, blk: any) => sum + nightsOverlap(blk.startDate, blk.endDate), 0);
       const groupStayNights = (groupStays || []).reduce((sum: number, gb: any) => {
@@ -835,6 +910,7 @@ const staysHandler: RequestHandler = async (req, res) => {
         const k = fmtKey(startOfDayTZ(blk.startDate), groupBy);
         buckets[k] = buckets[k] ?? { nolsaf: 0, external: 0, groupStays: 0, revenueTzs: 0 };
         buckets[k].external += 1;
+        buckets[k].revenueTzs += Number(blk.amountPaid ?? blk.calculatedAmount ?? 0);
       }
 
       for (const gb of groupStays || []) {

@@ -13,15 +13,19 @@ import { validatePasswordWithSettings } from '../lib/securitySettings.js';
 import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
 import { signUserJwt, setAuthCookie, clearAuthCookie } from '../lib/sessionManager.js';
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
+import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
 import { maybeAuth, requireAuth } from '../middleware/auth.js';
-import { limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
+import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
+import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
 import { getRedis } from '../lib/redis.js';
 import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
+import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
+import { beginAdminMfaChallenge } from './auth.adminMfa.js';
 
 const router = Router();
 
@@ -58,7 +62,7 @@ const resetTokenStore: Record<string, { userId: string; expiresAt: number }> = {
 
 async function storeOtp(channel: OtpChannel, destination: string, code: string, role: string | null | undefined): Promise<void> {
   const codeHash = hashCode(code); // SHA-256 hash — never store plain text
-  const payload  = JSON.stringify({ codeHash, role: role ?? null });
+  const payload = JSON.stringify({ codeHash, role: role ?? null });
   const key = otpStoreKey(channel, destination);
   try {
     const r = getRedis();
@@ -140,6 +144,16 @@ function getAuthTokenFromRequest(req: any): string | null {
     }
   }
   return null;
+}
+
+async function revokeCurrentSession(req: any): Promise<void> {
+  const userId = Number(req?.user?.id);
+  const sessionId = String(req?.sessionId || req?.user?.sessionId || "").trim();
+  if (!Number.isInteger(userId) || userId <= 0 || !sessionId) return;
+  await prisma.session.updateMany({
+    where: { id: sessionId, userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
 }
 
 function authOtpUse(normalizedRole: string | null): "AUTH_LOGIN" | "AUTH_RESET" | "AUTH_SIGNUP" {
@@ -260,6 +274,30 @@ function normalizePhoneForAuth(input: string): string {
   return `+${defaultCallingCode}${cleaned}`;
 }
 
+function buildAuthPhoneVariants(input: string): string[] {
+  const raw = String(input || '').trim();
+  if (!raw) return [];
+  const compact = raw.replace(/[\s()-]/g, '');
+  const normalized = normalizePhoneForAuth(compact);
+  const digitsOnly = normalized.replace(/\D/g, '');
+  const variants = new Set<string>([
+    raw,
+    compact,
+    normalized,
+    normalized.replace(/^\+/, ''),
+  ]);
+
+  if (digitsOnly.startsWith('255') && digitsOnly.length === 12) {
+    const subscriber = digitsOnly.slice(3);
+    variants.add(subscriber);
+    variants.add(`0${subscriber}`);
+    variants.add(digitsOnly);
+    variants.add(`+${digitsOnly}`);
+  }
+
+  return [...variants].filter(Boolean);
+}
+
 function getPhoneRuleForNumber(phone: string): { code: string | null; min: number; max: number } {
   const supportedCodes = Object.keys(PHONE_RULES).sort((a, b) => b.length - a.length);
   const matchedCode = supportedCodes.find((code) => phone.startsWith(code)) || null;
@@ -303,6 +341,69 @@ function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RES
   if (v === 'DRIVER') return 'DRIVER';
   if (v === 'TRAVELLER' || v === 'TRAVELER' || v === 'USER' || v === 'CUSTOMER') return 'CUSTOMER';
   return null;
+}
+
+type ResetAppContext = 'DRIVER' | 'PARTNERS' | 'CUSTOMER' | null;
+
+function normalizeResetAppContext(input: any): ResetAppContext {
+  const v = String(input ?? '').trim().toUpperCase();
+  if (v === 'DRIVER' || v === 'DRIVER_APP') return 'DRIVER';
+  if (v === 'PARTNER' || v === 'PARTNERS' || v === 'PARTNERS_APP' || v === 'OWNER' || v === 'AGENT') return 'PARTNERS';
+  if (v === 'CUSTOMER' || v === 'CUSTOMER_APP' || v === 'WEB') return 'CUSTOMER';
+  return null;
+}
+
+function getResetAppRoleError(accountRoleInput: any, resetAppInput: any): { error: string; message: string; action: string } | null {
+  const resetApp = normalizeResetAppContext(resetAppInput);
+  if (!resetApp) return null;
+
+  const accountRole = normalizeAccountRole(accountRoleInput);
+  const allowed =
+    resetApp === 'DRIVER' ? accountRole === 'DRIVER' :
+    resetApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' :
+    accountRole === 'CUSTOMER';
+
+  if (allowed) return null;
+
+  if (accountRole === 'ADMIN') {
+    return {
+      error: 'admin_reset_restricted',
+      message: 'Admin password resets require NoLSAF security approval. Please contact another active admin or NoLSAF security support.',
+      action: 'contact_security',
+    };
+  }
+
+  if (accountRole === 'DRIVER') {
+    return {
+      error: 'wrong_reset_app',
+      message: 'This account is registered as a driver. Please reset your password in the NoLSAF Driver app.',
+      action: 'use_driver_app',
+    };
+  }
+
+  if (accountRole === 'OWNER' || accountRole === 'AGENT') {
+    return {
+      error: 'wrong_reset_app',
+      message: 'This account is registered for NoLSAF Partners. Please reset your password in the NoLSAF Partners app.',
+      action: 'use_partners_app',
+    };
+  }
+
+  return {
+    error: 'wrong_reset_app',
+    message: 'This account is registered as a traveller. Please reset your password from the main NoLSAF account sign-in.',
+    action: 'use_customer_account',
+  };
+}
+
+function getResetRolePolicyError(accountRoleInput: any): { error: string; message: string; action: string } | null {
+  const accountRole = normalizeAccountRole(accountRoleInput);
+  if (accountRole !== 'ADMIN') return null;
+  return {
+    error: 'admin_reset_restricted',
+    message: 'Admin password resets require NoLSAF security approval. Please contact another active admin or NoLSAF security support.',
+    action: 'contact_security',
+  };
 }
 
 function getJwtSecret(): string {
@@ -389,11 +490,109 @@ function resolveOtpDestination(body: any):
   return { error: 'phone or email required' };
 }
 
+// POST /api/auth/reset-account-check
+// Pre-flight for the forgot-password flow: reports whether the phone or email
+// holds an account, so clients never show a "code sent" screen for a
+// destination that can never receive one. Existence is already disclosed by
+// the signup 409 path, so this adds no new exposure; the per-IP rate limit
+// keeps bulk enumeration slow.
+router.post('/reset-account-check', limitAccountCheck, async (req, res) => {
+  const resolved = resolveOtpDestination(req.body);
+  if ('error' in resolved) return res.status(400).json({ message: resolved.error });
+  const { channel, destination } = resolved;
+  const destinationWhere = channel === 'PHONE' ? { phone: destination } : { email: destination };
+  try {
+    const existing = await prisma.user.findFirst({ where: destinationWhere, select: { id: true } });
+    return res.json({ ok: true, exists: Boolean(existing) });
+  } catch {
+    return res.status(503).json({
+      error: 'database_unavailable',
+      message: 'Unable to check this account right now. Please try again.',
+    });
+  }
+});
+
+// POST /api/auth/onboarding-contact-check
+// Authenticated onboarding preflight. A profile may advance only when neither
+// contact identifier belongs to another account.
+router.post(
+  '/onboarding-contact-check',
+  limitAccountCheck,
+  requireAuth,
+  asyncHandler(async (req: any, res) => {
+    const userId = Number(req?.user?.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const normalizedPhone = normalizePhoneForAuth(String(req.body?.phone || ''));
+    const normalizedEmail = normalizeEmailForAuth(req.body?.email);
+    if (!normalizedPhone || !isPhoneValidForAuth(normalizedPhone)) {
+      return res.status(400).json({
+        error: 'invalid_phone',
+        message: normalizedPhone
+          ? getPhoneValidationMessage(normalizedPhone)
+          : 'A valid phone number is required.',
+      });
+    }
+    if (!normalizedEmail) {
+      return res.status(400).json({
+        error: 'invalid_email',
+        message: 'A valid email address is required.',
+      });
+    }
+
+    const phoneVariants = buildAuthPhoneVariants(normalizedPhone);
+    const [existingPhone, existingEmail] = await Promise.all([
+      prisma.user.findFirst({
+        where: {
+          id: { not: userId },
+          phone: { in: phoneVariants },
+        },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: {
+          id: { not: userId },
+          email: normalizedEmail,
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (existingPhone) {
+      return res.status(409).json({
+        ok: false,
+        available: false,
+        error: 'phone_already_registered',
+        message: 'This phone number already has an account. Please login or use forgot password to access it.',
+        action: 'login_or_forgot_password',
+      });
+    }
+    if (existingEmail) {
+      return res.status(409).json({
+        ok: false,
+        available: false,
+        error: 'email_already_registered',
+        message: 'This email address already has an account. Please login or use forgot password to access it.',
+        action: 'login_or_forgot_password',
+      });
+    }
+
+    return res.json({
+      ok: true,
+      available: true,
+      normalizedPhone,
+      normalizedEmail,
+    });
+  }),
+);
+
 // POST /api/auth/send-otp
 // Accepts { phone } OR { email } as the OTP destination, plus optional { role }.
 // Rate limited: 3 requests per destination per 15 minutes
 router.post('/send-otp', limitOtpSend, async (req, res) => {
-  const { role } = req.body || {};
+  const { role, resetApp } = req.body || {};
   const resolved = resolveOtpDestination(req.body);
   if ('error' in resolved) return res.status(400).json({ message: resolved.error });
   const { channel, destination } = resolved;
@@ -402,6 +601,7 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
   const genericOtpResponse = { ok: true, message: 'If this destination can receive a code, one has been sent.', channel };
 
   const normalizedRole = normalizeSignupRole(role);
+  let resumeRegistration = false;
 
   // If no role is provided, treat this as a LOGIN OTP request.
   // In this flow, the destination must already belong to an existing account.
@@ -422,20 +622,34 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
     }
   }
 
-  // Policy: a phone/email already tied to any account (verified or not) cannot be used to
-  // register a new account. Allow OTP for RESET flow (forgot password).
+  // Completed accounts cannot register again. Passwordless OTP-created accounts
+  // may receive a fresh code to resume the same role's onboarding.
   if (normalizedRole && normalizedRole !== 'RESET') {
     try {
       const existing = await prisma.user.findFirst({
         where: destinationWhere,
-        select: { id: true },
+        select: { id: true, role: true, passwordHash: true },
       });
       if (existing) {
-        return res.status(409).json({
-          error: channel === 'PHONE' ? 'phone_already_registered' : 'email_already_registered',
-          message: `This ${destinationLabel} already has an account. Please login or use forgot password to access it.`,
-          action: 'login_or_forgot_password',
-        });
+        const existingRole = normalizeSignupRole(existing.role);
+        const canResumeRegistration = !existing.passwordHash && existingRole === normalizedRole;
+        if (canResumeRegistration) {
+          // The destination owner proved control once but did not finish profile/password
+          // setup. Send a fresh code so the same account can resume safely.
+          resumeRegistration = true;
+        } else if (!existing.passwordHash && existingRole !== normalizedRole) {
+          return res.status(409).json({
+            error: 'registration_role_mismatch',
+            message: `This ${destinationLabel} already started registration with another account type. Continue with that account type or contact support.`,
+            action: 'resume_original_registration',
+          });
+        } else {
+          return res.status(409).json({
+            error: channel === 'PHONE' ? 'phone_already_registered' : 'email_already_registered',
+            message: `This ${destinationLabel} already has an account. Please login or use forgot password to access it.`,
+            action: 'login_or_forgot_password',
+          });
+        }
       }
     } catch {
       // If the DB is temporarily unavailable, continue with OTP send.
@@ -449,13 +663,28 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
     try {
       const existing = await prisma.user.findFirst({
         where: destinationWhere,
-        select: { id: true },
+        select: { id: true, role: true },
       });
       if (!existing) {
-        return res.json(genericOtpResponse);
+        return res.status(404).json({
+          error: 'account_not_found',
+          message: `No account found for this ${destinationLabel}. Please check the details or register first.`,
+          action: 'register',
+        });
+      }
+      const rolePolicyError = getResetRolePolicyError(existing.role);
+      if (rolePolicyError) {
+        return res.status(403).json(rolePolicyError);
+      }
+      const appRoleError = getResetAppRoleError(existing.role, resetApp);
+      if (appRoleError) {
+        return res.status(409).json(appRoleError);
       }
     } catch {
-      // If the DB is temporarily unavailable, fall through and attempt the send.
+      return res.status(503).json({
+        error: 'database_unavailable',
+        message: 'Unable to check this account right now. Please try again.',
+      });
     }
   }
 
@@ -557,14 +786,20 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
     // swallow
   }
 
-  return res.json({ ok: true, message: 'OTP sent', channel, otpExpiresInSeconds: OTP_TTL_SEC });
+  return res.json({
+    ok: true,
+    message: resumeRegistration ? 'OTP sent to continue registration' : 'OTP sent',
+    channel,
+    resumeRegistration,
+    otpExpiresInSeconds: OTP_TTL_SEC,
+  });
 });
 
 // POST /api/auth/verify-otp
 // Accepts { phone } OR { email } as the OTP destination, plus { otp } and optional { role }.
 // Rate limited: 10 verification attempts per destination per 15 minutes
 router.post('/verify-otp', limitOtpVerify, async (req, res) => {
-  const { otp, role } = req.body || {};
+  const { otp, role, loginApp } = req.body || {};
   if (!otp) return res.status(400).json({ message: 'otp required' });
 
   const resolved = resolveOtpDestination(req.body);
@@ -646,6 +881,21 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
         });
       }
 
+      const loginAppRoleError = getLoginAppRoleError(existing.role, loginApp);
+      if (loginAppRoleError) {
+        return res.status(403).json(loginAppRoleError);
+      }
+
+      // SMS/email OTP is not an administrator login method. It is reserved for
+      // controlled bootstrap inside the password-verified admin MFA flow.
+      if (String(existing.role || '').toUpperCase() === 'ADMIN') {
+        return res.status(403).json({
+          error: 'Administrator passkey verification is required.',
+          code: 'ADMIN_PASSKEY_REQUIRED',
+          action: 'use_admin_portal',
+        });
+      }
+
       // Mark the destination as verified on successful login OTP.
       try {
         await prisma.user.update({
@@ -692,6 +942,10 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
       if (!user) {
         return res.status(400).json({ message: 'Unable to reset password with this verification code.' });
       }
+      const rolePolicyError = getResetRolePolicyError((user as any).role);
+      if (rolePolicyError) {
+        return res.status(403).json(rolePolicyError);
+      }
       const raw = crypto.randomBytes(24).toString('hex');
       const hashed = crypto.createHash('sha256').update(raw).digest('hex');
       const expiresAt = Date.now() + 1000 * 60 * 60; // 1 hour
@@ -713,8 +967,45 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
   // Normal auth flow (signup): a phone/email already tied to any account (verified or not)
   // cannot be used to create a new account — reject instead of silently attaching to it.
   try {
-    const existing = await prisma.user.findFirst({ where: destinationWhere, select: { id: true } });
+    const existing = await prisma.user.findFirst({
+      where: destinationWhere,
+      select: { id: true, role: true, email: true, phone: true, passwordHash: true },
+    });
     if (existing) {
+      const existingRole = normalizeSignupRole(existing.role);
+      const canResumeRegistration = !existing.passwordHash && existingRole === effectiveRole;
+      if (canResumeRegistration) {
+        const resumedUser = await prisma.user.update({
+          where: { id: existing.id },
+          data: { [verifiedAtField]: new Date() },
+          select: { id: true, role: true, email: true, phone: true },
+        });
+        const token = await signUserJwt({
+          id: resumedUser.id,
+          role: resumedUser.role,
+          email: resumedUser.email,
+        });
+        await setAuthCookie(res, token, resumedUser.role);
+        return res.json({
+          ok: true,
+          message: 'Registration resumed',
+          resumeRegistration: true,
+          token,
+          user: {
+            id: resumedUser.id,
+            phone: resumedUser.phone,
+            email: resumedUser.email,
+            role: resumedUser.role,
+          },
+        });
+      }
+      if (!existing.passwordHash && existingRole !== effectiveRole) {
+        return res.status(409).json({
+          error: 'registration_role_mismatch',
+          message: `This ${destinationLabel} already started registration with another account type. Continue with that account type or contact support.`,
+          action: 'resume_original_registration',
+        });
+      }
       return res.status(409).json({
         error: channel === 'PHONE' ? 'phone_already_registered' : 'email_already_registered',
         message: `This ${destinationLabel} already has an account. Please login or use forgot password to access it.`,
@@ -722,7 +1013,10 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
       });
     }
   } catch {
-    // If the DB is temporarily unavailable, continue and let the upsert below surface errors.
+    return res.status(503).json({
+      error: 'database_unavailable',
+      message: 'Unable to resume registration right now. Please try again.',
+    });
   }
 
   // Verify OTP and issue JWT + httpOnly cookie.
@@ -737,7 +1031,18 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
     const token = await signUserJwt({ id: user.id, role: user.role, email: user.email });
     await setAuthCookie(res, token, user.role);
     return res.json({ ok: true, message: "verified", token, user: { id: user.id, phone: user.phone, email: user.email, role: user.role } });
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.code === 'P2002') {
+      const target = Array.isArray(e?.meta?.target) ? e.meta.target.map(String) : [String(e?.meta?.target || '')];
+      const phoneConflict = target.some((field: string) => field.toLowerCase().includes('phone'));
+      return res.status(409).json({
+        error: phoneConflict ? 'phone_already_registered' : 'email_already_registered',
+        message: phoneConflict
+          ? 'This phone number already has an account. Please login or use forgot password to access it.'
+          : 'This email already has an account. Please login or use forgot password to access it.',
+        action: 'login_or_forgot_password',
+      });
+    }
     console.error("verify-otp failed to issue JWT", e);
     return res.status(503).json({ error: 'database_unavailable', message: "Unable to create account right now." });
   }
@@ -790,7 +1095,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     res.setHeader('Content-Type', 'application/json');
   
   try {
-    const { email, password } = req.body || {};
+    const { email, password, loginApp } = req.body || {};
     if (typeof email !== "string" || typeof password !== "string") {
       return res.status(400).json({
         error: "invalid_login_input",
@@ -853,7 +1158,22 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
             ...phoneCandidates.map((p) => ({ phone: p } as any)),
           ] as any,
         } as any,
-        select: { id: true, role: true, email: true, passwordHash: true, name: true, phone: true, suspendedAt: true, isDisabled: true, kycStatus: true, kycNote: true },
+        select: {
+          id: true,
+          role: true,
+          email: true,
+          passwordHash: true,
+          name: true,
+          phone: true,
+          phoneVerifiedAt: true,
+          twoFactorEnabled: true,
+          twoFactorMethod: true,
+          totpSecretEnc: true,
+          suspendedAt: true,
+          isDisabled: true,
+          kycStatus: true,
+          kycNote: true,
+        },
       });
     } catch (dbError: any) {
       console.error('[LOGIN] Database query error:', dbError);
@@ -979,12 +1299,24 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
       });
     }
 
+    const loginAppRoleError = getLoginAppRoleError(user.role, loginApp);
+    if (loginAppRoleError) {
+      return res.status(403).json(loginAppRoleError);
+    }
+
     // Successful login - clear failed attempts
     try {
       await clearFailedAttempts(identifier);
     } catch (err) {
       console.error('[LOGIN] Failed to clear failed attempts:', err);
       // Continue - don't block successful login
+    }
+
+    // Administrators never receive a normal session from a password alone.
+    // The opaque, short-lived challenge cookie can only call the dedicated MFA
+    // endpoints; a full revocable ADMIN session is issued after passkey/TOTP.
+    if (String(user.role || '').toUpperCase() === 'ADMIN') {
+      return await beginAdminMfaChallenge(req, res, user as any);
     }
 
     // Generate JWT token with error handling
@@ -1133,6 +1465,34 @@ function safeNextPath(raw: any): string {
   return v;
 }
 
+function safeOwnerReportPrintNext(raw: any): string {
+  const fallback = "/owner/reports/stays";
+  const v = typeof raw === "string" ? raw.trim() : "";
+  if (!v || !v.startsWith("/") || v.startsWith("//")) return fallback;
+  if (!v.startsWith("/owner/reports/stays")) return fallback;
+  return v;
+}
+
+router.get("/owner-report-print-handoff", asyncHandler(async (req, res) => {
+  const rawToken = String((req as any).query?.token || "").trim();
+  if (!rawToken) return res.status(400).send("Missing print handoff token.");
+
+  const handoff = verifyOwnerReportPrintHandoff(rawToken);
+  if (!handoff) return res.status(401).send("Invalid or expired print handoff token.");
+
+  const user = await prisma.user.findUnique({
+    where: { id: handoff.userId },
+    select: { id: true, role: true, email: true, suspendedAt: true },
+  });
+  if (!user || user.suspendedAt || String(user.role || "").toUpperCase() !== "OWNER") {
+    return res.status(403).send("Owner account is not allowed to print this report.");
+  }
+
+  const sessionToken = await signUserJwt({ id: user.id, role: user.role, email: user.email });
+  await setAuthCookie(res, sessionToken, user.role);
+  return res.redirect(302, safeOwnerReportPrintNext((req as any).query?.next));
+}));
+
 // GET /api/auth/logout?next=/account/login
 // Useful for reliable cookie clearing via top-level navigation.
 router.get("/logout", maybeAuth, async (req, res) => {
@@ -1154,6 +1514,7 @@ router.get("/logout", maybeAuth, async (req, res) => {
     console.warn("Failed to audit logout:", auditError);
   }
 
+  await revokeCurrentSession(req).catch(() => {});
   if (token) await invalidateAuthSessionCacheForToken(token).catch(() => {});
   clearAuthCookie(res);
   const next = safeNextPath((req as any)?.query?.next);
@@ -1180,6 +1541,7 @@ router.post("/logout", maybeAuth, async (req, res) => {
     console.warn("Failed to audit logout:", auditError);
   }
   
+  await revokeCurrentSession(req).catch(() => {});
   if (token) await invalidateAuthSessionCacheForToken(token).catch(() => {});
   clearAuthCookie(res);
   return res.json({ ok: true });
@@ -1399,6 +1761,7 @@ router.post('/profile', upload.none(), async (req, res) => {
       role,
       name,
       email,
+      phone,
       password,
       referralCode,
       tin,
@@ -1455,10 +1818,30 @@ router.post('/profile', upload.none(), async (req, res) => {
     let dbRole: string | null = null;
     let hasPasswordAlready = false;
     let currentKycStatus: string | null = null;
+    let currentEmail: string | null = null;
+    let currentPhone: string | null = null;
+    let currentEmailVerifiedAt: Date | null = null;
+    let currentPhoneVerifiedAt: Date | null = null;
     try {
-      const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, passwordHash: true, kycStatus: true } as any });
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          email: true,
+          phone: true,
+          emailVerifiedAt: true,
+          phoneVerifiedAt: true,
+          passwordHash: true,
+          kycStatus: true,
+        } as any,
+      });
       if (!dbUser) return res.status(401).json({ error: 'Unauthorized' });
       currentKycStatus = (dbUser as any)?.kycStatus ?? null;
+      currentEmail = (dbUser as any)?.email ?? null;
+      currentPhone = (dbUser as any)?.phone ?? null;
+      currentEmailVerifiedAt = (dbUser as any)?.emailVerifiedAt ?? null;
+      currentPhoneVerifiedAt = (dbUser as any)?.phoneVerifiedAt ?? null;
       const requested = normalizeSignupRole(role);
       // Normalize DB roles too (e.g. USER/TRAVELLER should be treated as CUSTOMER)
       dbRole = normalizeSignupRole(dbUser.role) || String(dbUser.role || '').trim().toUpperCase();
@@ -1506,6 +1889,81 @@ router.post('/profile', upload.none(), async (req, res) => {
     }
 
     const cleanEmail = email ? String(email).trim().toLowerCase() : null;
+    const cleanPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
+    if (!currentEmail && !cleanEmail) {
+      return res.status(400).json({ error: 'email_required', message: 'Email address is required.' });
+    }
+    if (
+      currentEmailVerifiedAt &&
+      cleanEmail &&
+      String(currentEmail || '').trim().toLowerCase() !== cleanEmail
+    ) {
+      return res.status(409).json({
+        error: 'email_change_requires_verification',
+        message: 'This verified email cannot be changed during onboarding. Use Account Security after registration.',
+      });
+    }
+    if (phone && (!cleanPhone || !isPhoneValidForAuth(cleanPhone))) {
+      return res.status(400).json({
+        error: 'invalid_phone',
+        message: cleanPhone ? getPhoneValidationMessage(cleanPhone) : 'A valid phone number is required.',
+      });
+    }
+    if (!currentPhone && !cleanPhone) {
+      return res.status(400).json({ error: 'phone_required', message: 'Phone number is required.' });
+    }
+    if (
+      currentPhoneVerifiedAt &&
+      currentPhone &&
+      cleanPhone &&
+      normalizePhoneForAuth(currentPhone) !== cleanPhone
+    ) {
+      return res.status(409).json({
+        error: 'phone_change_requires_verification',
+        message: 'This verified phone cannot be changed during onboarding. Use Account Security after registration.',
+      });
+    }
+    if (cleanPhone) {
+      try {
+        const phoneVariants = buildAuthPhoneVariants(cleanPhone);
+        const existingPhone = await prisma.user.findFirst({
+          where: { phone: { in: phoneVariants }, id: { not: userId } },
+          select: { id: true },
+        });
+        if (existingPhone) {
+          return res.status(409).json({
+            error: 'phone_already_registered',
+            message: 'This phone number already has an account. Please login or use forgot password to access it.',
+            action: 'login_or_forgot_password',
+          });
+        }
+      } catch {
+        return res.status(503).json({
+          error: 'database_unavailable',
+          message: 'Unable to check this phone number right now. Please try again.',
+        });
+      }
+    }
+    if (cleanEmail) {
+      try {
+        const existingEmail = await prisma.user.findFirst({
+          where: { email: cleanEmail, id: { not: userId } },
+          select: { id: true },
+        });
+        if (existingEmail) {
+          return res.status(409).json({
+            error: 'email_already_registered',
+            message: 'This email address already has an account. Please login or use forgot password to access it.',
+            action: 'login_or_forgot_password',
+          });
+        }
+      } catch {
+        return res.status(503).json({
+          error: 'database_unavailable',
+          message: 'Unable to check this email address right now. Please try again.',
+        });
+      }
+    }
     let updatedUser: any = null;
     let newPasswordHash: string | null = null;
     const extractUnknownArg = (err: any): string | null => {
@@ -1526,6 +1984,11 @@ router.post('/profile', upload.none(), async (req, res) => {
       const dataToUpdate: any = {
         name: name ? String(name) : undefined,
         email: cleanEmail || undefined,
+        phone:
+          cleanPhone &&
+          (!currentPhone || (!currentPhoneVerifiedAt && normalizePhoneForAuth(currentPhone) !== cleanPhone))
+            ? cleanPhone
+            : undefined,
       };
 
       // Allow setting a password during onboarding so users can login with email/password.
@@ -1642,7 +2105,7 @@ router.post('/profile', upload.none(), async (req, res) => {
       updatedUser = await prisma.user.update({
         where: { id: userId },
         data: dataToUpdate,
-        select: { id: true, email: true, name: true, role: true }
+        select: { id: true, email: true, phone: true, name: true, role: true }
       });
 
       // After a successful resubmit, write an audit log entry so admin can see it
@@ -1663,7 +2126,15 @@ router.post('/profile', upload.none(), async (req, res) => {
       }
     } catch (e: any) {
       if (e?.code === 'P2002') {
-        return res.status(409).json({ error: 'email_or_phone_already_in_use' });
+        const target = Array.isArray(e?.meta?.target) ? e.meta.target.map(String) : [String(e?.meta?.target || '')];
+        const phoneConflict = target.some((field: string) => field.toLowerCase().includes('phone'));
+        return res.status(409).json({
+          error: phoneConflict ? 'phone_already_registered' : 'email_already_registered',
+          message: phoneConflict
+            ? 'This phone number already has an account. Please login or use forgot password to access it.'
+            : 'This email already has an account. Please login or use forgot password to access it.',
+          action: 'login_or_forgot_password',
+        });
       }
 
       // Last line of defense: retry once by dropping the unknown field Prisma complains about.
@@ -1673,6 +2144,11 @@ router.post('/profile', upload.none(), async (req, res) => {
           const retryData: any = {
             name: name ? String(name) : undefined,
             email: cleanEmail || undefined,
+            phone:
+              cleanPhone &&
+              (!currentPhone || (!currentPhoneVerifiedAt && normalizePhoneForAuth(currentPhone) !== cleanPhone))
+                ? cleanPhone
+                : undefined,
             // Best-effort include common fields; we'll drop the bad one below.
             tin: typeof tin === 'string' ? tin : undefined,
             address: typeof address === 'string' ? address : undefined,
@@ -1702,7 +2178,7 @@ router.post('/profile', upload.none(), async (req, res) => {
           updatedUser = await prisma.user.update({
             where: { id: userId },
             data: retryData as any,
-            select: { id: true, email: true, name: true, role: true },
+            select: { id: true, email: true, phone: true, name: true, role: true },
           });
         } catch (e2: any) {
           throw e2;
@@ -1848,7 +2324,7 @@ router.post('/passkeys/options', async (req, res) => {
     const options = await generateAuthenticationOptions({
       timeout: 60000,
       rpID,
-      userVerification: 'preferred',
+      userVerification: 'required',
       allowCredentials: [], // empty = discoverable credentials (no username required)
     });
 
@@ -1864,7 +2340,7 @@ router.post('/passkeys/options', async (req, res) => {
 /** POST /api/auth/passkeys/verify — verifies assertion and issues session cookie */
 router.post('/passkeys/verify', async (req, res) => {
   try {
-    const { sessionId, response } = (req.body ?? {}) as any;
+    const { sessionId, response, loginApp } = (req.body ?? {}) as any;
     if (!sessionId || !response) return res.status(400).json({ error: 'invalid payload' });
 
     const entry = await getPasskeyLoginChallenge(String(sessionId));
@@ -1920,7 +2396,7 @@ router.post('/passkeys/verify', async (req, res) => {
           credentialPublicKey: fromBase64UrlToBuffer(stored.publicKey),
           counter: typeof stored.signCount === 'number' ? stored.signCount : 0,
         },
-        requireUserVerification: false,
+        requireUserVerification: true,
       } as any);
     } catch (e) {
       const details = String((e as any)?.message ?? e);
@@ -1952,7 +2428,16 @@ router.post('/passkeys/verify', async (req, res) => {
       });
     }
 
-    const token = await signUserJwt({ id: (user as any).id, role: (user as any).role, email: (user as any).email });
+    const loginAppRoleError = getLoginAppRoleError((user as any).role, loginApp);
+    if (loginAppRoleError) {
+      return res.status(403).json(loginAppRoleError);
+    }
+
+    const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
+    const token = await signUserJwt(
+      { id: (user as any).id, role: (user as any).role, email: (user as any).email },
+      isAdmin ? { adminMfa: 'passkey' } : undefined,
+    );
     await setAuthCookie(res, token, (user as any).role);
 
     // Native apps cannot read the httpOnly cookie; they consume the token from
@@ -1967,7 +2452,7 @@ export default router;
 
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
-  const { email, phone } = req.body || {};
+  const { email, phone, resetApp } = req.body || {};
   if (!email && !phone) return res.status(400).json({ message: 'email or phone required' });
 
   const normalizedPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
@@ -1979,7 +2464,20 @@ router.post('/forgot-password', async (req, res) => {
     });
     
     if (!user) {
-      return res.json({ ok: true, message: 'If an account exists, an email/SMS has been sent.' });
+      return res.status(404).json({
+        error: 'account_not_found',
+        message: `No account found for this ${email ? 'email address' : 'phone number'}. Please check the details or register first.`,
+        action: 'register',
+      });
+    }
+
+    const rolePolicyError = getResetRolePolicyError((user as any).role);
+    if (rolePolicyError) {
+      return res.status(403).json(rolePolicyError);
+    }
+    const appRoleError = getResetAppRoleError((user as any).role, resetApp);
+    if (appRoleError) {
+      return res.status(409).json(appRoleError);
     }
 
     // generate raw token and a hashed token for storage
@@ -2015,7 +2513,7 @@ router.post('/forgot-password', async (req, res) => {
       }
     }
 
-    return res.json({ ok: true, message: 'If an account exists, an email/SMS has been sent.' });
+    return res.json({ ok: true, message: 'Password reset instructions sent. Please check your email or phone.' });
   } catch (err) {
     console.error('forgot-password error', err);
     return res.status(500).json({ message: 'failed' });
@@ -2067,6 +2565,11 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'invalid token or user' });
     }
 
+    const rolePolicyError = getResetRolePolicyError(user.role);
+    if (rolePolicyError) {
+      return res.status(403).json(rolePolicyError);
+    }
+
     // DoS protection: shared with /account/password/change so the cooldown can't be
     // bypassed by switching between the authenticated and forgot-password flows.
     const cooldownRemaining = getPasswordChangeCooldownRemaining(user.id);
@@ -2097,7 +2600,11 @@ router.post('/reset-password', async (req, res) => {
     // Hash and update password
     const pwHash = await hashPassword(String(password));
     try {
-      await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any } as any });
+      // Bump tokensValidAfter so every JWT issued before now is rejected — this
+      // is the account-recovery path, so any token an attacker still holds must
+      // stop working the moment the rightful owner resets the password.
+      await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any, tokensValidAfter: new Date() as any } as any });
+      await invalidateAuthSessionCacheForUser(Number(user.id)).catch(() => {});
     } catch (e) {
       // if DB update fails, still accept but do not persist
       console.warn('Failed to persist new password to DB', e);

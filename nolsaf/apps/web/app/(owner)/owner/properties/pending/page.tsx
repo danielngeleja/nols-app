@@ -345,6 +345,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
   const primaryImage = Array.isArray(p.photos) && p.photos.length > 0 ? p.photos[0] : null;
   const rejectionReasons = getRejectionReasons(p);
   const suspensionReason: string | null = p.suspensionReason ?? null;
+  const suspensionReference: string | null = p.suspensionReference ?? null;
 
   return (
     <div className="space-y-3">
@@ -444,6 +445,18 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
                 {suspensionReason ||
                   "This property has been temporarily suspended and removed from public view. Please check your notifications for details and steps to resolve it."}
               </p>
+              {suspensionReference && (
+                <div className="mt-3 rounded-lg border border-orange-200 bg-white/75 px-3 py-2">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-600">Appeal reference</p>
+                  <p className="mb-0 mt-1 break-all font-mono text-sm font-bold text-orange-950">{suspensionReference}</p>
+                  <a
+                    href={`mailto:partners@nolsaf.com?subject=${encodeURIComponent(`Property appeal ${suspensionReference}`)}`}
+                    className="mt-1.5 inline-flex text-xs font-bold text-[#02665e] underline underline-offset-2"
+                  >
+                    Appeal to partnerships
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -3,6 +3,8 @@ import { z } from "zod";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
+import { TOUR_CANCELLATION_POLICY_VERSION } from "../lib/tourCancellationPolicy.js";
+import { REFUND_CHANNEL_POLICY } from "../lib/refundChannelCharges.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { limitPublicTourBookingCreate } from "../middleware/rateLimit.js";
@@ -22,6 +24,7 @@ import {
   coralPostJson64,
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 
 const router = Router();
 
@@ -96,6 +99,7 @@ const createTourBookingSchema = z
     guestPhone: z.string().max(40).optional().default(""),
     nationality: z.string().max(80).optional().default(""),
     notes: z.string().max(2000).optional().default(""),
+    cancellationPolicyAccepted: z.literal(true),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
@@ -279,6 +283,25 @@ router.post(
     const paymentAccessExpiresAt = new Date(paymentAccessIssuedAt.getTime() + PAYMENT_ACCESS_TOKEN_HOURS * 60 * 60 * 1000);
     const initialMetadata = {
       ...safeObject(data.metadata),
+      tourCancellationPolicy: {
+        version: TOUR_CANCELLATION_POLICY_VERSION,
+        graceHours: 24,
+        graceMinimumHoursBeforeStart: 72,
+        partialRefundMinimumHoursBeforeStart: 96,
+        partialRefundPercent: 50,
+        commencementTrigger: "FIRST_VERIFIED_PICKUP_OR_ACTIVITY",
+        refundChannelCharges: {
+          cardSurchargePercent: REFUND_CHANNEL_POLICY.cardSurchargePercent,
+          bankAndMobileCharges: "ACTUAL_BANK_CHARGES",
+          adminChargeFlat: REFUND_CHANNEL_POLICY.adminChargeFlat,
+          coolingOffExempt: REFUND_CHANNEL_POLICY.fullGraceExempt,
+          operatorCausedExempt: true,
+        },
+        supplierCommittedEvidenceAccepted: true,
+        accepted: true,
+        acceptedAt: paymentAccessIssuedAt.toISOString(),
+        acceptedByUserId: req.user?.id ?? null,
+      },
       paymentAccess: {
         issuedAt: paymentAccessIssuedAt.toISOString(),
         expiresAt: paymentAccessExpiresAt.toISOString(),
@@ -448,6 +471,11 @@ router.post(
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
     }
 
+    const providerGate = await getPaymentMethodAvailability(provider);
+    if (!providerGate.enabled) {
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: providerGate.reason });
+    }
+
     const normalizedPhone = normalizePhone(phoneNumber);
     if (!normalizedPhone) {
       return res.status(400).json({
@@ -568,6 +596,7 @@ router.post(
       where: { id: booking.id },
       data: {
         paymentRef: booking.paymentRef ?? paymentRef,
+        customerPaymentRef: booking.paymentRef ?? paymentRef,
         payerPhone: normalizedPhone,
         paymentStatus: "PENDING",
         checkoutSessionId: azampayData.transactionId ?? null,
@@ -645,6 +674,10 @@ router.post(
     if (!verifyTourBookingAccessToken(accessToken, id))
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
 
+    const bankGate = await getPaymentMethodAvailability(`BANK_${bankCode}`);
+    if (!bankGate.enabled)
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: bankGate.reason });
+
     const booking = await prisma.tourBooking.findUnique({
       where:  { id },
       select: { id: true, bookingCode: true, status: true, paymentStatus: true,
@@ -706,7 +739,7 @@ router.post(
 
     await prisma.tourBooking.update({
       where: { id: booking.id },
-      data:  { paymentRef: booking.paymentRef ?? paymentRef, paymentStatus: "PENDING", checkoutSessionId: azampayData.transactionId ?? null },
+      data:  { paymentRef: booking.paymentRef ?? paymentRef, customerPaymentRef: booking.paymentRef ?? paymentRef, paymentStatus: "PENDING", checkoutSessionId: azampayData.transactionId ?? null },
     });
 
     try {
@@ -753,6 +786,10 @@ router.post(
 
     if (!verifyTourBookingAccessToken(accessToken, id))
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled)
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: cardGate.reason });
 
     const coralConfig = requiredCoralTourConfig();
     if (!coralConfig) {
@@ -855,7 +892,7 @@ router.post(
 
     await prisma.tourBooking.update({
       where: { id: booking.id },
-      data:  { paymentRef: booking.paymentRef ?? paymentRef, paymentStatus: "PENDING", paymentProvider: "CORALCOMMERCE", checkoutSessionId: truncate(paymentRef, 120) },
+      data:  { paymentRef: booking.paymentRef ?? paymentRef, customerPaymentRef: booking.paymentRef ?? paymentRef, paymentStatus: "PENDING", paymentProvider: "CORALCOMMERCE", checkoutSessionId: truncate(paymentRef, 120) },
     });
 
     try {

@@ -13,8 +13,9 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { Prisma } from "@prisma/client";
 import { sendMail } from "../lib/mailer.js";
 import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileApprovedEmail, getOperatorProfileRejectedEmail } from "../lib/authEmailTemplates.js";
-import jwt from "jsonwebtoken";
+import { signUserJwt } from "../lib/sessionManager.js";
 import crypto from "crypto";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 
 // ============================================================
 // Constants
@@ -1567,7 +1568,6 @@ router.post(
           details: `Agent note added: ${cleanText.substring(0, 100)}${cleanText.length > 100 ? "..." : ""}`,
         },
       });
-
       await audit(req as AuthedRequest, "AGENT_NOTE_ADDED", `agent:${agent.id}`, null, {
         text: cleanText.substring(0, 300),
       });
@@ -2138,6 +2138,7 @@ router.post(
           details: { reason, caseRef },
         },
       });
+      await revokeUserAuthorization(existing.userId);
 
       // Non-blocking notification email
       const recipientEmail = (updated as any).user?.email;
@@ -2268,10 +2269,10 @@ router.post(
       if (!agent) return sendError(res, 404, "Agent not found");
 
       const ttlSec = 10 * 60;
-      const secret = process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? (process.env.DEV_JWT_SECRET || "dev_jwt_secret") : "");
-      if (!secret) return sendError(res, 500, "Server JWT secret not configured");
-
-      const token = jwt.sign({ sub: agent.userId, role: "AGENT", imp: true }, secret, { expiresIn: ttlSec });
+      const token = await signUserJwt(
+        { id: agent.userId, role: "AGENT" },
+        { impersonated: true, expiresInSeconds: ttlSec },
+      );
 
       await audit(req as AuthedRequest, "AGENT_IMPERSONATE_ISSUE", `agent:${agentId}`, { reason }, { ttlSec });
       await prisma.adminAudit.create({

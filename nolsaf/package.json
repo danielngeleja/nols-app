@@ -8,21 +8,18 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@prisma/adapter-mariadb": "^7.3.0",
-    "@prisma/client": "^7.3.0",
-    "@prisma/debug": "^7.0.0",
-    "@typescript-eslint/eslint-plugin": "8.54.0",
-    "@typescript-eslint/parser": "8.54.0",
-    "cliui": "^9.0.1",
+    "@prisma/adapter-mariadb": "7.9.1",
+    "@prisma/client": "7.9.1",
+    "@prisma/debug": "7.9.1",
+    "@typescript-eslint/eslint-plugin": "8.65.0",
+    "@typescript-eslint/parser": "8.65.0",
     "concurrently": "^9.0.1",
-    "eslint": "9.39.2",
+    "eslint": "9.39.5",
     "eslint-plugin-react-hooks": "7.0.1",
-    "snyk": "^1.1300.0",
-    "typescript": "~5.9.2",
-    "yargs": "^18.0.0"
+    "snyk": "^1.1300.0"
   },
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/patch-minimatch-compat.mjs && prisma generate",
     "dev": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
     "dev:flow": "powershell -NoProfile -ExecutionPolicy Bypass -File start-dev.ps1",
     "dev:npm": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
@@ -36,48 +33,58 @@
     "prisma:push": "npx prisma db push --schema=prisma/schema.prisma",
     "prisma:migrate": "npx prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:migrate:status": "npx prisma migrate status --schema=prisma/schema.prisma",
+    "prisma:migrate:staging": "node scripts/prisma-migrate-staging.mjs",
+    "prisma:migrate:staging:status": "node scripts/prisma-migrate-staging.mjs --status-only",
+    "prisma:migrate:staging:cleanup": "node scripts/prisma-migrate-staging.mjs --cleanup-failed-baseline-artifacts --status-only",
+    "migrations:checksums": "node scripts/check-migration-integrity.mjs",
+    "migrations:checksums:update": "node scripts/check-migration-integrity.mjs --write",
+    "migrations:coverage": "node scripts/audit-schema-migration-coverage.mjs",
+    "schema:check:local": "node scripts/check-physical-schema.mjs --target=local",
+    "schema:check:staging": "node scripts/check-physical-schema.mjs --target=staging",
+    "schema:check:clone": "node scripts/check-physical-schema.mjs --target=clone",
+    "migration:validate:reconciliation": "node scripts/validate-forward-reconciliation.mjs",
     "prisma:studio": "npx prisma studio --schema=prisma/schema.prisma",
     "smoke-test": "node scripts/smoke-test.mjs",
     "smoke:driver-payouts": "npm --workspace=@nolsaf/api run smoke:driver-payouts",
     "smoke-test:staging": "API_URL=$npm_config_api_url node scripts/smoke-test.mjs",
     "uptime:check": "node scripts/uptime-check.mjs",
-    "no4p-otp:cleanup": "node scripts/cleanup-no4p-otp.mjs"
+    "no4p-otp:cleanup": "node scripts/cleanup-no4p-otp.mjs",
+    "backfill:tour-operations": "tsx scripts/backfill-tour-operations.ts"
   },
   "dependencies": {
+    "axios": "^1.16.0",
     "dotenv": "^17.2.3",
     "pdf-parse": "^2.4.5",
-    "prisma": "^7.3.0",
-    "simple-swizzle": "^0.2.2"
+    "prisma": "7.9.1"
   },
   "pnpm": {
     "overrides": {
-      "axios": "^1.15.2",
+      "axios": "^1.16.0",
+      "africastalking>axios": "1.16.0",
+      "africastalking>lodash": "4.18.1",
       "africastalking": {
-        "axios": "^1.15.2",
-        "lodash": "^4.17.24"
+        "axios": "1.16.0",
+        "lodash": "4.18.1"
       },
       "diff": "4.0.4",
-      "fast-xml-parser": ">=5.7.0",
-      "@aws-sdk/xml-builder": "3.972.17",
-      "glob": "10.5.0",
       "hono": "^4.12.25",
-      "@hono/node-server": "1.19.14",
-      "dompurify": "3.4.11",
+      "@hono/node-server": "2.0.12",
+      "archiver": "8.0.0",
+      "dompurify": "3.4.12",
       "esbuild": "0.28.1",
       "sanitize-html": "^2.17.4",
       "mailparser": "3.9.3",
       "js-yaml": "4.3.0",
-      "minimatch": ">=10.2.1",
       "jspdf": "4.2.1",
-      "jws": "3.2.3",
-      "lodash": "^4.17.24",
+      "lodash": "4.18.1",
+      "minimatch": "10.2.6",
       "nodemailer": "9.0.1",
+      "postcss": "8.5.24",
       "qs": "^6.15.2",
-      "postcss": "^8.5.12",
-      "next": {
-        "postcss": "^8.5.12"
-      },
+      "sharp": "0.35.3",
       "shell-quote": "^1.8.4",
+      "unzipper": "0.12.5",
+      "uuid": "11.1.1",
       "xcode": {
         "uuid": "^11.1.1"
       },
@@ -85,40 +92,34 @@
     }
   },
   "overrides": {
-    "axios": "^1.15.2",
+    "axios": "^1.16.0",
     "africastalking": {
-      "axios": "^1.15.2",
-      "lodash": "^4.17.24"
+      "axios": "1.16.0",
+      "lodash": "4.18.1"
     },
     "diff": "4.0.4",
-    "fast-xml-parser": ">=5.7.0",
-    "@aws-sdk/xml-builder": "3.972.17",
-    "glob": "10.5.0",
     "hono": "^4.12.25",
-    "@hono/node-server": "1.19.14",
-    "dompurify": "3.4.11",
+    "@hono/node-server": "2.0.12",
+    "archiver": "8.0.0",
+    "dompurify": "3.4.12",
     "esbuild": "0.28.1",
     "sanitize-html": "^2.17.4",
     "magicast": "0.5.2",
     "mailparser": "3.9.3",
     "js-yaml": "4.3.0",
-    "minimatch": ">=10.2.1",
     "jspdf": "4.2.1",
-    "jws": "3.2.3",
-    "lodash": "^4.17.24",
+    "lodash": "4.18.1",
+    "minimatch": "10.2.6",
     "nodemailer": "9.0.1",
+    "postcss": "8.5.24",
     "qs": "^6.15.2",
-    "postcss": "^8.5.12",
-    "next": {
-      "postcss": "^8.5.12"
-    },
+    "sharp": "0.35.3",
     "shell-quote": "^1.8.4",
+    "unzipper": "0.12.5",
+    "uuid": "11.1.1",
     "xcode": {
       "uuid": "^11.1.1"
     },
-    "svix": ">=1.92.0",
-    "ws": "^8.21.0",
-    "expo": "~56.0.0",
-    "react-native": "0.85.3"
+    "svix": ">=1.92.0"
   }
 }

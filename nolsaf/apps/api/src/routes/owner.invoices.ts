@@ -6,6 +6,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
 
@@ -242,9 +243,9 @@ router.get("/:id", async (req: Request, res: Response) => {
     senderName: owner?.name ?? `Owner #${authReq.user!.id}`,
     senderPhone: owner?.phone ?? null,
     senderAddress: (owner as any)?.address ?? null,
-    receiverName: "NoLSAF",
-    receiverPhone: "+255",
-    receiverAddress: "Dar es Salaam, Tanzania",
+    receiverName: NOLSAF_BILLING_CONTACT.name,
+    receiverEmail: NOLSAF_BILLING_CONTACT.email,
+    receiverAddress: NOLSAF_BILLING_CONTACT.address,
     subtotal,
     taxPercent,
     taxAmount,
@@ -275,11 +276,16 @@ router.post("/:id/submit", async (req, res) => {
     return res.json({ ok: true, status: inv.status, alreadySubmitted: true });
   }
 
-  const updated = await prisma.invoice.update({
-    where: { id: inv.id },
+  const claimed = await prisma.invoice.updateMany({
+    where: { id: inv.id, status: "DRAFT" },
     // Align to schema statuses: REQUESTED → (admin) VERIFIED → APPROVED → PROCESSING → PAID / REJECTED
     data: { status: "REQUESTED" },
   });
+  if (claimed.count !== 1) {
+    const current = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
+    return res.json({ ok: true, status: current.status, alreadySubmitted: true });
+  }
+  const updated = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
   await invalidateOwnerReports(updated.ownerId);
   // Notify admins only once, when the invoice first transitions to REQUESTED.
   try {

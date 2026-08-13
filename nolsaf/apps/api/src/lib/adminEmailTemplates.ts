@@ -287,7 +287,7 @@ export function getAdminRevocationEmail(data: {
   `;
 
   return {
-    subject: `Notice of Admin Access Revocation — Ref: ${data.referenceCode}`,
+    subject: `Notice of Admin Access Revocation (Ref: ${data.referenceCode})`,
     html: baseEmail("#dc2626", "#991b1b", "Admin Access Revoked", "🔒", body),
   };
 }

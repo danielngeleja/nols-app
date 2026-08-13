@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSocket } from "@/hooks/useSocket";
 import { fetchAccountSession } from "@/lib/accountSession";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import {
   BarChart3,
   Bell,
@@ -13,6 +14,7 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
+  MessagesSquare,
   LayoutDashboard,
   LogOut,
   Shield,
@@ -141,6 +143,7 @@ export default function AgentPortalHeader() {
       socket.off("notification:new", onNew);
     };
   }, [socket]);
+  const bypassAvatarOptimizer = Boolean(avatarUrl && /^https?:\/\//i.test(avatarUrl));
 
   return (
     <div className="sticky top-0 z-40 bg-transparent">
@@ -202,7 +205,7 @@ export default function AgentPortalHeader() {
                 <span className="sr-only">Open profile menu</span>
                 {avatarUrl ? (
                   <span className="relative block h-full w-full">
-                    <Image src={avatarUrl} alt="Profile photo" fill sizes="40px" className="object-cover" />
+                    <Image src={avatarUrl} alt="Profile photo" fill sizes="40px" unoptimized={bypassAvatarOptimizer} className="object-cover" />
                   </span>
                 ) : (
                   <UserRound className="h-5 w-5 transition-transform duration-300 ease-out group-hover:scale-110 motion-reduce:transition-none" aria-hidden />
@@ -257,6 +260,17 @@ export default function AgentPortalHeader() {
                       <CalendarDays className="h-4 w-4 text-white/60 group-hover:text-brand transition-colors" aria-hidden />
                       <span className="flex-1">My Bookings</span>
                       <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
+                    </Link>
+
+                    <Link
+                      role="menuitem"
+                      href="/account/agent/cancellations"
+                      onClick={() => setProfileMenuOpen(false)}
+                      className={menuItemClass}
+                    >
+                      <MessagesSquare className="h-4 w-4 text-white/60 transition-colors group-hover:text-brand" aria-hidden />
+                      <span className="flex-1">Cancellation cases</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-white/40 transition-colors group-hover:text-brand" aria-hidden />
                     </Link>
 
                     <Link
@@ -347,7 +361,7 @@ export default function AgentPortalHeader() {
                       <span className="flex-1">My Documents</span>
                       <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
                     </Link>
-                    <div className="my-2 mx-4 h-px bg-white/10" />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" variant="menu-dark" />
 
                     <button
                       type="button"

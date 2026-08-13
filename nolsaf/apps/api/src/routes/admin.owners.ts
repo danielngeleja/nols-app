@@ -2,10 +2,11 @@
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import jwt from "jsonwebtoken";
+import { signUserJwt } from "../lib/sessionManager.js";
 import { Prisma } from "@prisma/client";
 import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
+import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -424,6 +425,7 @@ router.post("/:id/suspend", async (req, res) => {
   await prisma.adminAudit.create({
     data: { adminId: me, targetUserId: id, action: "SUSPEND_OWNER", details: reason },
   });
+  await revokeUserAuthorization(id);
 
   req.app.get("io")?.emit?.("admin:owner:updated", { ownerId: id });
   res.json({ ok: true, ownerId: updated.id, suspendedAt: updated.suspendedAt });
@@ -561,10 +563,9 @@ router.post("/:id/impersonate", async (req, res) => {
   }
 
   const ttlSec = 10 * 60; // 10 minutes
-  const token = jwt.sign(
-    { sub: owner.id, role: "OWNER", imp: true },
-    process.env.JWT_SECRET!,
-    { expiresIn: ttlSec }
+  const token = await signUserJwt(
+    { id: owner.id, role: "OWNER", email: owner.email },
+    { impersonated: true, expiresInSeconds: ttlSec },
   );
   
   await prisma.adminAudit.create({
@@ -697,96 +698,10 @@ router.post("/:id/payouts/preview", async (req, res) => {
   }
 });
 
-/** POST /admin/owners/:id/payouts - Grant payout to owner */
-router.post("/:id/payouts", async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const adminId = (req.user as any)?.id;
-    if (!adminId) return res.status(401).json({ error: "Unauthorized" });
-
-    const owner = await prisma.user.findFirst({
-      where: { id, role: "OWNER" },
-    });
-    if (!owner) return res.status(404).json({ error: "Owner not found" });
-
-    // Get pending invoices
-    const invoices = await prisma.invoice.findMany({
-      where: {
-        ownerId: id,
-        status: { in: ["SUBMITTED", "VERIFIED", "APPROVED"] },
-      },
-      include: {
-        booking: {
-          select: {
-            id: true,
-            code: {
-              select: {
-                id: true,
-                status: true,
-                usedByOwner: true,
-                usedAt: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (invoices.length === 0) {
-      return res.status(400).json({ error: "No pending invoices to payout" });
-    }
-
-    const notValidated = invoices
-      .filter((inv: any) => !(inv as any)?.booking?.code?.usedByOwner)
-      .map((inv: any) => ({
-        invoiceId: inv.id,
-        bookingId: inv.bookingId,
-        code: (inv as any)?.booking?.code ?? null,
-      }));
-    if (notValidated.length) {
-      return res.status(403).json({
-        error: "Owner validation required",
-        detail: "Owner must validate the booking code before admin can process payouts for these invoices.",
-        count: notValidated.length,
-        invoices: notValidated.slice(0, 20),
-      });
-    }
-
-    // Mark all invoices as PAID
-    await prisma.invoice.updateMany({
-      where: {
-        ownerId: id,
-        status: { in: ["SUBMITTED", "VERIFIED", "APPROVED"] },
-      },
-      data: {
-        status: "PAID",
-        paidAt: new Date(),
-        paidBy: adminId,
-      },
-    });
-
-    // Create audit log entry
-    try {
-      await prisma.adminAudit.create({
-        data: {
-          adminId,
-          targetUserId: id,
-          action: "GRANT_PAYOUT",
-          details: `Granted payout for ${invoices.length} invoice(s)`,
-        },
-      });
-    } catch (e) {
-      // Non-fatal if audit table doesn't exist
-      console.warn("Failed to create audit log:", e);
-    }
-
-    req.app.get("io")?.emit?.("admin:owner:payout", { ownerId: id });
-
-    res.json({ ok: true, invoicesProcessed: invoices.length });
-  } catch (err: any) {
-    console.error("Error in POST /admin/owners/:id/payouts:", err);
-    res.status(500).json({ error: "Internal server error", detail: err?.message || String(err) });
-  }
-});
+// The manual "grant payout" action (POST /:id/payouts) that used to mark
+// invoices PAID directly has been retired. Owner invoices are now paid
+// exclusively through the AzamPay Disbursement ledger — see
+// services/payouts/ledger.ts and routes/admin.disbursements.ts. The write-
+// back in ledger.ts sets Invoice.status = "PAID" once AzamPay confirms.
 
 export default router;

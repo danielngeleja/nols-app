@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { cache } from "react";
+import { serializeJsonLd } from "@/lib/safeJsonLd";
 
 const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nolsaf.com";
 
@@ -95,6 +97,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PropertySlugLayout({ params, children }: Props) {
   const { slug } = await params;
+  const nonce = (await headers()).get("x-nonce") || undefined;
 
   let jsonLd: Record<string, unknown> | null = null;
 
@@ -176,10 +179,15 @@ export default async function PropertySlugLayout({ params, children }: Props) {
 
   return (
     <>
+      {/* suppressHydrationWarning below because browsers blank the nonce
+          attribute after parsing, by design, so the client reads "" where the
+          server sent a real value. Same reason as the root layout's JSON-LD. */}
       {jsonLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
         />
       )}
       {children}

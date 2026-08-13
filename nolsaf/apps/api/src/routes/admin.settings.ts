@@ -3,6 +3,8 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 import { resolveTierLadder, defaultTierLadderConfig, validateTierLadder } from "../lib/agentLevel.js";
+import { invalidateSessionPolicyCache } from "../lib/securitySettings.js";
+import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 
 /** Convert a resolved tier-spec list back to the editable {TIER:{thresholds}} config. */
 function tierLadderToConfig(raw: unknown) {
@@ -24,7 +26,7 @@ async function hasRoleTtlColumns(): Promise<boolean> {
   try {
     await prisma.systemSetting.findUnique({
       where: { id: 1 },
-      select: { sessionMaxMinutesAdmin: true } as any,
+      select: { sessionMaxMinutesAdmin: true, sessionMaxMinutesAgent: true } as any,
     });
     roleTtlColumnsAvailable = true;
     return true;
@@ -160,6 +162,7 @@ router.get("/", async (_req, res) => {
               sessionMaxMinutesOwner: true,
               sessionMaxMinutesDriver: true,
               sessionMaxMinutesCustomer: true,
+              sessionMaxMinutesAgent: true,
             }
           : {}),
       } as any,
@@ -173,6 +176,7 @@ router.get("/", async (_req, res) => {
     out.sessionMaxMinutesOwner = null;
     out.sessionMaxMinutesDriver = null;
     out.sessionMaxMinutesCustomer = null;
+    out.sessionMaxMinutesAgent = null;
   }
   if (!currencyCol) {
     // Keep UI stable even if DB isn't migrated yet.
@@ -272,6 +276,7 @@ router.put("/", async (req, res) => {
           'sessionMaxMinutesOwner',
           'sessionMaxMinutesDriver',
           'sessionMaxMinutesCustomer',
+          'sessionMaxMinutesAgent',
         ] as const)
       : ([] as const)),
   ] as const);
@@ -386,6 +391,7 @@ router.put("/", async (req, res) => {
     delete (sanitizedUpdate as any).sessionMaxMinutesOwner;
     delete (sanitizedUpdate as any).sessionMaxMinutesDriver;
     delete (sanitizedUpdate as any).sessionMaxMinutesCustomer;
+    delete (sanitizedUpdate as any).sessionMaxMinutesAgent;
   }
 
   // If the DB isn't migrated yet, drop currency so the update doesn't fail.
@@ -410,12 +416,24 @@ router.put("/", async (req, res) => {
     const from = (before as any)?.[f];
     const to = (s as any)?.[f];
     // Use loose comparison so null vs undefined doesn't create noise.
-    // eslint-disable-next-line eqeqeq
     if (from != to) changes[f] = { from: from ?? null, to: to ?? null };
   }
-  const sessionPolicyFields = new Set(['sessionIdleMinutes', 'maxSessionDurationHours', 'sessionMaxMinutesAdmin', 'sessionMaxMinutesOwner', 'sessionMaxMinutesDriver', 'sessionMaxMinutesCustomer']);
+  const sessionPolicyFields = new Set(['sessionIdleMinutes', 'maxSessionDurationHours', 'sessionMaxMinutesAdmin', 'sessionMaxMinutesOwner', 'sessionMaxMinutesDriver', 'sessionMaxMinutesCustomer', 'sessionMaxMinutesAgent']);
   const touchedSessionPolicy = Object.keys(changes).some((k) => sessionPolicyFields.has(k));
   const action = touchedSessionPolicy ? 'ADMIN_SESSION_POLICY_UPDATE' : 'ADMIN_SETTINGS_UPDATE';
+
+  if (touchedSessionPolicy) {
+    // Make the new limits effective before this request returns. HTTP checks
+    // will read the fresh policy, and already-connected sockets that are now
+    // over their role limit are disconnected immediately.
+    invalidateSessionPolicyCache();
+    const io = req.app.get("io");
+    if (io) {
+      await enforceSocketSessionPolicy(io).catch((err: any) => {
+        console.error("[admin.settings] Socket session policy enforcement failed:", err?.message ?? err);
+      });
+    }
+  }
 
   // Write audit directly so errors surface instead of being swallowed silently.
   try {

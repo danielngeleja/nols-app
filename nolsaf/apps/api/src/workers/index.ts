@@ -3,7 +3,27 @@ import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
-import { acquireLeaderLock } from "./leaderLock.js";
+import { acquireLeaderLock, setLeadershipLostHandler } from "./leaderLock.js";
+import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
+import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
+import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
+import { startNrmsDunningWorker } from "./nrmsDunning.js";
+import { startNrmsPaymentReconcileAlertWorker } from "./nrmsPaymentReconcileAlert.js";
+import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
+import { startNrmsRetentionWorker } from "./nrmsRetention.js";
+import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
+import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
+import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
+import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
+import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
+import { startIcalCalendarSyncWorker } from "../lib/channels/icalSync.js";
+import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
+import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
+import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
+import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
+import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
+import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -40,6 +60,14 @@ export function startBackgroundWorkers(io: SocketServer): void {
     return;
   }
 
+  // Timers and in-flight work cannot safely continue after the lease expires.
+  // Process exit is the fencing boundary; the supervisor restarts a clean web
+  // instance while another process may acquire worker leadership.
+  setLeadershipLostHandler((reason) => {
+    console.error(`[workers] Stopping process after leadership loss: ${reason}`);
+    process.exit(1);
+  });
+
   // This process is allowed to run workers, but only ONE process may actually
   // run them. The distributed lease decides — every instance can attempt this,
   // and exactly one wins, so we're safe on a single instance, under
@@ -62,5 +90,51 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireStaleBookings();
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
+    startGuestSmsCampaignWorker();
+    startDailyOccupiedHousekeepingWorker();
+    startNrmsUsageAccrualWorker();
+    startNrmsDunningWorker();
+    startNrmsPaymentReconcileAlertWorker();
+    startNrmsIntegritySignalsWorker();
+    startNrmsRetentionWorker();
+    startNrmsGuestAutomationWorker();
+    startSalesCommissionLifecycleWorker();
+    startAuditRetentionWorker();
+    // Fallback for missed/delayed AzamPay disbursement callbacks: polls
+    // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
+    // applies the result through the same idempotent ledger path a callback
+    // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
+    startDisbursementReconciliationWorker();
+    // The same fallback for money coming IN. A SUCCESS callback writes its
+    // PaymentEvent before settlement runs, so a crash in between leaves a paid
+    // customer with an unconfirmed booking. This re-runs the idempotent
+    // settlement path and escalates anything that will not settle.
+    startUnsettledPaymentReconciliationWorker();
+    // Submits authorized batches to AzamPay. Authorization is the human
+    // decision; this is what actually moves the money, so that an HTTP
+    // timeout can never strand a released batch half-submitted.
+    startDisbursementBatchWorker();
+    startChannelOperationsWorker();
+    // Calendar feeds need no credentials and no provider partnership, so this
+    // one runs unconditionally: with no feeds attached it is a single indexed
+    // query per tick.
+    startIcalCalendarSyncWorker();
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
+      startBookingComReservationSyncWorker();
+      startBookingComOutboundDeliveryWorker();
+    } else {
+      console.log("[booking-com-reservations] worker disabled (set RUN_BOOKING_COM_WORKER=true to enable)");
+    }
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_EXPEDIA_WORKER || "").trim().toLowerCase())) {
+      startExpediaReservationSyncWorker();
+      startExpediaOutboundDeliveryWorker();
+    } else {
+      console.log("[expedia-reservations] worker disabled (set RUN_EXPEDIA_WORKER=true to enable)");
+    }
+    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
+      startLifecycleHealthWorker();
+    } else {
+      console.log("[lifecycle-health] worker disabled (set RUN_LIFECYCLE_HEALTH_WORKER=true to enable)");
+    }
   });
 }

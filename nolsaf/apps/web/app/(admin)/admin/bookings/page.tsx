@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { BarChart2, Calendar, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock, CreditCard, Eye, Landmark, LogIn, LogOut, Search, Smartphone, X, XCircle } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import TableRow from "@/components/TableRow";
@@ -701,7 +701,7 @@ export default function AdminBookingsPage() {
                                   );
                                 case 'status': {
                                   // A NEW booking shown in any admin list is an unpaid draft, so it reads "Draft".
-                                  const _icons: Record<string, JSX.Element | null> = {
+                                  const _icons: Record<string, ReactElement | null> = {
                                     NEW: <Clock className="h-3 w-3" />,
                                     CONFIRMED: <CheckCircle2 className="h-3 w-3" />,
                                     PENDING_CHECKIN: <Clock className="h-3 w-3" />,

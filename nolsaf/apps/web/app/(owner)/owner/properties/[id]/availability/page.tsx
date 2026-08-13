@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import apiClient from "@/lib/apiClient";
+import { AFRICA_NATIONALITY_OPTIONS } from "@nolsaf/shared";
 import { 
   Calendar, 
   Plus, 
@@ -25,6 +26,7 @@ import {
   Info,
   AlertTriangle,
   Layers,
+  User,
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 import DatePicker from "@/components/ui/DatePicker";
@@ -150,6 +152,14 @@ type AvailabilityBlock = {
   endDate: string;
   roomCode: string | null;
   source: string | null;
+  guestName?: string | null;
+  guestPhone?: string | null;
+  nationality?: string | null;
+  roomRate?: number | null;
+  calculatedAmount?: number | null;
+  amountPaid?: number | null;
+  paidVia?: string | null;
+  currency?: string | null;
   bedsBlocked: number | null;
   notes: string | null;
   createdAt: string;
@@ -171,6 +181,8 @@ type RoomType = {
   roomType: string;
   roomCode: string | null;
   roomsCount: number;
+  basePrice?: number | null;
+  currency?: string | null;
 };
 
 type CalendarData = {
@@ -187,17 +199,76 @@ type CalendarData = {
   blocks: AvailabilityBlock[];
 };
 
+type BlockRangeAvailability = {
+  ok?: boolean;
+  summary?: {
+    totalAvailableRooms?: number;
+  };
+  byRoomType?: Record<string, {
+    roomType?: string;
+    totalRooms?: number;
+    availableRooms?: number;
+  }>;
+};
+
 const SOURCE_OPTIONS = [
   { value: "AIRBNB", label: "Airbnb" },
   { value: "BOOKING_COM", label: "Booking.com" },
   { value: "WALK_IN", label: "Walk-in" },
   { value: "PHONE", label: "Phone Booking" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "CORPORATE", label: "Corporate" },
   { value: "OTHER", label: "Other" },
 ];
+
+const GUEST_COUNTRY_OPTIONS = AFRICA_NATIONALITY_OPTIONS;
+
+function formatMoney(value: number | null | undefined, currency = "TZS") {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "Price not set";
+  return `${currency} ${Math.round(n).toLocaleString("en-US")}`;
+}
+
+function nightsBetween(startValue: string, endValue: string) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 0;
+  return Math.max(0, Math.ceil((+end - +start) / 864e5));
+}
+
+function emptyBlockFormData(roomCode = "") {
+  return {
+    startDate: "",
+    endDate: "",
+    roomCode,
+    source: "",
+    guestName: "",
+    guestPhone: "",
+    nationality: "",
+    roomRate: 0,
+    calculatedAmount: 0,
+    amountPaid: 0,
+    paidVia: "",
+    currency: "TZS",
+    bedsBlocked: 1,
+    notes: "",
+  };
+}
 
 export default function PropertyAvailabilityPage() {
   const params = useParams();
   const router = useRouter();
+  const [initialDeepLink] = useState(() => {
+    if (typeof window === "undefined") return { roomCode: "", openExternalBlock: false };
+    const searchParams = new URLSearchParams(window.location.search);
+    return {
+      roomCode: searchParams.get("roomCode") || "",
+      openExternalBlock: searchParams.get("externalBlock") === "1",
+    };
+  });
+  const roomCodeParam = initialDeepLink.roomCode;
+  const openExternalBlockParam = initialDeepLink.openExternalBlock;
+  const consumedRoomCodeParamRef = useRef(false);
   
   // Safely extract propertyId from params
   const propertyIdParam = params?.id;
@@ -263,14 +334,10 @@ export default function PropertyAvailabilityPage() {
   const [endDateOnly, setEndDateOnly] = useState<string>("");
   
   // Form state
-  const [formData, setFormData] = useState({
-    startDate: "",
-    endDate: "",
-    roomCode: "",
-    source: "",
-    bedsBlocked: 1,
-    notes: "",
-  });
+  const [formData, setFormData] = useState(() => emptyBlockFormData());
+  const [blockRangeAvailability, setBlockRangeAvailability] = useState<BlockRangeAvailability | null>(null);
+  const [loadingBlockRangeAvailability, setLoadingBlockRangeAvailability] = useState(false);
+  const [blockRangeAvailabilityError, setBlockRangeAvailabilityError] = useState<string | null>(null);
 
   // Load property details
   useEffect(() => {
@@ -410,6 +477,59 @@ export default function PropertyAvailabilityPage() {
     }
   }, [propertyId]);
 
+  const roomTypes = calendarData?.property.roomTypes || [];
+
+  useEffect(() => {
+    if (consumedRoomCodeParamRef.current || !roomCodeParam || roomTypes.length === 0) return;
+
+    const match = roomTypes.find((rt) => {
+      const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+      return (
+        String(value).toLowerCase() === roomCodeParam.toLowerCase() ||
+        String(rt.roomCode || "").toLowerCase() === roomCodeParam.toLowerCase() ||
+        String(rt.roomType || "").toLowerCase() === roomCodeParam.toLowerCase()
+      );
+    });
+
+    if (!match) return;
+
+    const selectedValue = (match.roomCode && match.roomCode.trim() !== "") ? match.roomCode : match.roomType;
+    consumedRoomCodeParamRef.current = true;
+    setSelectedRoomCode(selectedValue || null);
+    setFormData((prev) => ({ ...prev, roomCode: selectedValue || "" }));
+
+    if (openExternalBlockParam) {
+      setEditingBlock(null);
+      setStartDateOnly("");
+      setEndDateOnly("");
+      setShowBlockForm(true);
+    }
+  }, [openExternalBlockParam, roomCodeParam, roomTypes]);
+
+  const getRoomAvailabilityForForm = useCallback((roomTypeName: string) => {
+    const byRoomType = blockRangeAvailability?.byRoomType || {};
+    return (
+      byRoomType[roomTypeName] ||
+      Object.values(byRoomType).find((entry) => String(entry.roomType || "").toLowerCase() === String(roomTypeName || "").toLowerCase()) ||
+      Object.entries(byRoomType).find(([key]) => key.toLowerCase() === String(roomTypeName || "").toLowerCase())?.[1] ||
+      null
+    );
+  }, [blockRangeAvailability]);
+
+  const isRoomTypeAvailableForForm = useCallback((rt: RoomType) => {
+    if (!formData.startDate || !formData.endDate || !blockRangeAvailability) return true;
+    const availability = getRoomAvailabilityForForm(rt.roomType);
+    return Number(availability?.availableRooms || 0) > 0;
+  }, [blockRangeAvailability, formData.endDate, formData.startDate, getRoomAvailabilityForForm]);
+
+  const availableRoomTypesForForm = roomTypes.filter(isRoomTypeAvailableForForm);
+  const blockRangeHasDates = Boolean(formData.startDate && formData.endDate);
+  const blockRangeHasNoRooms =
+    blockRangeHasDates &&
+    !loadingBlockRangeAvailability &&
+    !!blockRangeAvailability &&
+    Number(blockRangeAvailability.summary?.totalAvailableRooms || 0) <= 0;
+
   const getRoomTypeLabel = useCallback((value: string) => {
     const rt = (calendarData?.property.roomTypes || []).find((x) => {
       const v = (x.roomCode && x.roomCode.trim() !== "") ? x.roomCode : x.roomType;
@@ -438,6 +558,34 @@ export default function PropertyAvailabilityPage() {
         return;
       }
 
+      const selectedRoomType = roomTypes.find((rt) => {
+        const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+        return String(value) === String(formData.roomCode || "");
+      });
+      const roomRate = Number(formData.roomRate || selectedRoomType?.basePrice || 0);
+      const nights = nightsBetween(formData.startDate, formData.endDate);
+      const calculatedAmount = Math.max(0, nights * Math.max(0, roomRate) * Math.max(1, Number(formData.bedsBlocked || 1)));
+      const amountPaid = Number(formData.amountPaid || calculatedAmount || 0);
+      const currency = formData.currency || selectedRoomType?.currency || "TZS";
+      const startDateISO = formData.startDate ? new Date(formData.startDate).toISOString() : formData.startDate;
+      const endDateISO = formData.endDate ? new Date(formData.endDate).toISOString() : formData.endDate;
+      const blockPayload = {
+        startDate: startDateISO,
+        endDate: endDateISO,
+        roomCode: formData.roomCode || null,
+        source: formData.source || null,
+        guestName: formData.guestName || null,
+        guestPhone: formData.guestPhone || null,
+        nationality: formData.nationality || null,
+        roomRate: roomRate > 0 ? roomRate : null,
+        calculatedAmount,
+        amountPaid,
+        paidVia: formData.paidVia || null,
+        currency,
+        bedsBlocked: formData.bedsBlocked,
+        notes: formData.notes || null,
+      };
+
       // Check for conflicts
       const conflictCheck = await checkConflicts(
         formData.startDate,
@@ -453,27 +601,12 @@ export default function PropertyAvailabilityPage() {
           conflictingBlocks: conflictCheck.conflictingBlocks || [],
         });
         setPendingSubmit(() => async () => {
-          const startDateISO = formData.startDate ? new Date(formData.startDate).toISOString() : formData.startDate;
-          const endDateISO = formData.endDate ? new Date(formData.endDate).toISOString() : formData.endDate;
-
           if (editingBlock) {
-            await api.put(`/api/owner/availability/blocks/${editingBlock.id}`, {
-              startDate: startDateISO,
-              endDate: endDateISO,
-              roomCode: formData.roomCode || null,
-              source: formData.source || null,
-              bedsBlocked: formData.bedsBlocked,
-              notes: formData.notes || null,
-            });
+            await api.put(`/api/owner/availability/blocks/${editingBlock.id}`, blockPayload);
           } else {
             await api.post("/api/owner/availability/blocks", {
               propertyId,
-              startDate: startDateISO,
-              endDate: endDateISO,
-              roomCode: formData.roomCode || null,
-              source: formData.source || null,
-              bedsBlocked: formData.bedsBlocked,
-              notes: formData.notes || null,
+              ...blockPayload,
             });
           }
 
@@ -481,14 +614,7 @@ export default function PropertyAvailabilityPage() {
           setEditingBlock(null);
           setStartDateOnly("");
           setEndDateOnly("");
-          setFormData({
-            startDate: "",
-            endDate: "",
-            roomCode: "",
-            source: "",
-            bedsBlocked: 1,
-            notes: "",
-          });
+          setFormData(emptyBlockFormData());
           await loadCalendarData();
           await loadAvailabilitySummary();
         });
@@ -496,28 +622,12 @@ export default function PropertyAvailabilityPage() {
         return;
       }
 
-      // Convert dates to ISO format
-      const startDateISO = formData.startDate ? new Date(formData.startDate).toISOString() : formData.startDate;
-      const endDateISO = formData.endDate ? new Date(formData.endDate).toISOString() : formData.endDate;
-
       if (editingBlock) {
-        await api.put(`/api/owner/availability/blocks/${editingBlock.id}`, {
-          startDate: startDateISO,
-          endDate: endDateISO,
-          roomCode: formData.roomCode || null,
-          source: formData.source || null,
-          bedsBlocked: formData.bedsBlocked,
-          notes: formData.notes || null,
-        });
+        await api.put(`/api/owner/availability/blocks/${editingBlock.id}`, blockPayload);
       } else {
         await api.post("/api/owner/availability/blocks", {
           propertyId,
-          startDate: startDateISO,
-          endDate: endDateISO,
-          roomCode: formData.roomCode || null,
-          source: formData.source || null,
-          bedsBlocked: formData.bedsBlocked,
-          notes: formData.notes || null,
+          ...blockPayload,
         });
       }
 
@@ -525,14 +635,7 @@ export default function PropertyAvailabilityPage() {
       setEditingBlock(null);
       setStartDateOnly("");
       setEndDateOnly("");
-      setFormData({
-        startDate: "",
-        endDate: "",
-        roomCode: "",
-        source: "",
-        bedsBlocked: 1,
-        notes: "",
-      });
+      setFormData(emptyBlockFormData());
       await loadCalendarData();
       await loadAvailabilitySummary();
     } catch (err: any) {
@@ -553,6 +656,7 @@ export default function PropertyAvailabilityPage() {
     loadAvailabilitySummary,
     loadCalendarData,
     propertyId,
+    roomTypes,
     saving,
   ]);
 
@@ -562,8 +666,38 @@ export default function PropertyAvailabilityPage() {
     if (saving || showConfirmModal) return;
     setError(null);
 
+    if (loadingBlockRangeAvailability) {
+      setError("Please wait while available rooms are checked for the selected dates.");
+      return;
+    }
+
+    if (blockRangeHasNoRooms) {
+      setError("No rooms are available for the selected stay dates. Please choose another date range.");
+      return;
+    }
+
     if (!formData.roomCode || !formData.source || !formData.startDate || !formData.endDate) {
       setError("Please fill in all required fields");
+      return;
+    }
+
+    if (!formData.guestName.trim()) {
+      setError("Please enter the guest name for this external booking");
+      return;
+    }
+
+    if (!formData.nationality.trim()) {
+      setError("Please select the guest country");
+      return;
+    }
+
+    const selectedRoomType = roomTypes.find((rt) => {
+      const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+      return String(value) === String(formData.roomCode || "");
+    });
+    const selectedAvailability = selectedRoomType ? getRoomAvailabilityForForm(selectedRoomType.roomType) : null;
+    if (blockRangeAvailability && selectedAvailability && Number(formData.bedsBlocked || 1) > Number(selectedAvailability.availableRooms || 0)) {
+      setError(`Only ${selectedAvailability.availableRooms} room${Number(selectedAvailability.availableRooms) === 1 ? "" : "s"} available for the selected dates.`);
       return;
     }
 
@@ -636,6 +770,102 @@ export default function PropertyAvailabilityPage() {
     }));
   }, [endDateOnly]);
 
+  useEffect(() => {
+    const room = roomTypes.find((rt) => {
+      const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+      return String(value) === String(formData.roomCode || "");
+    });
+    const rate = Number(formData.roomRate || room?.basePrice || 0);
+    const currency = formData.currency || room?.currency || "TZS";
+    const previousCalculatedAmount = Number(formData.calculatedAmount || 0);
+    const calculatedAmount = Math.max(0, nightsBetween(formData.startDate, formData.endDate) * Math.max(0, rate) * Math.max(1, Number(formData.bedsBlocked || 1)));
+    setFormData((prev) => {
+      const shouldSyncAmountPaid = Number(prev.amountPaid || 0) === previousCalculatedAmount;
+      const nextAmountPaid = shouldSyncAmountPaid ? calculatedAmount : Number(prev.amountPaid || 0);
+      if (
+        Number(prev.roomRate || 0) === rate &&
+        Number(prev.calculatedAmount || 0) === calculatedAmount &&
+        prev.currency === currency &&
+        Number(prev.amountPaid || 0) === nextAmountPaid
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        roomRate: rate,
+        currency,
+        calculatedAmount,
+        amountPaid: nextAmountPaid,
+      };
+    });
+  }, [formData.roomCode, formData.roomRate, formData.currency, formData.startDate, formData.endDate, formData.bedsBlocked, roomTypes]);
+
+  useEffect(() => {
+    const start = formData.startDate;
+    const end = formData.endDate;
+    if (isNaN(propertyId) || !start || !end) {
+      setBlockRangeAvailability(null);
+      setBlockRangeAvailabilityError(null);
+      setLoadingBlockRangeAvailability(false);
+      return;
+    }
+
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      setBlockRangeAvailability(null);
+      setBlockRangeAvailabilityError(null);
+      setLoadingBlockRangeAvailability(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingBlockRangeAvailability(true);
+    setBlockRangeAvailabilityError(null);
+
+    api.get("/api/owner/availability/calculate", {
+      params: {
+        propertyId,
+        startDate: start,
+        endDate: end,
+        ...(editingBlock?.id ? { excludeBlockId: editingBlock.id } : {}),
+      },
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setBlockRangeAvailability(res.data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setBlockRangeAvailability(null);
+        setBlockRangeAvailabilityError(err?.response?.data?.error || "Failed to load available rooms for the selected dates");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBlockRangeAvailability(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editingBlock?.id, formData.endDate, formData.startDate, propertyId]);
+
+  useEffect(() => {
+    if (!blockRangeAvailability || !formData.roomCode) return;
+    const selected = roomTypes.find((rt) => {
+      const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+      return String(value) === String(formData.roomCode);
+    });
+    if (selected && !isRoomTypeAvailableForForm(selected)) {
+      setFormData((prev) => ({
+        ...prev,
+        roomCode: "",
+        roomRate: 0,
+        calculatedAmount: 0,
+        amountPaid: 0,
+      }));
+    }
+  }, [blockRangeAvailability, formData.roomCode, isRoomTypeAvailableForForm, roomTypes]);
+
   // Handle edit
   const handleEdit = (block: AvailabilityBlock) => {
     setEditingBlock(block);
@@ -652,6 +882,14 @@ export default function PropertyAvailabilityPage() {
       endDate: `${endDateStr}T00:00:00`,
       roomCode: block.roomCode || "",
       source: block.source || "",
+      guestName: block.guestName || "",
+      guestPhone: block.guestPhone || "",
+      nationality: block.nationality || "",
+      roomRate: Number(block.roomRate || 0),
+      calculatedAmount: Number(block.calculatedAmount || 0),
+      amountPaid: Number(block.amountPaid || block.calculatedAmount || 0),
+      paidVia: block.paidVia || "",
+      currency: block.currency || "TZS",
       bedsBlocked: block.bedsBlocked || 1,
       notes: block.notes || "",
     });
@@ -814,9 +1052,17 @@ export default function PropertyAvailabilityPage() {
   }
 
   const calendarDays = generateCalendarDays();
-  const roomTypes = calendarData?.property.roomTypes || [];
   const totalBookings = calendarData?.bookings.length || 0;
   const totalBlocks = calendarData?.blocks.length || 0;
+  const selectedFormRoomType = roomTypes.find((rt) => {
+    const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+    return String(value) === String(formData.roomCode || "");
+  });
+  const formCurrency = formData.currency || selectedFormRoomType?.currency || "TZS";
+  const formRoomRate = Number(formData.roomRate || selectedFormRoomType?.basePrice || 0);
+  const formNights = nightsBetween(formData.startDate, formData.endDate);
+  const calculatedExternalAmount = Math.max(0, formNights * Math.max(0, formRoomRate) * Math.max(1, Number(formData.bedsBlocked || 1)));
+  const todayYmd = formatLocalYMD(new Date());
 
   const selectRoomTypeFromCapacityModal = (roomTypeName: string) => {
     const match = roomTypes.find(
@@ -839,12 +1085,9 @@ export default function PropertyAvailabilityPage() {
     setStartDateOnly(startYmd);
     setEndDateOnly(endYmd);
     setFormData({
+      ...emptyBlockFormData(selectedRoomCode || ""),
       startDate: `${startYmd}T00:00:00`,
       endDate: `${endYmd}T00:00:00`,
-      roomCode: selectedRoomCode || "",
-      source: "",
-      bedsBlocked: 1,
-      notes: "",
     });
     setShowBlockForm(true);
   };
@@ -860,14 +1103,7 @@ export default function PropertyAvailabilityPage() {
     setEditingBlock(null);
     setStartDateOnly("");
     setEndDateOnly("");
-    setFormData({
-      startDate: "",
-      endDate: "",
-      roomCode: selectedRoomCode || "",
-      source: "",
-      bedsBlocked: 1,
-      notes: "",
-    });
+    setFormData(emptyBlockFormData(selectedRoomCode || ""));
     setShowBlockForm(true);
   };
 
@@ -1186,12 +1422,9 @@ export default function PropertyAvailabilityPage() {
                     setStartDateOnly(filterStartDate);
                     setEndDateOnly(filterEndDate);
                     setFormData({
+                      ...emptyBlockFormData(),
                       startDate: `${filterStartDate}T00:00:00`,
                       endDate: `${filterEndDate}T00:00:00`,
-                      roomCode: "",
-                      source: "",
-                      bedsBlocked: 1,
-                      notes: "",
                     });
                     setShowBlockForm(true);
                   }}
@@ -1573,9 +1806,9 @@ export default function PropertyAvailabilityPage() {
                             <div
                               key={block.id}
                               className="text-[11px] px-2 py-1 rounded-lg bg-orange-500/15 text-orange-100 border border-orange-400/20 truncate"
-                              title={`Block: ${block.source || "External"}`}
+                              title={`External booking: ${block.guestName || block.source || "External"}`}
                             >
-                              {block.source || "Blocked"}
+                              {block.guestName || block.source || "External booking"}
                             </div>
                           ))}
                           {(() => {
@@ -1621,6 +1854,9 @@ export default function PropertyAvailabilityPage() {
                               <span className="text-sm font-semibold text-white">
                                 {new Date(block.startDate).toLocaleDateString()} - {new Date(block.endDate).toLocaleDateString()}
                               </span>
+                              <span className="px-2 py-1 text-xs font-semibold rounded-full border border-emerald-400/25 bg-emerald-500/15 text-emerald-100">
+                                External booking
+                              </span>
                               {block.source && (
                                 <span className="px-2 py-1 text-xs font-semibold rounded-full border border-orange-400/20 bg-orange-500/15 text-orange-100">
                                   {block.source}
@@ -1631,6 +1867,17 @@ export default function PropertyAvailabilityPage() {
                                   {block.roomCode}
                                 </span>
                               )}
+                            </div>
+                            <div className="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                              <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-white/80">
+                                Guest: <strong className="text-white">{block.guestName || "Guest"}</strong>
+                              </span>
+                              <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-white/80">
+                                Phone: <strong className="text-white">{block.guestPhone || "Not set"}</strong>
+                              </span>
+                              <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-white/80">
+                                Paid: <strong className="text-white">{formatMoney(block.amountPaid, block.currency || "TZS")}</strong>
+                              </span>
                             </div>
                             {block.notes && (
                               <p className="text-sm text-white/70 mb-2">{block.notes}</p>
@@ -2020,11 +2267,21 @@ export default function PropertyAvailabilityPage() {
                                 <div key={blk.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                      <div className="text-sm font-semibold text-slate-900 truncate">{(blk.source || "External").replaceAll("_", " ")}</div>
+                                      <div className="text-sm font-semibold text-slate-900 truncate">
+                                        {blk.guestName || (blk.source || "External").replaceAll("_", " ")}
+                                      </div>
                                       <div className="mt-0.5 text-xs text-slate-600">
                                         {new Date(blk.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} – {new Date(blk.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
                                       </div>
                                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                          External booking
+                                        </span>
+                                        {blk.amountPaid != null ? (
+                                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
+                                            Paid: {formatMoney(blk.amountPaid, blk.currency || "TZS")}
+                                          </span>
+                                        ) : null}
                                         {blk.roomCode ? <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Room: {blk.roomCode}</span> : null}
                                         <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Beds: {blk.bedsBlocked || 1}</span>
                                       </div>
@@ -2295,20 +2552,20 @@ export default function PropertyAvailabilityPage() {
       {/* Block Form Modal */}
       {showBlockForm && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-3 py-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-sm animate-in fade-in duration-200 sm:p-4 md:p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="px-4 py-3.5 border-b border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white sm:px-5 sm:py-4">
+            <div className="px-5 py-4 border-b border-slate-100 sm:px-6">
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-sm shadow-emerald-500/20 flex-shrink-0">
-                    <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                    <Calendar className="w-5 h-5 text-blue-600" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
-                      {editingBlock ? "Edit Availability Block" : "Add Availability Block"}
+                    <h2 className="text-lg font-bold text-slate-900 leading-tight">
+                      {editingBlock ? "Edit availability block" : "Add availability block"}
                     </h2>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                      {editingBlock ? "Update block details" : "Block rooms for a specific period"}
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      Record the guest details and block rooms for this external stay.
                     </p>
                   </div>
                 </div>
@@ -2318,20 +2575,13 @@ export default function PropertyAvailabilityPage() {
                     setEditingBlock(null);
                     setStartDateOnly("");
                     setEndDateOnly("");
-                    setFormData({
-                      startDate: "",
-                      endDate: "",
-                      roomCode: "",
-                      source: "",
-                      bedsBlocked: 1,
-                      notes: "",
-                    });
+                    setFormData(emptyBlockFormData());
                   }}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 active:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all flex-shrink-0"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0"
                   title="Close form"
                   aria-label="Close availability block form"
                 >
-                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
@@ -2374,7 +2624,7 @@ export default function PropertyAvailabilityPage() {
             )}
 
             {/* Form Content */}
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+            <form onSubmit={handleSubmit} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               <div className="p-4 sm:p-5 space-y-4 sm:space-y-5">
                 {/* Date Range Section */}
                 <div className="space-y-3 sm:space-y-4">
@@ -2384,6 +2634,9 @@ export default function PropertyAvailabilityPage() {
                     </div>
                     <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Date Range</h3>
                   </div>
+                  <p className="text-xs sm:text-sm text-slate-500">
+                    Select the dates when the guest will stay.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     {/* Start Date */}
                     <div className="space-y-1.5 sm:space-y-2">
@@ -2471,7 +2724,7 @@ export default function PropertyAvailabilityPage() {
                             }}
                             onCloseAction={() => setBlockRangePickerOpen(false)}
                             allowRange={true}
-                            minDate="2000-01-01"
+                            minDate={todayYmd}
                             twoMonths
                             initialViewDate={formatLocalYMD(selectedDate)}
                             resetRangeAnchor={blockPicking === "checkin"}
@@ -2501,26 +2754,71 @@ export default function PropertyAvailabilityPage() {
                           value={formData.roomCode}
                           onChange={(e) => {
                             const selectedValue = e.target.value;
-                            setFormData({ ...formData, roomCode: selectedValue });
+                            const selected = roomTypes.find((rt) => {
+                              const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
+                              return String(value) === String(selectedValue);
+                            });
+                            const rate = Number(selected?.basePrice || 0);
+                            const currency = selected?.currency || formData.currency || "TZS";
+                            const nextAmount = Math.max(0, formNights * Math.max(0, rate) * Math.max(1, Number(formData.bedsBlocked || 1)));
+                            setFormData({
+                              ...formData,
+                              roomCode: selectedValue,
+                              roomRate: rate,
+                              currency,
+                              calculatedAmount: nextAmount,
+                              amountPaid: nextAmount,
+                            });
                           }}
                           required
-                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all cursor-pointer shadow-sm hover:border-slate-400"
+                          disabled={loadingBlockRangeAvailability || blockRangeHasNoRooms || !blockRangeHasDates}
+                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                           aria-label="Select room type for availability block"
                           aria-required="true"
                         >
-                          <option value="" disabled>Select Room Type</option>
-                          {roomTypes.map((rt, index) => {
+                          <option value="" disabled>
+                            {!blockRangeHasDates
+                              ? "Select date range first"
+                              : loadingBlockRangeAvailability
+                                ? "Checking availability..."
+                                : blockRangeHasNoRooms
+                                  ? "No rooms available"
+                                  : "Select Room Type"}
+                          </option>
+                          {availableRoomTypesForForm.map((rt, index) => {
                             const value = (rt.roomCode && rt.roomCode.trim() !== "") ? rt.roomCode : rt.roomType;
                             if (!value) return null;
+                            const availability = getRoomAvailabilityForForm(rt.roomType);
+                            const availableRooms = availability?.availableRooms;
                             return (
                               <option key={`room-${value}-${index}`} value={value}>
-                                {rt.roomType} {rt.roomCode ? `(${rt.roomCode})` : "(no code)"}
+                                {rt.roomType} - {formatMoney(rt.basePrice, rt.currency || "TZS")}
+                                {availableRooms != null ? ` - ${availableRooms} available` : ""}
                               </option>
                             );
                           })}
                         </select>
-                        <ChevronRight className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none rotate-90" />
                       </div>
+                      {loadingBlockRangeAvailability && (
+                        <p className="text-xs text-slate-500">Checking available rooms for the selected dates...</p>
+                      )}
+                      {blockRangeAvailabilityError && (
+                        <p className="text-xs text-rose-600">{blockRangeAvailabilityError}</p>
+                      )}
+                      {blockRangeHasNoRooms && (
+                        <p className="text-xs font-semibold text-rose-600">
+                          All rooms are occupied for this date range. Choose another stay date.
+                        </p>
+                      )}
+                      {blockRangeAvailability && !blockRangeHasNoRooms && !loadingBlockRangeAvailability && (
+                        <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                          <span className="font-semibold text-emerald-800">
+                            {blockRangeAvailability.summary?.totalAvailableRooms ?? availableRoomTypesForForm.length} room{Number(blockRangeAvailability.summary?.totalAvailableRooms ?? availableRoomTypesForForm.length) === 1 ? "" : "s"} available
+                          </span>
+                          <span className="text-slate-500">for selected dates</span>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <label htmlFor="block-source" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
@@ -2542,8 +2840,64 @@ export default function PropertyAvailabilityPage() {
                             </option>
                           ))}
                         </select>
-                        <ChevronRight className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none rotate-90" />
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Guest Details Section */}
+                <div className="space-y-4 sm:space-y-5">
+                  <div className="flex items-center gap-2 pb-2">
+                    <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
+                      <User className="w-3.5 h-3.5 text-slate-600" />
+                    </div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Guest Details</h3>
+                  </div>
+                  <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                    <div className="min-w-0 space-y-1.5 sm:col-span-2">
+                      <label htmlFor="external-guest-name" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Guest Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="external-guest-name"
+                        value={formData.guestName}
+                        onChange={(e) => setFormData({ ...formData, guestName: e.target.value })}
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        placeholder="Full name"
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="external-nationality" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Country <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="external-nationality"
+                          value={formData.nationality}
+                          onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
+                          required
+                          className="box-border h-12 w-full max-w-full min-w-0 px-3 pr-9 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
+                        >
+                          <option value="">Select country</option>
+                          {GUEST_COUNTRY_OPTIONS.map((country) => (
+                            <option key={country.value} value={country.value}>
+                              {country.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="external-guest-phone" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Phone Number
+                      </label>
+                      <input
+                        id="external-guest-phone"
+                        value={formData.guestPhone}
+                        onChange={(e) => setFormData({ ...formData, guestPhone: e.target.value })}
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        placeholder="+255..."
+                      />
                     </div>
                   </div>
                 </div>
@@ -2556,20 +2910,53 @@ export default function PropertyAvailabilityPage() {
                     </div>
                     <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Quantity</h3>
                   </div>
-                  <div className="space-y-1.5 sm:space-y-2">
-                    <label htmlFor="block-beds" className="block text-xs sm:text-sm font-semibold text-slate-700">
-                      Beds/Rooms Blocked <span className="text-red-500 font-normal">*</span>
-                    </label>
-                    <input
-                      id="block-beds"
-                      type="number"
-                      min="1"
-                      value={formData.bedsBlocked}
-                      onChange={(e) => setFormData({ ...formData, bedsBlocked: Number(e.target.value) || 1 })}
-                      required
-                      className="w-24 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-                      aria-label="Number of beds or rooms blocked"
-                    />
+                  <div className="grid min-w-0 grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="block-beds" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Beds/Rooms Blocked <span className="text-red-500 font-normal">*</span>
+                      </label>
+                      <input
+                        id="block-beds"
+                        type="number"
+                        min="1"
+                        value={formData.bedsBlocked}
+                        onChange={(e) => setFormData({ ...formData, bedsBlocked: Number(e.target.value) || 1 })}
+                        required
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        aria-label="Number of beds or rooms blocked"
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="external-amount-paid" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Total Amount Paid
+                      </label>
+                      <input
+                        id="external-amount-paid"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={formData.amountPaid}
+                        onChange={(e) => setFormData({ ...formData, amountPaid: Number(e.target.value) || 0 })}
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        placeholder={formatMoney(calculatedExternalAmount, formCurrency)}
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="external-paid-via" className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                        Paid via
+                      </label>
+                      <select
+                        id="external-paid-via"
+                        value={formData.paidVia}
+                        onChange={(e) => setFormData({ ...formData, paidVia: e.target.value })}
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
+                      >
+                        <option value="">Select payment</option>
+                        <option value="CASH">Cash</option>
+                        <option value="MOBILE">Mobile</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -2607,14 +2994,9 @@ export default function PropertyAvailabilityPage() {
                     onClick={() => {
                       setShowBlockForm(false);
                       setEditingBlock(null);
-                      setFormData({
-                        startDate: "",
-                        endDate: "",
-                        roomCode: "",
-                        source: "",
-                        bedsBlocked: 1,
-                        notes: "",
-                      });
+                      setStartDateOnly("");
+                      setEndDateOnly("");
+                      setFormData(emptyBlockFormData());
                     }}
                     className="px-4 sm:px-6 py-2.5 sm:py-3 border border-slate-300 text-slate-700 rounded-lg sm:rounded-xl text-sm sm:text-base font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all"
                   >
@@ -2767,6 +3149,24 @@ export default function PropertyAvailabilityPage() {
                     <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Source</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {formData.source || "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Guest</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
+                      {formData.guestName || "Guest"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Amount paid</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
+                      {formatMoney(formData.amountPaid || calculatedExternalAmount, formCurrency)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Paid via</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
+                      {formData.paidVia === "CASH" ? "Cash" : formData.paidVia === "MOBILE" ? "Mobile" : "Not selected"}
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white/80 p-3">

@@ -65,12 +65,12 @@ type Overview = {
 };
 
 const STATUS_TONE: Record<RevenueStatus, string> = {
-  PENDING: "border-white/10 bg-white/5 text-slate-300",
-  AWAITING_DEPOSIT: "border-amber-400/20 bg-amber-500/10 text-amber-100",
-  DEPOSIT_PAID: "border-sky-400/20 bg-sky-500/10 text-sky-100",
-  CONFIRMED: "border-emerald-400/20 bg-emerald-500/10 text-emerald-100",
-  COMPLETED: "border-emerald-400/30 bg-emerald-500/15 text-emerald-50",
-  CANCELED: "border-rose-400/20 bg-rose-500/10 text-rose-100",
+  PENDING: "border-slate-200 bg-slate-50 text-slate-700",
+  AWAITING_DEPOSIT: "border-amber-200 bg-amber-50 text-amber-700",
+  DEPOSIT_PAID: "border-sky-200 bg-sky-50 text-sky-700",
+  CONFIRMED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  COMPLETED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CANCELED: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
 const STATUS_LABEL: Record<RevenueStatus, string> = {
@@ -152,68 +152,62 @@ export default function GroupStayRevenuePage() {
   const paged = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
-    <div className="relative min-h-screen w-full bg-[#070B1C] text-slate-100 overflow-hidden">
+    <div className="mx-auto box-border w-full max-w-full min-w-0 space-y-4 overflow-x-clip px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
       <div
-        className="pointer-events-none absolute inset-0"
-        aria-hidden
+        className="relative box-border w-full max-w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
         style={{
-          background:
-            "radial-gradient(900px circle at 18% 20%, rgba(139,92,246,0.16), transparent 45%), radial-gradient(900px circle at 78% 16%, rgba(59,130,246,0.12), transparent 44%), linear-gradient(to bottom, rgba(2,6,23,0.00), rgba(2,6,23,0.60))",
+          background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
+          boxShadow: "0 18px 42px -18px rgba(2,102,94,0.42)",
         }}
-      />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(to_right,rgba(255,255,255,0.09)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.09)_1px,transparent_1px)] [background-size:42px_42px]"
-        aria-hidden
-      />
-
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
+      >
+        <div className="relative z-10 px-5 py-6 sm:px-7 sm:py-8">
+          <div className="flex items-center gap-2 text-xs text-white/65">
             <Users className="h-4 w-4" />
             <span>Group stay</span>
           </div>
-          <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">Group stay revenue</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">Group stay revenue</h1>
+          <p className="mt-2 text-sm text-white/65 sm:text-base">
             Owner payout and NoLSAF take per group booking. Read only. Rolled into the{" "}
-            <Link href="/admin/finance" className="text-slate-200 underline-offset-2 hover:underline">
+            <Link href="/admin/finance" className="text-white underline-offset-2 hover:underline">
               All Revenue
             </Link>{" "}
             view.
           </p>
         </div>
+      </div>
 
         {error && (
-          <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             Couldn’t load group stay revenue: {error}
           </div>
         )}
 
         {/* Summary */}
-        <div className="grid grid-cols-12 gap-4">
-          <SummaryCard className="col-span-12 sm:col-span-6 xl:col-span-3" label="NoLSAF revenue" sublabel="Realized take" icon={TrendingUp} tone="from-emerald-500/20 to-emerald-300/5 border-emerald-400/20" currency={data?.baseCurrency || "TZS"} value={s ? s.nolsafRevenue : null} loading={loading} />
-          <SummaryCard className="col-span-12 sm:col-span-6 xl:col-span-3" label="GMV" sublabel="Gross value" icon={Wallet} tone="from-sky-500/20 to-sky-300/5 border-sky-400/20" currency={data?.baseCurrency || "TZS"} value={s ? s.gmv : null} loading={loading} />
-          <SummaryCard className="col-span-12 sm:col-span-6 xl:col-span-3" label="Owner payout" sublabel={s ? `${s.realizedCount} realized` : "Owners"} icon={HandCoins} tone="from-violet-500/20 to-violet-300/5 border-violet-400/20" currency={data?.baseCurrency || "TZS"} value={s ? s.ownerPayout : null} loading={loading} />
-          <SummaryCard className="col-span-12 sm:col-span-6 xl:col-span-3" label="Pending revenue" sublabel={s ? `${s.pendingCount} in pipeline` : "Pipeline"} icon={Hourglass} tone="from-amber-500/20 to-amber-300/5 border-amber-400/20" currency={data?.baseCurrency || "TZS"} value={s ? s.pendingRevenue : null} loading={loading} />
+        <div className="box-border grid w-full max-w-full gap-4 rounded-xl border border-[#02665e]/20 bg-gradient-to-r from-[#02665e]/10 to-emerald-50 p-4 shadow-sm sm:grid-cols-2 sm:p-6 xl:grid-cols-4">
+          <SummaryCard label="NoLSAF revenue" sublabel="Realized take" icon={TrendingUp} tone="bg-[#02665e]/20 text-[#02665e]" currency={data?.baseCurrency || "TZS"} value={s ? s.nolsafRevenue : null} loading={loading} />
+          <SummaryCard label="GMV" sublabel="Gross value" icon={Wallet} tone="bg-blue-100 text-blue-700" currency={data?.baseCurrency || "TZS"} value={s ? s.gmv : null} loading={loading} />
+          <SummaryCard label="Owner payout" sublabel={s ? `${s.realizedCount} realized` : "Owners"} icon={HandCoins} tone="bg-emerald-100 text-emerald-700" currency={data?.baseCurrency || "TZS"} value={s ? s.ownerPayout : null} loading={loading} />
+          <SummaryCard label="Pending revenue" sublabel={s ? `${s.pendingCount} in pipeline` : "Pipeline"} icon={Hourglass} tone="bg-amber-100 text-amber-700" currency={data?.baseCurrency || "TZS"} value={s ? s.pendingRevenue : null} loading={loading} />
         </div>
 
         {/* Records table */}
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden">
-          <div className="p-5 sm:p-6 border-b border-white/10">
-            <div className="text-sm font-semibold">Bookings</div>
-            <div className="text-xs text-slate-400">{data ? `${data.records.length} financial records` : "Loading"}</div>
+        <section className="box-border w-full max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-4 sm:px-5 sm:py-5">
+            <div className="text-sm font-semibold text-slate-900">Bookings</div>
+            <div className="text-xs text-slate-500">{data ? `${data.records.length} financial records` : "Loading"}</div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain [scrollbar-gutter:stable]">
             {loading ? (
               <div className="p-4 space-y-2">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-12 rounded-xl bg-white/5 animate-pulse" />
+                  <div key={i} className="h-12 rounded-xl bg-slate-100 animate-pulse" />
                 ))}
               </div>
             ) : data && data.records.length > 0 ? (
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[1120px] text-xs">
                 <thead>
-                  <tr className="text-[11px] uppercase tracking-wide text-slate-400 border-b border-white/10">
+                  <tr className="whitespace-nowrap border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600">
                     <SortableTh label="Booking" active={sortKey === "id"} dir={sortDir} onClick={() => toggleSort("id")} />
                     <SortableTh label="Owner" active={sortKey === "ownerName"} dir={sortDir} onClick={() => toggleSort("ownerName")} />
                     <SortableTh label="GMV" align="right" active={sortKey === "gmv"} dir={sortDir} onClick={() => toggleSort("gmv")} />
@@ -224,22 +218,22 @@ export default function GroupStayRevenuePage() {
                 </thead>
                 <tbody>
                   {paged.map((r) => (
-                    <tr key={r.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <tr key={r.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <Link href={`/admin/group-stays/bookings?id=${r.id}`} className="font-semibold text-white no-underline hover:underline">
+                        <Link href={`/admin/group-stays/bookings?id=${r.id}`} className="font-semibold text-slate-900 no-underline hover:underline">
                           #{r.id} · {r.groupType}
                         </Link>
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-[11px] text-slate-500">
                           {r.headcount} pax · {r.destination} · {r.customerName}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {r.ownerName || <span className="text-slate-500">Unassigned</span>}
+                      <td className="px-4 py-3 text-slate-700">
+                        {r.ownerName || <span className="text-slate-400">Unassigned</span>}
                         {r.propertyTitle && <div className="text-[11px] text-slate-500">{r.propertyTitle}</div>}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-200">{fmt(r.gmv)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-300">{fmt(r.ownerPayout)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-200">{fmt(r.nolsafRevenue)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{fmt(r.gmv)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{fmt(r.ownerPayout)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-emerald-700">{fmt(r.nolsafRevenue)}</td>
                       <td className="px-4 py-3">
                         <span className={"inline-flex rounded-lg border px-2 py-0.5 text-[11px] font-semibold " + STATUS_TONE[r.status]}>
                           {STATUS_LABEL[r.status]}
@@ -250,12 +244,12 @@ export default function GroupStayRevenuePage() {
                 </tbody>
               </table>
             ) : (
-              <div className="px-4 py-8 text-sm text-slate-400">No group-stay revenue records yet.</div>
+              <div className="px-4 py-8 text-sm text-slate-500">No group-stay revenue records yet.</div>
             )}
           </div>
 
           {!loading && sorted.length > 0 && (
-            <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3 text-xs text-slate-400">
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-500">
               <span>
                 {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, sorted.length)} of {sorted.length}
               </span>
@@ -264,19 +258,19 @@ export default function GroupStayRevenuePage() {
                   type="button"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={safePage <= 1}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                   Prev
                 </button>
-                <span className="px-2 tabular-nums text-slate-300">
+                <span className="px-2 tabular-nums text-slate-600">
                   Page {safePage} of {totalPages}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={safePage >= totalPages}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-slate-200 transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
                 >
                   Next
                   <ChevronRight className="h-3.5 w-3.5" />
@@ -287,12 +281,11 @@ export default function GroupStayRevenuePage() {
         </section>
 
         {data && (
-          <p className="mt-4 text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500">
             NoLSAF take = GMV minus owner payout. Realized at deposit. Generated{" "}
             {new Date(data.generatedAt).toLocaleString()}.
           </p>
         )}
-      </div>
     </div>
   );
 }
@@ -316,9 +309,9 @@ function SortableTh({
         type="button"
         onClick={onClick}
         className={
-          "inline-flex items-center gap-1 bg-transparent border-0 p-0 shadow-none appearance-none cursor-pointer uppercase tracking-wide transition-colors hover:text-white " +
+          "inline-flex items-center gap-1 bg-transparent border-0 p-0 shadow-none appearance-none cursor-pointer uppercase tracking-wide transition-colors hover:text-slate-900 " +
           (align === "right" ? "flex-row-reverse " : "") +
-          (active ? "text-white" : "text-slate-400")
+          (active ? "text-slate-900" : "text-slate-600")
         }
       >
         <span>{label}</span>
@@ -354,24 +347,26 @@ function SummaryCard({
   loading: boolean;
 }) {
   return (
-    <div className={"rounded-3xl border bg-gradient-to-b " + tone + " backdrop-blur-xl p-5 shadow-[0_20px_80px_-60px_rgba(0,0,0,0.9)] " + (className ?? "")}>
-      <div className="flex items-start justify-between">
-        <div className="text-sm font-semibold text-white">{label}</div>
-        <Icon className="h-5 w-5 text-white/70 shrink-0" />
+    <div className={"flex min-w-0 items-center gap-3 " + (className ?? "")}>
+      <div className={"flex h-10 w-10 shrink-0 items-center justify-center rounded-lg " + tone}>
+        <Icon className="h-5 w-5" />
       </div>
-      <div className="mt-3 h-8 flex items-baseline gap-1.5 whitespace-nowrap">
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium text-slate-600 sm:text-sm">{label}</div>
+        <div className="mt-0.5 flex items-baseline gap-1.5 whitespace-nowrap">
         {loading ? (
-          <span className="inline-block h-7 w-32 rounded bg-white/10 animate-pulse" />
+          <span className="inline-block h-6 w-24 rounded bg-slate-200 animate-pulse" />
         ) : (
           <>
-            <span className="text-xs font-semibold text-slate-300/70">{currency}</span>
-            <span className="text-2xl font-extrabold tabular-nums text-white leading-none">
+            <span className="text-xs font-semibold text-slate-500">{currency}</span>
+            <span className="text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">
               {value === null ? "0" : SUM_NF.format(Math.round(value))}
             </span>
           </>
         )}
+        </div>
+        <div className="mt-0.5 truncate text-xs text-slate-500">{sublabel}</div>
       </div>
-      <div className="mt-1.5 text-xs text-slate-300/80">{sublabel}</div>
     </div>
   );
 }

@@ -16,6 +16,8 @@ import {
   LifeBuoy,
   BedDouble,
   Search,
+  CalendarDays,
+  MapPin,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, FormEvent, useMemo } from "react";
 import { createPortal } from 'react-dom';
@@ -28,7 +30,6 @@ import LatestUpdate from '../../components/LatestUpdate';
 import PodcastSection from '../../components/PodcastSection';
 import TrustedBySection from '../../components/TrustedBySection';
 import ScrollReveal from '../../components/ScrollReveal';
-import LayoutFrame from '../../components/LayoutFrame';
 import TravelRolesConnected from '../../components/home/TravelRolesConnected';
 import DatePicker from '../../components/ui/DatePicker';
 
@@ -526,8 +527,11 @@ export default function Page() {
   const [guestOpen, setGuestOpen] = useState(false);
   const guestRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const mobileGuestTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [dateOpen, setDateOpen] = useState(false);
   const dateRef = useRef<HTMLDivElement | null>(null);
+  const mobileDateRef = useRef<HTMLButtonElement | null>(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Auto-rotate hero modes (no manual toggles). Pause while popovers are open.
   useEffect(() => {
@@ -562,6 +566,8 @@ export default function Page() {
     return () => clearInterval(id);
   }, [searchHints.length]);
   const searchPlaceholder = `Where are you going? e.g. ${searchHints[hintIdx]}`;
+  const guestCount = adults + children;
+  const guestLabel = `${guestCount} ${guestCount === 1 ? 'guest' : 'guests'}${pets ? `, ${pets} ${pets === 1 ? 'pet' : 'pets'}` : ''}`;
 
   // Format a concise range like "21-25/11/2025" when month/year are the same
   const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -612,6 +618,9 @@ export default function Page() {
     if (checkout) params.set('checkout', checkout);
     const href = `/public/properties?${params.toString()}`;
     // navigate to search results
+    setMobileSearchOpen(false);
+    setGuestOpen(false);
+    setDateOpen(false);
     router.push(href);
   };
 
@@ -653,12 +662,12 @@ export default function Page() {
       return;
     }
     const update = () => {
-      const btn = triggerRef.current;
+      const btn = window.innerWidth < 768 ? mobileGuestTriggerRef.current : triggerRef.current;
       if (!btn) return;
       const r = btn.getBoundingClientRect();
-      const left = Math.max(8, r.left);
-      const top = Math.min(window.innerHeight - 40, r.bottom + 8);
       const width = Math.min(Math.max(r.width, 220), 360);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+      const top = Math.min(window.innerHeight - 40, r.bottom + 8);
       document.documentElement.style.setProperty('--nolsaf-guest-left', `${left}px`);
       document.documentElement.style.setProperty('--nolsaf-guest-top', `${top}px`);
       document.documentElement.style.setProperty('--nolsaf-guest-width', `${width}px`);
@@ -670,7 +679,7 @@ export default function Page() {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [guestOpen]);
+  }, [guestOpen, mobileSearchOpen]);
 
   // Position date panel using fixed coordinates via CSS variables so it won't be clipped by hero's overflow-hidden
   useEffect(() => {
@@ -681,7 +690,7 @@ export default function Page() {
       return;
     }
     const update = () => {
-      const btn = dateRef.current;
+      const btn = window.innerWidth < 768 ? mobileDateRef.current : dateRef.current;
       if (!btn) return;
       const r = btn.getBoundingClientRect();
       // Ensure enough width for two months on desktop; increase minimum to improve visibility
@@ -705,7 +714,7 @@ export default function Page() {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [dateOpen]);
+  }, [dateOpen, mobileSearchOpen]);
 
   useEffect(() => {
     // Inject card animations and fade-in effects
@@ -775,25 +784,18 @@ export default function Page() {
   const orderedCountries = countryList;
 
   return (
-    <main className="min-h-screen text-slate-900" style={{ background: 'linear-gradient(160deg,#f0fdf8 0%,#ffffff 45%,#f5fefb 100%)' }}>
+    <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Layout edge markers (left/right) to indicate content boundaries */}
-      <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
       {/* Hero surround frame */}
-      <div className="public-container">
-        <div className="relative overflow-hidden rounded-[34px] sm:rounded-[60px] mx-0 p-0"
-          style={{
-            background: "transparent",
-          }}>
+      <div className="public-container py-5 sm:py-8">
+        <div className="relative mx-0 overflow-hidden rounded-3xl p-0">
 
           {/* Inner 1px border — teal-to-blue premium line */}
-          <div className="relative rounded-[30px] sm:rounded-[52px] p-[1px]"
-            style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.12) 0%,rgba(2,180,245,0.20) 40%,rgba(2,102,94,0.30) 75%,rgba(255,196,0,0.08) 100%)" }}>
-            <div className="pointer-events-none absolute inset-0 rounded-[30px] sm:rounded-[52px] bg-gradient-to-b from-white/10 via-white/4 to-transparent" aria-hidden />
+          <div className="relative rounded-3xl border border-emerald-950/15 bg-[#02665e]">
 
             <section
               id="public-hero"
-              className="relative overflow-hidden text-white rounded-[calc(30px-1px)] sm:rounded-[calc(52px-1.5px)]"
-              style={{ background: "#020f0d" }}
+              className="relative isolate overflow-hidden rounded-[23px] text-white"
               ref={heroRef as any}
               onPointerEnter={() => setHeroPointerActive(true)}
               onPointerLeave={() => { setHeroPointerActive(false); setHeroPressed(false); }}
@@ -806,10 +808,8 @@ export default function Page() {
               onPointerUp={() => setHeroPressed(false)}
             >
           {/* Inner ring highlight */}
-          <div className="pointer-events-none absolute inset-0 rounded-[calc(30px-1px)] sm:rounded-[calc(52px-1.5px)] ring-1 ring-white/12" aria-hidden />
-          
-        {/*FULL-BLEED HERO BACKGROUND */}
-        <div className="absolute inset-0" aria-hidden>
+         {/*FULL-BLEED HERO BACKGROUND */}
+        <div className="hidden" aria-hidden>
 
           {/* Background — owner portal teal gradient */}
           <div className="absolute inset-0" style={{ background: "linear-gradient(135deg,#020f0d 0%,#011c18 22%,#023a32 48%,#025549 72%,#02705f 90%,#048070 100%)" }} />
@@ -1066,62 +1066,172 @@ export default function Page() {
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
         </div>
 
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.12]"
+          aria-hidden
+          style={{
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+
         <div className="relative z-10">
           <div className="relative flex flex-col lg:flex-row lg:items-stretch gap-0">
-              <div className="flex-1 px-5 sm:px-8 lg:px-10 pt-7 pb-6 lg:pb-7 flex flex-col items-center">
+              <div className="flex flex-1 flex-col items-center px-5 py-9 sm:px-8 sm:py-12 lg:px-12 lg:py-14">
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
-                  className="max-w-4xl mx-auto text-center"
+                  className="mx-auto max-w-3xl text-center"
                 >
-                  <h1 className="text-[1.75rem] sm:text-[2.75rem] md:text-[3.5rem] lg:text-[4.25rem] font-black tracking-[-0.045em] leading-[1.05] sm:leading-[1.0] text-balance text-white">
-                    Quality stay<br />for every wallet.
+                  <h1 className="mx-auto max-w-3xl text-balance text-3xl font-bold leading-[1.08] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3.25rem]">
+                    Quality stays for every wallet.
                   </h1>
 
-                  <p className="mx-auto mt-3 sm:mt-6 max-w-[44ch] text-[13px] sm:text-[15px] text-white/80 leading-[1.75] font-light">
+                  <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/75 sm:text-base">
                     One platform for stays, transport &amp; experiences.
-                    <br />
-                    <span className="hidden sm:inline text-white/30 text-sm tracking-wide">Simpler · Trusted · Unforgettable</span>
                   </p>
+                  <div className="mx-auto mt-5 flex max-w-md items-center" aria-hidden>
+                    <span className="h-px flex-1 bg-white/25" />
+                    <span className="mx-3 h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_0_4px_rgba(255,255,255,0.14)]" />
+                    <span className="h-px flex-1 bg-white/25" />
+                  </div>
 
                 </motion.div>
 
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, delay: 0.08, ease: [0.2, 0.8, 0.2, 1] }}
-                  className="mt-5 sm:mt-8 w-full max-w-3xl lg:max-w-xl mx-auto"
+                  className="mx-auto mt-6 w-full max-w-[620px]"
                 >
-                <form onSubmit={submitSearch} className="w-full pointer-events-auto flex justify-center sm:block">
-                  <div className="flex items-center gap-1.5 bg-gradient-to-b from-white/[0.18] to-white/[0.08] backdrop-blur-2xl rounded-full p-2 shadow-[0_22px_80px_rgba(0,0,0,0.50)] ring-1 ring-white/30 w-[270px] sm:w-full mx-auto">
-                    <input
-                      aria-label="Search query"
-                      value={q}
-                      onChange={(e) => setQ(e.target.value)}
-                      placeholder={searchPlaceholder}
-                      className="flex-1 min-w-0 px-3 py-2 text-sm rounded-full sm:rounded-l-full sm:rounded-r-none border border-white/22 bg-white/[0.06] text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-emerald-400/45 focus:border-emerald-400/55"
-                    />
-                    {/* Mobile-only search submit icon */}
-                    <button
-                      type="submit"
-                      aria-label="Search"
-                      className="flex sm:hidden flex-none items-center justify-center w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 shadow-[0_6px_20px_rgba(16,185,129,0.35)] active:scale-95 transition-transform"
-                    >
-                      <Search className="w-4 h-4 text-white" />
-                    </button>
+                <form onSubmit={submitSearch} className="w-full pointer-events-auto">
+                  <div className="md:hidden w-full max-w-md mx-auto">
+                    {!mobileSearchOpen ? (
+                      <button
+                        type="button"
+                        aria-label="Open search"
+                        aria-expanded={false}
+                        onClick={() => setMobileSearchOpen(true)}
+                        className="flex h-12 w-full items-center gap-2.5 rounded-full border border-slate-200 bg-white px-1.5 pr-3 text-left text-slate-900 shadow-[0_8px_22px_rgba(2,6,23,0.18)] transition active:scale-[0.99]"
+                      >
+                        <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-[#087f69] text-white">
+                          <Search className="h-4 w-4 stroke-[2.5]" aria-hidden />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-bold">{q || 'Search stays'}</span>
+                          <span className="block truncate text-[10px] leading-4 text-slate-500">
+                            {q || 'Anywhere'}
+                            {' · '}
+                            {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Any week'}
+                            {' · '}
+                            {guestLabel}
+                          </span>
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-2.5 text-left text-slate-900 shadow-[0_14px_34px_rgba(2,6,23,0.22)]">
+                        <div className="mb-1.5 flex items-center justify-between px-1">
+                          <span className="text-xs font-bold">Find your stay</span>
+                          <button
+                            type="button"
+                            aria-label="Close search"
+                            onClick={() => {
+                              setMobileSearchOpen(false);
+                              setDateOpen(false);
+                              setGuestOpen(false);
+                            }}
+                            className="grid h-8 w-8 place-items-center rounded-full border-0 bg-slate-100 text-slate-700 outline-none hover:bg-slate-200"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <label className="flex h-11 items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-emerald-600 focus-within:bg-white">
+                          <MapPin className="h-4 w-4 flex-none text-[#087f69]" aria-hidden />
+                          <span className="min-w-0 flex-1">
+                            <input
+                              aria-label="Search query"
+                              value={q}
+                              onChange={(e) => setQ(e.target.value)}
+                              placeholder={searchPlaceholder}
+                              className="w-full min-w-0 border-0 bg-transparent text-xs font-medium text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus:border-0 focus:outline-none focus:ring-0"
+                            />
+                          </span>
+                        </label>
+                        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            ref={mobileDateRef}
+                            aria-label="Select dates"
+                            aria-expanded={dateOpen}
+                            onClick={() => {
+                              setGuestOpen(false);
+                              setDateOpen((value) => !value);
+                            }}
+                            className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left shadow-none outline-none hover:bg-slate-50"
+                          >
+                            <CalendarDays className="h-4 w-4 flex-none text-slate-700" aria-hidden />
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-medium text-slate-700">
+                                {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Add dates'}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            ref={mobileGuestTriggerRef}
+                            aria-label="Open guest selector"
+                            aria-expanded={guestOpen}
+                            onClick={() => {
+                              setDateOpen(false);
+                              setGuestOpen(true);
+                            }}
+                            className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left shadow-none outline-none hover:bg-slate-50"
+                          >
+                            <User className="h-4 w-4 flex-none text-slate-700" aria-hidden />
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-medium text-slate-700">{guestLabel}</span>
+                            </span>
+                          </button>
+                        </div>
+                        <button
+                          type="submit"
+                          className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#087f69] px-4 text-xs font-bold text-white shadow-none outline-none hover:bg-[#066b59] active:scale-[0.99]"
+                        >
+                          <Search className="h-4 w-4" aria-hidden />
+                          Search
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                      <div ref={guestRef} className="hidden sm:inline-flex flex-none w-14 sm:w-auto items-center justify-center gap-1.5 border border-white/20 rounded-full overflow-visible px-2 py-1.5 relative bg-white/5">
-                        <div className="relative inline-block">
+                  <div className="hidden h-[52px] w-full items-stretch overflow-visible rounded-full border border-emerald-100 bg-white p-1.5 text-slate-900 shadow-[0_12px_30px_-20px_rgba(6,78,59,0.38)] md:flex">
+                    <label className="order-1 flex min-w-0 flex-[1.2] cursor-text items-center gap-2 rounded-full px-3 text-left transition hover:bg-slate-50 focus-within:bg-slate-50">
+                      <MapPin className="h-4 w-4 flex-none text-emerald-700" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <input
+                          aria-label="Search query"
+                          value={q}
+                          onChange={(e) => setQ(e.target.value)}
+                          placeholder="Where to?"
+                          className="w-full min-w-0 border-0 bg-transparent text-[13px] font-medium text-slate-900 shadow-none outline-none placeholder:text-slate-500 focus:border-0 focus:outline-none focus:ring-0"
+                        />
+                      </span>
+                    </label>
+                    <span className="order-2 my-2 w-px flex-none bg-slate-200" aria-hidden />
+                      <span className="order-4 my-2 hidden w-px flex-none bg-slate-200 md:block" aria-hidden />
+                      <div ref={guestRef} className="order-5 hidden min-w-0 flex-[0.8] items-center justify-center overflow-visible rounded-full px-3 text-left transition hover:bg-slate-50 md:inline-flex">
+                        <div className="relative w-full">
                           <button
                             type="button"
                             aria-label="Open guest selector"
                             aria-expanded={guestOpen}
                             ref={triggerRef}
-                            onClick={() => { setGuestOpen(true); }}
-                            onTouchStart={() => { setGuestOpen(true); }}
-                            className="w-full inline-flex items-center justify-center gap-1.5 px-1 py-1 bg-transparent text-white text-sm"
+                            onClick={() => { setDateOpen(false); setGuestOpen(true); }}
+                            className="flex w-full min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left text-slate-900 shadow-none outline-none"
                           >
-                            <User className="w-4 h-4 text-white/90 flex-shrink-0" aria-hidden />
-                            <span className="text-white whitespace-nowrap text-sm">{adults}{children ? ` + ${children}` : ''}</span>
+                            <User className="h-4 w-4 flex-none text-slate-500" aria-hidden />
+                            <span className="min-w-0">
+                              <span className="block truncate text-[13px] font-medium text-slate-800">{guestLabel}</span>
+                            </span>
                           </button>
                         </div>
 
@@ -1145,7 +1255,7 @@ export default function Page() {
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="text-sm font-medium">Adults</div>
-                                      <div className="text-xs text-slate-500">Ages 16+</div>
+                                      <div className="text-xs text-slate-500">Age 16 and older</div>
                                     </div>
                                     <div className="inline-flex items-center gap-2">
                                       <button
@@ -1175,7 +1285,7 @@ export default function Page() {
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="text-sm font-medium">Children</div>
-                                      <div className="text-xs text-slate-500">Ages 0–15</div>
+                                      <div className="text-xs text-slate-500">Ages 0 to 15</div>
                                     </div>
                                     <div className="inline-flex items-center gap-2">
                                       <button
@@ -1235,7 +1345,7 @@ export default function Page() {
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="text-sm font-medium">Pregnancy</div>
-                                      <div id="preg-help" className="text-xs text-slate-500">Let hosts know — hosts will be notified when selected</div>
+                                      <div id="preg-help" className="text-xs text-slate-500">Hosts are notified when selected</div>
                                     </div>
                                     <div>
                                       <button
@@ -1243,7 +1353,7 @@ export default function Page() {
                                         role="switch"
                                         aria-checked={pregnancy}
                                         aria-describedby="preg-help"
-                                        aria-label={pregnancy ? 'Pregnancy selected — hosts will be notified' : 'Indicate pregnancy to notify hosts'}
+                                        aria-label={pregnancy ? 'Pregnancy selected; hosts will be notified' : 'Indicate pregnancy to notify hosts'}
                                         onClick={() => setPregnancy((p) => !p)}
                                         className={`nolsaf-preg-toggle inline-flex items-center p-0.5 rounded-full focus:outline-none ${pregnancy ? 'is-on' : 'is-off'}`}
                                       >
@@ -1253,18 +1363,18 @@ export default function Page() {
                                   </div>
                                 </div>
 
-                                <div className="mt-4 flex justify-end gap-2">
+                                <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-3">
                                   <button
                                     type="button"
                                     onClick={() => { setAdults(1); setChildren(0); setPets(0); setPregnancy(false); }}
-                                    className="px-3 py-1.5 text-sm text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-full transition"
+                                    className="rounded-lg border-0 bg-transparent px-3 py-2 text-xs font-semibold text-slate-600 outline-none transition hover:bg-slate-100"
                                   >
                                     Clear
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => { setGuestOpen(false); }}
-                                    className="px-3 py-1.5 text-sm text-white rounded-full bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-[0_10px_30px_rgba(16,185,129,0.30)] active:scale-95 transition"
+                                    className="rounded-lg border-0 bg-emerald-700 px-4 py-2 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 active:scale-95"
                                   >
                                     Done
                                   </button>
@@ -1274,15 +1384,19 @@ export default function Page() {
                           )
                         ) : null}
                       </div>
-                      <div ref={dateRef} className="hidden sm:inline-flex flex-none items-center justify-center gap-1.5 relative border border-white/20 rounded-full px-2.5 py-1.5 bg-white/5">
+                      <div ref={dateRef} className="order-3 hidden min-w-0 flex-1 items-center justify-center rounded-full px-3 text-left transition hover:bg-slate-50 md:inline-flex">
                         <button
                           type="button"
                           aria-label="Select dates"
-                          onClick={() => { setDateOpen((v) => !v); }}
-                          className="w-full inline-flex items-center justify-center px-0 py-0 bg-transparent text-white border-0 text-sm"
+                          aria-expanded={dateOpen}
+                          onClick={() => { setGuestOpen(false); setDateOpen((v) => !v); }}
+                          className="flex w-full min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left text-slate-900 shadow-none outline-none"
                         >
-                          <span className="truncate text-sm">
-                            {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Add dates'}
+                          <CalendarDays className="h-4 w-4 flex-none text-slate-500" aria-hidden />
+                          <span className="min-w-0">
+                            <span className="block w-full truncate text-[13px] font-medium text-slate-800">
+                              {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Any dates'}
+                            </span>
                           </span>
                         </button>
 
@@ -1317,38 +1431,40 @@ export default function Page() {
                       </div>
                       <button
                         type="submit"
-                        className="hidden sm:flex flex-none flex-shrink-0 items-center justify-center px-4 py-2 text-white rounded-r-full rounded-l-none font-semibold text-sm transition-all duration-200 whitespace-nowrap bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-[0_12px_40px_rgba(16,185,129,0.30)] hover:shadow-[0_18px_55px_rgba(16,185,129,0.32)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60"
+                        aria-label="Search stays"
+                        className="order-7 ml-1 hidden h-10 w-10 flex-none items-center justify-center rounded-full border-0 bg-emerald-700 text-white shadow-[0_8px_18px_-10px_rgba(4,120,87,0.7)] outline-none transition hover:bg-emerald-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 md:flex"
                       >
-                        <span>Search</span>
+                        <Search className="h-[18px] w-[18px]" aria-hidden />
+                        <span className="sr-only">Search</span>
                       </button>
                     </div>
                   </form>
                   {/* Primary CTA */}
-                  <div className="hidden sm:flex mt-5 sm:mt-7 lg:mt-8 w-full justify-center">
+                  <div className="mt-5 hidden w-full justify-center sm:flex sm:mt-6">
                     <Link href="/public/properties" aria-label="Browse all stays" className="no-underline">
-                      <span className="inline-flex items-center gap-2.5 px-6 py-3 text-sm text-white font-semibold rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-[0_12px_40px_rgba(16,185,129,0.35)] hover:shadow-[0_18px_55px_rgba(16,185,129,0.40)] active:scale-95 transition-all duration-200">
-                        <BedDouble className="w-4 h-4 flex-shrink-0" />
+                      <span className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-neutral-900/10 transition hover:-translate-y-0.5 hover:bg-emerald-700">
+                        <BedDouble className="h-3.5 w-3.5 flex-shrink-0" />
                         <span className="whitespace-nowrap">Browse all stays</span>
-                        <ChevronRight className="w-4 h-4 flex-shrink-0 opacity-70" />
+                        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 opacity-70" />
                       </span>
                     </Link>
                   </div>
 
                   {/* Social proof strip */}
-                  <div className="hidden sm:flex mt-6 sm:mt-8 w-full justify-center">
-                    <div className="flex items-center gap-4 sm:gap-6 text-[11px] sm:text-xs text-white/50 font-medium tracking-wide">
+                  <div className="mt-6 hidden w-full justify-center sm:flex">
+                    <div className="flex items-center gap-4 text-[11px] font-medium tracking-wide text-white/70 sm:gap-6 sm:text-xs">
                       <span className="flex items-center gap-1.5">
-                        <BedDouble className="w-3.5 h-3.5 text-emerald-400/70" />
+                        <BedDouble className="h-3.5 w-3.5 text-white/85" />
                         2,500+ Stays
                       </span>
-                      <span className="w-px h-3 bg-white/15" aria-hidden />
+                      <span className="h-3 w-px bg-white/20" aria-hidden />
                       <span className="flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-teal-400/70" />
+                        <Sparkles className="h-3.5 w-3.5 text-white/85" />
                         30+ Regions
                       </span>
-                      <span className="w-px h-3 bg-white/15" aria-hidden />
+                      <span className="h-3 w-px bg-white/20" aria-hidden />
                       <span className="flex items-center gap-1.5">
-                        <span className="text-emerald-400/70">★</span>
+                        <span className="text-white/85">★</span>
                         Trusted by travelers
                       </span>
                     </div>
@@ -1365,7 +1481,7 @@ export default function Page() {
         </div>
 
         {/* Decorative separator marking end of hero */}
-        <div className="relative z-10">
+        <div className="hidden">
           <div className="public-container pb-8 lg:pb-12">
             <div className="h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" aria-hidden />
           </div>

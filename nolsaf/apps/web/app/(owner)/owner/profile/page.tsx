@@ -6,59 +6,40 @@ import axios from "axios";import apiClient from "@/lib/apiClient";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Building2, CheckCircle, CheckCircle2, Clock, CreditCard,
+  ArrowLeft, CheckCircle2, Clock,
   Eye, FileText, History, Lock, LogOut, Mail, MapPin, Pencil,
-  Phone, Save, Trash2, Upload, User, Wallet, X, AlertTriangle,
-  ChevronDown, ChevronUp, ShieldCheck, Info,
+  Phone, Save, Trash2, Upload, User, X, AlertTriangle,
+  ChevronDown, ChevronUp, ShieldCheck,
 } from 'lucide-react';
 import DatePickerField from "@/components/DatePickerField";
+import SecurePayoutPreferenceCard from "@/components/SecurePayoutPreferenceCard";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
 
+type PayoutVerificationPreview = {
+  challengeToken: string;
+  expiresAt: string;
+  destination: {
+    type: "BANK" | "MOBILE_MONEY";
+    provider: string;
+    accountName: string;
+    accountNumber: string;
+    currency: string;
+  };
+  draft: Record<string, string>;
+};
 
-
-// --- Shared display components ----------------------------------------------
-
-function InfoItem({
-
-  icon, label, value, tone = "light",
-
-}: {
-
-  icon: React.ReactNode; label: string; value: React.ReactNode;
-
-  tone?: "light" | "dark";
-
-}) {
-
-  const dark = tone === "dark";
-
-  const iconCls = dark
-
-    ? "h-10 w-10 rounded-2xl bg-[#02665e]/10 border border-[#02665e]/20 flex items-center justify-center text-[#02665e] flex-shrink-0"
-
-    : "h-10 w-10 rounded-2xl bg-[#02665e]/5 border border-[#02665e]/15 flex items-center justify-center text-[#02665e] flex-shrink-0";
-
-  return (
-
-    <div className="flex items-start gap-3">
-
-      <div className={iconCls}>{icon}</div>
-
-      <div className="min-w-0">
-
-        <div className={dark ? "text-xs font-semibold text-white/60" : "text-xs font-semibold text-slate-600"}>{label}</div>
-
-        <div className={dark ? "text-sm font-bold text-white mt-0.5 break-words" : "text-sm font-bold text-slate-900 mt-0.5 break-words"}>{value}</div>
-
-      </div>
-
-    </div>
-
-  );
-
-}
+type ContactChangeState = {
+  field: "email" | "phone";
+  value: string;
+  stage: "ENTER" | "AUTHORIZE_EXISTING" | "VERIFY_NEW" | "STEP_UP";
+  code: string;
+  sentTo: string;
+  currentPassword: string;
+  totpCode: string;
+  methods: { password: boolean; totp: boolean };
+};
 
 
 
@@ -83,26 +64,26 @@ function EditableInfoItem({
 
   if (editing) {
     return (
-      <div className="w-full min-w-0 max-w-full overflow-hidden">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-[#02665e]/20 bg-[#02665e]/[0.03] p-3">
         <div className="flex items-center justify-between gap-1 mb-1.5 w-full min-w-0 max-w-full">
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</div>
+          <div className="text-xs font-medium text-slate-500">{label}</div>
           <button
             type="button"
             onMouseDown={(e) => { e.preventDefault(); onStopEdit(); }}
-            className="flex-shrink-0 h-6 w-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none"
+            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none"
             aria-label="Cancel"
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl">
+        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md">
         {fieldType === "select" && selectOptions ? (
           <select
             value={value || ""}
             onChange={(e) => onChange(fieldKey, e.target.value)}
             autoFocus
             onBlur={onStopEdit}
-            className="block w-full min-w-0 max-w-full box-border rounded-xl border-2 border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-0 focus:border-[#02665e] focus:bg-white transition-all"
+            className="block w-full min-w-0 max-w-full box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           >
             <option value="">Select</option>
             {selectOptions.map((o) => (
@@ -116,7 +97,7 @@ function EditableInfoItem({
             autoFocus
             onBlur={onStopEdit}
             rows={3}
-            className="block w-full min-w-0 max-w-full box-border rounded-xl border-2 border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-0 focus:border-[#02665e] focus:bg-white transition-all resize-none"
+            className="block w-full min-w-0 max-w-full resize-none box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           />
         ) : (
           <input
@@ -126,7 +107,7 @@ function EditableInfoItem({
             autoFocus
             onBlur={onStopEdit}
             onKeyDown={(e) => { if (e.key === "Enter") onStopEdit(); }}
-            className="block w-full min-w-0 max-w-full box-border rounded-xl border-2 border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-0 focus:border-[#02665e] focus:bg-white transition-all"
+            className="block w-full min-w-0 max-w-full box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           />
         )}
         </div>
@@ -135,23 +116,23 @@ function EditableInfoItem({
   }
 
   return (
-    <div className="flex items-start gap-3 group min-w-0 overflow-hidden">
-      <div className="h-10 w-10 rounded-2xl bg-[#02665e]/5 border border-[#02665e]/15 flex items-center justify-center text-[#02665e] flex-shrink-0">
+    <div className="group flex min-w-0 items-start gap-3 overflow-hidden rounded-md border border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50/60">
+      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.06] text-[#02665e] [&>svg]:h-4 [&>svg]:w-4">
         {icon}
       </div>
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold text-slate-600 truncate">{label}</div>
+          <div className="truncate text-xs font-medium text-slate-500">{label}</div>
           <button
             type="button"
             onClick={() => onStartEdit(fieldKey)}
-            className="opacity-0 group-hover:opacity-100 flex-shrink-0 h-6 w-6 rounded-lg flex items-center justify-center text-[#02665e] hover:bg-[#02665e]/10 transition-all focus-visible:opacity-100 focus-visible:outline-none"
+            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition-all hover:bg-[#02665e]/10 hover:text-[#02665e] focus-visible:outline-none sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
             aria-label={"Edit " + label}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className={"text-sm font-bold mt-0.5 break-all " + (!value ? "text-slate-400" : "text-slate-900")}>
+        <div title={value ? String(value) : undefined} className={"mt-1 truncate text-sm font-semibold leading-5 " + (!value ? "text-slate-400" : "text-slate-800")}>
           {display}
         </div>
       </div>
@@ -165,13 +146,17 @@ export default function OwnerProfile() {
   const [me, setMe] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutSuccess, setPayoutSuccess] = useState<string | null>(null);
+  const [payoutPreview, setPayoutPreview] = useState<PayoutVerificationPreview | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [confirmMessage, setConfirmMessage] = useState("");
-  const [pendingSave, setPendingSave] = useState<(() => Promise<void>) | null>(null);
+  const [contactChange, setContactChange] = useState<ContactChangeState | null>(null);
+  const [contactChangeLoading, setContactChangeLoading] = useState(false);
+  const [contactChangeError, setContactChangeError] = useState<string | null>(null);
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [showAllAuditHistory, setShowAllAuditHistory] = useState(false);
@@ -182,7 +167,6 @@ export default function OwnerProfile() {
   const [docUploading, setDocUploading] = useState<string | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const [docSuccess, setDocSuccess] = useState<string | null>(null);
-  const [docDragOver, setDocDragOver] = useState(false);
   const [docHelpOpen, setDocHelpOpen] = useState(false);
   const docHelpRef = useRef<HTMLDivElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -260,10 +244,16 @@ export default function OwnerProfile() {
   };
 
   function getLatestDocByType(docs: any[] | undefined | null, type: string) {
-    const normalizedType = String(type).toUpperCase();
+    const canonicalType = (value: unknown) => {
+      const normalized = String(value ?? "").trim().toUpperCase();
+      if (["BUSINESS_LICENSE", "BUSINESS_LISENCE"].includes(normalized)) return "BUSINESS_LICENCE";
+      if (["TIN_NUMBER", "TIN", "TIN_NUMBER_CERTIFICATE"].includes(normalized)) return "TIN_CERTIFICATE";
+      return normalized;
+    };
+    const normalizedType = canonicalType(type);
     const items = Array.isArray(docs) ? docs : [];
     for (const d of items) {
-      if (String(d?.type ?? "").toUpperCase() === normalizedType) return d;
+      if (canonicalType(d?.type) === normalizedType) return d;
     }
     return null;
   }
@@ -362,7 +352,6 @@ export default function OwnerProfile() {
       setDocError(String(serverMsg || e?.message || "Failed to upload document. Please try again."));
     } finally {
       setDocUploading(null);
-      setDocDragOver(false);
       if (docInputRef.current) docInputRef.current.value = "";
     }
   };
@@ -377,7 +366,10 @@ export default function OwnerProfile() {
     await uploadDocumentForType(selectedDocType, file);
   };
 
+  const documentsUnavailable = Boolean(me?.documentsUnavailable) || (Boolean(me) && !Array.isArray(me?.documents));
+
   const actionableDocTypes = useMemo(() => {
+    if (documentsUnavailable) return [];
     const docs = Array.isArray(me?.documents) ? me.documents : [];
     return requiredDocTypes.filter((t) => {
       const doc = getLatestDocByType(docs, t.type);
@@ -389,7 +381,7 @@ export default function OwnerProfile() {
       if (expired) return true;
       return false;
     });
-  }, [me?.documents, requiredDocTypes, isBusinessLicenceExpired]);
+  }, [documentsUnavailable, me?.documents, requiredDocTypes, isBusinessLicenceExpired]);
 
   const showUploader = actionableDocTypes.length > 0;
 
@@ -534,7 +526,6 @@ export default function OwnerProfile() {
     return s;
   };
 
-  const isValidE164Phone = (phone: string) => /^\+?[1-9]\d{1,14}$/.test(phone);
   const isValidUrl = (value: string) => {
     try {
       // eslint-disable-next-line no-new
@@ -545,6 +536,121 @@ export default function OwnerProfile() {
     }
   };
 
+  const openContactChange = (field: "email" | "phone") => {
+    setContactChangeError(null);
+    setContactChange({
+      field,
+      value: String(form?.[field] || me?.[field] || ""),
+      stage: "ENTER",
+      code: "",
+      sentTo: "",
+      currentPassword: "",
+      totpCode: "",
+      methods: { password: false, totp: false },
+    });
+  };
+
+  const requestSecureContactChange = async () => {
+    if (!contactChange) return;
+    setContactChangeLoading(true);
+    setContactChangeError(null);
+    try {
+      const normalizedValue = contactChange.field === "phone"
+        ? String(normalizeE164Phone(contactChange.value) || "")
+        : contactChange.value.trim().toLowerCase();
+      if (contactChange.field === "phone" && !/^\+?[1-9]\d{1,14}$/.test(normalizedValue)) {
+        setContactChangeError("Enter the phone number in international format, for example +2557XXXXXXXX.");
+        return;
+      }
+      if (contactChange.field === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedValue)) {
+        setContactChangeError("Enter a valid email address.");
+        return;
+      }
+      const response = await api.post("/api/account/contact/request-change", {
+        field: contactChange.field,
+        value: normalizedValue,
+        ...(contactChange.currentPassword ? { currentPassword: contactChange.currentPassword } : {}),
+        ...(contactChange.totpCode ? { totpCode: contactChange.totpCode } : {}),
+      });
+      const data = (response as any)?.data?.data ?? {};
+      setContactChange((current) => current ? {
+        ...current,
+        value: normalizedValue,
+        stage: data.stage === "AUTHORIZE_EXISTING" ? "AUTHORIZE_EXISTING" : "VERIFY_NEW",
+        sentTo: String(data.sentTo || "your security contact"),
+        code: "",
+        currentPassword: "",
+        totpCode: "",
+      } : current);
+    } catch (err: any) {
+      const serverData = err?.response?.data;
+      if (serverData?.code === "CONTACT_CHANGE_STEP_UP_REQUIRED") {
+        setContactChange((current) => current ? {
+          ...current,
+          stage: "STEP_UP",
+          methods: {
+            password: Boolean(serverData?.methods?.password),
+            totp: Boolean(serverData?.methods?.totp),
+          },
+        } : current);
+      }
+      setContactChangeError(String(serverData?.error || "Could not start the secure contact change."));
+    } finally {
+      setContactChangeLoading(false);
+    }
+  };
+
+  const submitContactChangeCode = async () => {
+    if (!contactChange || !/^\d{6}$/.test(contactChange.code)) return;
+    setContactChangeLoading(true);
+    setContactChangeError(null);
+    try {
+      if (contactChange.stage === "AUTHORIZE_EXISTING") {
+        const response = await api.post("/api/account/contact/authorize-change", {
+          field: contactChange.field,
+          otp: contactChange.code,
+        });
+        const data = (response as any)?.data?.data ?? {};
+        setContactChange((current) => current ? {
+          ...current,
+          stage: "VERIFY_NEW",
+          code: "",
+          sentTo: String(data.sentTo || "the new contact"),
+        } : current);
+        return;
+      }
+
+      const response = await api.post("/api/account/contact/confirm-change", {
+        field: contactChange.field,
+        otp: contactChange.code,
+      });
+      const data = (response as any)?.data?.data ?? {};
+      const verifiedUser = data.user ?? {};
+      setForm((current: any) => ({ ...current, ...verifiedUser }));
+      setMe((current: any) => {
+        const updated = { ...(current ?? {}), ...verifiedUser };
+        try { (window as any).ME = updated; } catch { /* ignore */ }
+        return updated;
+      });
+      setContactChange(null);
+      setSuccess(data.securityCooldownUntil
+        ? "Contact updated securely. Payout destination changes are protected during the 72-hour cooling period."
+        : "Contact verified successfully.");
+    } catch (err: any) {
+      const serverData = err?.response?.data;
+      const attempts = Number(serverData?.attemptsRemaining);
+      setContactChangeError(
+        String(serverData?.error || "The security code could not be confirmed.") +
+        (Number.isFinite(attempts) ? ` ${attempts} attempt${attempts === 1 ? "" : "s"} remaining.` : "")
+      );
+      if (serverData?.code === "CONTACT_CHANGE_LOCKED" || serverData?.code === "CONTACT_CHANGE_EXPIRED") {
+        setContactChange((current) => current ? { ...current, stage: "ENTER", code: "", sentTo: "" } : current);
+      }
+    } finally {
+      setContactChangeLoading(false);
+    }
+  };
+
   const performSave = async () => {
     setSaving(true);
     setEditingField(null); // Close any open edit fields
@@ -552,24 +658,6 @@ export default function OwnerProfile() {
       const payload: any = {};
       const fullName = String(form.fullName || form.name || '').trim();
       if (fullName) payload.fullName = fullName;
-
-      // Phone/email are only accepted by the API when they actually change
-      // (changing them goes through a separate verification flow). Sending an
-      // unchanged value makes the strict profile schema reject the whole request.
-      const phone = normalizeE164Phone(form.phone);
-      const currentPhone = normalizeE164Phone(me?.phone);
-      if (phone && phone !== currentPhone) {
-        if (!isValidE164Phone(phone)) {
-          setError('Phone number must be in international format (E.164), e.g. +2557XXXXXXXX');
-          setSaving(false);
-          return;
-        }
-        payload.phone = phone;
-      }
-
-      const email = String(form.email || '').trim();
-      const currentEmail = String(me?.email || '').trim();
-      if (email && email !== currentEmail) payload.email = email;
 
       const avatarUrl = String(form.avatarUrl || '').trim();
       if (avatarUrl) {
@@ -589,48 +677,20 @@ export default function OwnerProfile() {
       if (address) payload.address = address;
 
       await api.put("/api/account/profile", payload);
+      // Profile writes are independent from payout verification and documents.
+      setMe((current: any) => {
+        const updated = { ...(current ?? {}), ...payload };
+        try { (window as any).ME = updated; } catch { /* ignore */ }
+        return updated;
+      });
       
-      // also save payout details (owner fields) if present
-      try {
-        const payoutPayload: any = {};
-        const addPayoutField = (key: string, value: unknown) => {
-          if (typeof value !== "string") return;
-          const trimmed = value.trim();
-          if (trimmed) payoutPayload[key] = trimmed;
-        };
-
-        addPayoutField("bankAccountName", form.bankAccountName);
-        addPayoutField("bankName", form.bankName);
-        addPayoutField("bankAccountNumber", form.bankAccountNumber);
-        addPayoutField("bankBranch", form.bankBranch);
-        addPayoutField("mobileMoneyProvider", form.mobileMoneyProvider);
-        addPayoutField("mobileMoneyNumber", form.mobileMoneyNumber);
-
-        const preferred = String(form.payoutPreferred || "").trim().toUpperCase();
-        if (preferred === "BANK" || preferred === "MOBILE_MONEY") {
-          payoutPayload.payoutPreferred = preferred;
-        }
-
-        // Only call payouts endpoint if any payout field exists
-        if (Object.keys(payoutPayload).length > 0) {
-          await api.put('/api/account/payouts', payoutPayload);
-        }
-      } catch (e: any) {
-        // Check if it's a rate limit error
-        const serverData = e?.response?.data;
-        if (serverData?.error?.includes('Too many payout updates')) {
-          setError(serverData.error || 'Too many payout updates. Please wait before making changes.');
-        } else {
-          console.warn('Failed to save payout details', e);
-        }
-      }
       setSuccess("Profile saved successfully!");
       setError(null);
       // Auto-hide success message after 3 seconds
       setTimeout(() => setSuccess(null), 3000);
       // update local `me` shortcut and global window.ME
       try {
-        const updatedMe = { ...(me ?? {}), ...payload, bankAccountName: form.bankAccountName, bankName: form.bankName, bankAccountNumber: form.bankAccountNumber, bankBranch: form.bankBranch, mobileMoneyProvider: form.mobileMoneyProvider, mobileMoneyNumber: form.mobileMoneyNumber, payoutPreferred: form.payoutPreferred };
+        const updatedMe = { ...(me ?? {}), ...payload };
         setMe(updatedMe);
         try { (window as any).ME = updatedMe; } catch (e) { /* ignore */ }
       } catch (e) { /* ignore */ }
@@ -664,41 +724,115 @@ export default function OwnerProfile() {
     }
   };
 
-  const save = async () => {
-    // Check for sensitive field changes that require confirmation
-    const sensitiveFields = ['bankAccountNumber', 'mobileMoneyNumber', 'bankName', 'bankAccountName'];
-    const hasSensitiveChange = sensitiveFields.some(field => {
-      const oldVal = String(me?.[field] || '').trim().toLowerCase();
-      const newVal = String(form[field] || '').trim().toLowerCase();
-      return oldVal !== newVal && newVal !== '';
-    });
+  const save = async () => performSave();
 
-    if (hasSensitiveChange) {
-      const changedFields = sensitiveFields.filter(field => {
-        const oldVal = String(me?.[field] || '').trim().toLowerCase();
-        const newVal = String(form[field] || '').trim().toLowerCase();
-        return oldVal !== newVal && newVal !== '';
+  const buildPayoutDraft = () => {
+    const preferred = String(form.payoutPreferred || "").trim().toUpperCase();
+    return preferred === "BANK"
+      ? {
+          payoutPreferred: "BANK",
+          bankName: String(form.bankName || "").trim(),
+          bankAccountName: String(form.bankAccountName || "").trim(),
+          bankAccountNumber: String(form.bankAccountNumber || "").trim(),
+          bankBranch: String(form.bankBranch || "").trim(),
+        }
+      : {
+          payoutPreferred: "MOBILE_MONEY",
+          mobileMoneyProvider: String(form.mobileMoneyProvider || "").trim(),
+          mobileMoneyNumber: String(form.mobileMoneyNumber || "").trim(),
+        };
+  };
+
+  const requestPayoutSave = async () => {
+    setPayoutError(null);
+    setPayoutSuccess(null);
+    setPayoutPreview(null);
+    if (!payoutDetailsOk) {
+      setPayoutError('Complete the selected payout destination before verifying.');
+      return;
+    }
+    if (!payoutChanged) {
+      setPayoutSuccess('This payout destination is already saved.');
+      return;
+    }
+
+    setPayoutSaving(true);
+    try {
+      const draft = buildPayoutDraft();
+      const response = await api.post('/api/account/payouts/verify', draft);
+      const verification = (response as any)?.data?.data;
+      if (!verification?.challengeToken || !verification?.destination?.accountName) {
+        throw new Error('AzamPay did not return a valid account holder confirmation.');
+      }
+      setPayoutPreview({ ...verification, draft });
+    } catch (err: any) {
+      console.error('Failed to verify payout destination', err);
+      const serverData = err?.response?.data;
+      const failureCode = String(serverData?.code || '');
+      if (failureCode === 'PAYOUT_PROVIDER_NOT_CONFIGURED') {
+        setPayoutError('Payout verification is not configured. Your previous payout destination remains unchanged.');
+      } else {
+        setPayoutError(
+          String(serverData?.error || serverData?.message || err?.message || 'Payout verification failed. Your previous payout destination remains unchanged.')
+        );
+      }
+    } finally {
+      setPayoutSaving(false);
+    }
+  };
+
+  const confirmPayoutDestination = async () => {
+    if (!payoutPreview) return;
+    setPayoutSaving(true);
+    setPayoutError(null);
+    try {
+      const response = await api.put('/api/account/payouts', { challengeToken: payoutPreview.challengeToken });
+      const verifiedAccount = (response as any)?.data?.data?.payoutAccount;
+      const preferred = payoutPreview.destination.type;
+      const verifiedPatch = preferred === "BANK"
+        ? {
+            ...payoutPreview.draft,
+            bankAccountName: String(verifiedAccount?.accountName || payoutPreview.destination.accountName).trim(),
+            mobileMoneyProvider: "",
+            mobileMoneyNumber: "",
+            mobileMoneyAccountName: "",
+          }
+        : {
+            ...payoutPreview.draft,
+            mobileMoneyAccountName: String(verifiedAccount?.accountName || payoutPreview.destination.accountName).trim(),
+            bankName: "",
+            bankAccountName: "",
+            bankAccountNumber: "",
+            bankBranch: "",
+          };
+
+      setForm((current: any) => ({ ...current, ...verifiedPatch }));
+      setMe((current: any) => {
+        const updated = { ...(current ?? {}), ...verifiedPatch };
+        try { (window as any).ME = updated; } catch { /* ignore */ }
+        return updated;
       });
-      
-      const fieldLabels: Record<string, string> = {
-        bankAccountNumber: 'Bank Account Number',
-        mobileMoneyNumber: 'Mobile Money Number',
-        bankName: 'Bank Name',
-        bankAccountName: 'Bank Account Name',
-      };
-      
-      setConfirmMessage(
-        `You are about to change sensitive payout information: ${changedFields.map(f => fieldLabels[f] || f).join(', ')}. ` +
-        `This change will be logged in your audit history. Are you sure you want to continue?`
-      );
-      setPendingSave(() => performSave);
-      setShowConfirmDialog(true);
-    } else {
-      await performSave();
+      setPayoutPreview(null);
+      setPayoutSuccess("Payout destination verified and saved.");
+    } catch (err: any) {
+      console.error('Failed to confirm payout destination', err);
+      const serverData = err?.response?.data;
+      const failureCode = String(serverData?.code || '');
+      if (failureCode === 'PAYOUT_VERIFICATION_EXPIRED') {
+        setPayoutPreview(null);
+        setPayoutError('This verification has expired or was already used. Verify the destination again.');
+      } else {
+        setPayoutError(
+          String(serverData?.error || serverData?.message || 'The verified destination could not be saved. Your previous destination remains unchanged.')
+        );
+      }
+    } finally {
+      setPayoutSaving(false);
     }
   };
 
   const avatarUrl = (form?.avatarUrl || me?.avatarUrl || null) as string | null;
+  const bypassAvatarOptimizer = Boolean(avatarUrl && /^https?:\/\//i.test(avatarUrl));
   const displayName = String(form?.fullName || form?.name || me?.fullName || me?.name || '').trim();
   const emailValue = String(form?.email || me?.email || '').trim();
   const phoneValue = String(form?.phone || me?.phone || '').trim();
@@ -750,6 +884,19 @@ export default function OwnerProfile() {
     me?.mobileMoneyProvider,
     payoutPreferred,
   ]);
+
+  const payoutChanged = useMemo(() => {
+    const payoutKeys = [
+      'payoutPreferred',
+      'bankName',
+      'bankAccountName',
+      'bankAccountNumber',
+      'bankBranch',
+      'mobileMoneyProvider',
+      'mobileMoneyNumber',
+    ];
+    return payoutKeys.some((key) => String(form?.[key] || '').trim() !== String(me?.[key] || '').trim());
+  }, [form, me]);
 
   const profileCompletion = useMemo(() => {
     const checks: Array<boolean> = [
@@ -803,227 +950,17 @@ export default function OwnerProfile() {
     );
   }
 
-  const maskAccount = (str: string | null | undefined) => {
-    if (!str) return '—';
-    const s = String(str);
-    if (s.length <= 4) return s;
-    return s.slice(0, 4) + '*'.repeat(Math.min(4, s.length - 4)) + s.slice(-4);
-  };
-
-  const maskPhone = (str: string | null | undefined) => {
-    if (!str) return '—';
-    const s = String(str).replace(/\D/g, '');
-    if (s.length <= 4) return s;
-    return s.slice(0, 3) + '*'.repeat(Math.min(4, s.length - 4)) + s.slice(-3);
-  };
-
-  const renderField = (label: string, value: any, icon: any, required: boolean = false, fieldKey?: string, fieldType: 'text' | 'textarea' = 'text') => {
-    const Icon = icon;
-    // Check for empty string, null, undefined, or whitespace-only strings
-    const isEmpty = !value || (typeof value === 'string' && value.trim() === '');
-    // Mask account number, mobile money number, and phone when displaying (not when editing)
-    const displayValue = isEmpty 
-      ? (required ? 'Not provided' : '—') 
-      : (fieldKey === 'bankAccountNumber' && editingField !== 'bankAccountNumber' 
-          ? maskAccount(value) 
-          : (fieldKey === 'mobileMoneyNumber' || fieldKey === 'phone') && editingField !== fieldKey
-          ? maskPhone(value)
-          : String(value));
-    // Generate unique ID for each field instance using timestamp and random
-    const fieldId = fieldKey ? `owner-profile-${fieldKey}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}` : undefined;
-    
-    return (
-      <div className="w-full max-w-full min-w-0 p-3 sm:p-4 bg-white border-2 border-slate-200 rounded-xl hover:border-emerald-300 transition-all duration-300 hover:shadow-md group overflow-hidden box-border">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2 w-full max-w-full min-w-0 overflow-hidden">
-          {fieldId ? (
-            <label htmlFor={fieldId} className="text-xs sm:text-sm font-semibold text-slate-700 flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 transition-colors duration-300 group-hover:text-emerald-600 flex-shrink-0" />
-              <span className="truncate min-w-0">{label}</span>
-              {required && <span className="text-red-500 flex-shrink-0">*</span>}
-              {fieldKey === 'mobileMoneyProvider' && editingField === 'mobileMoneyProvider' && (
-                <div className="relative group/tooltip flex-shrink-0">
-                  <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 transition-colors cursor-help" />
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg shadow-lg z-50 min-w-[200px]">
-                    <div className="font-semibold mb-1">Available providers:</div>
-                    <div className="space-y-0.5">
-                      <div>— M-Pesa</div>
-                      <div>— Mix by yas</div>
-                      <div>— Airtel</div>
-                      <div>— Tigo Pesa</div>
-                      <div>— Halopesa</div>
-                    </div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                      <div className="border-4 border-transparent border-t-slate-900"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {fieldKey === 'bankName' && editingField === 'bankName' && (
-                <div className="relative group/tooltip flex-shrink-0">
-                  <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 transition-colors cursor-help" />
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg shadow-lg z-50 min-w-[200px]">
-                    <div className="font-semibold mb-1">Sample bank names:</div>
-                    <div className="space-y-0.5">
-                      <div>— CRDB BANK</div>
-                      <div>— NMB BANK</div>
-                      <div>— NBC BANK</div>
-                      <div>— EXIM BANK</div>
-                      <div>— DTB BANK</div>
-                    </div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                      <div className="border-4 border-transparent border-t-slate-900"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </label>
-          ) : (
-            <div className="text-xs sm:text-sm font-semibold text-slate-700 flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 transition-colors duration-300 group-hover:text-emerald-600 flex-shrink-0" />
-              <span className="truncate min-w-0">{label}</span>
-              {required && <span className="text-red-500 flex-shrink-0">*</span>}
-              {fieldKey === 'mobileMoneyProvider' && editingField === 'mobileMoneyProvider' && (
-                <div className="relative group/tooltip flex-shrink-0">
-                  <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 transition-colors cursor-help" />
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg shadow-lg z-50 min-w-[200px]">
-                    <div className="font-semibold mb-1">Available providers:</div>
-                    <div className="space-y-0.5">
-                      <div>— M-Pesa</div>
-                      <div>— Mix by yas</div>
-                      <div>— Airtel</div>
-                      <div>— Tigo Pesa</div>
-                      <div>— Halopesa</div>
-                    </div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                      <div className="border-4 border-transparent border-t-slate-900"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {fieldKey === 'bankName' && editingField === 'bankName' && (
-                <div className="relative group/tooltip flex-shrink-0">
-                  <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 transition-colors cursor-help" />
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg shadow-lg z-50 min-w-[200px]">
-                    <div className="font-semibold mb-1">Sample bank names:</div>
-                    <div className="space-y-0.5">
-                      <div>— CRDB BANK</div>
-                      <div>— NMB BANK</div>
-                      <div>— NBC BANK</div>
-                      <div>— EXIM BANK</div>
-                      <div>— DTB BANK</div>
-                    </div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                      <div className="border-4 border-transparent border-t-slate-900"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          {fieldKey && (
-            <button 
-              type="button" 
-              onClick={() => setEditingField(editingField === fieldKey ? null : fieldKey)}
-              className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium flex items-center gap-1 transition-all duration-200 hover:scale-105 self-start sm:self-auto flex-shrink-0 whitespace-nowrap"
-            >
-              <Pencil className="w-3 h-3 flex-shrink-0" />
-              <span>{editingField === fieldKey ? 'Cancel' : 'Edit'}</span>
-            </button>
-          )}
-        </div>
-        <div className="w-full max-w-full min-w-0 overflow-hidden">
-          {editingField === fieldKey && fieldKey ? (
-            fieldType === 'textarea' ? (
-              <textarea
-                id={fieldId}
-                aria-label={label}
-                value={value || ''}
-                onChange={(e) => setForm({...form, [fieldKey]: e.target.value})}
-                className="block w-full max-w-full rounded-lg border-2 border-emerald-200 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-all duration-200 resize-none min-w-0 box-border"
-                rows={3}
-                autoFocus
-                onBlur={() => setEditingField(null)}
-              />
-            ) : (
-              <input
-                id={fieldId}
-                type={fieldKey === 'email' ? 'email' : fieldKey === 'phone' ? 'tel' : 'text'}
-                aria-label={label}
-                value={value || ''}
-                placeholder={fieldKey === 'mobileMoneyProvider' ? 'e.g., M-Pesa, Mix by yas, Airtel' : fieldKey === 'bankName' ? 'e.g., CRDB BANK, NMB BANK, NBC BANK' : undefined}
-                onChange={(e) => setForm({...form, [fieldKey]: e.target.value})}
-                className="block w-full max-w-full rounded-lg border-2 border-emerald-200 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-all duration-200 min-w-0 box-border"
-                autoFocus
-                onBlur={() => setEditingField(null)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') setEditingField(null);
-                }}
-              />
-            )
-          ) : (
-            <div className="space-y-2">
-              <div className={`text-xs sm:text-sm font-medium transition-colors duration-200 break-words overflow-wrap-anywhere w-full max-w-full ${isEmpty ? 'text-slate-400 italic' : 'text-slate-900'}`}>
-                {displayValue}
-              </div>
-              {/* Verification Status for Email and Phone */}
-              {fieldKey === 'email' && !isEmpty && (
-                <div className="flex items-center gap-2">
-                  {me?.emailVerifiedAt ? (
-                    <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
-                      <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                      <span>Verified</span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setVerifyingEmail(true);
-                        try {
-                          await api.post('/api/owner/email/verify/send');
-                          setSuccess('Verification email sent! Please check your inbox.');
-                          // Refresh user data to get updated verification status
-                          const r = await api.get("/api/account/me");
-                          const meData = (r as any)?.data?.data ?? (r as any)?.data;
-                          setMe(meData);
-                          setForm((prev: any) => ({ ...prev, emailVerifiedAt: meData?.emailVerifiedAt }));
-                        } catch (err: any) {
-                          setError(err?.response?.data?.error || 'Failed to send verification email');
-                        } finally {
-                          setVerifyingEmail(false);
-                        }
-                      }}
-                      disabled={verifyingEmail}
-                      className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
-                      <span>{verifyingEmail ? 'Sending...' : 'Verify Email'}</span>
-                    </button>
-                  )}
-                </div>
-              )}
-              {/* Phone numbers are verified during registration, so always show verified badge */}
-              {fieldKey === 'phone' && !isEmpty && (
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
-                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span>Verified</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-
-
   const editProps = {
 
     editingField,
 
-    onStartEdit: (k: string) => setEditingField(k),
+    onStartEdit: (k: string) => {
+      if (k === "email" || k === "phone") {
+        openContactChange(k);
+        return;
+      }
+      setEditingField(k);
+    },
 
     onStopEdit: () => setEditingField(null),
 
@@ -1142,363 +1079,123 @@ export default function OwnerProfile() {
 
         {/* -- Personal details -------------------------------------------- */}
 
-        <div className="lg:col-span-7 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+        <div className="lg:col-span-12 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
 
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/60">
-
-            <div className="text-sm font-bold text-slate-900">Personal details</div>
-
-            <div className="text-sm text-slate-600 mt-1">Name, contact and business identity.</div>
-
-          </div>
-
-          <div className="p-5 sm:p-6">
-
-            {/* Avatar row */}
-
-            <div className="flex items-center justify-between gap-4 pb-5 border-b border-slate-100">
-
-              <div className="flex items-center gap-4 min-w-0">
-
-                <div className="relative h-14 w-14 rounded-full border border-slate-200 bg-slate-50 overflow-hidden flex items-center justify-center flex-shrink-0">
-
-                  {avatarUrl
-
-                    ? <Image src={avatarUrl} alt="Profile photo" fill sizes="56px" className="object-cover" />
-
-                    : <User className="h-6 w-6 text-slate-400" aria-hidden />}
-
-                </div>
-
-                <div className="min-w-0">
-
-                  <div className="text-sm font-bold text-slate-900">Profile photo</div>
-
-                  <div className="text-xs text-slate-600 mt-0.5">{!avatarUrl ? "Upload your business photo." : "Keep your photo up to date."}</div>
-
-                </div>
-
-              </div>
-
-              <div className="shrink-0">
-
-                <input ref={avatarFileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; await uploadAvatar(f); }} />
-
-                <button type="button" onClick={() => { if (!avatarUploading) avatarFileInputRef.current?.click(); }} disabled={avatarUploading}
-
-                  className="inline-flex items-center justify-center text-[#02665e] disabled:opacity-60 focus-visible:outline-none">
-
-                  <span className="sr-only">{avatarUrl ? "Change photo" : "Upload photo"}</span>
-
-                  {avatarUploading
-
-                    ? <span className="h-4 w-4 rounded-full border-2 border-[#02665e]/20 border-t-[#02665e] animate-spin" aria-hidden />
-
-                    : <Pencil className="h-4 w-4" aria-hidden />}
-
-                </button>
-
-              </div>
-
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Personal details</div>
+              <div className="mt-0.5 text-xs text-slate-500">Contact and business identity.</div>
             </div>
-
-            <div className="pt-5 grid grid-cols-2 gap-4">
-
-              <EditableInfoItem icon={<User className="w-5 h-5" />} label="Full name" value={form.fullName || form.name} fieldKey="fullName" {...editProps} />
-
-              <EditableInfoItem icon={<Mail className="w-5 h-5" />} label="Email" value={form.email} fieldKey="email" {...editProps} />
-
-              <EditableInfoItem icon={<Phone className="w-5 h-5" />} label="Phone" value={form.phone} fieldKey="phone" fieldType="tel" {...editProps} />
-
-              <EditableInfoItem icon={<FileText className="w-5 h-5" />} label="Business TIN" value={form.tin} fieldKey="tin" {...editProps} />
-
-              <div className="col-span-2">
-
-                <EditableInfoItem icon={<MapPin className="w-5 h-5" />} label="Address" value={form.address} fieldKey="address" fieldType="textarea" {...editProps} />
-
-              </div>
-
-            </div>
-
-            {/* Email verification row */}
-
             {form.email && (
-
-              <div className="mt-4 pt-4 border-t border-slate-100">
-
-                {me?.emailVerifiedAt ? (
-
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-
-                    <CheckCircle2 className="h-3.5 w-3.5" />Email verified
-
-                  </span>
-
-                ) : (
-
-                  <button type="button" disabled={verifyingEmail}
-
-                    onClick={async () => {
-
-                      setVerifyingEmail(true);
-
-                      try {
-
-                        await api.post('/api/owner/email/verify/send');
-
-                        setSuccess('Verification email sent! Please check your inbox.');
-
-                        const r = await api.get("/api/account/me");
-
-                        const meData = (r as any)?.data?.data ?? (r as any)?.data;
-
-                        setMe(meData); setForm((prev: any) => ({ ...prev, emailVerifiedAt: meData?.emailVerifiedAt }));
-
-                      } catch (err: any) { setError(err?.response?.data?.error || 'Failed to send verification email'); }
-
-                      finally { setVerifyingEmail(false); }
-
-                    }}
-
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50">
-
-                    <ShieldCheck className="h-3.5 w-3.5" />{verifyingEmail ? 'Sending...' : 'Verify email'}
-
-                  </button>
-
-                )}
-
-              </div>
-
+              me?.emailVerifiedAt ? (
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />Email verified
+                </span>
+              ) : (
+                <button type="button" disabled={verifyingEmail}
+                  onClick={async () => {
+                    setVerifyingEmail(true);
+                    try {
+                      await api.post('/api/owner/email/verify/send');
+                      setSuccess('Verification email sent! Please check your inbox.');
+                      const r = await api.get("/api/account/me");
+                      const meData = (r as any)?.data?.data ?? (r as any)?.data;
+                      setMe(meData); setForm((prev: any) => ({ ...prev, emailVerifiedAt: meData?.emailVerifiedAt }));
+                    } catch (err: any) { setError(err?.response?.data?.error || 'Failed to send verification email'); }
+                    finally { setVerifyingEmail(false); }
+                  }}
+                  className="inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-600 transition hover:border-[#02665e]/30 hover:text-[#02665e] disabled:opacity-50">
+                  <ShieldCheck className="h-3.5 w-3.5" />{verifyingEmail ? 'Sending...' : 'Verify email'}
+                </button>
+              )
             )}
-
           </div>
 
-        </div>
-
-
-
-        {/* -- Payout preference ------------------------------------------- */}
-
-        <div className="lg:col-span-5 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
-
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/60">
-
-            <div className="text-sm font-bold text-slate-900">Payout preference</div>
-
-            <div className="text-sm text-slate-600 mt-1">How you receive your earnings.</div>
-
-          </div>
-
-          <div className="p-5 sm:p-6 space-y-5">
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-              {[
-                {
-                  value: "BANK",
-                  label: "Bank account",
-                  hint: "Use your bank details for disbursements.",
-                  Icon: Building2,
-                },
-                {
-                  value: "MOBILE_MONEY",
-                  label: "Mobile money",
-                  hint: "Use your mobile wallet number.",
-                  Icon: Phone,
-                },
-              ].map(({ value, label, hint, Icon }) => {
-                const selected = String(form.payoutPreferred || "").toUpperCase() === value;
-
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setForm((p: any) => ({ ...p, payoutPreferred: value }))}
-                    aria-pressed={selected}
-                    className={`relative min-h-[104px] rounded-2xl border-2 p-4 text-left transition-all duration-200 ${
-                      selected
-                        ? "border-[#02665e] bg-[#02665e]/8 shadow-[0_12px_28px_rgba(2,102,94,0.14)]"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${selected ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600"}`}>
-                        <Icon className="h-5 w-5" aria-hidden />
-                      </span>
-                      <span className="min-w-0">
-                        <span className={`block text-sm font-extrabold ${selected ? "text-[#02665e]" : "text-slate-900"}`}>{label}</span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">{hint}</span>
-                      </span>
-                    </div>
-                    {selected && (
-                      <span className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#02665e] text-white">
-                        <CheckCircle2 className="h-4 w-4" aria-hidden />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 sm:gap-5">
-
-            <EditableInfoItem icon={<Building2 className="w-5 h-5" />} label="Bank name" value={form.bankName} fieldKey="bankName" {...editProps} />
-
-            <EditableInfoItem icon={<User className="w-5 h-5" />} label="Account name" value={form.bankAccountName} fieldKey="bankAccountName" {...editProps} />
-
-            <EditableInfoItem icon={<CreditCard className="w-5 h-5" />} label="Account number" value={form.bankAccountNumber} fieldKey="bankAccountNumber" maskFn={maskAccount} {...editProps} />
-
-            <EditableInfoItem icon={<MapPin className="w-5 h-5" />} label="Branch" value={form.bankBranch} fieldKey="bankBranch" {...editProps} />
-
-            </div>
-
-          </div>
-
-        </div>
-
-
-
-        {/* -- Mobile money — dark card ------------------------------------ */}
-
-        <div className="lg:col-span-6 relative rounded-2xl border border-white/10 bg-slate-950/70 shadow-card overflow-hidden backdrop-blur-xl">
-
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#02665e]/20 via-slate-950/80 to-slate-950" aria-hidden />
-
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-white/10 to-transparent" aria-hidden />
-
-          <div className="relative p-5 sm:p-6 border-b border-white/10 bg-white/5">
-
-            <div className="text-sm font-bold text-white">Mobile money</div>
-
-            <div className="text-sm text-white/70 mt-1">M-Pesa / Tigo / Airtel number for payouts.</div>
-
-          </div>
-
-          <div className="relative p-5 sm:p-6 space-y-4">
-
-            <div className="flex items-start gap-3 group">
-
-              <div className="h-10 w-10 rounded-2xl bg-[#02665e]/10 border border-[#02665e]/20 flex items-center justify-center text-[#02665e] flex-shrink-0"><Phone className="w-5 h-5" /></div>
-
-              <div className="min-w-0 flex-1">
-
-                <div className="flex items-center justify-between gap-2">
-
-                  <div className="text-xs font-semibold text-white/60">Provider</div>
-
-                  <button type="button" onClick={() => setEditingField(editingField === "mobileMoneyProvider" ? null : "mobileMoneyProvider")}
-
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/60 hover:text-white/90 focus-visible:opacity-100 focus-visible:outline-none">
-
-                    {editingField === "mobileMoneyProvider" ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-
-                  </button>
-
+          <div className="min-w-0 p-4 sm:p-5">
+            <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-white bg-slate-50 shadow-sm ring-1 ring-slate-200">
+                  {avatarUrl
+                    ? <Image src={avatarUrl} alt="Profile photo" fill sizes="56px" unoptimized={bypassAvatarOptimizer} className="object-cover" />
+                    : <span className="grid h-full w-full place-items-center bg-[#02665e]/5"><User className="h-6 w-6 text-[#02665e]" aria-hidden /></span>}
                 </div>
-
-                {editingField === "mobileMoneyProvider"
-
-                  ? <input type="text" value={form.mobileMoneyProvider || ""} onChange={(e) => setForm((p: any) => ({ ...p, mobileMoneyProvider: e.target.value }))}
-
-                      autoFocus onBlur={() => setEditingField(null)} onKeyDown={(e) => { if (e.key === "Enter") setEditingField(null); }}
-
-                      placeholder="e.g. M-Pesa, Tigo Pesa, Airtel"
-
-                      className="mt-2 block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white appearance-none outline-none shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none focus:ring-offset-0 focus:border-[#02665e]/50 transition-all placeholder:text-white/30" />
-
-                  : <div className={`text-sm font-bold mt-0.5 ${!form.mobileMoneyProvider ? "text-white/40" : "text-white"}`}>{form.mobileMoneyProvider || "—"}</div>}
-
-              </div>
-
-            </div>
-
-            <div className="flex items-start gap-3 group">
-
-              <div className="h-10 w-10 rounded-2xl bg-[#02665e]/10 border border-[#02665e]/20 flex items-center justify-center text-[#02665e] flex-shrink-0"><Phone className="w-5 h-5" /></div>
-
-              <div className="min-w-0 flex-1">
-
-                <div className="flex items-center justify-between gap-2">
-
-                  <div className="text-xs font-semibold text-white/60">Mobile money number</div>
-
-                  <button type="button" onClick={() => setEditingField(editingField === "mobileMoneyNumber" ? null : "mobileMoneyNumber")}
-
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/60 hover:text-white/90 focus-visible:opacity-100 focus-visible:outline-none">
-
-                    {editingField === "mobileMoneyNumber" ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-
-                  </button>
-
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-slate-800">Profile photo</div>
+                  <div className="mt-0.5 text-xs leading-4 text-slate-500">Visible on your owner account.</div>
                 </div>
-
-                {editingField === "mobileMoneyNumber"
-
-                  ? <input type="tel" value={form.mobileMoneyNumber || ""} inputMode="numeric" pattern="\d*" maxLength={15} onChange={(e) => setForm((p: any) => ({ ...p, mobileMoneyNumber: e.target.value.replace(/\D/g, "").slice(0, 15) }))}
-
-                      autoFocus onBlur={() => setEditingField(null)} onKeyDown={(e) => { if (e.key === "Enter") setEditingField(null); }}
-
-                      className="mt-2 block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white tabular-nums appearance-none outline-none shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none focus:ring-offset-0 focus:border-[#02665e]/50 transition-all" />
-
-                  : <div className={`text-sm font-bold mt-0.5 ${!form.mobileMoneyNumber ? "text-white/40" : "text-white"}`}>{form.mobileMoneyNumber ? maskPhone(form.mobileMoneyNumber) : "—"}</div>}
-
               </div>
-
+              <input ref={avatarFileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; await uploadAvatar(f); }} />
+              <button type="button" onClick={() => { if (!avatarUploading) avatarFileInputRef.current?.click(); }} disabled={avatarUploading}
+                className="inline-flex h-8 w-fit items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none">
+                {avatarUploading
+                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#02665e]/20 border-t-[#02665e]" aria-hidden />Uploading...</>
+                  : <><Pencil className="h-3.5 w-3.5" aria-hidden />Change photo</>}
+              </button>
             </div>
 
+            <div
+              className="mt-4 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin]"
+              role="region"
+              aria-label="Personal details. Swipe or scroll horizontally to view all fields."
+              tabIndex={0}
+            >
+              <div className="flex min-w-max snap-x snap-mandatory gap-3">
+                <div className="w-[230px] shrink-0 snap-start">
+                  <EditableInfoItem icon={<User />} label="Full name" value={form.fullName || form.name} fieldKey="fullName" {...editProps} />
+                </div>
+                <div className="w-[310px] shrink-0 snap-start">
+                  <EditableInfoItem icon={<Mail />} label="Email" value={form.email} fieldKey="email" {...editProps} />
+                </div>
+                <div className="w-[235px] shrink-0 snap-start">
+                  <EditableInfoItem icon={<Phone />} label="Phone" value={form.phone} fieldKey="phone" fieldType="tel" {...editProps} />
+                </div>
+                <div className="w-[200px] shrink-0 snap-start">
+                  <EditableInfoItem icon={<FileText />} label="Business TIN" value={form.tin} fieldKey="tin" {...editProps} />
+                </div>
+                <div className="w-[300px] shrink-0 snap-start">
+                  <EditableInfoItem icon={<MapPin />} label="Business address" value={form.address} fieldKey="address" fieldType="textarea" {...editProps} />
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
 
 
 
-        {/* -- Saved payout summary — dark card --------------------------- */}
-
-        <div className="lg:col-span-6 relative rounded-2xl border border-white/10 bg-slate-950/70 shadow-card overflow-hidden backdrop-blur-xl">
-
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#0a5c82]/15 via-slate-950/85 to-slate-950" aria-hidden />
-
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-white/10 to-transparent" aria-hidden />
-
-          <div className="relative p-5 sm:p-6 border-b border-white/10 bg-white/5">
-
-            <div className="text-sm font-bold text-white">Payout summary</div>
-
-            <div className="text-sm text-white/70 mt-1">Your saved earnings payout details.</div>
-
-          </div>
-
-          <div className="relative p-5 sm:p-6 grid grid-cols-2 gap-4">
-
-            <InfoItem tone="dark" icon={<Building2 className="w-5 h-5" />} label="Bank name" value={form.bankName || "—"} />
-
-            <InfoItem tone="dark" icon={<CreditCard className="w-5 h-5" />} label="Account number" value={form.bankAccountNumber ? maskAccount(form.bankAccountNumber) : "—"} />
-
-            <InfoItem tone="dark" icon={<Phone className="w-5 h-5" />} label="Mobile money" value={form.mobileMoneyProvider ? `${form.mobileMoneyProvider} — ${maskPhone(form.mobileMoneyNumber)}` : "—"} />
-
-            <InfoItem tone="dark" icon={<Wallet className="w-5 h-5" />} label="Preferred payout" value={form.payoutPreferred === "BANK" ? "Bank Account" : form.payoutPreferred === "MOBILE_MONEY" ? "Mobile Money" : form.payoutPreferred || "—"} />
-
-          </div>
-
-        </div>
+        {/* One secure component owns method selection and destination details. */}
+        <SecurePayoutPreferenceCard
+          className="lg:col-span-12"
+          value={form}
+          disabled={payoutSaving}
+          saving={payoutSaving}
+          saveDisabled={!payoutDetailsOk || !payoutChanged}
+          saveError={payoutError}
+          saveSuccess={payoutSuccess}
+          onSave={requestPayoutSave}
+          onChange={(patch) => {
+            setPayoutError(null);
+            setPayoutSuccess(null);
+            setPayoutPreview(null);
+            setForm((current: any) => ({ ...current, ...patch }));
+          }}
+        />
 
 
 
         {/* -- Required documents ------------------------------------------ */}
 
-        <div className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+        <div className="lg:col-span-12 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
 
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/60">
+          <div className="border-b border-slate-200 bg-slate-50/60 p-4 sm:px-5">
 
-            <div className="text-sm font-bold text-slate-900">Required documents</div>
+            <div className="text-sm font-semibold text-slate-800">Required documents</div>
 
-            <div className="text-sm text-slate-600 mt-1">PDF, JPG, PNG or WebP — max 15 MB each.</div>
+            <div className="mt-0.5 text-xs text-slate-500">PDF, JPG, PNG or WebP · maximum 15 MB each.</div>
 
           </div>
 
-          <div className="p-5 sm:p-6 space-y-4">
+          <div className="space-y-4 p-4 sm:p-5">
 
             <input ref={docInputRef} type="file" className="hidden" accept="application/pdf,image/*"
 
@@ -1510,12 +1207,18 @@ export default function OwnerProfile() {
 
               <div className="space-y-1">
 
-                {docError  && <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">{docError}</div>}
+                {docError  && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">{docError}</div>}
 
-                {docSuccess && <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">{docSuccess}</div>}
+                {docSuccess && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">{docSuccess}</div>}
 
               </div>
 
+            )}
+
+            {documentsUnavailable && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                Saved document status could not be loaded. Your existing uploads have not been removed; refresh the page to try again.
+              </div>
             )}
 
 
@@ -1524,95 +1227,55 @@ export default function OwnerProfile() {
 
             {showUploader && (
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_auto]">
 
-                  <div className="lg:col-span-4">
+                  <div className="min-w-0">
 
-                    <div className="text-xs font-semibold text-slate-600">Document type</div>
+                    <div className="text-xs font-medium text-slate-600">Document type</div>
 
                     <select value={selectedDocType} onChange={(e) => setSelectedDocType(e.target.value)} disabled={actionableDocTypes.length === 0}
 
-                      className="mt-2 w-full h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30">
+                      className="mt-1.5 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/15">
 
-                      <option value="">Select document—</option>
+                      <option value="">Select document</option>
 
                       {actionableDocTypes.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
 
                     </select>
 
-                    <div className="text-xs text-slate-600 mt-2">Select type, then drag & drop or click to upload.</div>
-
-                    {String(selectedDocType).toUpperCase() === "BUSINESS_LICENCE" && (
-
-                      <div className="mt-3">
-
-                        <div className="text-[11px] font-semibold text-slate-700 mb-1.5">Business licence expiry date <span className="text-red-500">*</span></div>
-
-                        <DatePickerField label="Business licence expiry date" value={businessLicenceExpiresOn}
-
-                          onChangeAction={(iso) => setBusinessLicenceExpiresOn(String(iso))} min={todayIsoDate()} widthClassName="w-full" size="sm" allowPast={false} twoMonths={false} />
-
-                        <div className="text-[10px] text-slate-400 mt-1">Reminders start 10 days before expiry.</div>
-
-                      </div>
-
-                    )}
-
                   </div>
 
-                  <div className="lg:col-span-8">
-
-                    <div
-
-                      role="button" tabIndex={0} aria-label="Upload document"
-
-                      className={`w-full rounded-2xl border-2 border-dashed px-4 py-4 sm:py-5 transition cursor-pointer ${!selectedDocType || docUploading ? "border-slate-200 bg-slate-50/60 opacity-70" : docDragOver ? "border-[#02665e] bg-[#02665e]/5" : "border-slate-200 bg-slate-50/60 hover:bg-slate-50"}`}
-
-                      onClick={() => { if (!selectedDocType || docUploading) return; docInputRef.current?.click(); }}
-
-                      onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !docUploading && selectedDocType) { e.preventDefault(); docInputRef.current?.click(); } }}
-
-                      onDragOver={(e) => { if (!selectedDocType || !!docUploading) return; e.preventDefault(); setDocDragOver(true); }}
-
-                      onDragLeave={() => setDocDragOver(false)}
-
-                      onDrop={(e) => { if (!selectedDocType || !!docUploading) return; e.preventDefault(); setDocDragOver(false); void uploadDocumentForType(selectedDocType, e.dataTransfer.files?.[0] ?? null); }}
-
-                    >
-
-                      <div className="flex items-center justify-center gap-3 text-center">
-
-                        <div className="h-10 w-10 rounded-2xl border border-slate-200 bg-white flex items-center justify-center text-[#02665e] shrink-0">
-
-                          <Upload className="w-5 h-5" aria-hidden />
-
-                        </div>
-
-                        <div className="min-w-0">
-
-                          <div className="text-sm font-semibold text-slate-900">{docUploading ? "Uploading—" : !selectedDocType ? "Select a document type above" : "Drag & drop to upload"}</div>
-
-                          <div className="text-xs font-semibold text-slate-600 mt-0.5">or click to browse</div>
-
-                        </div>
-
-                      </div>
-
+                  {String(selectedDocType).toUpperCase() === "BUSINESS_LICENCE" ? (
+                    <div className="min-w-0">
+                      <div className="mb-1.5 text-xs font-medium text-slate-600">Expiry date <span className="text-rose-500">*</span></div>
+                      <DatePickerField label="Business licence expiry date" value={businessLicenceExpiresOn}
+                        onChangeAction={(iso) => setBusinessLicenceExpiresOn(String(iso))} min={todayIsoDate()} widthClassName="w-full" size="sm" allowPast={false} twoMonths={false} />
                     </div>
+                  ) : (
+                    <div className="pb-2 text-xs leading-5 text-slate-500">Select a required document, then choose its file.</div>
+                  )}
 
-                  </div>
+                  <button type="button" disabled={!selectedDocType || !!docUploading}
+                    onClick={() => docInputRef.current?.click()}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-medium text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+                    {docUploading
+                      ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Uploading...</>
+                      : <><Upload className="h-4 w-4" aria-hidden />Choose file</>}
+                  </button>
 
                 </div>
+
+                <div className="mt-2 text-[11px] text-slate-500">Your document is encrypted in transit and submitted for administrator review.</div>
 
               </div>
 
             )}
 
-            {!showUploader && (
+            {!showUploader && !documentsUnavailable && (
 
-              <div className="p-6 text-center border border-emerald-200 rounded-2xl bg-emerald-50/50">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-5 text-center">
 
                 <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
 
@@ -1626,9 +1289,9 @@ export default function OwnerProfile() {
 
 
 
-            {/* Doc status cards */}
+            {/* Document status list */}
 
-            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="overflow-hidden rounded-lg border border-slate-200 divide-y divide-slate-200">
 
               {requiredDocTypes.map((item) => {
 
@@ -1640,7 +1303,7 @@ export default function OwnerProfile() {
 
                 const hasUrl = Boolean(doc?.url);
 
-                const statusText = hasUrl ? (status || "PENDING") : "NOT_UPLOADED";
+                const statusText = documentsUnavailable ? "UNAVAILABLE" : hasUrl ? (status || "PENDING") : "NOT_UPLOADED";
 
                 const expiresAt = item.type === "BUSINESS_LICENCE" ? parseDocExpiresAt(doc) : null;
 
@@ -1648,7 +1311,7 @@ export default function OwnerProfile() {
 
                 const daysLeft = expiresAt ? Math.ceil(((expiresAt as Date).getTime() - Date.now()) / 86400000) : null;
 
-                const canUpload = !hasUrl || statusText === "REJECTED" || isExpired;
+                const canUpload = !documentsUnavailable && (!hasUrl || statusText === "REJECTED" || isExpired);
 
                 const badgeCls = isExpired ? "bg-rose-50 text-rose-700 border-rose-200"
 
@@ -1658,19 +1321,20 @@ export default function OwnerProfile() {
 
                   : statusText === "PENDING" ? "bg-amber-50 text-amber-700 border-amber-200"
 
+                  : statusText === "UNAVAILABLE" ? "bg-amber-50 text-amber-700 border-amber-200"
                   : "bg-slate-50 text-slate-600 border-slate-200";
 
-                const badgeText = isExpired ? "Expired" : statusText === "APPROVED" ? "Approved" : statusText === "REJECTED" ? "Rejected" : statusText === "PENDING" ? "Pending review" : "Not uploaded";
+                const badgeText = isExpired ? "Expired" : statusText === "APPROVED" ? "Approved" : statusText === "REJECTED" ? "Rejected" : statusText === "PENDING" ? "Pending review" : statusText === "UNAVAILABLE" ? "Status unavailable" : "Not uploaded";
 
                 return (
 
-                  <div key={item.type} className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
+                  <div key={item.type} className="bg-white p-3.5 sm:p-4">
 
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
                       <div className="flex items-center gap-2 min-w-0">
 
-                        <div className="h-8 w-8 rounded-xl bg-[#02665e]/5 border border-[#02665e]/15 flex items-center justify-center text-[#02665e] shrink-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.06] text-[#02665e]">
 
                           <FileText className="w-4 h-4" />
 
@@ -1678,22 +1342,13 @@ export default function OwnerProfile() {
 
                         <div className="min-w-0">
 
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold text-slate-900 leading-snug">{item.label}</span>
-                            {item.type === "BUSINESS_LICENCE" && statusText === "APPROVED" && !isExpired && (
-                              <span title="Valid" className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-emerald-500 shrink-0">
-                                <svg viewBox="0 0 12 12" fill="none" className="h-2.5 w-2.5 text-white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="2,6 5,9 10,3" />
-                                </svg>
-                              </span>
-                            )}
-                          </div>
+                          <div className="text-sm font-medium leading-snug text-slate-800">{item.label}</div>
 
                           {hasUrl && doc?.url && (
 
-                            <a href={doc.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-[#02665e] hover:underline mt-0.5">
+                            <a href={doc.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-[#02665e] hover:underline">
 
-                              <Eye className="h-3 w-3" />
+                              <Eye className="h-3 w-3" />View document
 
                             </a>
 
@@ -1703,13 +1358,13 @@ export default function OwnerProfile() {
 
                       </div>
 
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shrink-0 ${badgeCls}`}>
+                      <span className={`inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium ${badgeCls}`}>
 
                         {statusText === "PENDING" && <Clock className="w-3 h-3" />}
 
                         {statusText === "APPROVED" && !isExpired && <CheckCircle2 className="w-3 h-3" />}
 
-                        {!(statusText === "APPROVED" && !isExpired) && badgeText}
+                        {badgeText}
 
                       </span>
 
@@ -1717,7 +1372,7 @@ export default function OwnerProfile() {
 
                     {expiresAt && (
 
-                      <div className={`mt-1.5 text-[10px] font-medium ${isExpired ? "text-rose-600" : typeof daysLeft === "number" && daysLeft <= 10 ? "text-orange-600" : "text-slate-500"}`}>
+                      <div className={`ml-11 mt-1.5 text-[11px] font-medium ${isExpired ? "text-rose-600" : typeof daysLeft === "number" && daysLeft <= 10 ? "text-orange-600" : "text-slate-500"}`}>
 
                         {isExpired ? "⚠ Expired: " : "Expires: "}{new Date(expiresAt).toLocaleDateString()}
 
@@ -1729,7 +1384,7 @@ export default function OwnerProfile() {
 
                     {statusText === "REJECTED" && doc?.reason && (
 
-                      <div className="mt-2 text-xs text-rose-700 bg-rose-50 rounded-lg px-2.5 py-2 border border-rose-200">
+                      <div className="ml-11 mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs text-rose-700">
 
                         <span className="font-semibold">Reason:</span> {doc.reason}
 
@@ -1743,7 +1398,7 @@ export default function OwnerProfile() {
 
                         onClick={() => { setDocError(null); setDocSuccess(null); setSelectedDocType(item.type); triggerDocUpload(); }}
 
-                        className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50">
+                        className="ml-11 mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
 
                         <Upload className="w-3 h-3" />{!hasUrl ? "Upload" : isExpired ? "Renew" : "Re-upload"}
 
@@ -1751,11 +1406,11 @@ export default function OwnerProfile() {
 
                     ) : (
 
-                      <div className="mt-3 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400">
+                      <div className="ml-11 mt-2 flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
 
                         <Lock className="w-3 h-3" />
 
-                        {statusText === "APPROVED" ? "Approved — locked" : "Under review — locked"}
+                        {statusText === "UNAVAILABLE" ? "Refresh to load saved status" : statusText === "APPROVED" ? "Approved — locked" : "Under review — locked"}
 
                       </div>
 
@@ -1783,7 +1438,7 @@ export default function OwnerProfile() {
 
             <div className="text-sm font-bold text-slate-900">Account actions</div>
 
-            <div className="text-sm text-slate-600 mt-1">Save changes, security, and account management.</div>
+            <div className="text-sm text-slate-600 mt-1">Profile security and account management.</div>
 
           </div>
 
@@ -1793,7 +1448,7 @@ export default function OwnerProfile() {
 
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#02665e] text-white text-sm font-semibold hover:bg-[#02665e]/90 shadow-card transition-colors disabled:opacity-60 disabled:cursor-wait">
 
-              <Save className="h-4 w-4" />{saving ? "Saving..." : "Save changes"}
+              <Save className="h-4 w-4" />{saving ? "Saving profile..." : "Save profile details"}
 
             </button>
 
@@ -1952,48 +1607,200 @@ export default function OwnerProfile() {
 
 
 
-      {/* Confirmation Dialog */}
-
-      {showConfirmDialog && (
-
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowConfirmDialog(false)}>
-
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-
-            <div className="flex items-start gap-4 mb-5">
-
-              <div className="h-12 w-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
-
-                <AlertTriangle className="h-6 w-6 text-amber-600" />
-
+      {contactChange && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="contact-change-title"
+          className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-3 py-4 backdrop-blur-[2px] sm:items-center sm:p-5"
+        >
+          <div className="relative my-auto w-full max-w-[420px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)]">
+            <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
+                  {contactChange.field === "email" ? <Mail className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                </span>
+                <div className="min-w-0">
+                  <h2 id="contact-change-title" className="m-0 text-[15px] font-semibold leading-5 text-slate-900 sm:text-base">
+                    Secure {contactChange.field === "email" ? "email" : "phone"} change
+                  </h2>
+                  <p className="mb-0 mt-0.5 text-xs leading-4 text-slate-500">
+                    Verify existing access before accepting a new contact.
+                  </p>
+                </div>
               </div>
-
-              <div>
-
-                <h3 className="text-lg font-bold text-slate-900 mb-1">Confirm Sensitive Change</h3>
-
-                <p className="text-sm text-slate-600">{confirmMessage}</p>
-
-              </div>
-
+              <button type="button" onClick={() => { if (!contactChangeLoading) setContactChange(null); }} disabled={contactChangeLoading}
+                className="grid h-8 w-8 shrink-0 appearance-none place-items-center rounded-lg border-0 bg-transparent p-0 text-slate-400 shadow-none transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50" aria-label="Close contact change">
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            <div className="flex gap-3">
+            <div className="space-y-3 border-t border-slate-100 px-4 py-4 sm:px-5">
+              {(contactChange.stage === "ENTER" || contactChange.stage === "STEP_UP") && (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-600">New {contactChange.field === "email" ? "email address" : "phone number"}</span>
+                  <input
+                    type={contactChange.field === "email" ? "email" : "tel"}
+                    inputMode={contactChange.field === "phone" ? "tel" : "email"}
+                    value={contactChange.value}
+                    onChange={(event) => setContactChange((current) => current ? { ...current, value: event.target.value } : current)}
+                    disabled={contactChangeLoading || contactChange.stage === "STEP_UP"}
+                    className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10 disabled:bg-slate-100"
+                    autoComplete={contactChange.field === "email" ? "email" : "tel"}
+                  />
+                </label>
+              )}
 
-              <button onClick={() => { setShowConfirmDialog(false); setPendingSave(null); setConfirmMessage(""); }}
+              {contactChange.stage === "ENTER" && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-[#02665e]/15 bg-[#02665e]/[0.04] px-3 py-2.5 text-xs leading-4 text-slate-600">
+                  <ShieldCheck className="mt-px h-4 w-4 shrink-0 text-[#02665e]" />
+                  <p className="m-0">
+                    <span className="font-medium text-slate-700">Two-step protection:</span>{" "}
+                    authorize with a trusted contact, then verify the new {contactChange.field}.
+                  </p>
+                </div>
+              )}
 
-                className="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">Cancel</button>
+              {contactChange.stage === "STEP_UP" && (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-4 text-amber-800">
+                    No mature verified contact is available. Use an independent account credential to continue.
+                  </div>
+                  {contactChange.methods.password && (
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-700">Current password</span>
+                      <input type="password" value={contactChange.currentPassword}
+                        onChange={(event) => setContactChange((current) => current ? { ...current, currentPassword: event.target.value, totpCode: "" } : current)}
+                        className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="current-password" />
+                    </label>
+                  )}
+                  {contactChange.methods.totp && (
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-slate-700">Authenticator code</span>
+                      <input type="text" inputMode="numeric" value={contactChange.totpCode}
+                        onChange={(event) => setContactChange((current) => current ? { ...current, totpCode: event.target.value.replace(/\D/g, "").slice(0, 6), currentPassword: "" } : current)}
+                        className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm tracking-[0.18em] text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
+                    </label>
+                  )}
+                </div>
+              )}
 
-              <button onClick={async () => { setShowConfirmDialog(false); if (pendingSave) await pendingSave(); setPendingSave(null); setConfirmMessage(""); }}
+              {(contactChange.stage === "AUTHORIZE_EXISTING" || contactChange.stage === "VERIFY_NEW") && (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-4 text-emerald-800">
+                    {contactChange.stage === "AUTHORIZE_EXISTING"
+                      ? `Authorization code sent to your existing trusted contact: ${contactChange.sentTo}.`
+                      : `Verification code sent to the new contact: ${contactChange.sentTo}.`}
+                  </div>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-medium text-slate-700">Six-digit security code</span>
+                    <input type="text" inputMode="numeric" value={contactChange.code} autoFocus
+                      onChange={(event) => setContactChange((current) => current ? { ...current, code: event.target.value.replace(/\D/g, "").slice(0, 6) } : current)}
+                      onKeyDown={(event) => { if (event.key === "Enter" && contactChange.code.length === 6) void submitContactChangeCode(); }}
+                      className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-center text-sm font-medium tracking-[0.3em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
+                  </label>
+                </div>
+              )}
 
-                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-[#02665e] hover:bg-[#02665e]/90 rounded-xl transition-colors">Confirm & Save</button>
-
+              {contactChangeError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs leading-4 text-rose-700">{contactChangeError}</div>
+              )}
             </div>
 
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-t border-slate-100 px-4 py-3 sm:flex sm:justify-end sm:px-5">
+              <button type="button" onClick={() => setContactChange(null)} disabled={contactChangeLoading}
+                className="h-9 appearance-none rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 shadow-none hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              {(contactChange.stage === "ENTER" || contactChange.stage === "STEP_UP") ? (
+                <button type="button" onClick={requestSecureContactChange} disabled={contactChangeLoading || !contactChange.value.trim() || (contactChange.stage === "STEP_UP" && !contactChange.currentPassword && contactChange.totpCode.length !== 6)}
+                  className="inline-flex h-9 min-w-0 appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-[#02665e] px-3 text-sm font-medium text-white shadow-none hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-36">
+                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Lock className="h-4 w-4" />}
+                  Continue
+                </button>
+              ) : (
+                <button type="button" onClick={submitContactChangeCode} disabled={contactChangeLoading || contactChange.code.length !== 6}
+                  className="inline-flex h-9 min-w-0 appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-[#02665e] px-3 text-sm font-medium text-white shadow-none hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-36">
+                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <ShieldCheck className="h-4 w-4" />}
+                  {contactChange.stage === "AUTHORIZE_EXISTING" ? "Authorize change" : "Confirm new contact"}
+                </button>
+              )}
+            </div>
           </div>
+        </div>,
+        document.body
+      )}
 
-        </div>
+      {payoutPreview && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payout-confirmation-title"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          onClick={(event) => { if (event.target === event.currentTarget && !payoutSaving) setPayoutPreview(null); }}
+        >
+          <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" aria-hidden />
+          <div className="relative w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+                    <ShieldCheck className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 id="payout-confirmation-title" className="m-0 text-base font-semibold text-slate-900">Confirm account holder</h2>
+                    <p className="mb-0 mt-1 text-xs leading-5 text-slate-500">AzamPay matched this destination. Review it before saving.</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setPayoutPreview(null)} disabled={payoutSaving}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50" aria-label="Close confirmation">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
 
+            <div className="space-y-4 p-5">
+              <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-4 py-4">
+                <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden /> Verified account holder
+                </div>
+                <div className="mt-2 break-words text-lg font-semibold tracking-tight text-slate-900">
+                  {payoutPreview.destination.accountName}
+                </div>
+              </div>
+
+              <dl className="overflow-hidden rounded-md border border-slate-200 divide-y divide-slate-200">
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
+                  <dt className="text-slate-500">Method</dt>
+                  <dd className="m-0 text-right font-medium text-slate-800">{payoutPreview.destination.type === 'BANK' ? 'Bank account' : 'Mobile money'}</dd>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
+                  <dt className="text-slate-500">Provider</dt>
+                  <dd className="m-0 text-right font-medium text-slate-800">{{ azampesa: 'AzamPesa', airtel: 'Airtel Money', tigo: 'Mixx by Yas' }[payoutPreview.destination.provider.toLowerCase()] || payoutPreview.destination.provider}</dd>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
+                  <dt className="text-slate-500">Destination</dt>
+                  <dd className="m-0 text-right font-mono font-medium text-slate-800">{payoutPreview.destination.accountNumber}</dd>
+                </div>
+              </dl>
+
+              <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
+                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                This secure confirmation expires at {new Date(payoutPreview.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Nothing changes until you confirm.
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setPayoutPreview(null)} disabled={payoutSaving}
+                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={confirmPayoutDestination} disabled={payoutSaving}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-medium text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-60">
+                {payoutSaving
+                  ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Saving...</>
+                  : <><ShieldCheck className="h-4 w-4" aria-hidden />Confirm and save</>}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete account modal */}

@@ -11,12 +11,19 @@ import { router as publicEmailVerify } from "./public.email.verify";
 import publicGroupStayReceiptRouter from "./public.groupStayReceipt";
 import publicInvoicesRouter from "./public.invoices";
 import publicNolScopeRouter from "./public.nolscope";
+import publicNrmsMenuRouter from "./public.nrmsMenu";
+import publicNrmsGuestRouter from "./public.nrmsGuest";
+import publicNrmsRoomingListRouter from "./public.nrmsRoomingList";
+import publicNrmsCalendarRouter from "./public.nrmsCalendar";
+import publicNrmsProFormaRouter from "./public.nrmsProForma";
+import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
 import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
 import publicReportsRouter from "./public.reports";
+import publicServiceAvailabilityRouter from "./public.service-availability";
 import publicSupportRouter from "./public.support";
 import publicTourBookingsRouter from "./public.tourBookings";
 import publicTourismSitesRouter from "./public.tourismSites";
@@ -39,13 +46,23 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/podcasts", publicPodcastsRouter);
   app.use("/api/public/booking", publicBookingRouter);
   app.use("/api/public/bookings", publicBookingsRouter);
+  app.use("/api/public/service-availability", publicServiceAvailabilityRouter);
   app.use("/api/public/invoices", publicInvoicesRouter);
+  app.use("/api/public/owner-payout-receipts", publicOwnerPayoutReceiptsRouter);
   app.use("/api/public/reports", publicReportsRouter);
   app.use("/api/public/group-stays/receipt", publicGroupStayReceiptRouter);
   app.use("/api/public/pickup-points", publicPickupPointsRouter);
   app.use("/api/public/properties", publicPropertiesRouter);
   app.use("/api/public/tourism-sites", publicTourismSitesRouter);
   app.use("/api/public/nolscope", publicNolScopeRouter);
+  app.use("/api/public/nrms/guest", publicNrmsGuestRouter);
+  // Mounted before the menu router so /nrms/rooming-lists/* never falls through
+  // to its parameterized routes.
+  app.use("/api/public/nrms/rooming-lists", publicNrmsRoomingListRouter);
+  app.use("/api/public/nrms/pro-formas", publicNrmsProFormaRouter);
+  // Also ahead of the menu router, whose /:token routes would otherwise swallow it.
+  app.use("/api/public/nrms/calendars", publicNrmsCalendarRouter);
+  app.use("/api/public/nrms", publicNrmsMenuRouter);
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);

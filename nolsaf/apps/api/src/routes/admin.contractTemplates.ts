@@ -11,7 +11,7 @@ type NormalizedValidationError = {
 const router = Router();
 router.use(requireAuth as any, requireRole("ADMIN") as any);
 
-function normalizePath(path: Array<string | number>): string {
+function normalizePath(path: PropertyKey[]): string {
   if (!path.length) return "$";
   return path
     .map((segment) => (typeof segment === "number" ? `[${segment}]` : String(segment)))
@@ -19,7 +19,7 @@ function normalizePath(path: Array<string | number>): string {
     .replace(/\.\[/g, "[");
 }
 
-function normalizeValidationErrors(issues: ReadonlyArray<{ code: string; path: Array<string | number>; message: string }>): NormalizedValidationError[] {
+function normalizeValidationErrors(issues: ReadonlyArray<{ code: string; path: PropertyKey[]; message: string }>): NormalizedValidationError[] {
   return issues.map((issue) => ({
     code: issue.code,
     path: normalizePath(issue.path),

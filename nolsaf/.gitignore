@@ -58,15 +58,19 @@ Thumbs.db
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
 .ebignore
-Procfile
 .platform/
 
-# AWS / Deployment guides with credentials
-API_DEPLOYMENT_GUIDE.md
+# Local deployment guides that may contain credentials
 *DEPLOYMENT_GUIDE*.md
+
+# Sanitized, authoritative AWS production runbook
+!API_DEPLOYMENT_GUIDE.md
 
 # Local payment-provider integration notes
 docs/CORAL_COMMERCE_HOSTED_CHECKOUT_JSON.md
+
+# Private NRMS product and commercial roadmap
+docs/NOLSAF_ROOMS_MANAGEMENT_SYSTEM.md
 
 # AWS scripts (contain RDS endpoints / sensitive params)
 scripts/create-rds-database.ps1

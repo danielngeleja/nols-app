@@ -41,25 +41,31 @@ export const TZ_PHONE_RE = /^(\+255|0)(6|7|2)\d{8}$/;
 
 // ── Supported bank codes ───────────────────────────────────────────────────────
 
-export const SUPPORTED_BANK_CODES = [
-  "CRDB",    // CRDB Bank
-  "NMB",     // NMB Bank
-  "NBC",     // NBC Bank
-  "STANBIC", // Stanbic Bank Tanzania
-  "EQUITY",  // Equity Bank Tanzania
-  "IM",      // I&M Bank
-  "ABSA",    // ABSA Bank Tanzania
-  "TCB",     // Tanzania Commercial Bank
-  "BOA",     // Bank of Africa Tanzania
-  "DTB",     // Diamond Trust Bank
-  "UBA",     // UBA Tanzania
-  "AZANIA",  // Bank of Azania
-  "KCB",     // KCB Bank Tanzania
-  "NCBA",    // NCBA Bank Tanzania
-  "YETU",    // Yetu Microfinance Bank
+export const BANK_PROVIDER_CATALOG = [
+  { code: "CRDB", label: "CRDB Bank", checkoutEnabled: true },
+  { code: "NMB", label: "NMB Bank", checkoutEnabled: true },
+  { code: "NBC", label: "NBC Bank", checkoutEnabled: false },
+  { code: "STANBIC", label: "Stanbic Bank Tanzania", checkoutEnabled: false },
+  { code: "EQUITY", label: "Equity Bank Tanzania", checkoutEnabled: false },
+  { code: "IM", label: "I&M Bank", checkoutEnabled: false },
+  { code: "ABSA", label: "ABSA Bank Tanzania", checkoutEnabled: false },
+  { code: "TCB", label: "Tanzania Commercial Bank", checkoutEnabled: false },
+  { code: "BOA", label: "Bank of Africa Tanzania", checkoutEnabled: false },
+  { code: "DTB", label: "Diamond Trust Bank", checkoutEnabled: false },
+  { code: "UBA", label: "UBA Tanzania", checkoutEnabled: false },
+  { code: "AZANIA", label: "Azania Bank", checkoutEnabled: false },
+  { code: "KCB", label: "KCB Bank Tanzania", checkoutEnabled: false },
+  { code: "NCBA", label: "NCBA Bank Tanzania", checkoutEnabled: false },
+  { code: "YETU", label: "Yetu Microfinance Bank", checkoutEnabled: false },
 ] as const;
 
-export type BankCode = typeof SUPPORTED_BANK_CODES[number];
+export type BankCode = (typeof BANK_PROVIDER_CATALOG)[number]["code"];
+
+/** Every bank code understood by the provider integration. */
+export const SUPPORTED_BANK_CODES = BANK_PROVIDER_CATALOG.map((bank) => bank.code) as [BankCode, ...BankCode[]];
+
+/** Banks deliberately published in customer checkout today. */
+export const CHECKOUT_BANK_CODES = ["CRDB", "NMB"] as const satisfies readonly BankCode[];
 
 // ── Phone normalisation ────────────────────────────────────────────────────────
 

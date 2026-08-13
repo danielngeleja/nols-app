@@ -30,6 +30,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "New Cancellation Message",
         body: `There is a new message on cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""}.`
       },
+      tour_cancellation_submitted: {
+        title: "New Tour Cancellation Request",
+        body: `Tour cancellation case #${data.caseId || ""} was submitted for booking ${data.bookingCode || ""}. Review policy eligibility, booking impact, and operator evidence.`
+      },
+      tour_cancellation_evidence_submitted: {
+        title: "Tour Cancellation Evidence Submitted",
+        body: `${data.actor || "A participant"} submitted evidence for tour cancellation case #${data.caseId || ""}, booking ${data.bookingCode || ""}.`
+      },
       plan_request_submitted: {
         title: "New Plan Request Submitted",
         body: `A new plan request${data.requestId ? ` #${data.requestId}` : ""} has been submitted${data.customerName ? ` by ${data.customerName}` : ""}${data.role ? ` (${data.role})` : ""}.`
@@ -37,6 +45,18 @@ export async function notifyAdmins(template: string, data: any) {
       booking_created: {
         title: "New Booking Created",
         body: `A new booking${data.bookingId ? ` #${data.bookingId}` : ""} has been created${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}.`
+      },
+      nrms_channel_health_alert: {
+        title: `${data.severity === "CRITICAL" ? "Critical" : "Channel"} OTA Sync Alert`,
+        body: `${data.provider || "OTA"} synchronization for "${data.propertyTitle || "a property"}" needs attention.${Array.isArray(data.reasons) && data.reasons.length ? ` ${data.reasons.join("; ")}.` : ""} Open OTA Control to investigate.`
+      },
+      nrms_payment_reconcile_needed: {
+        title: "NRMS Payment Needs Reconciliation",
+        body: `A ${data.method || "payment"} attempt of ${Number(data.amount || 0).toLocaleString()} ${data.currency || "TZS"} for "${data.propertyTitle || "an NRMS property"}" has had no provider verdict for ${data.waitedMinutes || 10}+ minutes. Verify with the provider before acting: reconcile it if the money arrived, void it if the owner never completed the prompt. Open NRMS reconciliation to review.`
+      },
+      nrms_stop_sell_approval_requested: {
+        title: "Emergency Stop-sell Approval Required",
+        body: `${data.requestedBy || "An administrator"} requested ${data.action === "RELEASE" ? "release of" : "an"} emergency stop-sell for "${data.propertyTitle || "a property"}" on ${data.provider || "its OTA"}. A different administrator must review the request.`
       },
 
       group_stay_message: {
@@ -71,6 +91,34 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Driver Payout Claim Submitted",
         body: `${data.driverName ? `${data.driverName} ` : "A driver "}submitted a payout claim for trip${data.transportBookingId ? ` #${data.transportBookingId}` : ""}. Review and approve it in the driver payouts dashboard.`
       },
+      sales_partner_contract_signed: {
+        title: "Sales partner agreement awaiting activation",
+        body: `${data.agentCode || "A sales partner"} signed agreement ${data.contractNumber || ""}. Review and countersign it before activating workspace access.`
+      },
+        sales_partner_conversion_requested: {
+        title: "Sales lead conversion awaiting review",
+        body: `${data.propertyName || "A sales prospect"} was submitted for ${data.proposedProduct || "product"} conversion review${data.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? " and has a possible duplicate warning" : ""}.`
+        },
+        sales_partner_payout_requested: {
+          title: "Sales partner payout awaiting review",
+          body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
+        },
+        payment_amount_mismatch: {
+          title: "Payment amount mismatch held for review",
+          body: `${data.target || "A payment"} expected ${Number(data.expected || 0).toLocaleString("en-US")} TZS but the provider reported ${Number(data.received || 0).toLocaleString("en-US")} TZS. It was NOT settled. Reconcile it in Payments.`
+        },
+        payment_shortfall_absorbed: {
+          title: "Payment settled with a shortfall",
+          body: `${data.target || "A payment"} settled for ${Number(data.received || 0).toLocaleString("en-US")} TZS against ${Number(data.expected || 0).toLocaleString("en-US")} TZS expected, a shortfall of ${Number(data.shortfall || 0).toLocaleString("en-US")} TZS inside the accepted tolerance.`
+        },
+        payment_stuck_unsettled: {
+          title: "Paid but not settled, needs a human",
+          body: `${data.target || "A payment"} received ${Number(data.amount || 0).toLocaleString("en-US")} TZS but has stayed unsettled for ${data.stuckMinutes || 0} minutes. The customer has paid. Settle or refund it manually.`
+        },
+        payment_unmatched: {
+          title: "Payment received but not matched",
+          body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
+        },
     };
 
     const templateData = notificationTemplates[template] || {
@@ -87,12 +135,12 @@ export async function notifyAdmins(template: string, data: any) {
           title: templateData.title,
           body: templateData.body,
           unread: true,
-          meta: data,
+          meta: { ...data, notificationKind: template },
           type: template.startsWith("transport")
             ? "ride"
             : template.startsWith("careers")
               ? "careers"
-            : template.startsWith("owner_payout")
+            : template.startsWith("owner_payout") || template.startsWith("payment_")
               ? "invoice"
             : template.startsWith("cancellation")
               ? "cancellation"
@@ -110,7 +158,8 @@ export async function notifyAdmins(template: string, data: any) {
         const io = (global as any).io;
         if (io && typeof io.to === "function") {
           const urgent = template === "transport_auto_dispatch_warning"
-            || template === "transport_auto_dispatch_takeover";
+            || template === "transport_auto_dispatch_takeover"
+            || template === "nrms_payment_reconcile_needed";
 
           io.to("admin").emit("admin:notification:new", {
             id: created.id,
@@ -151,7 +200,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       },
       property_suspended: {
         title: "Property Suspended",
-        body: `Your property "${data.propertyTitle || 'Property'}" has been temporarily suspended. ${data.reason ? `Reason: ${data.reason}` : ''}`
+        body: `Your property "${data.propertyTitle || 'Property'}" has been temporarily suspended. ${data.reason ? `Reason: ${data.reason}. ` : ''}${data.referenceCode ? `Reference: ${data.referenceCode}. Quote this code in any appeal.` : ''}`
       },
       property_unsuspended: {
         title: "Property Reinstated",
@@ -164,6 +213,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       cancellation_message: {
         title: "New Message on Cancellation Claim",
         body: `You have a new message on your cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""}.`
+      },
+      tour_cancellation_evidence_requested: {
+        title: "Evidence requested for your tour cancellation",
+        body: `NoLSAF requested supporting evidence for tour cancellation case #${data.caseId || ""}. Open your tour booking and upload the requested files in the cancellation case.`
+      },
+      tour_case_operator_message: {
+        title: "Tour operator responded to your case",
+        body: `Your tour operator added an update to case #${data.caseId || ""}${data.bookingCode ? ` for booking ${data.bookingCode}` : ""}. Open the tour booking to review the shared case activity.`
       },
       booking_created: {
         title: "New Booking Received",
@@ -185,6 +242,108 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       cancellation_rejected: {
         title: "Cancellation Request Rejected",
         body: `The cancellation request for booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been rejected. The booking remains active and the check-in code is still valid.`
+      },
+      // NRMS admin enforcement (NRMS_ADMIN_OVERSIGHT.md phase 2). Every action
+      // is reasoned and the owner is always told what happened and why.
+      nrms_enrollment_suspended: {
+        title: "NRMS Access Suspended",
+        body: `Your NRMS workspace has been suspended by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Your marketplace account is not affected. Quote the reference when contacting partnerships.`
+      },
+      nrms_enrollment_restored: {
+        title: "NRMS Access Restored",
+        body: `Your NRMS workspace has been restored. ${data.reason ? `Note: ${data.reason}.` : ""} All property operations are available again.`
+      },
+      nrms_property_frozen: {
+        title: "NRMS Property Frozen",
+        body: `NRMS operations for "${data.propertyTitle || 'your property'}" have been frozen by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Your other properties and marketplace listing are not affected.`
+      },
+      nrms_property_unfrozen: {
+        title: "NRMS Property Reopened",
+        body: `NRMS operations for "${data.propertyTitle || 'your property'}" are open again. ${data.reason ? `Note: ${data.reason}.` : ""}`
+      },
+      nrms_staff_disabled: {
+        title: "NRMS Staff Member Disabled",
+        body: `The staff member ${data.staffName || 'account'} has been disabled across all NRMS properties by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} Their sessions have been signed out.`
+      },
+      nrms_invites_invalidated: {
+        title: "Pending NRMS Staff Invites Cancelled",
+        body: `Pending staff invites for "${data.propertyTitle || 'your property'}" were cancelled by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} You can re-invite staff at any time.`
+      },
+      nrms_qr_ordering_frozen: {
+        title: "Guest QR Ordering Paused",
+        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Staff ordering continues to work normally.`
+      },
+      nrms_qr_ordering_unfrozen: {
+        title: "Guest QR Ordering Resumed",
+        body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" is live again. ${data.reason ? `Note: ${data.reason}.` : ""}`
+      },
+      nrms_qr_points_deactivated: {
+        title: "QR Order Points Deactivated",
+        body: `All QR order points for "${data.propertyTitle || 'your property'}" were deactivated by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} You can rotate them to print fresh codes once resolved.`
+      },
+      nrms_pay_instructions_cleared: {
+        title: "Guest Payment Details Removed",
+        body: `The guest payment details shown on your QR order page for "${data.propertyTitle || 'your property'}" were removed by NoLSAF pending review. ${data.reason ? `Reason: ${data.reason}.` : ""} Please re-enter correct details on the QR order points page.`
+      },
+      nrms_trial_changed: {
+        title: "NRMS Trial Date Updated",
+        body: `The NRMS trial for "${data.propertyTitle || 'your property'}" now ends on ${data.trialEndsAt ? new Date(data.trialEndsAt).toLocaleDateString("en-TZ") : 'the updated date'}. ${data.shortening ? 'This change includes at least 7 days notice. ' : ''}${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_unpaid_limit_changed: {
+        title: "NRMS Account Limit Updated",
+        body: `The unpaid NRMS limit for "${data.propertyTitle || 'your property'}" is now TZS ${Number(data.unpaidLimit || 0).toLocaleString("en-TZ")}. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_credit_granted: {
+        title: "NRMS Credit Applied",
+        body: `NoLSAF applied a TZS ${Number(data.amount || 0).toLocaleString("en-TZ")} credit to "${data.propertyTitle || 'your property'}". ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_policy_changed: {
+        title: "NRMS Pricing Policy Updated",
+        body: `"${data.propertyTitle || 'Your property'}" now uses NRMS pricing policy ${data.version || 'the selected version'}. Existing usage charges did not change. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_balance_reminder: {
+        title: "NRMS Balance Reminder",
+        body: `The NRMS balance for "${data.propertyTitle || 'your property'}" is TZS ${Number(data.unpaidBalance || 0).toLocaleString("en-TZ")}. You can continue operating and pay from the NRMS billing page.`
+      },
+      nrms_balance_warning: {
+        title: "NRMS Balance Warning",
+        body: `The NRMS balance for "${data.propertyTitle || 'your property'}" is TZS ${Number(data.unpaidBalance || 0).toLocaleString("en-TZ")}. If it reaches the TZS ${Number(data.unpaidLimit || 0).toLocaleString("en-TZ")} limit, a ${Number(data.graceDays || 0)} day grace period starts before operations are restricted.`
+      },
+      nrms_payment_required: {
+        title: "NRMS Payment Required",
+        body: `The grace period for "${data.propertyTitle || 'your property'}" has ended. Settle the NRMS statement to restore normal operations.`
+      },
+      nrms_payment_unconfirmed: {
+        title: "Your NRMS Payment Is Being Verified",
+        body: `Your payment of ${Number(data.amount || 0).toLocaleString("en-TZ")} ${data.currency || "TZS"} for "${data.propertyTitle || 'your property'}" has no provider confirmation yet. If you completed it, do not pay again. NoLSAF is verifying it and your account will update shortly.`
+      },
+      nrms_payment_reconciled: {
+        title: "NRMS Payment Reconciled",
+        body: `NoLSAF reconciled the NRMS payment for "${data.propertyTitle || 'your property'}". ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_payment_token_voided: {
+        title: "NRMS Payment Attempt Voided",
+        body: `A payment attempt for "${data.propertyTitle || 'your property'}" was voided so you can retry. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_signal_reviewed: {
+        title: "NRMS Activity Review",
+        body: `NoLSAF reviewed ${String(data.kind || 'an activity signal').replace(/_/g, ' ').toLowerCase()} for "${data.propertyTitle || 'your property'}". ${data.reason ? `Note: ${data.reason}.` : ""} This review did not automatically restrict your account.`
+      },
+      nrms_channel_health_alert: {
+        title: `${data.severity === "CRITICAL" ? "Critical" : "Channel"} OTA Sync Alert`,
+        body: `${data.provider || "OTA"} synchronization for "${data.propertyTitle || "your property"}" needs attention.${Array.isArray(data.reasons) && data.reasons.length ? ` ${data.reasons.join("; ")}.` : ""} NRMS operations has been alerted.`
+      },
+      nrms_stop_sell_confirmed: {
+        title: data.action === "RELEASE" ? "OTA Inventory Reopened" : "Emergency OTA Stop-sell Confirmed",
+        body: `${data.provider || "The OTA"} confirmed ${data.action === "RELEASE" ? "inventory restoration" : "the emergency stop-sell"} for "${data.propertyTitle || "your property"}" from ${data.from || "the selected date"} through ${data.to || "the selected date"}. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_dispute_exported: {
+        title: "NRMS Support Export Created",
+        body: `NoLSAF created a support export for "${data.propertyTitle || 'your property'}" covering the requested period. ${data.reason ? `Reason: ${data.reason}.` : ""}`
+      },
+      nrms_retention_scheduled: {
+        title: "NRMS Data Retention Scheduled",
+        body: `Closed-account retention was scheduled for "${data.propertyTitle || 'your property'}". Guest identifiers are retained for ${Number(data.guestRetentionDays || 730)} days and operational free text for ${Number(data.operationalRetentionDays || 2555)} days from closure. Financial and audit records remain. ${data.reason ? `Reason: ${data.reason}.` : ""}`
       },
       // Legacy alias kept for backward compatibility
       booking_cancelled_by_guest: {
@@ -273,6 +432,71 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Payout Claim Rejected",
         body: `Your payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
       },
+      // Sales Partner Workspace. See docs/SALES_PARTNER_WORKSPACE.md section 13.
+      sales_partner_contract_sent: {
+        title: "Your sales partner agreement is ready",
+        body: `Agreement ${data.contractNumber || ""} is ready to review and sign. Your agent code is ${data.agentCode || ""}. The workspace opens once the agreement is signed and activated.`
+      },
+      sales_partner_contract_signed: {
+        title: "Agreement signed",
+        body: `We have received your signed agreement ${data.contractNumber || ""}. Your sales workspace opens once an administrator activates it.`
+      },
+      sales_partner_workspace_activated: {
+        title: "Sales workspace activated",
+        body: `Your sales partner workspace is now open. Agreement ${data.contractNumber || ""} runs until ${data.expiresAt ? new Date(data.expiresAt).toDateString() : "its expiry date"}.`
+      },
+      sales_partner_workspace_suspended: {
+        title: "Sales workspace suspended",
+        body: `Your sales workspace has been suspended. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_contract_expiring: {
+        title: "Your agreement is expiring soon",
+        body: `Agreement ${data.contractNumber || ""} expires in ${data.daysRemaining ?? "a few"} days. Earnings stop accruing once it lapses, so arrange a renewal before then.`
+      },
+      sales_partner_attribution_approved: {
+        title: "Property approved to your portfolio",
+        body: `${data.propertyName || "A property"} has been verified as yours for ${data.productType || "the agreed product"}. It will now generate earnings for you.`
+      },
+      sales_partner_attribution_verified: {
+        title: "Property attribution verified",
+        body: `${data.propertyName || "A property"} has been verified for ${data.productType || "the agreed product"}. Earnings begin only after the attribution is activated.`
+      },
+      sales_partner_conversion_returned: {
+        title: "Conversion needs more work",
+        body: `Your conversion request was returned to ${String(data.status || "the pipeline").replace(/_/g, " ").toLowerCase()}. ${data.reason ? `Reason: ${data.reason}` : "Review the lead before submitting it again."}`
+      },
+      sales_partner_attribution_revoked: {
+        title: "Property attribution revoked",
+        body: `${data.propertyName || "A property"} is no longer attributed to you for ${data.productType || "the product"}. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_attribution_reassigned_away: {
+        title: "Property attribution reassigned",
+        body: `${data.propertyName || "A property"} was reassigned for ${data.productType || "the product"}. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_commission_available: {
+        title: "Earnings ready to withdraw",
+        body: `${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} is now available to withdraw from your sales workspace.`
+      },
+      sales_partner_commission_reversed: {
+        title: "Earnings entry reversed",
+        body: `A ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} earnings entry was reversed. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_payout_approved: {
+        title: "Payout approved",
+        body: `Your payout ${data.referenceNumber || ""} was approved for ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} and is awaiting processing.`
+      },
+      sales_partner_payout_paid: {
+        title: "Payout sent",
+        body: `Your payout ${data.referenceNumber || ""} of ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} has been sent${data.paymentReference ? ` (ref: ${data.paymentReference})` : ""}.`
+      },
+      sales_partner_payout_rejected: {
+        title: "Payout request rejected",
+        body: `Your payout request ${data.referenceNumber || ""} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."} The earnings have been returned to your available balance.`
+      },
+      sales_partner_lead_followup: {
+        title: "Lead follow up due",
+        body: `${data.propertyName || "A lead"} is due for follow up${data.nextFollowUpAt ? ` on ${new Date(data.nextFollowUpAt).toDateString()}` : ""}.`
+      },
       cancellation_status_update: {
         title: "Cancellation Claim Update",
         body: `Your cancellation claim${data.requestId ? ` #${data.requestId}` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} is now "${data.status || "UPDATED"}". ${data.decisionNote ? `Note: ${data.decisionNote}` : ""}`
@@ -284,6 +508,10 @@ export async function notifyUser(userId: number, template: string, data: any) {
       group_stay_update: {
         title: data.title || "Group Stay Update",
         body: data.body || data.message || "You have an update on your group stay booking."
+      },
+      document_concern: {
+        title: "Document concern on your booking",
+        body: `Your tour operator raised a concern about traveller documents for booking ${data.bookingCode || ""}${data.memberName ? ` (traveller: ${data.memberName})` : ""}: ${data.message || "Please review your uploaded documents."}`
       },
     };
 
@@ -302,9 +530,13 @@ export async function notifyUser(userId: number, template: string, data: any) {
         meta: data,
         type: template.startsWith("agent_")
           ? "agent"
-          : template.startsWith("cancellation")
-            ? "cancellation"
-            : "system"
+          : template.startsWith("sales_partner_")
+            ? "sales"
+            : template.startsWith("cancellation")
+              ? "cancellation"
+              : template === "document_concern"
+                ? "booking"
+                : "system"
       }
     });
 

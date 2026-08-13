@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import ClientErrorBoundary from "@/components/ClientErrorBoundary";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 
 const LegalModal = dynamic(() => import("@/components/LegalModal"), { ssr: false });
 
@@ -160,6 +161,7 @@ export default function DriverSiteHeader({ unreadMessages = 0 }: { unreadMessage
       setIsRefreshing(false);
     }
   };
+  const bypassAvatarOptimizer = Boolean(avatarUrl && /^https?:\/\//i.test(avatarUrl));
 
   return (
     <header
@@ -322,7 +324,7 @@ export default function DriverSiteHeader({ unreadMessages = 0 }: { unreadMessage
               >
                 {avatarUrl ? (
                   <div className="h-9 w-9 rounded-full overflow-hidden transition-all duration-300 ease-out group-hover:ring-2 group-hover:ring-white/10">
-                    <Image src={avatarUrl} alt="Profile" width={36} height={36} className="object-cover w-full h-full transition-transform duration-300 ease-out group-hover:scale-110" />
+                    <Image src={avatarUrl} alt="Profile" width={36} height={36} unoptimized={bypassAvatarOptimizer} className="object-cover w-full h-full transition-transform duration-300 ease-out group-hover:scale-110" />
                   </div>
                 ) : (
                   <div className="h-9 w-9 rounded-full flex items-center justify-center transition-all duration-300 ease-out group-hover:ring-2 group-hover:ring-white/10">
@@ -338,7 +340,7 @@ export default function DriverSiteHeader({ unreadMessages = 0 }: { unreadMessage
                     <div className="flex items-center gap-3">
                       {avatarUrl ? (
                         <div className="h-10 w-10 rounded-full border-2 border-emerald-200 overflow-hidden flex-shrink-0 transition-transform duration-300 hover:scale-110 ring-2 ring-emerald-100">
-                          <Image src={avatarUrl} alt="Profile" width={40} height={40} className="object-cover w-full h-full" />
+                          <Image src={avatarUrl} alt="Profile" width={40} height={40} unoptimized={bypassAvatarOptimizer} className="object-cover w-full h-full" />
                         </div>
                       ) : (
                         <div className="h-10 w-10 rounded-full border-2 border-emerald-200 bg-gradient-to-br from-emerald-100 to-emerald-50 flex items-center justify-center flex-shrink-0 transition-transform duration-300 hover:scale-110 ring-2 ring-emerald-100">
@@ -378,7 +380,7 @@ export default function DriverSiteHeader({ unreadMessages = 0 }: { unreadMessage
                       <span className="font-medium">Setting</span>
                     </Link>
 
-                    <div className="my-1 mx-2 h-px bg-gray-200" />
+                    <WorkspaceSwitcher currentWorkspace="NORMAL" />
 
                     <button
                       onClick={async () => {

@@ -5,6 +5,7 @@ import { validateSecrets } from "../lib/validateSecrets";
 import { isCloudinaryFileTypeAllowed } from "../routes/uploads.cloudinary";
 import { isCareerResumeFileTypeAllowed } from "../routes/public.careers.apply";
 import { bankInitiateSchema } from "../routes/payments.azampay.bank";
+import { BANK_PROVIDER_CATALOG } from "../lib/azampay.helpers";
 import { isWebhookIpAllowed } from "../routes/webhooks.payments";
 
 const originalEnv = { ...process.env };
@@ -82,10 +83,13 @@ describe("security hardening", () => {
 
 // ── Group A: Bank checkout schema validation ──────────────────────────────────
 describe("AzamPay bank checkout schema", () => {
+  const validBankFields = { accountNumber: "0150123456789", merchantMobileNumber: "+255712345678", otp: "123456" };
+
   it("rejects unknown bank codes", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "FAKE_BANK",
+      ...validBankFields,
     });
     expect(result.success).toBe(false);
   });
@@ -94,6 +98,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "",
+      ...validBankFields,
     });
     expect(result.success).toBe(false);
   });
@@ -102,6 +107,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });
@@ -110,15 +116,16 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "NMB",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });
 
-  it("accepts all 15 supported bank codes", () => {
-    const supported = ["CRDB","NMB","NBC","STANBIC","EQUITY","IM","ABSA","TCB","BOA","DTB","UBA","AZANIA","KCB","NCBA","YETU"] as const;
-    for (const bankCode of supported) {
-      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode });
-      expect(result.success, `Expected ${bankCode} to be accepted`).toBe(true);
+  it("catalogues all 15 provider banks but accepts only deliberately published checkout banks", () => {
+    expect(BANK_PROVIDER_CATALOG).toHaveLength(15);
+    for (const bank of BANK_PROVIDER_CATALOG) {
+      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode: bank.code, ...validBankFields });
+      expect(result.success, `Unexpected checkout policy for ${bank.code}`).toBe(bank.checkoutEnabled);
     }
   });
 
@@ -126,6 +133,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
+      ...validBankFields,
       accountNumber: "<script>alert(1)</script>",
     });
     expect(result.success).toBe(false);
@@ -135,7 +143,7 @@ describe("AzamPay bank checkout schema", () => {
     const result = bankInitiateSchema.safeParse({
       invoiceId: 1,
       bankCode: "CRDB",
-      accountNumber: "0150123456789",
+      ...validBankFields,
     });
     expect(result.success).toBe(true);
   });

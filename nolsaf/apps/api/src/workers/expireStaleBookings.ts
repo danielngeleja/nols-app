@@ -22,6 +22,7 @@
  * drafts longer does not block property availability.
  */
 import { prisma } from "@nolsaf/prisma";
+import { retentionFields } from "../lib/auditRetention.js";
 
 type StartOptions = {
   /** How long before an abandoned NEW booking (no invoice) is purged. Default: 30 minutes. */
@@ -42,11 +43,23 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 /** Invoice statuses that protect a booking from deletion (active/successful payment). */
 const PROTECTING_INVOICE_STATUSES = ["PROCESSING", "PAID", "CUSTOMER_PAID"] as const;
 
-/** Delete a batch of stale bookings together with their unpaid invoices and transport requests. */
-async function purgeBookings(staleIds: number[], label: string): Promise<void> {
-  if (staleIds.length === 0) return;
+type StaleBookingCandidate = {
+  id: number;
+  createdAt: Date;
+  invoices: Array<{ status: string }>;
+};
 
-  const paymentRefs = staleIds.map((id) => `BOOKING:${id}`);
+/** Delete a batch of stale bookings together with their unpaid invoices and transport requests. */
+export async function purgeBookings(
+  candidates: StaleBookingCandidate[],
+  label: string,
+  auditExpiredDraft = false,
+  purgedAt = new Date(),
+  client: any = prisma
+): Promise<void> {
+  if (candidates.length === 0) return;
+
+  const staleIds = candidates.map((candidate) => candidate.id);
 
   console.log(
     `[expireStaleBookings] Hard-deleting ${staleIds.length} ${label} booking(s): [${staleIds.join(", ")}]`
@@ -55,20 +68,92 @@ async function purgeBookings(staleIds: number[], label: string): Promise<void> {
   // Delete child records first (FK constraints), then the bookings themselves.
   // Only delete invoices that are not paid — paid invoices should never reach here
   // due to the filters, but guard anyway.
-  await prisma.invoice.deleteMany({
-    where: {
-      bookingId: { in: staleIds },
-      status: { notIn: ["PAID", "CUSTOMER_PAID"] },
-    },
-  });
+  await client.$transaction(async (tx: any) => {
+    // Establish eligibility before deleting any invoice. Serializable isolation
+    // prevents a payment transition from changing this decision underneath us.
+    const deletable = await tx.booking.findMany({
+      where: {
+        id: { in: staleIds },
+        status: "NEW",
+        code: null,
+        invoices: { none: { status: { in: [...PROTECTING_INVOICE_STATUSES] } } },
+      },
+      select: { id: true },
+    });
+    const deletableIds = deletable.map((booking) => booking.id);
+    if (deletableIds.length === 0) return;
 
-  await prisma.transportBooking.deleteMany({
-    where: { paymentRef: { in: paymentRefs } },
-  });
+    await tx.invoice.deleteMany({
+      where: {
+        bookingId: { in: deletableIds },
+        status: { notIn: [...PROTECTING_INVOICE_STATUSES] },
+      },
+    });
 
-  await prisma.booking.deleteMany({
-    where: { id: { in: staleIds }, status: "NEW" },
-  });
+    // Only invoice-free drafts can be removed. A newly protected or newly
+    // created invoice leaves the booking and its remaining state untouched.
+    const finalCandidates = await tx.booking.findMany({
+      where: {
+        id: { in: deletableIds },
+        status: "NEW",
+        code: null,
+        invoices: { none: {} },
+      },
+      select: { id: true },
+    });
+    const finalCandidateIds = finalCandidates.map((booking) => booking.id);
+    if (finalCandidateIds.length === 0) return;
+
+    await tx.booking.deleteMany({
+      where: {
+        id: { in: finalCandidateIds },
+        status: "NEW",
+        code: null,
+        invoices: { none: {} },
+      },
+    });
+    const survivors = await tx.booking.findMany({
+      where: { id: { in: finalCandidateIds } },
+      select: { id: true },
+    });
+    const survivorIds = new Set(survivors.map((booking) => booking.id));
+    const deletedIds = finalCandidateIds.filter((id) => !survivorIds.has(id));
+    if (deletedIds.length === 0) return;
+
+    if (auditExpiredDraft) {
+      const deletedSet = new Set(deletedIds);
+      await tx.auditLog.createMany({
+        data: candidates
+          .filter((candidate) => deletedSet.has(candidate.id))
+          .map((candidate) => ({
+            actorId: null,
+            actorRole: "SYSTEM",
+            action: "BOOKING_DRAFT_EXPIRED_PURGED",
+            entity: "BOOKING",
+            entityId: candidate.id,
+            beforeJson: null,
+            afterJson: {
+              bookingId: candidate.id,
+              createdAt: candidate.createdAt.toISOString(),
+              paymentExpiredAt: new Date(
+                candidate.createdAt.getTime() + 12 * 60 * 60 * 1000
+              ).toISOString(),
+              purgedAt: purgedAt.toISOString(),
+              invoiceStatuses: candidate.invoices.map((invoice) => invoice.status),
+              reason: "Unpaid booking draft exceeded the seven day grace period",
+            },
+            ip: null,
+            ua: null,
+            createdAt: purgedAt,
+            ...retentionFields("OPERATIONAL", purgedAt),
+          })),
+      });
+    }
+
+    await tx.transportBooking.deleteMany({
+      where: { paymentRef: { in: deletedIds.map((id) => `BOOKING:${id}`) } },
+    });
+  }, { timeout: 15_000, isolationLevel: "Serializable" });
 }
 
 async function expireStaleBookings(ttlMs: number, draftTtlMs: number): Promise<void> {
@@ -84,7 +169,7 @@ async function expireStaleBookings(ttlMs: number, draftTtlMs: number): Promise<v
       code: null,
       invoices: { none: {} },
     },
-    select: { id: true },
+    select: { id: true, createdAt: true, invoices: { select: { status: true } } },
   });
 
   // Tier B — expired drafts: NEW, no code, has invoice(s) but none protecting,
@@ -99,11 +184,11 @@ async function expireStaleBookings(ttlMs: number, draftTtlMs: number): Promise<v
         none: { status: { in: [...PROTECTING_INVOICE_STATUSES] } },
       },
     },
-    select: { id: true },
+    select: { id: true, createdAt: true, invoices: { select: { status: true } } },
   });
 
-  await purgeBookings(abandoned.map((b) => b.id), "abandoned unpaid");
-  await purgeBookings(expiredDrafts.map((b) => b.id), "expired draft");
+  await purgeBookings(abandoned, "abandoned unpaid", false, new Date(now));
+  await purgeBookings(expiredDrafts, "expired draft", true, new Date(now));
 }
 
 export function startExpireStaleBookings({

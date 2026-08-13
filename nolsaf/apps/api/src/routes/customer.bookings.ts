@@ -7,6 +7,7 @@ import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
+import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -113,14 +114,23 @@ function buildCustomerBookingWhere(user: { id: number }, legacyBookingIds: numbe
 /**
  * GET /api/customer/bookings
  * Get all bookings for the authenticated customer
- * Query params: status, page, pageSize
+ * Query params: status, page, pageSize, paidOnly, activeDraftsOnly
  */
 router.get("/", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { status, page = "1", pageSize = "20", paidOnly } = req.query as any;
+    const { status, page = "1", pageSize = "20", paidOnly, activeDraftsOnly } = req.query as any;
     // paidOnly=1 → exclude unpaid drafts (used by dashboards that count confirmed stays only).
     const excludeDrafts = String(paidOnly ?? "") === "1" || String(paidOnly ?? "").toLowerCase() === "true";
+    // activeDraftsOnly=1 keeps payable drafts in summary counts but removes them as
+    // soon as their 12 hour payment window closes. The full Bookings page omits this
+    // flag so expired drafts remain available there during the seven day grace period.
+    const excludeExpiredDrafts =
+      String(activeDraftsOnly ?? "") === "1" ||
+      String(activeDraftsOnly ?? "").toLowerCase() === "true";
+    const activeDraftCutoff = new Date(
+      Date.now() - BOOKING_DRAFT_WINDOW_HOURS * 60 * 60 * 1000
+    );
 
     const userContact = await getUserContact(userId);
 
@@ -143,6 +153,22 @@ router.get("/", (async (req: AuthedRequest, res) => {
             {
               status: "NEW",
               invoices: { some: {} },
+              ...(excludeExpiredDrafts
+                ? {
+                    OR: [
+                      { createdAt: { gte: activeDraftCutoff } },
+                      { invoices: { some: { status: "PAID" } } },
+                      {
+                        invoices: {
+                          some: {
+                            status: "CUSTOMER_PAID",
+                            receiptNumber: { not: null },
+                          },
+                        },
+                      },
+                    ],
+                  }
+                : {}),
             },
           ],
         },
@@ -289,6 +315,15 @@ router.get("/", (async (req: AuthedRequest, res) => {
         invoiceId,
         invoiceAccessToken,
         draftAvailability,
+        lifecycle: mapPropertyLifecycle({
+          bookingStatus: booking.status,
+          invoiceStatus: invoice?.status,
+          hasInvoice: Boolean(invoice),
+          receiptNumber: invoice?.receiptNumber,
+          checkInCodeStatus: booking.code?.status,
+          draftExpired: draftExpiryStatus === "EXPIRED",
+          cancellationLoaded: false,
+        }),
         createdAt: booking.createdAt,
         updatedAt: booking.updatedAt,
       };

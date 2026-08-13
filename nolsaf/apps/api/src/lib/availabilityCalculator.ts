@@ -36,6 +36,8 @@
 
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
+import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
+import { evaluateRestrictionRules, type RestrictionBlock } from "./nrmsRestrictions.js";
 
 /** Normalize Prisma DateTime (Date or ISO string) to Date for .getTime() / .toISOString() */
 function toDate(x: unknown): Date {
@@ -61,6 +63,10 @@ export type AvailabilityCalculationResult = {
     blockedRooms: number;
     availableRooms: number;
     availabilityPercentage: number;
+    /** Physically free rooms that may actually be sold: 0 when an NRMS control closes these dates. */
+    sellableRooms: number;
+    /** The control closing this room type, if any. Null means nothing is in the way. */
+    restriction: { restrictionId: number; name: string; code: string; message: string } | null;
     bookings: Array<{
       id: number;
       type: 'booking' | 'block';
@@ -81,7 +87,16 @@ export type AvailabilityCalculationResult = {
     totalBlockedRooms: number;
     totalAvailableRooms: number;
     overallAvailabilityPercentage: number;
+    /** What can be sold once NRMS controls are applied. Search and the booking funnel must gate on this, not on totalAvailableRooms. */
+    totalSellableRooms: number;
   };
+
+  /**
+   * NRMS controls closing part or all of this date range. Physical counts above
+   * stay truthful so an owner still sees real capacity; these say what may be
+   * sold. A property-wide rule appears once with roomType null.
+   */
+  restrictions: Array<{ restrictionId: number; name: string; code: string; message: string; roomType: string | null }>;
   
   // Conflict detection
   hasConflicts: boolean;
@@ -167,7 +182,7 @@ export async function calculateAvailability(
   });
 
   // Get all overlapping availability blocks (external bookings)
-  const blocks = await prisma.propertyAvailabilityBlock.findMany({
+  const blocks: any[] = await prisma.propertyAvailabilityBlock.findMany({
     where: {
       propertyId,
       AND: [
@@ -187,6 +202,64 @@ export async function calculateAvailability(
     },
     orderBy: { startDate: 'asc' },
   });
+  const nrmsConsumers = await getNrmsCapacityConsumers(prisma, propertyId, startDate, endDate);
+  blocks.push(...nrmsConsumers.map((row) => ({
+    id: -row.allocationId,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    roomCode: row.roomUnitCode ?? row.roomTypeName,
+    source: "NRMS",
+    bedsBlocked: 1,
+  })));
+
+  /**
+   * NRMS controls covering this range. Loaded once for the property, then
+   * matched to each room-type bucket by name, because this calculator works in
+   * roomsSpec type names while a control points at an NRMS RoomType row.
+   *
+   * A property that never activated NRMS simply has none of these, so the
+   * query costs one indexed lookup and changes nothing for it.
+   */
+  const restrictionRules: any[] = await prisma.nrmsRateRestriction.findMany({
+    where: {
+      propertyId,
+      status: "ACTIVE",
+      startDate: { lte: endDate },
+      endDate: { gte: startDate },
+      OR: [{ channelCode: null }, { channelCode: "NOLSAF" }],
+    },
+    include: { roomType: { select: { id: true, name: true } } },
+  });
+
+  const restrictionFor = (typeName: string | null): RestrictionBlock | null => {
+    if (restrictionRules.length === 0) return null;
+    const scoped = restrictionRules.filter((rule) => {
+      if (rule.roomTypeId == null) return true;
+      if (!typeName) return false;
+      // roomsSpec names and NRMS room type names are the same strings, entered
+      // by the same owner, so compare them case and space insensitively rather
+      // than demanding an exact match.
+      const ruleName = String(rule.roomType?.name ?? "").trim().toLowerCase();
+      return ruleName !== "" && ruleName === typeName.trim().toLowerCase();
+    });
+    if (scoped.length === 0) return null;
+    // Scoping was just done by name, so the room type is cleared before the
+    // date and stay checks run. Leaving the id on would make the evaluator
+    // filter these rules out again, since this context has no room type id.
+    // A rule bound to one rate plan is deliberately left to the quote step:
+    // a search has no plan, and one plan being closed does not close the room.
+    const blocks = evaluateRestrictionRules(scoped.map((rule) => ({ ...rule, roomTypeId: null })), {
+      propertyId,
+      roomTypeId: null,
+      ratePlanId: null,
+      checkIn: startDate,
+      checkOut: endDate,
+      channelCode: "NOLSAF",
+    });
+    return blocks[0] ?? null;
+  };
+
+  const propertyWideRestriction = restrictionFor(null);
 
   // Group by room type
   const byRoomType: Record<string, AvailabilityCalculationResult['byRoomType'][string]> = {};
@@ -253,6 +326,10 @@ export async function calculateAvailability(
       })),
     ].sort((a, b) => a.checkIn.getTime() - b.checkIn.getTime());
 
+    // A control closing these dates makes free rooms unsellable. The physical
+    // counts above stay honest so the owner still sees real capacity.
+    const typeRestriction = restrictionFor(typeName) ?? propertyWideRestriction;
+
     byRoomType[typeName] = {
       roomType: typeName,
       totalRooms,
@@ -260,6 +337,10 @@ export async function calculateAvailability(
       blockedRooms,
       availableRooms,
       availabilityPercentage,
+      sellableRooms: typeRestriction ? 0 : availableRooms,
+      restriction: typeRestriction
+        ? { restrictionId: typeRestriction.restrictionId, name: typeRestriction.name, code: typeRestriction.code, message: typeRestriction.message }
+        : null,
       bookings: allBookings,
     };
   }
@@ -276,6 +357,8 @@ export async function calculateAvailability(
       blockedRooms: unassignedBlockedRooms,
       availableRooms: 0,
       availabilityPercentage: 0,
+      sellableRooms: 0,
+      restriction: null,
       bookings: [
         ...unassignedBookings.map((b) => ({
           id: b.id,
@@ -308,6 +391,21 @@ export async function calculateAvailability(
   const overallAvailabilityPercentage = totalRooms > 0
     ? Math.round((totalAvailableRooms / totalRooms) * 100)
     : 0;
+  // Sellable is summed from the room-type buckets, so a control closing one
+  // type leaves the others sellable instead of shutting the whole property.
+  const totalSellableRooms = propertyWideRestriction
+    ? 0
+    : Math.max(0, Math.min(totalAvailableRooms, Object.values(byRoomType).reduce((sum, bucket) => sum + bucket.sellableRooms, 0)));
+
+  const appliedRestrictions: AvailabilityCalculationResult["restrictions"] = [];
+  if (propertyWideRestriction) {
+    appliedRestrictions.push({ ...propertyWideRestriction, roomType: null });
+  }
+  for (const bucket of Object.values(byRoomType)) {
+    if (bucket.restriction && !appliedRestrictions.some((entry) => entry.restrictionId === bucket.restriction!.restrictionId)) {
+      appliedRestrictions.push({ ...bucket.restriction, roomType: bucket.roomType });
+    }
+  }
 
   // Detect conflicts (normalize dates for route's .toISOString())
   const conflicts = [
@@ -349,7 +447,9 @@ export async function calculateAvailability(
       totalBlockedRooms,
       totalAvailableRooms: Math.max(0, totalAvailableRooms),
       overallAvailabilityPercentage,
+      totalSellableRooms,
     },
+    restrictions: appliedRestrictions,
     hasConflicts: conflicts.length > 0,
     conflicts,
   };

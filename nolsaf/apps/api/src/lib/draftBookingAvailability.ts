@@ -1,11 +1,15 @@
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "./groupStayAvailabilityBlocks.js";
+import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
+import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "./nrmsRestrictions.js";
 
 export type DraftBookingAvailability = {
   available: boolean;
   status: "AVAILABLE" | "UNAVAILABLE" | "PROPERTY_UNAVAILABLE";
-  reason: "AVAILABLE" | "BOOKED" | "BLOCKED" | "FULL" | "PROPERTY_UNAVAILABLE";
+  reason: "AVAILABLE" | "BOOKED" | "BLOCKED" | "FULL" | "PROPERTY_UNAVAILABLE" | "RESTRICTED";
+  /** Set when an NRMS rate restriction closed these dates, so the refusal can be traced back to the rule the owner set. */
+  restriction?: { restrictionId: number; name: string; code: string } | null;
   message: string;
   checkedAt: string;
   propertyId: number;
@@ -160,7 +164,20 @@ export async function computeDraftBookingAvailability(
   const buckets = buildBuckets(booking.property, roomCode);
   const keys = Object.keys(buckets);
 
-  const [conflictingBookings, rawConflictingBlocks] = await Promise.all([
+  // An NRMS rate restriction closes the marketplace too. This is the chokepoint
+  // every marketplace sale passes through, at draft and again before payment,
+  // so a stop sell set in Hotel controls stops the sale here rather than only
+  // on the property's own direct page.
+  const restrictionRoomTypeId = await resolveRoomTypeIdForCode(db, propertyId, roomCode);
+  const restrictionBlocks = await findRestrictionBlocks(db, {
+    propertyId,
+    roomTypeId: restrictionRoomTypeId,
+    checkIn,
+    checkOut,
+    channelCode: "NOLSAF",
+  });
+
+  const [conflictingBookings, rawConflictingBlocks, nrmsConsumers] = await Promise.all([
     db.booking.findMany({
       where: {
         propertyId,
@@ -177,6 +194,7 @@ export async function computeDraftBookingAvailability(
       },
       select: { id: true, roomCode: true, bedsBlocked: true, source: true, notes: true },
     }),
+    getNrmsCapacityConsumers(db, propertyId, checkIn, checkOut),
   ]);
   const conflictingBlocks = await filterPayableAvailabilityBlocks(rawConflictingBlocks, db);
 
@@ -197,6 +215,9 @@ export async function computeDraftBookingAvailability(
   for (const row of conflictingBlocks) {
     applyToBucket(row.roomCode, toFiniteInt(row.bedsBlocked ?? 1, 1), "blockedRooms");
   }
+  for (const row of nrmsConsumers) {
+    applyToBucket(row.roomUnitCode ?? row.roomTypeName, 1, "blockedRooms");
+  }
 
   const selectedRoomType = roomCode ? roomCodeToTypeKey(roomCode) : null;
   const selectedKey = roomCode
@@ -209,21 +230,28 @@ export async function computeDraftBookingAvailability(
   const bookedRooms = summaryBuckets.reduce((sum, bucket) => sum + bucket.bookedRooms, 0);
   const blockedRooms = summaryBuckets.reduce((sum, bucket) => sum + bucket.blockedRooms, 0);
   const availableRooms = Math.max(0, totalRooms - bookedRooms - blockedRooms);
-  const available = availableRooms >= requestedRooms;
+  // A restriction wins over free inventory: the rooms may be empty, but the
+  // owner has closed the dates.
+  const restricted = restrictionBlocks[0] ?? null;
+  const available = !restricted && availableRooms >= requestedRooms;
 
   const reason: DraftBookingAvailability["reason"] = available
     ? "AVAILABLE"
-    : blockedRooms > 0 && availableRooms < requestedRooms
-      ? "BLOCKED"
-      : bookedRooms > 0 && availableRooms < requestedRooms
-        ? "BOOKED"
-        : "FULL";
+    : restricted
+      ? "RESTRICTED"
+      : blockedRooms > 0 && availableRooms < requestedRooms
+        ? "BLOCKED"
+        : bookedRooms > 0 && availableRooms < requestedRooms
+          ? "BOOKED"
+          : "FULL";
 
   const message = available
     ? "Selected room is still available for payment."
-    : reason === "BLOCKED"
-      ? "This room is currently blocked by the property owner. Please select another room or property."
-      : "This room has been booked by another guest. Please select another room or property.";
+    : restricted
+      ? restricted.message
+      : reason === "BLOCKED"
+        ? "This room is currently blocked by the property owner. Please select another room or property."
+        : "This room has been booked by another guest. Please select another room or property.";
 
   return {
     available,
@@ -240,6 +268,7 @@ export async function computeDraftBookingAvailability(
     blockedRooms,
     totalRooms,
     selectedRoomType,
+    restriction: restricted ? { restrictionId: restricted.restrictionId, name: restricted.name, code: restricted.code } : null,
   };
 }
 

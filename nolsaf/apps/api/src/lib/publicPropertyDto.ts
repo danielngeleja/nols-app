@@ -60,6 +60,10 @@ export type PublicPropertyDetail = {
     qrCodeDataUrl?: string | null;
   };
   ownerId?: number; // Include ownerId to check ownership on frontend
+  /// Read-only preview of the property's live NRMS restaurant/bar menu, only
+  /// present when the owner has opted in. Null means either NRMS isn't
+  /// active, there's no restaurant/bar, or the owner hasn't published it.
+  nrmsMenuUrl?: string | null;
 };
 
 export function slugify(input: string) {
@@ -321,6 +325,7 @@ export function toPublicDetail(p: any): PublicPropertyDetail {
     roomsSpec: Array.isArray(p.roomsSpec) ? p.roomsSpec : [],
     physicalVerification: buildPhysicalVerification(p),
     ownerId: p.ownerId ? Number(p.ownerId) : undefined, // Include ownerId to check ownership
+    nrmsMenuUrl: typeof p.nrmsMenuUrl === "string" ? p.nrmsMenuUrl : null,
   };
 }
 

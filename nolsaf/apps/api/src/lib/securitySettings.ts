@@ -1,7 +1,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { validatePasswordStrength } from "./security.js";
 
-type SessionRole = 'ADMIN' | 'OWNER' | 'DRIVER' | 'USER' | 'CUSTOMER';
+type SessionRole = 'ADMIN' | 'OWNER' | 'DRIVER' | 'AGENT' | 'USER' | 'CUSTOMER';
 
 // Cache session-related settings to avoid DB hits on every request.
 let cachedSessionPolicy: {
@@ -12,6 +12,7 @@ let cachedSessionPolicy: {
   sessionMaxMinutesOwner?: number | null;
   sessionMaxMinutesDriver?: number | null;
   sessionMaxMinutesCustomer?: number | null;
+  sessionMaxMinutesAgent?: number | null;
 } = {
   lastUpdate: 0,
   sessionIdleMinutes: 30,
@@ -20,13 +21,28 @@ let cachedSessionPolicy: {
   sessionMaxMinutesOwner: null,
   sessionMaxMinutesDriver: null,
   sessionMaxMinutesCustomer: null,
+  sessionMaxMinutesAgent: null,
 };
 
-const SESSION_POLICY_CACHE_TTL_MS = 60 * 1000; // 60s
+// Session-policy reductions are security controls and must be visible on the
+// next authenticated request, including on other API instances. Do not keep a
+// process-local TTL cache by default. Deployments may opt into a very short
+// cache explicitly if they accept the corresponding enforcement delay.
+const SESSION_POLICY_CACHE_TTL_MS = Math.max(
+  0,
+  Number(process.env.SESSION_POLICY_CACHE_TTL_MS ?? 0) || 0,
+);
+
+export function invalidateSessionPolicyCache(): void {
+  cachedSessionPolicy.lastUpdate = 0;
+}
 
 async function getSessionPolicyCached() {
   const now = Date.now();
-  if (now - cachedSessionPolicy.lastUpdate <= SESSION_POLICY_CACHE_TTL_MS) return cachedSessionPolicy;
+  if (
+    SESSION_POLICY_CACHE_TTL_MS > 0
+    && now - cachedSessionPolicy.lastUpdate <= SESSION_POLICY_CACHE_TTL_MS
+  ) return cachedSessionPolicy;
 
   try {
     let settings: any = null;
@@ -40,6 +56,7 @@ async function getSessionPolicyCached() {
           sessionMaxMinutesOwner: true,
           sessionMaxMinutesDriver: true,
           sessionMaxMinutesCustomer: true,
+          sessionMaxMinutesAgent: true,
         } as any,
       });
     } catch (err: any) {
@@ -66,6 +83,7 @@ async function getSessionPolicyCached() {
       sessionMaxMinutesOwner: (settings as any)?.sessionMaxMinutesOwner ?? null,
       sessionMaxMinutesDriver: (settings as any)?.sessionMaxMinutesDriver ?? null,
       sessionMaxMinutesCustomer: (settings as any)?.sessionMaxMinutesCustomer ?? null,
+      sessionMaxMinutesAgent: (settings as any)?.sessionMaxMinutesAgent ?? null,
     };
   } catch (err) {
     console.error('Failed to fetch session policy from SystemSetting:', err);
@@ -81,7 +99,8 @@ function normalizeSessionRole(role?: string | null): SessionRole {
   if (r === 'ADMIN') return 'ADMIN';
   if (r === 'OWNER') return 'OWNER';
   if (r === 'DRIVER') return 'DRIVER';
-  if (r === 'CUSTOMER') return 'CUSTOMER';
+  if (r === 'AGENT') return 'AGENT';
+  if (r === 'CUSTOMER' || r === 'USER' || r === 'TRAVELLER' || r === 'TRAVELER') return 'CUSTOMER';
   return 'USER';
 }
 
@@ -106,6 +125,9 @@ export async function getRoleSessionMaxMinutes(role?: string | null): Promise<nu
       break;
     case 'DRIVER':
       roleMinutes = policy.sessionMaxMinutesDriver;
+      break;
+    case 'AGENT':
+      roleMinutes = policy.sessionMaxMinutesAgent;
       break;
     case 'CUSTOMER':
       roleMinutes = policy.sessionMaxMinutesCustomer;

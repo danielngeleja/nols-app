@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, BadgeCheck, CreditCard, Search, X, Calendar, Clock, TrendingUp, PieChart, ExternalLink, MapPinned, Route, ShieldCheck, UserRound, Receipt, WalletCards } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, BadgeCheck, CheckCircle2, CreditCard, Search, X, Calendar, Clock, TrendingUp, PieChart, ExternalLink, MapPinned, Route, ShieldCheck, UserRound, Receipt, WalletCards } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
 import Chart from "@/components/Chart";
@@ -1029,22 +1029,24 @@ export default function AdminDriversPaidPage() {
       </div>
 
       {detailsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-2 sm:p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm sm:p-6">
           <button type="button" className="absolute inset-0 cursor-default" onClick={closeDetails} aria-label="Close trip details" />
-          <div className="relative z-10 flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:max-w-6xl">
-            <div className="relative flex-shrink-0 overflow-hidden bg-gradient-to-r from-slate-950 via-sky-900 to-emerald-800 px-4 py-3 text-white sm:px-5">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(125,211,252,0.12),transparent_34%)]" />
-              <div className="relative flex items-start justify-between gap-4">
+          <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:max-w-6xl">
+            <div className="relative flex-shrink-0 border-b border-emerald-800 bg-slate-950 px-4 py-4 text-white sm:px-6">
+              <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Paid Payout</div>
-                  <h2 className="mt-1 truncate text-lg font-black tracking-tight">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-400">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Paid payout receipt
+                  </div>
+                  <h2 className="mt-1.5 truncate font-mono text-base font-bold tracking-tight text-white sm:text-lg">
                     {detailsData?.trip.tripCode || (detailsTripId ? `Trip #${detailsTripId}` : "Trip Details")}
                   </h2>
                 </div>
                 <button
                   type="button"
                   onClick={closeDetails}
-                  className="border border-white/15 bg-white/10 p-2 text-white transition hover:bg-white/20"
+                  className="rounded-lg border border-white/15 bg-white/5 p-2 text-white/80 transition hover:bg-white/10 hover:text-white"
                   aria-label="Close trip details"
                 >
                   <X className="h-5 w-5" />
@@ -1090,52 +1092,46 @@ export default function AdminDriversPaidPage() {
                     </div>
 
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                         <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                          <Receipt className="h-4 w-4 text-emerald-600" />
-                          Paid Receipt Verification
+                          <Receipt className="h-4 w-4 text-slate-400" />
+                          Receipt verification
                         </div>
-                        <div className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                        <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
                           Disbursed
                         </div>
                       </div>
-                      <div className="grid gap-5 p-5 sm:grid-cols-[160px_1fr]">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-inner">
-                          <QRCode value={buildReceiptPayload(detailsData)} size={132} className="rounded-lg" />
+                      <div className="grid gap-6 p-5 sm:grid-cols-[132px_1fr]">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                            <QRCode value={buildReceiptPayload(detailsData)} size={112} />
+                          </div>
+                          <span className="text-center text-[10px] uppercase tracking-wide text-slate-400">Scan to verify</span>
                         </div>
-                        <div className="min-w-0">
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Receipt Reference</div>
-                            <div className="mt-2 break-all font-mono text-sm font-black leading-6 text-slate-900">
+                        <div className="min-w-0 space-y-4">
+                          <div>
+                            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Receipt reference</div>
+                            <div className="mt-1.5 break-all font-mono text-sm font-semibold leading-6 text-slate-900">
                               {detailsData.trip.payout?.paymentRef || detailsData.trip.paymentRef || `DP-${detailsData.trip.payout?.id || detailsData.trip.id}`}
                             </div>
-                            <div className="mt-4 flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-3">
-                              <div
-                                aria-label="Paid payout barcode"
-                                className="h-12 w-full max-w-[360px]"
-                                style={{
-                                  backgroundImage:
-                                    "repeating-linear-gradient(90deg,#0f172a 0 2px,transparent 2px 5px,#0f172a 5px 6px,transparent 6px 10px,#0f172a 10px 13px,transparent 13px 17px)",
-                                }}
-                              />
-                            </div>
                           </div>
-                          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-                            <div className="rounded-xl border border-slate-200 bg-white p-3">
-                              <div className="text-xs uppercase tracking-wide text-slate-500">Paid At</div>
-                              <div className="mt-1 font-semibold leading-5 text-slate-900">{formatDateTime(detailsData.trip.payout?.paidAt)}</div>
+                          <dl className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4 text-sm">
+                            <div>
+                              <dt className="text-[11px] uppercase tracking-wide text-slate-400">Paid at</dt>
+                              <dd className="mt-1 font-medium text-slate-900">{formatDateTime(detailsData.trip.payout?.paidAt)}</dd>
                             </div>
-                            <div className="rounded-xl border border-slate-200 bg-white p-3">
-                              <div className="text-xs uppercase tracking-wide text-slate-500">Paid By</div>
-                              <div className="mt-1 font-semibold leading-5 text-slate-900">{detailsData.trip.payout?.paidBy?.name || "Unknown admin"}</div>
+                            <div>
+                              <dt className="text-[11px] uppercase tracking-wide text-slate-400">Paid by</dt>
+                              <dd className="mt-1 font-medium text-slate-900">{detailsData.trip.payout?.paidBy?.name || "Unknown admin"}</dd>
                             </div>
-                            <div className="rounded-xl border border-slate-200 bg-white p-3">
-                              <div className="text-xs uppercase tracking-wide text-slate-500">Channel</div>
-                              <div className="mt-1 font-semibold leading-5 text-slate-900">
+                            <div>
+                              <dt className="text-[11px] uppercase tracking-wide text-slate-400">Channel</dt>
+                              <dd className="mt-1 font-medium text-slate-900">
                                 {paymentClass(detailsData.trip.payout?.paymentMethod || detailsData.trip.paymentMethod)}
-                              </div>
+                              </dd>
                             </div>
-                          </div>
+                          </dl>
                         </div>
                       </div>
                     </div>
@@ -1158,43 +1154,46 @@ export default function AdminDriversPaidPage() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                      <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
-                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sky-700">
-                          <BadgeCheck className="h-4 w-4" />
-                          Trip Type
-                        </div>
-                        <div className="mt-3 text-lg font-black text-slate-900">{formatTripType(detailsData.trip.tripType)}</div>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Trip details</div>
+                        <dl className="mt-3 divide-y divide-slate-100">
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="flex items-center gap-2 text-sm text-slate-500">
+                              <BadgeCheck className="h-4 w-4 text-slate-400" />
+                              Trip type
+                            </dt>
+                            <dd className="text-sm font-semibold text-slate-900">{formatTripType(detailsData.trip.tripType)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="flex items-center gap-2 text-sm text-slate-500">
+                              <Route className="h-4 w-4 text-slate-400" />
+                              Distance
+                            </dt>
+                            <dd className="text-sm font-semibold text-slate-900">{formatDistanceKm(detailsData.trip.distanceKm)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="flex items-center gap-2 text-sm text-slate-500">
+                              <Clock className="h-4 w-4 text-slate-400" />
+                              Trip time
+                            </dt>
+                            <dd className="text-sm font-semibold text-slate-900">{formatDurationMinutes(detailsData.trip.durationMinutes)}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="flex items-center gap-2 text-sm text-slate-500">
+                              <WalletCards className="h-4 w-4 text-slate-400" />
+                              Method
+                            </dt>
+                            <dd className="text-sm font-semibold text-slate-900">{detailsData.trip.payout?.paymentMethod || detailsData.trip.paymentMethod || "N/A"}</dd>
+                          </div>
+                        </dl>
                       </div>
-                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
-                          <Route className="h-4 w-4" />
-                          Distance
-                        </div>
-                        <div className="mt-3 text-lg font-black text-slate-900">{formatDistanceKm(detailsData.trip.distanceKm)}</div>
-                      </div>
-                      <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4">
-                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
-                          <Clock className="h-4 w-4" />
-                          Trip Time
-                        </div>
-                        <div className="mt-3 text-lg font-black text-slate-900">{formatDurationMinutes(detailsData.trip.durationMinutes)}</div>
-                      </div>
-                      <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
-                          <WalletCards className="h-4 w-4" />
-                          Method
-                        </div>
-                        <div className="mt-3 text-lg font-black text-slate-900">{detailsData.trip.payout?.paymentMethod || detailsData.trip.paymentMethod || "N/A"}</div>
-                      </div>
-                    </div>
                     </div>
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                        <ShieldCheck className="h-4 w-4 text-sky-600" />
+                        <ShieldCheck className="h-4 w-4 text-slate-400" />
                         Trip Timeline
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1219,7 +1218,7 @@ export default function AdminDriversPaidPage() {
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                        <UserRound className="h-4 w-4 text-emerald-600" />
+                        <UserRound className="h-4 w-4 text-slate-400" />
                         Trip Context
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1246,7 +1245,7 @@ export default function AdminDriversPaidPage() {
                   <div className="grid gap-4 lg:grid-cols-3">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                        <CreditCard className="h-4 w-4 text-violet-600" />
+                        <CreditCard className="h-4 w-4 text-slate-400" />
                         Paid Amount Classification
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -1279,25 +1278,25 @@ export default function AdminDriversPaidPage() {
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                        <ShieldCheck className="h-4 w-4 text-amber-600" />
+                        <ShieldCheck className="h-4 w-4 text-slate-400" />
                         Ratings
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                        <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+                        <div className="rounded-xl bg-slate-50 p-4">
                           <div className="text-xs uppercase tracking-wide text-slate-500">Customer Rating</div>
-                          <div className="mt-2 text-2xl font-black text-slate-900">{formatRating(detailsData.trip.customerRating)}</div>
+                          <div className="mt-2 text-2xl font-bold text-slate-900">{formatRating(detailsData.trip.customerRating)}</div>
                           <div className="mt-3 flex gap-1">
                             {Array.from({ length: 5 }).map((_, index) => (
-                              <span key={index} className="h-2 flex-1 rounded-full bg-amber-400" />
+                              <span key={index} className="h-1.5 flex-1 rounded-full bg-amber-400" />
                             ))}
                           </div>
                         </div>
-                        <div className="rounded-xl border border-sky-100 bg-sky-50 p-4">
+                        <div className="rounded-xl bg-slate-50 p-4">
                           <div className="text-xs uppercase tracking-wide text-slate-500">Driver Rating</div>
-                          <div className="mt-2 text-2xl font-black text-slate-900">{formatRating(detailsData.trip.driverRating)}</div>
+                          <div className="mt-2 text-2xl font-bold text-slate-900">{formatRating(detailsData.trip.driverRating)}</div>
                           <div className="mt-3 flex gap-1">
                             {Array.from({ length: 5 }).map((_, index) => (
-                              <span key={index} className="h-2 flex-1 rounded-full bg-sky-400" />
+                              <span key={index} className="h-1.5 flex-1 rounded-full bg-amber-400" />
                             ))}
                           </div>
                         </div>
@@ -1309,6 +1308,19 @@ export default function AdminDriversPaidPage() {
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">No trip details available.</div>
               )}
+            </div>
+
+            <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">
+              <span className="text-xs text-slate-400">
+                {detailsData ? `Trip ${detailsData.trip.tripCode || detailsTripId}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={closeDetails}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

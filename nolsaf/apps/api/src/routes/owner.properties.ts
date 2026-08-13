@@ -500,17 +500,25 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
       .map((item) => item.id as number);
 
     const suspensionReasonMap = new Map<number, string | null>();
+    const suspensionReferenceMap = new Map<number, string | null>();
     if (suspendedIds.length > 0) {
       try {
-        const auditLogs = await prisma.auditLog.findMany({
-          where: {
-            entity: "PROPERTY",
-            entityId: { in: suspendedIds },
-            action: "PROPERTY_SUSPEND",
-          },
-          orderBy: { id: "desc" },
-          select: { entityId: true, afterJson: true },
-        });
+        const [auditLogs, restrictionCases] = await Promise.all([
+          prisma.auditLog.findMany({
+            where: {
+              entity: "PROPERTY",
+              entityId: { in: suspendedIds },
+              action: "PROPERTY_SUSPEND",
+            },
+            orderBy: { id: "desc" },
+            select: { entityId: true, afterJson: true },
+          }),
+          (prisma as any).platformRestrictionCase.findMany({
+            where: { scope: "MARKETPLACE_PROPERTY", targetId: { in: suspendedIds }, status: "OPEN" },
+            orderBy: { id: "desc" },
+            select: { targetId: true, referenceCode: true, reason: true },
+          }),
+        ]);
         // Keep only the most-recent log per property (list is already desc by id)
         for (const log of auditLogs) {
           if (!suspensionReasonMap.has(log.entityId)) {
@@ -527,6 +535,14 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
             suspensionReasonMap.set(log.entityId, reason);
           }
         }
+        for (const restriction of restrictionCases) {
+          if (!suspensionReferenceMap.has(restriction.targetId)) {
+            suspensionReferenceMap.set(restriction.targetId, restriction.referenceCode);
+          }
+          if (!suspensionReasonMap.has(restriction.targetId)) {
+            suspensionReasonMap.set(restriction.targetId, restriction.reason ?? null);
+          }
+        }
       } catch (err) {
         console.error("Error batch-fetching suspension reasons:", err);
       }
@@ -538,6 +554,7 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
       const out = { ...item };
       if (item.status === "SUSPENDED" && item.id) {
         out.suspensionReason = suspensionReasonMap.get(item.id) ?? null;
+        out.suspensionReference = suspensionReferenceMap.get(item.id) ?? null;
       }
       return out;
     });
@@ -776,6 +793,48 @@ router.post("/", (async (req: AuthedRequest, res) => {
       stack: e?.stack,
     });
     res.status(400).json({ error: e?.errors ?? e?.message ?? "Invalid payload" });
+  }
+}) as RequestHandler);
+
+// Only TZS is actually enforced today; the allowlist is the single source of truth the
+// UI's disabled options mirror, so widening currency support later is a one-line change here.
+const ALLOWED_PROPERTY_CURRENCIES = ["TZS"] as const;
+
+// ---------- SET CURRENCY ----------
+router.patch("/:id/currency", (async (req: AuthedRequest, res) => {
+  try {
+    const ownerId = req.user!.id;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+
+    const parsed = z.object({ currency: z.string().trim().toUpperCase() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid currency" });
+    if (!(ALLOWED_PROPERTY_CURRENCIES as readonly string[]).includes(parsed.data.currency)) {
+      return res.status(400).json({ error: `Only ${ALLOWED_PROPERTY_CURRENCIES.join(", ")} is supported right now` });
+    }
+
+    const exists = await prisma.property.findFirst({ where: { id, ownerId }, select: { id: true, currency: true } });
+    if (!exists) return res.status(404).json({ error: "Property not found" });
+
+    const updated = await prisma.property.update({ where: { id }, data: { currency: parsed.data.currency } });
+
+    await invalidateCache(cacheKeys.property(id)).catch(() => {});
+
+    await auditLog({
+      actorId: ownerId,
+      actorRole: req.user!.role,
+      action: "PROPERTY_CURRENCY_SET",
+      entity: "PROPERTY",
+      entityId: id,
+      before: { currency: exists.currency },
+      after: { currency: updated.currency },
+      ip: req.ip,
+      ua: req.headers["user-agent"] as string,
+    });
+
+    res.json({ currency: updated.currency });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? "Failed to set currency" });
   }
 }) as RequestHandler);
 

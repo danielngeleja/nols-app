@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { type ReactElement } from "react";
 import { usePathname } from "next/navigation";
 import { ListChecks, FileText, Gift, Lock, Settings } from "lucide-react";
 import type { PageHeaderProps } from "@/components/ui/PageHeader";
@@ -10,7 +10,7 @@ export type DriverPageHeaderProps = Omit<PageHeaderProps, "variant" | "title"> &
 };
 
 // Compact header for driver pages. Choose an icon based on route
-export default function DriverPageHeader(props?: DriverPageHeaderProps): JSX.Element {
+export default function DriverPageHeader(props?: DriverPageHeaderProps): ReactElement {
   const { title } = props || {};
   const pathname = usePathname() || "/";
 

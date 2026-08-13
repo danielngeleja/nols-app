@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import { Search, XCircle, X, FileX, Clock, CheckCircle, AlertCircle, TrendingUp } from "lucide-react";
+import { Search, XCircle, X, FileX, Clock, CheckCircle, AlertCircle, TrendingUp, BedDouble, Map } from "lucide-react";
 import CancellationTableRow from "@/components/admin/CancellationTableRow";
+import TourCancellationPanel from "@/components/admin/TourCancellationPanel";
 
 const api = apiClient;
 
@@ -26,7 +27,21 @@ type Row = {
   };
 };
 
+type CancellationService = "accommodations" | "tours";
+
+function ServiceTabs({ service, onChange }: { service: CancellationService; onChange: (service: CancellationService) => void }) {
+  return (
+    <div className="mx-auto mt-5 w-full max-w-3xl rounded-xl border border-slate-200 bg-slate-100 p-1.5">
+      <div className="grid gap-2 sm:grid-cols-2" role="tablist" aria-label="Cancellation service">
+        <button type="button" role="tab" aria-selected={service === "accommodations"} onClick={() => onChange("accommodations")} className={`flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${service === "accommodations" ? "border-[#02665e] bg-[#02665e] text-white shadow-sm" : "border-transparent bg-transparent text-slate-600 hover:bg-white hover:text-slate-900"}`}><BedDouble className="h-4 w-4" />Accommodation</button>
+        <button type="button" role="tab" aria-selected={service === "tours"} onClick={() => onChange("tours")} className={`flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${service === "tours" ? "border-[#02665e] bg-[#02665e] text-white shadow-sm" : "border-transparent bg-transparent text-slate-600 hover:bg-white hover:text-slate-900"}`}><Map className="h-4 w-4" />Tour packages</button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminCancellationsPage() {
+  const [service, setService] = useState<CancellationService>("accommodations");
   const [items, setItems] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>("");
   const [q, setQ] = useState("");
@@ -36,7 +51,7 @@ export default function AdminCancellationsPage() {
   const stats = useMemo(() => {
     const submitted = items.filter((i) => i.status === "SUBMITTED").length;
     const reviewing = items.filter((i) => i.status === "REVIEWING").length;
-    const processing = items.filter((i) => i.status === "PROCESSING").length;
+    const processing = items.filter((i) => ["APPROVED", "REFUND_PENDING"].includes(i.status)).length;
     const refunded = items.filter((i) => i.status === "REFUNDED").length;
     const rejected = items.filter((i) => i.status === "REJECTED").length;
     return { total: items.length, submitted, reviewing, processing, refunded, rejected };
@@ -58,22 +73,35 @@ export default function AdminCancellationsPage() {
   }
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("service") === "tours") setService("tours");
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const selectService = (nextService: CancellationService) => {
+    setService(nextService);
+    const url = nextService === "tours" ? "/admin/cancellations?service=tours" : "/admin/cancellations";
+    window.history.replaceState(null, "", url);
+  };
+
+  const header = (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+      <div className="flex flex-col items-center text-center">
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-red-50 to-red-100"><FileX className="h-6 w-6 text-red-600" /></div>
+        <h1 className="text-2xl font-bold text-gray-900">Cancellation Management</h1>
+        <p className="mt-1 max-w-2xl text-sm text-gray-500">Select a service below, then review its requests, evidence, decisions, and refunds in one workspace.</p>
+      </div>
+      <ServiceTabs service={service} onChange={selectService} />
+    </div>
+  );
+
+  if (service === "tours") {
+    return <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">{header}<TourCancellationPanel /></div>;
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col items-center text-center">
-          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center mb-4">
-            <FileX className="h-8 w-8 text-red-600" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Cancellations</h1>
-          <p className="text-sm text-gray-500 mt-1">Review customer cancellation claims and update their status</p>
-        </div>
-      </div>
+      {header}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
@@ -113,7 +141,7 @@ export default function AdminCancellationsPage() {
         <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-blue-300 hover:-translate-y-1 group">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Processing</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Refund Queue</p>
               <p className="text-2xl font-bold text-blue-700 mt-1">{stats.processing}</p>
             </div>
             <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -196,7 +224,8 @@ export default function AdminCancellationsPage() {
                 <option value="SUBMITTED">Submitted</option>
                 <option value="REVIEWING">Reviewing</option>
                 <option value="NEED_INFO">Need info</option>
-                <option value="PROCESSING">Processing</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REFUND_PENDING">Refund pending</option>
                 <option value="REFUNDED">Refunded</option>
                 <option value="REJECTED">Rejected</option>
               </select>

@@ -11,7 +11,7 @@ const api = apiClient;
 
 type CheckoutItem = {
   id: number;
-  property?: { id: number; title: string };
+  property?: { id: number; title: string; nrmsActivatedAt?: string | null };
   codeVisible?: string | null;
   validatedAt?: string | null;
   guestName?: string | null;
@@ -154,6 +154,10 @@ export default function OwnerCheckoutPage() {
       setAgreeToTerms(false);
       await load();
     } catch (e: any) {
+      if (e?.response?.data?.code === "NRMS_CHECKOUT_MANAGED") {
+        window.location.assign(e.response.data.redirectTo || "/owner/nrms");
+        return;
+      }
       setError(e?.response?.data?.error ?? e?.message ?? "Failed to confirm check-out");
     } finally {
       setConfirmingId(null);
@@ -604,13 +608,26 @@ export default function OwnerCheckoutPage() {
                           >
                             <Mail className={`h-4 w-4 ${email ? "stroke-slate-900" : "stroke-slate-400"}`} aria-hidden />
                           </a>
-                          <button
-                            type="button"
-                            onClick={() => { setConfirmTarget(b); setConfirmOpen(true); setError(null); setRating(0); setFeedback(""); setAgreeToTerms(false); }}
-                            className="inline-flex items-center justify-center h-9 rounded-md border border-gray-200 bg-white px-4 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-gray-50 active:scale-[0.99] transition"
-                          >
-                            <CheckCircle2 className="h-4 w-4 stroke-indigo-700" aria-hidden />
-                          </button>
+                          {b.property?.nrmsActivatedAt ? (
+                            <Link
+                              href="/owner/nrms"
+                              className="no-underline inline-flex items-center justify-center gap-2 h-9 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 active:scale-[0.99] transition"
+                              aria-label="Manage check-out in NRMS"
+                              title="NRMS manages check-out for this property"
+                            >
+                              <CheckCircle2 className="h-4 w-4" aria-hidden />
+                              NRMS
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setConfirmTarget(b); setConfirmOpen(true); setError(null); setRating(0); setFeedback(""); setAgreeToTerms(false); }}
+                              className="inline-flex items-center justify-center h-9 rounded-md border border-gray-200 bg-white px-4 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-gray-50 active:scale-[0.99] transition"
+                              aria-label="Confirm check-out"
+                            >
+                              <CheckCircle2 className="h-4 w-4 stroke-indigo-700" aria-hidden />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </TableRow>

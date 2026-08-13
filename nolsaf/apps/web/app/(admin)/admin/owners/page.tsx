@@ -165,13 +165,8 @@ export default function AdminOwnersPage() {
         });
         
         // Check if response is actually JSON
-        const contentType = r.headers['content-type'];
-        const contentTypeText = Array.isArray(contentType)
-          ? contentType.join(',')
-          : typeof contentType === 'string'
-            ? contentType
-            : '';
-        if (contentTypeText.includes('application/json') && r?.data && typeof r.data === 'object') {
+        const contentType = String(r.headers['content-type'] ?? '');
+        if (contentType && contentType.includes('application/json') && r?.data && typeof r.data === 'object') {
           setCounts((p) => ({ ...p, ...r.data }));
         }
       } catch (e: any) {

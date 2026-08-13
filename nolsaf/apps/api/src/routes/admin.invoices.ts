@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
+import { confirmedCustomerPayment } from "../services/payouts/eligibility.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { makeQR } from "../lib/qr.js";
+import { allocateReceiptNumber } from "../lib/documentSequence.js";
 import {
   getEffectiveCommissionPercent,
   isOwnerSubmittedInvoice,
@@ -11,6 +13,7 @@ import {
   resolveCommissionAmount,
   resolveOwnerPayoutAmount,
 } from "../lib/accommodationPayout.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 
 export const router = Router();
@@ -205,10 +208,8 @@ function receiptNumberFor(id: number) {
   return `RCT-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}-${id}`;
 }
 
-function nextReceiptNumber(prefix = "RCPT", seq: number) {
-  const y = new Date().getFullYear();
-  return `${prefix}/${y}/${String(seq).padStart(5, "0")}`;
-}
+// Receipt numbers come from lib/documentSequence (the document_sequence table),
+// not from a COUNT(*) of PAID invoices.
 
 function buildReceiptQrPayload(inv: any) {
   if (typeof inv?.receiptQrPayload === "string" && inv.receiptQrPayload.trim()) {
@@ -226,20 +227,64 @@ function buildReceiptQrPayload(inv: any) {
   });
 }
 
-/** POST /admin/invoices/:id/approve */
-router.post("/:id/approve", async (req, res) => {
+/**
+ * POST /admin/invoices/:id/approve
+ *
+ * APPROVED is the state services/payouts/eligibility.ts reads to decide an
+ * owner invoice may be disbursed, so this is the write that creates the
+ * liability. Three things changed here:
+ *
+ *  - blockImpersonated. Every other step of the money chain has it; this one
+ *    did not, so the write that authorises a payout was reachable from an
+ *    impersonated session while the disbursement that merely executes it
+ *    was not.
+ *  - The status write is now an atomic conditional claim instead of an
+ *    unconditional update, so two admins cannot both "approve" the same
+ *    invoice and a REJECTED or already-APPROVED invoice cannot be walked
+ *    back into the payout queue.
+ *  - The confirmed customer payment is recorded on the audit row. It is not
+ *    enforced here on purpose: the hard solvency gate lives in
+ *    eligibility.loadOwnerInvoice, immediately before money can move, so it
+ *    covers every request path rather than just this one, and approving an
+ *    invoice stays possible for flows that settle outside the gateway.
+ */
+router.post("/:id/approve", blockImpersonated as RequestHandler, async (req, res) => {
   const id = Number(req.params.id);
   if (!(await requireOwnerValidatedForInvoice(id, res))) return;
   const me = (req as AuthedRequest).user?.id;
-  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true } });
-  const inv = await prisma.invoice.update({ where: { id }, data: { status: "APPROVED", approvedAt: new Date() } });
+  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true, netPayable: true } });
+  if (!before) return res.status(404).json({ error: "Invoice not found" });
+
+  const claimed = await prisma.invoice.updateMany({
+    where: { id, status: { notIn: ["APPROVED", "REJECTED", "PAID"] } },
+    data: { status: "APPROVED", approvedAt: new Date() },
+  });
+  if (claimed.count !== 1) {
+    return res.status(409).json({
+      error: `Invoice ${id} is ${before.status} and cannot be approved. It was already approved, rejected, or changed by another administrator.`,
+    });
+  }
+  const inv = await prisma.invoice.findUniqueOrThrow({ where: { id } });
+
+  // Recorded, not enforced. An approval where nothing has been collected is
+  // the shape of the unpaid-booking walk, and the audit row is where that
+  // becomes reviewable after the fact.
+  const collected = await confirmedCustomerPayment(id, "TZS").catch(() => null);
+
   await invalidateOwnerReports(inv.ownerId); // invalidate cache for the owner
   if (me) {
     await createAdminAuditSafe({
       adminId: me,
       targetUserId: before?.ownerId ?? inv.ownerId,
       action: "INVOICE_APPROVE",
-      details: { invoiceId: inv.id, invoiceNumber: before?.invoiceNumber ?? null, fromStatus: before?.status ?? null, toStatus: inv.status },
+      details: {
+        invoiceId: inv.id,
+        invoiceNumber: before?.invoiceNumber ?? null,
+        fromStatus: before?.status ?? null,
+        toStatus: inv.status,
+        netPayable: before?.netPayable?.toString() ?? null,
+        confirmedCustomerPayment: collected?.toString() ?? null,
+      },
     });
   }
   req.app.get("io").emit("admin:invoice:status", { id: inv.id, status: inv.status });
@@ -252,7 +297,13 @@ router.post("/:id/process", async (req, res) => {
   if (!(await requireOwnerValidatedForInvoice(id, res))) return;
   const me = (req as AuthedRequest).user?.id;
   const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true } });
-  const inv = await prisma.invoice.update({ where: { id }, data: { status: "PROCESSING" } });
+  if (!before) return res.status(404).json({ error: "Invoice not found" });
+  const claimed = await prisma.invoice.updateMany({
+    where: { id, status: { not: "PAID" } },
+    data: { status: "PROCESSING" },
+  });
+  if (claimed.count !== 1) return res.status(409).json({ error: "A paid invoice cannot return to processing" });
+  const inv = await prisma.invoice.findUniqueOrThrow({ where: { id } });
   await invalidateOwnerReports(inv.ownerId); // invalidate cache for the owner
   if (me) {
     await createAdminAuditSafe({
@@ -271,6 +322,11 @@ router.post("/:id/process", async (req, res) => {
  * - computes commission & net, stamps receipt and marks PAID
  */
 router.post("/:id/pay", async (req, res) => {
+  return res.status(410).json({
+    error: "Legacy manual settlement retired",
+    detail: "Use POST /api/admin/invoices/:id/mark-paid so the atomic receipt and settlement guard is enforced.",
+  });
+
   const id = Number(req.params.id);
   const { paymentRef, commissionPercent } = req.body ?? {};
 
@@ -329,6 +385,9 @@ router.post("/:id/pay", async (req, res) => {
         paymentRef: paymentRef ?? inv.paymentRef ?? undefined,
       },
     });
+    await accrueMarketplaceSalesCommission(tx, paid.id).catch((error: any) => {
+      console.warn("[sales commission] Admin invoice accrual deferred:", error?.message || String(error));
+    });
 
     // Attempt to create a payout record for this invoice if the Payout model/table exists.
     // This is best-effort: if your Prisma schema doesn't have `payout`, the runtime will skip it.
@@ -372,7 +431,7 @@ router.post("/:id/pay", async (req, res) => {
 
   if (me) {
     await createAdminAuditSafe({
-      adminId: me,
+      adminId: me!,
       targetUserId: before?.ownerId ?? updated.ownerId,
       action: "INVOICE_PAY",
       details: {
@@ -409,7 +468,7 @@ router.post("/:id/pay", async (req, res) => {
         where: {
           ownerId: updated.ownerId,
           type: "invoice",
-          meta: { path: ["invoiceId"], equals: updated.id } as any,
+          meta: { path: "$.invoiceId", equals: updated.id } as any,
         } as any,
         select: { id: true },
       });
@@ -501,10 +560,13 @@ router.post("/:id/reject", async (req, res) => {
   const me = (req as AuthedRequest).user?.id;
   const reason = (req.body?.reason as string) || "Not specified";
   const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true } });
-  const inv = await prisma.invoice.update({
-    where: { id },
+  if (!before) return res.status(404).json({ error: "Invoice not found" });
+  const claimed = await prisma.invoice.updateMany({
+    where: { id, status: { not: "PAID" } },
     data: { status: "REJECTED", rejectedAt: new Date(), rejectedReason: reason } as any,
   });
+  if (claimed.count !== 1) return res.status(409).json({ error: "A paid invoice cannot be rejected" });
+  const inv = await prisma.invoice.findUniqueOrThrow({ where: { id } });
   await invalidateOwnerReports(inv.ownerId); // invalidate cache for the owner
   if (me) {
     await createAdminAuditSafe({
@@ -542,8 +604,13 @@ router.post("/:id/mark-paid", async (req, res) => {
     if (!inv) return res.status(404).json({ error: "Invoice not found" });
     if (inv.status === "PAID") return res.status(400).json({ error: "Already PAID" });
 
-    const seq = await prisma.invoice.count({ where: { status: "PAID" } });
-    const receiptNumber = inv.receiptNumber ?? nextReceiptNumber("RCPT", seq + 1);
+    // Claim the invoice atomically. The status check above is a read, not a
+    // lock: this route and the AzamPay webhook (webhooks.payments.markInvoicePaid)
+    // can both pass it for the same invoice and both run the settlement side
+    // effects. Only the writer whose conditional update matches a row continues.
+    // The receipt number comes from the document_sequence allocator, so it is
+    // unique by construction; a lost claim burns the allocated number.
+    const receiptNumber = inv.receiptNumber ?? await allocateReceiptNumber();
 
     const payload = JSON.stringify({
       receipt: receiptNumber,
@@ -556,8 +623,8 @@ router.post("/:id/mark-paid", async (req, res) => {
     });
     const { png, payload: qrPayload } = await makeQR(payload);
 
-    const updated = await prisma.invoice.update({
-      where: { id },
+    const claimed = await prisma.invoice.updateMany({
+      where: { id, status: { not: "PAID" } },
       data: {
         status: "PAID",
         paidBy: adminId,
@@ -568,8 +635,13 @@ router.post("/:id/mark-paid", async (req, res) => {
         receiptQrPayload: qrPayload,
         receiptQrPng: png,
       },
-      include: { booking: true },
     });
+    if (claimed.count === 0) {
+      // The webhook settled it while this request was in flight.
+      return res.status(409).json({ error: "Invoice was just paid by another process" });
+    }
+
+    const updated = await prisma.invoice.findUniqueOrThrow({ where: { id }, include: { booking: true } });
 
     await createAdminAuditSafe({
       adminId,
@@ -611,7 +683,7 @@ router.post("/:id/mark-paid", async (req, res) => {
             where: {
               ownerId: updated.ownerId,
               type: "invoice",
-              meta: { path: ["invoiceId"], equals: updated.id } as any,
+              meta: { path: "$.invoiceId", equals: updated.id } as any,
             } as any,
             select: { id: true },
           });

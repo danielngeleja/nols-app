@@ -123,10 +123,10 @@ export default function AdminOperationalFooter() {
       : "Connection issue";
 
   const statusTone = health === "healthy"
-    ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]"
+    ? "bg-emerald-500"
     : health === "checking"
-      ? "bg-amber-400 animate-pulse shadow-[0_0_0_4px_rgba(251,191,36,0.10)]"
-      : "bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.10)]";
+      ? "bg-amber-400"
+      : "bg-rose-500";
 
   const checkedTime = lastCheckedAt?.toLocaleTimeString([], {
     hour: "2-digit",
@@ -163,7 +163,7 @@ export default function AdminOperationalFooter() {
   return (
     <footer
       aria-label="Admin workspace status and resources"
-      className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1424] px-3 py-2 sm:px-4"
+      className="relative z-10 mx-3 mb-3 mt-2 shrink-0 rounded-2xl border border-white/10 bg-[#0b1424] px-3.5 py-2 shadow-[0_10px_24px_rgba(8,20,36,0.16)] sm:px-5"
     >
       <div className="flex min-h-9 items-center justify-between gap-3">
         <Link
@@ -173,9 +173,6 @@ export default function AdminOperationalFooter() {
           aria-label={`${statusLabel}. ${statusTitle}. Open observability.`}
         >
           <span className="relative flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden>
-            {health === "healthy" && (
-              <span className="absolute h-3 w-3 animate-ping rounded-full bg-emerald-400/35 [animation-duration:2.2s]" />
-            )}
             <span className={`absolute h-2 w-2 rounded-full ${statusTone}`} />
             <HeartPulse className={`relative h-3.5 w-3.5 ${health === "healthy" ? "text-emerald-300" : "text-transparent"}`} />
           </span>
@@ -207,7 +204,6 @@ export default function AdminOperationalFooter() {
             }`}
           >
             <span className="relative flex h-4 w-4 items-center justify-center" aria-hidden>
-              {impact?.attentionRequired && <span className="absolute h-3 w-3 animate-ping rounded-full bg-rose-400/35 [animation-duration:1.8s]" />}
               <Activity className={`relative h-3.5 w-3.5 ${impact?.attentionRequired ? "text-rose-600" : ""}`} />
             </span>
             {impactLabel}

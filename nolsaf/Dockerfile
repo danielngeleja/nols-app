@@ -47,6 +47,13 @@ ENV NODE_ENV=production
 
 EXPOSE 4000
 
+# Drop root privileges: run the server as the image's built-in unprivileged
+# `node` user (uid 1000). The build steps above run as root (they need to write
+# /app), but at runtime the API only reads its compiled, world-readable files
+# and writes exclusively to external services (S3/DB/Redis) and memory — so no
+# writable image directories are required.
+USER node
+
 # Start the API from the correct working directory so relative paths behave.
 # The API is compiled to ESM and many local imports are extensionless (e.g. ./env).
 # This flag makes Node resolve those like CommonJS-style (./env -> ./env.js).

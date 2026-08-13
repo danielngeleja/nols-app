@@ -37,6 +37,7 @@ import {
   registerPublicEmailVerifyRoute,
   registerPublicPlanRequestRoute,
 } from "./public";
+import { registerSalesRoutes } from "./sales";
 import { registerEarlyRoutes, registerFallbackHandlers, registerRouteBodyParsers } from "./system";
 import { registerTransportRoutes } from "./transport";
 
@@ -75,4 +76,5 @@ export function registerApiRoutes(app: Express): void {
   registerReportSealRoute(app);
   registerAdminChatbotReportsRoutes(app);
   registerGroupAndReviewRoutes(app);
+  registerSalesRoutes(app);
 }

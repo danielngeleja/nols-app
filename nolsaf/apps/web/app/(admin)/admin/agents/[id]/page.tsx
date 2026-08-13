@@ -958,7 +958,7 @@ export default function AdminAgentDetailPage() {
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
                       {agent.user.avatarUrl ? (
-                        <Image src={agent.user.avatarUrl} alt="avatar" fill className="object-cover" />
+                        <Image src={agent.user.avatarUrl} alt="avatar" fill unoptimized={/^https?:\/\//i.test(agent.user.avatarUrl)} className="object-cover" />
                       ) : (
                         <span className="text-[#02665e] font-bold">{initials(agent.user.fullName || agent.user.name)}</span>
                       )}

@@ -13,6 +13,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth } from "../middleware/auth.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import {
   idemGet,
   idemSet,
@@ -25,6 +26,7 @@ import {
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
 import { markInvoicePaid, markGroupBookingDepositPaid, markTourBookingPaid } from "./webhooks.payments.js";
+import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 
 const router = Router();
 const coralFormParser = multer().none();
@@ -206,6 +208,15 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
     }
 
     const { invoiceId, idempotencyKey, accessToken } = parsed.data;
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled) {
+      return res.status(400).json({
+        error: "payment_method_unavailable",
+        message: cardGate.reason,
+      });
+    }
+
     const config = requiredCoralConfig();
     if (!config) {
       return res.status(503).json({ error: "payment_unavailable", message: "Card payments are not configured" });
@@ -327,8 +338,8 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
       });
     }
 
-    await prisma.invoice.update({
-      where: { id: invoice.id },
+    await prisma.invoice.updateMany({
+      where: { id: invoice.id, status: { not: "PAID" } },
       data: {
         paymentRef: invoice.paymentRef ?? paymentRef,
         paymentMethod: "CARD",
@@ -468,7 +479,14 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     },
   });
 
-  if (!invoice && !tourBooking && !groupBooking) {
+  const nrmsPaymentToken = (invoice || tourBooking || groupBooking || !/^NRMS-/i.test(paymentRef))
+    ? null
+    : await (prisma as any).nrmsServicePaymentToken.findUnique({
+        where: { token: paymentRef },
+        include: { statement: { include: { account: true } }, payment: true },
+      });
+
+  if (!invoice && !tourBooking && !groupBooking && !nrmsPaymentToken) {
     throw new Error("coral_payment_target_not_found");
   }
 
@@ -482,7 +500,9 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     ? Number(invoice.total ?? invoice.netPayable ?? 0)
     : tourBooking
     ? Number(tourBooking?.grossAmount ?? 0)
-    : Math.round(Number(groupBooking?.depositAmount ?? 0));
+    : groupBooking
+    ? Math.round(Number(groupBooking?.depositAmount ?? 0))
+    : Math.round(Number(nrmsPaymentToken?.amount ?? 0));
 
   const existing = await prisma.paymentEvent.findUnique({
     where: { eventId },
@@ -530,6 +550,19 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     );
   }
 
+  if (isSuccess && nrmsPaymentToken) {
+    await reconcileNrmsPaymentAndAccrue(prisma, {
+      token: nrmsPaymentToken.token,
+      provider: "CORALCOMMERCE",
+      providerRef: eventId,
+      idempotencyKey: `CORAL:${eventId}`.slice(0, 120),
+      amount,
+    }, "CoralCommerce NRMS");
+  }
+  if (isFailure && nrmsPaymentToken) {
+    await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
+  }
+
   if (isSuccess && tourBooking && tourBooking.paymentStatus !== "PAID") {
     // Shared helper marks paid AND sends the guest SMS + confirmation email and
     // notifies the operator — same as the AzamPay webhook path.
@@ -572,6 +605,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     invoiceId: invoice?.id ?? null,
     tourBookingId: tourBooking?.id ?? null,
     groupBookingId: groupBooking?.id ?? null,
+    nrmsToken: nrmsPaymentToken?.token ?? null,
     status: eventStatus,
     paymentRef,
     message: notice.message || null,
@@ -607,6 +641,11 @@ router.all("/postback", coralFormParser, async (req, res) => {
 
     const webOrigin = (process.env.WEB_ORIGIN || "").replace(/\/$/, "");
     if (webOrigin) {
+      if (kind === "nrms" && result.nrmsToken) {
+        const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });
+        if (result.message) params.set("message", truncate(result.message, 160));
+        return res.redirect(`${webOrigin}/owner/nrms/billing?${params.toString()}`);
+      }
       const tourBookingId = getCallbackValue(req, "tourBookingId");
       const accessToken = getCallbackValue(req, "accessToken");
       const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });

@@ -2,12 +2,20 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import axios from "axios";
 import { ArrowLeft, CheckCircle2, Clock3, Eye, FileText, Loader2, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 const api = apiClient;
+
+function displayText(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+  if (value && typeof value === "object" && "message" in value && typeof (value as { message?: unknown }).message === "string") {
+    return (value as { message: string }).message;
+  }
+  return fallback;
+}
 
 type CloudinarySig = {
   timestamp: number;
@@ -293,7 +301,10 @@ function inferHealthRequiredDocs(metadata: any): RequiredDoc[] {
 
 export default function TourPackageDocumentsPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const bookingId = String(params?.id || "");
+  const requestedEvidenceCaseId = Number(searchParams.get("caseId"));
+  const isCancellationEvidenceUpload = Number.isInteger(requestedEvidenceCaseId) && requestedEvidenceCaseId > 0;
 
   const [loading, setLoading] = useState(true);
   const [savingForType, setSavingForType] = useState<string | null>(null);
@@ -393,7 +404,7 @@ export default function TourPackageDocumentsPage() {
         }
       } catch (err: any) {
         if (!alive) return;
-        setError(err?.response?.data?.error || "Failed to load required documents.");
+        setError(displayText(err?.response?.data?.error, "Failed to load required documents."));
       } finally {
         if (alive) setLoading(false);
       }
@@ -447,10 +458,6 @@ export default function TourPackageDocumentsPage() {
     fd.append("signature", s.signature);
     fd.append("folder", s.folder);
     fd.append("overwrite", "true");
-    if (typeof s.maxFileSize === "number" && Number.isFinite(s.maxFileSize) && s.maxFileSize > 0) {
-      fd.append("max_file_size", String(Math.floor(s.maxFileSize)));
-    }
-
     const resp = await axios.post(`https://api.cloudinary.com/v1_1/${s.cloudName}/auto/upload`, fd);
     return (resp.data as { secure_url: string }).secure_url;
   };
@@ -536,6 +543,7 @@ export default function TourPackageDocumentsPage() {
           fileName: fileToUpload.name,
           contentType: fileToUpload.type,
           size: fileToUpload.size,
+          ...(isCancellationEvidenceUpload ? { cancellationCaseId: requestedEvidenceCaseId, source: "tour_cancellation_evidence" } : null),
           ...(isPassportPhoto
             ? {
                 adjustedToDimension: `${PASSPORT_TARGET_WIDTH}x${PASSPORT_TARGET_HEIGHT}`,
@@ -545,17 +553,29 @@ export default function TourPackageDocumentsPage() {
         },
       });
 
+      if (isCancellationEvidenceUpload) {
+        await api.post(`/api/customer/tour-bookings/${encodeURIComponent(bookingId)}/cases/${requestedEvidenceCaseId}/evidence`, {
+          documents: [{
+            url,
+            fileName: fileToUpload.name,
+            type,
+            label: docSpec.label,
+            uploadedAt,
+          }],
+        });
+      }
+
       setUploadedByType((prev) => ({
         ...prev,
         [type]: { url, uploadedAt },
       }));
       setSuccess(
         isPassportPhoto
-          ? `${docSpec.label} uploaded and adjusted to ${PASSPORT_TARGET_WIDTH}x${PASSPORT_TARGET_HEIGHT}.`
-          : `${docSpec.label} uploaded successfully.`
+          ? `${docSpec.label} uploaded and adjusted to ${PASSPORT_TARGET_WIDTH}x${PASSPORT_TARGET_HEIGHT}${isCancellationEvidenceUpload ? ". It was attached to your cancellation case." : "."}`
+          : `${docSpec.label} uploaded successfully${isCancellationEvidenceUpload ? " and attached to your cancellation case." : "."}`
       );
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.response?.data?.message || "Upload failed. Please try again.");
+      setError(displayText(err?.response?.data?.error || err?.response?.data?.message, "Upload failed. Please try again."));
     } finally {
       setSavingForType(null);
     }
@@ -577,6 +597,12 @@ export default function TourPackageDocumentsPage() {
           <div className="mt-1 text-sm leading-relaxed text-slate-600">Upload and manage required files for booking verification and travel-clearance processing.</div>
         </div>
       </div>
+
+      {isCancellationEvidenceUpload && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <span className="font-semibold">Cancellation evidence requested.</span> Files uploaded here are attached directly to cancellation case #{requestedEvidenceCaseId} for the NoLSAF review team.
+        </div>
+      )}
 
         <section className="w-full max-w-full min-w-0 card overflow-hidden">
           <div className="card-section space-y-4">

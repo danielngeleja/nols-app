@@ -1,14 +1,19 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Printer, ShieldCheck, Sliders } from "lucide-react";
-import { Popover, Transition } from "@headlessui/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Printer } from "lucide-react";
 
 import Chart from "@/components/Chart";
 import DatePickerField from "@/components/DatePickerField";
+import NoLSAFReportsFrame, { NoLSAFReportTitle } from "@/components/admin/reports/NoLSAFReportsFrame";
 import { fetchAccountSession } from "@/lib/accountSession";
+import {
+  adminReportPrintStyles,
+  buildAdminReportFooter,
+  buildAdminReportHeader,
+  openAdminReportPrintWindow,
+  renderAndPrintAdminReport,
+} from "@/lib/adminReportPrint";
 import { escapeAttr, escapeHtml } from "@/utils/html";
 
 type Series = { labels: string[]; data: number[] };
@@ -228,9 +233,6 @@ export default function AdminReportsPage() {
     setTo(clamped.to);
   }, []);
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
   const [me, setMe] = useState<MeResponse | null>(null);
 
   const [revenueSeries, setRevenueSeries] = useState<Series>({ labels: [], data: [] });
@@ -394,10 +396,26 @@ export default function AdminReportsPage() {
           return { total: totalComm, rows: inRange, currency };
         };
 
-        const [ownerComm, driverComm, tourResult] = await Promise.all([
+        const fetchSubscriptionRevenue = async (): Promise<number | null> => {
+          const rangeFrom = `${from}T00:00:00.000Z`;
+          const rangeTo = `${to}T23:59:59.999Z`;
+          const rr = await fetch(
+            `/api/admin/finance/overview?from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`,
+            { credentials: "include", signal }
+          );
+          const data = (await safeJson(rr)) as any;
+          const streams = Array.isArray(data?.streams) ? data.streams : [];
+          const subscription = streams.find((stream: any) => String(stream?.key) === "subscriptions");
+          if (!subscription) return null;
+          const amount = Number(subscription?.nolsafRevenue);
+          return Number.isFinite(amount) ? amount : null;
+        };
+
+        const [ownerComm, driverComm, tourResult, subscriptionRevenue] = await Promise.all([
           fetchOwnerCommission().catch(() => null),
           fetchDriverCommission().catch(() => null),
           fetchTourCommission().catch(() => null),
+          fetchSubscriptionRevenue().catch(() => null),
         ]);
 
         setOwnerCommissionTotal(ownerComm);
@@ -405,7 +423,7 @@ export default function AdminReportsPage() {
         setTourCommissionTotal(tourResult ? tourResult.total : null);
         setTourRows(tourResult ? tourResult.rows : []);
         if (tourResult?.currency) setTourCommissionCurrency(tourResult.currency);
-        setSubscriptionRevenueTotal(null);
+        setSubscriptionRevenueTotal(subscriptionRevenue);
       } catch (err: any) {
         if (String(err?.name) === "AbortError") return;
         console.error("Failed to load admin reports", err);
@@ -441,7 +459,7 @@ export default function AdminReportsPage() {
 
   // TZS subtotal: owner plus driver commission (plus subscriptions when enforced).
   // Tour commission is USD and is reported separately, never summed in here.
-  const totalNolsafRevenue = useMemo(() => {
+  const totalNoLSAFRevenue = useMemo(() => {
     const owner = ownerCommissionTotal ?? 0;
     const driver = driverCommissionTotal ?? 0;
     const subs = subscriptionRevenueTotal ?? 0;
@@ -585,10 +603,15 @@ export default function AdminReportsPage() {
   }, [revenueByTypeBreakdown.total, totalRevenue, tourRows]);
 
   async function printReport(mode: "full" | "revenueOnly" = "full") {
+    const printWindow = openAdminReportPrintWindow();
+    if (!printWindow) {
+      alert("Unable to open the report preview. Please allow popups and try again.");
+      return;
+    }
     const now = new Date();
     const reportId = now.toISOString();
     const pad2 = (n: number) => String(n).padStart(2, "0");
-    const reportFilename = `NOLSAF-RPT-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}_${from}_${to}`;
+    const reportFilename = `NoLSAF-RPT-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}_${from}_${to}`;
 
     // Seal the report server side, then encode the public verification URL as a
     // QR. Anyone can scan it to confirm the report is genuine without logging in.
@@ -612,7 +635,7 @@ export default function AdminReportsPage() {
             { label: "Owner commission (TZS)", value: ownerCommissionTotal === null ? "n/a" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}` },
             { label: "Driver commission (TZS)", value: driverCommissionTotal === null ? "n/a" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}` },
             { label: `Tour commission (${tourCommissionCurrency})`, value: tourCommissionTotal === null ? "n/a" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}` },
-            { label: "Total NoLSAF (TZS)", value: totalNolsafRevenue === null ? "n/a" : `TZS ${fmtMoneyTZS(Math.round(totalNolsafRevenue))}` },
+            { label: "Total NoLSAF (TZS)", value: totalNoLSAFRevenue === null ? "n/a" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}` },
             { label: "Active properties", value: String(totalActive) },
             { label: "Invoices (all statuses)", value: String(invoicesTotal) },
           ],
@@ -686,23 +709,24 @@ export default function AdminReportsPage() {
     const ownerCommText = ownerCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}`;
     const driverCommText = driverCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}`;
     const tourCommText = tourCommissionTotal === null ? "—" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}`;
-    const subsText = subscriptionRevenueTotal === null ? "Planned" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`;
-    const totalText = totalNolsafRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNolsafRevenue))}`;
+    const subsText = subscriptionRevenueTotal === null ? "â€”" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`;
+    const totalText = totalNoLSAFRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`;
 
     const revenueSourcesSection = `
-    <div class="section">
-      <h2>NoLSAF Revenue Sources</h2>
-      <table>
-        <thead><tr><th>Source</th><th style="text-align:right;">NoLSAF revenue</th></tr></thead>
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">01</span><div><h2>NoLSAF revenue sources</h2><p>Platform earnings separated from customer payment volume.</p></div></div>
+      <div class="tableWrap"><table>
+        <thead><tr><th>Source</th><th style="text-align:right;text-transform:none;">NoLSAF revenue</th></tr></thead>
         <tbody>
-          <tr><td>Owner commission (bookings)</td><td style="text-align:right; font-weight:900; color: var(--brand)">${escapeHtml(ownerCommText)}</td></tr>
-          <tr><td>Driver commission (trips)</td><td style="text-align:right; font-weight:900; color: var(--brand)">${escapeHtml(driverCommText)}</td></tr>
-          <tr><td style="font-weight:900;">Total (TZS)</td><td style="text-align:right; font-weight:900;">${escapeHtml(totalText)}</td></tr>
-          <tr><td>Tour commission (tour bookings)</td><td style="text-align:right; font-weight:900; color: #b45309">${escapeHtml(tourCommText)}</td></tr>
+          <tr><td style="border-left:3px solid #10b981;background:#effbf6">Owner commission from property bookings</td><td class="num" style="color:#047857">${escapeHtml(ownerCommText)}</td></tr>
+          <tr><td style="border-left:3px solid #0ea5e9;background:#eff8ff">Driver commission from transport trips</td><td class="num" style="color:#0369a1">${escapeHtml(driverCommText)}</td></tr>
+          <tr><td style="border-left:3px solid #8b5cf6;background:#f5f3ff">NRMS subscription revenue</td><td class="num" style="color:#6d28d9">${escapeHtml(subsText)}</td></tr>
+          <tr><td style="border-left:3px solid #073c35;background:#eef5f3"><strong>Total NoLSAF revenue in TZS</strong></td><td class="num" style="color:#073c35"><strong>${escapeHtml(totalText)}</strong></td></tr>
+          <tr><td style="border-left:3px solid #f59e0b;background:#fffbeb">Tour commission reported separately</td><td class="num" style="color:#a16207">${escapeHtml(tourCommText)}</td></tr>
         </tbody>
-      </table>
-      <div style="margin-top:6px; font-size:10px; color: var(--muted)">TZS Total covers owner and driver commission (money of record). Tour commission settles in ${escapeHtml(tourCommissionCurrency)} and is shown separately; the two currencies are never summed. Subscriptions (annual): ${escapeHtml(subsText)} (planned).</div>
-    </div>`;
+      </table></div>
+      <div class="reportNote">The TZS total combines owner commission, driver commission, and verified or reconciled NRMS subscription revenue. Tour commission settles in ${escapeHtml(tourCommissionCurrency)} and remains separate, so unlike currencies are never summed.</div>
+    </section>`;
 
     const detailRows = (invoiceItems || [])
       .slice(0, 60)
@@ -739,17 +763,17 @@ export default function AdminReportsPage() {
       .join("\n");
 
     const tourDetailSection = `
-    <div class="section">
-      <h2>Tour activities (details)</h2>
-      <table>
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">05</span><div><h2>Tour activity register</h2><p>Booked activities, operators, values, commission, and recorded status.</p></div></div>
+      <div class="tableWrap"><table>
         <thead><tr>
           <th>Booking</th><th>Operator</th><th>Activity</th>
           <th style="text-align:right;">Travelers</th><th style="text-align:right;">Gross</th>
           <th style="text-align:right;">Commission</th><th>Status</th><th>Created</th>
         </tr></thead>
-        <tbody>${tourRows && tourRows.length ? tourDetailRows : `<tr><td colspan="8" style="color:var(--muted);">No tour activities in this range.</td></tr>`}</tbody>
-      </table>
-    </div>`;
+        <tbody>${tourRows && tourRows.length ? tourDetailRows : `<tr><td colspan="8" class="emptyState">No tour activities were recorded in this period.</td></tr>`}</tbody>
+      </table></div>
+    </section>`;
 
     const html = `<!doctype html>
 <html>
@@ -838,103 +862,73 @@ export default function AdminReportsPage() {
       .page { padding: 0; }
       .sheet { border-radius: 14px; padding: 12px; }
     }
+    ${adminReportPrintStyles(mode === "full" ? "landscape" : "portrait")}
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="sheet">
-    <div class="company">
-      <div class="company-left">
-        <img class="logo" src="${escapeAttr(logoUrl)}" alt="NoLSAF" />
-        <div style="min-width:0">
-          <div class="co-name">NoLS Africa Co Ltd</div>
-          <div class="co-meta">
-            <div><span>P.O BOX 23091</span> | <span>Dar es Salaam-Tanzania</span></div>
-            <div><span>finance@nolsaf.com</span> | <span>+255736766726</span></div>
-          </div>
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:11px;color:var(--muted)">Report ID</div>
-        <div style="font-weight:900;font-size:11px">${escapeHtml(reportId)}</div>
-        ${reportIdBarcode ? `<img class="idbar" src="${escapeAttr(reportIdBarcode)}" alt="Report reference barcode" /><div class="idbarRef">${escapeHtml(reportRef)}</div>` : ""}
-      </div>
-    </div>
+  <div class="reportPage">
+    <main class="reportDocument">
+    ${buildAdminReportHeader({
+      logoUrl,
+      eyebrow: mode === "revenueOnly" ? "NoLSAF finance control" : "NoLSAF management reporting",
+      title: mode === "revenueOnly" ? "Revenue summary" : "Finance and operations report",
+      description: mode === "revenueOnly" ? "A focused statement of NoLSAF platform earnings and supporting payment volume." : "A consolidated view of platform revenue, invoices, transport, properties, and tour activity.",
+      reportId,
+      reportRef,
+      barcodeDataUrl: reportIdBarcode,
+      from,
+      to,
+      generatedAt: fmtDateTime(reportId),
+      preparedBy: printedByEmail ? `${printedByName} · ${printedByEmail}` : printedByName,
+      classification: "Finance and management use",
+    })}
 
-    <div class="title">
-      <div>
-        <h1>NoLSAF Finance & Operations Report</h1>
-        <div class="sub">Range: ${escapeHtml(from)} → ${escapeHtml(to)} • Generated: ${escapeHtml(fmtDateTime(reportId))}</div>
-      </div>
-      <div style="text-align:right; font-size:11px; color: var(--muted)">
-        <div><strong style="color:var(--ink)">${escapeHtml(printedByName)}</strong></div>
-        <div>${escapeHtml(printedByEmail)}</div>
-      </div>
-    </div>
-
-    <div class="meta">
-      <div class="card">
-        <div class="kv">
-          <div class="k">Printed by</div><div class="v">${escapeHtml(printedByName)}</div>
-          <div class="k">Printed at</div><div class="v">${escapeHtml(fmtDateTime(new Date()))}</div>
-          <div class="k">Scope</div><div class="v">All regions</div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="kv">
-          <div class="k">Range from</div><div class="v">${escapeHtml(from)}</div>
-          <div class="k">Range to</div><div class="v">${escapeHtml(to)}</div>
-          <div class="k">Invoices (total)</div><div class="v">${escapeHtml(String(invoicesTotal))}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="kpis">
-      <div class="kpi"><div class="t">Gross payment (TZS)</div><div class="n">${escapeHtml(fmtMoneyTZS(totalRevenue))}</div><div style="margin-top:4px; font-size:9px; color: var(--muted); line-height:1.5;">Property invoices: TZS ${escapeHtml(fmtMoneyTZS(grossPaymentBreakdown.propertyTzs))} · Transport: TZS ${escapeHtml(fmtMoneyTZS(grossPaymentBreakdown.transportTzs))} · Tour (separate): ${escapeHtml(tourCommissionCurrency)} ${escapeHtml(fmtMoneyUSD(grossPaymentBreakdown.tourUsd))}. Turnover, not NoLSAF revenue.</div></div>
-      <div class="kpi"><div class="t">Active properties (latest)</div><div class="n">${escapeHtml(String(totalActive))}</div></div>
-      <div class="kpi"><div class="t">Invoices (all statuses)</div><div class="n">${escapeHtml(String(invoicesTotal))}</div></div>
+    <div class="metricGrid">
+      <div class="metricCard metricCardGood"><span class="metricLabel">Gross payment volume</span><strong>TZS ${escapeHtml(fmtMoneyTZS(totalRevenue))}</strong><small>Property invoices TZS ${escapeHtml(fmtMoneyTZS(grossPaymentBreakdown.propertyTzs))}. Transport TZS ${escapeHtml(fmtMoneyTZS(grossPaymentBreakdown.transportTzs))}. This is turnover, not NoLSAF revenue.</small></div>
+      <div class="metricCard"><span class="metricLabel">Active properties</span><strong>${escapeHtml(String(totalActive))}</strong><small>Latest active property count available for this report.</small></div>
+      <div class="metricCard"><span class="metricLabel">Invoices recorded</span><strong>${escapeHtml(String(invoicesTotal))}</strong><small>All invoice statuses inside the selected reporting period.</small></div>
     </div>
 
     ${revenueSourcesSection}
 
-    <div class="section">
-      <h2>Visual Summary</h2>
-      <div class="charts">
-        <div class="chart">
-          <div class="chartTitle">Revenue trend</div>
-          ${revImg ? `<img src="${escapeAttr(revImg)}" alt="Revenue chart" />` : `<div style="color:var(--muted);font-size:11px;">(chart not available)</div>`}
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">02</span><div><h2>Performance summary</h2><p>Revenue movement, invoice position, and property type contribution.</p></div></div>
+      <div class="panelGrid">
+        <div class="reportPanel">
+          <div class="panelTitle">Revenue trend</div><div class="panelBody">
+          ${revImg ? `<img class="chartImage" src="${escapeAttr(revImg)}" alt="Revenue chart" />` : `<div class="emptyState">Revenue chart is not available.</div>`}</div>
         </div>
-        <div class="chart">
-          <div class="chartTitle">Invoices by status</div>
-          ${statusImg ? `<img src="${escapeAttr(statusImg)}" alt="Invoice status chart" />` : `<div style="color:var(--muted);font-size:11px;">(chart not available)</div>`}
+        <div class="reportPanel">
+          <div class="panelTitle">Invoices by status</div><div class="panelBody">
+          ${statusImg ? `<img class="chartImage" src="${escapeAttr(statusImg)}" alt="Invoice status chart" />` : `<div class="emptyState">Invoice chart is not available.</div>`}</div>
         </div>
-        <div class="chart">
-          <div class="chartTitle">Gross booking value by property type</div>
+        <div class="reportPanel">
+          <div class="panelTitle">Gross booking value by property type</div><div class="panelBody">
           <div class="typeLine">${typeSegs || ""}</div>
           <div class="typeLegend">
-            ${typeLegend || `<div style="color:var(--muted);font-size:11px;">No booking value data in this range.</div>`}
-          </div>
+            ${typeLegend || `<div class="emptyState">No booking value data was recorded in this period.</div>`}
+          </div></div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="section">
-      <h2>Invoice Status Summary</h2>
-      <table>
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">03</span><div><h2>Invoice status control</h2><p>Count of invoices at each recorded workflow state.</p></div></div>
+      <div class="tableWrap"><table>
         <thead><tr><th>Status</th><th style="text-align:right;">Count</th></tr></thead>
         <tbody>
-          ${invRows || `<tr><td colspan="2" style="color:var(--muted)">No invoice data in this range.</td></tr>`}
+          ${invRows || `<tr><td colspan="2" class="emptyState">No invoice data was recorded in this period.</td></tr>`}
         </tbody>
-      </table>
-    </div>
+      </table></div>
+    </section>
 
     ${
       mode === "revenueOnly"
         ? ""
         : `
-    <div class="section">
-      <h2>Invoices (details)</h2>
-      <table class="details">
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">04</span><div><h2>Invoice revenue register</h2><p>Invoice value, partner net payable, and NoLSAF commission for reconciliation.</p></div></div>
+      <div class="tableWrap"><table class="details">
         <thead>
           <tr>
             <th>Invoice</th>
@@ -948,145 +942,100 @@ export default function AdminReportsPage() {
           </tr>
         </thead>
         <tbody>
-          ${detailRows || `<tr><td colspan="8" style="color:var(--muted)">No invoice rows found in this range.</td></tr>`}
+          ${detailRows || `<tr><td colspan="8" class="emptyState">No invoice rows were recorded in this period.</td></tr>`}
         </tbody>
-      </table>
-      <div style="margin-top:6px; font-size:10px; color: var(--muted)">Showing up to 60 rows (condensed for printing).</div>
-    </div>
+      </table></div>
+      <div class="reportNote">This print register includes up to 60 invoice rows. Use the system export when the complete machine readable register is required.</div>
+    </section>
     ${tourDetailSection}`
     }
 
-    <div class="footer">
-      <div class="auditLine"><strong>Audit</strong> • NoLSAF Inc. Prepared for internal finance operations and compliance.</div>
-      <div class="footRow">
-        ${qrDataUrl ? `
-        <div class="refBox">
-          <img src="${escapeAttr(qrDataUrl)}" alt="Scan to verify this report" />
-          <div class="refLabel">Ref: ${escapeHtml(reportRef)}</div>
-        </div>` : ""}
-        <div class="compliance">
-          <div class="cTitle">Authenticity and compliance</div>
-          Scan the QR to verify this report on the public NoLSAF page (no login). It shows the sealed figures, so any tampering is detectable. Confidential. For authorized finance, audit, and compliance use.
-        </div>
-        <div class="sealWrap">
-          <div class="sigGap"></div>
-          <div class="sig">Authorized signature</div>
-          <div class="sigMeta">Name and date</div>
-        </div>
-      </div>
-    </div>
-    </div>
+    ${buildAdminReportFooter({
+      reportRef,
+      qrDataUrl,
+      purpose: "Scan the QR code to confirm the sealed figures on the public NoLSAF verification page.",
+      signatureLabel: "Finance authorization",
+    })}
+    </main>
   </div>
 </body>
 </html>`;
 
-    const w = window.open("", "_blank");
-    if (!w) {
-      alert("Unable to open print window. Please allow popups");
-      return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    setTimeout(() => {
-      w.focus();
-      w.print();
-    }, 450);
+    await renderAndPrintAdminReport(printWindow, html);
   }
 
   return (
-    <div className="bg-[#f4f5f6] min-h-screen">
-    <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-4 min-w-0">
-      {/* Main dark card */}
-      <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(170deg,#0c1a2e_0%,#0a2236_52%,#0b1d2d_100%)] shadow-[0_32px_80px_-24px_rgba(5,12,26,0.55)]">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 px-6 pt-6 sm:px-8 sm:pt-7">
-          <div className="min-w-0">
-            <Link
-              href="/admin/management/reports"
-              className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-bold text-slate-200 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:border-white/20 hover:bg-white/[0.10] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-              Back to reports
-            </Link>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#02665e]/30 bg-[#02665e]/15 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-300">
-              <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-              Operational Export
-            </div>
-            <h2 className="mt-3 text-xl font-black tracking-tight text-white sm:text-2xl">
-              NoLSAF Finance &amp; Operations Report
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-400">
-              Choose a reporting period, review finance and operations totals, then print a signed report with QR verification.
-            </p>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
+    <NoLSAFReportsFrame
+      actions={
+        <>
             <button
               type="button"
               onClick={() => printReport("full")}
-              className="inline-flex items-center justify-center h-10 px-4 rounded-[14px] bg-[#02665e] text-white text-sm font-bold shadow-[0_4px_20px_-6px_rgba(2,102,94,0.50)] hover:brightness-110 transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/50"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700"
             >
-              <Printer className="h-4 w-4 mr-2" aria-hidden />
-              Print
+              <Printer className="h-3.5 w-3.5" aria-hidden />
+              Full report
             </button>
 
             <button
               type="button"
               onClick={() => printReport("revenueOnly")}
-              className="inline-flex items-center justify-center h-10 px-4 rounded-[14px] border border-[#02665e]/30 bg-[#02665e]/10 text-emerald-300 text-sm font-bold hover:bg-[#02665e]/20 transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-emerald-800"
               title="Print only NoLSAF revenue sources"
             >
-              <Printer className="h-4 w-4 mr-2" aria-hidden />
-              Print revenue
+              <Printer className="h-3.5 w-3.5" aria-hidden />
+              Revenue summary
             </button>
-          </div>
-        </div>
+        </>
+      }
+    >
+      <NoLSAFReportTitle
+        icon="revenue"
+        eyebrow="Financial performance"
+        title="Revenue and commission report"
+        text="NoLSAF revenue, customer payment volume, property invoices, transport, tours, and commission controls."
+      />
 
         {clampInfo.clamped ? (
-          <div className="mx-6 mt-4 sm:mx-8 rounded-[14px] border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
             <div className="min-w-0">
               <div className="font-bold">Range limited</div>
-              <div className="text-amber-300/80 break-words">Max range is {MAX_REPORT_DAYS_INCLUSIVE} days.</div>
+              <div className="break-words text-amber-800/80">Max range is {MAX_REPORT_DAYS_INCLUSIVE} days.</div>
             </div>
           </div>
         ) : null}
 
-        <div className="mt-5 flex items-end gap-3 overflow-x-auto flex-nowrap pb-1 px-6 sm:px-8">
-          <div className="shrink-0 w-[190px]">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-1.5">From</div>
-            <DatePickerField
-              label="From date"
-              value={from}
-              max={to}
-              onChangeAction={(nextIso) => applyRange(nextIso, to)}
-              widthClassName="w-full"
-              variant="dark"
-            />
+        <section className="grid min-w-0 gap-4 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,360px)_1px_minmax(0,1fr)] lg:items-end" aria-label="Revenue report controls">
+          <div className="min-w-0">
+            <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Reporting period</div>
+            <div className="mt-2 grid min-w-0 gap-2 sm:grid-cols-2">
+              <div className="min-w-0">
+                <div className="mb-1 text-[9px] font-semibold text-neutral-500">From</div>
+                <DatePickerField label="From date" value={from} max={to} onChangeAction={(nextIso) => applyRange(nextIso, to)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1 text-[9px] font-semibold text-neutral-500">To</div>
+                <DatePickerField label="To date" value={to} min={from} max={clampInfo.maxTo ?? undefined} onChangeAction={(nextIso) => applyRange(from, nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
+              </div>
+            </div>
           </div>
 
-          <div className="shrink-0 w-[190px]">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-1.5">To</div>
-            <DatePickerField
-              label="To date"
-              value={to}
-              min={from}
-              max={clampInfo.maxTo ?? undefined}
-              onChangeAction={(nextIso) => applyRange(from, nextIso)}
-              widthClassName="w-full"
-              variant="dark"
-            />
-          </div>
+          <div className="hidden self-stretch bg-neutral-200 lg:block" aria-hidden />
 
-          <div className="shrink-0">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-1.5">Range</div>
-            <div className="flex items-center gap-2 flex-nowrap">
+          <div className="min-w-0">
+            <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Quick range</div>
+            <div className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="grid w-max min-w-full grid-flow-col auto-cols-[minmax(88px,1fr)] items-center gap-1.5 p-0.5" aria-label="Quick report periods">
               {(
                 [
-                  { key: "today" as const, label: "Today", hint: "Today", accent: "bg-emerald-500" },
-                  { key: "7d" as const, label: "7D", hint: "Last 7 days", accent: "bg-sky-500" },
-                  { key: "30d" as const, label: "1M", hint: "Last 30 days", accent: "bg-violet-500" },
+                  { key: "today" as const, label: "Today", hint: "Today" },
+                  { key: "7d" as const, label: "7 days", hint: "Last 7 days" },
+                  { key: "30d" as const, label: "30 days", hint: "Last 30 days" },
+                  { key: "3m" as const, label: "3 months", hint: "Last 3 months" },
+                  { key: "6m" as const, label: "6 months", hint: "Last 6 months" },
+                  { key: "ytd" as const, label: "YTD", hint: "Year to date" },
+                  { key: "12m" as const, label: "12 months", hint: "Last 12 months" },
                 ] as const
               ).map((p) => {
                 const r = getQuickRange(p.key);
@@ -1096,116 +1045,110 @@ export default function AdminReportsPage() {
                     key={p.key}
                     label={p.label}
                     hint={p.hint}
-                    accentClassName={p.accent}
                     active={active}
                     onClick={() => applyRange(r.from, r.to)}
                   />
                 );
               })}
 
-              <MoreRangesPopover
-                mounted={mounted}
-                clampInfo={clampInfo}
-                moreRanges={[
-                  { key: "3m" as const, label: "3M", hint: "Last 3 months", accent: "bg-indigo-500" },
-                  { key: "6m" as const, label: "6M", hint: "Last 6 months", accent: "bg-amber-500" },
-                  { key: "ytd" as const, label: "YTD", hint: "Year to date", accent: "bg-teal-500" },
-                  { key: "12m" as const, label: "12M", hint: "Last 12 months (max)", accent: "bg-slate-600" },
-                ]}
-                onSelectRange={(k) => {
-                  const r = getQuickRange(k);
-                  applyRange(r.from, r.to);
-                }}
-              />
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 px-6 sm:px-8">
-          <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.05] px-5 py-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Gross payment (TZS)</div>
-            <div className="mt-2 text-2xl font-black text-white">{fmtMoneyTZS(totalRevenue)}</div>
-            <div className="mt-2 space-y-0.5 text-[11px] text-slate-400">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Gross payment volume</div>
+            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">TZS {fmtMoneyTZS(totalRevenue)}</div>
+            <div className="mt-2 space-y-0.5 text-[10px] text-neutral-500">
               <div className="flex items-center justify-between gap-2">
                 <span>Property invoices</span>
-                <span className="font-semibold text-slate-300">TZS {fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}</span>
+                <span className="font-semibold text-neutral-800">TZS {fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span>Transport</span>
-                <span className="font-semibold text-slate-300">TZS {fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}</span>
+                <span className="font-semibold text-neutral-800">TZS {fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span>Tour (separate)</span>
-                <span className="font-semibold text-amber-300/90">{tourCommissionCurrency} {fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}</span>
+                <span className="font-semibold text-amber-700">{tourCommissionCurrency} {fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}</span>
               </div>
             </div>
-            <div className="mt-1.5 text-[10px] text-slate-500">Customer payment received (turnover), not NoLSAF revenue.</div>
+            <div className="mt-1.5 text-[9px] text-neutral-400">Customer payment turnover, not NoLSAF revenue.</div>
           </div>
-          <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.05] px-5 py-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Active properties (latest)</div>
-            <div className="mt-2 text-2xl font-black text-white">{String(totalActive)}</div>
+          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Active properties</div>
+            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">{String(totalActive)}</div>
+            <div className="mt-auto pt-1.5 text-[10px] text-neutral-500">Latest active platform supply.</div>
           </div>
-          <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.05] px-5 py-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Invoices (all statuses)</div>
-            <div className="mt-2 text-2xl font-black text-white">{String(invoicesTotal)}</div>
+          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Invoices recorded</div>
+            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">{String(invoicesTotal)}</div>
+            <div className="mt-auto pt-1.5 text-[10px] text-neutral-500">Every invoice workflow state in range.</div>
           </div>
         </div>
 
-        <div className="mx-6 mt-4 sm:mx-8 rounded-[20px] border border-[#02665e]/20 bg-[#02665e]/[0.08] p-5">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-bold text-emerald-200">NoLSAF revenue sources</div>
-              <div className="text-xs text-slate-400">Owner commission, driver commission, and tour commission. Subscriptions planned.</div>
+              <div className="text-sm font-bold text-neutral-950">NoLSAF revenue sources</div>
+              <div className="text-[10px] text-neutral-500">Owner commission, driver commission, verified NRMS subscriptions, tour commission, and total platform earnings.</div>
             </div>
             {totalsLoading ? <div className="text-xs text-slate-500">Calculating…</div> : null}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="rounded-[16px] border border-[#02665e]/20 bg-[#02665e]/10 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Owner commission</div>
-              <div className="mt-2 text-base font-black text-emerald-300">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-emerald-700">Owner commission</div>
+              <div className="mt-2 text-base font-bold text-emerald-700">
                 {ownerCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}`}
               </div>
             </div>
-            <div className="rounded-[16px] border border-[#02665e]/20 bg-[#02665e]/10 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Driver commission</div>
-              <div className="mt-2 text-base font-black text-emerald-300">
+            <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-sky-700">Driver commission</div>
+              <div className="mt-2 text-base font-bold text-sky-800">
                 {driverCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}`}
               </div>
             </div>
-            <div className="rounded-[16px] border border-[#02665e]/20 bg-[#02665e]/10 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Tour commission ({tourCommissionCurrency})</div>
-              <div className="mt-2 text-base font-black text-amber-300">
+            <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-violet-700">NRMS subscriptions</div>
+              <div className="mt-2 text-base font-bold text-violet-800">
+                {subscriptionRevenueTotal === null ? "No verified revenue" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`}
+              </div>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-amber-700">Tour commission ({tourCommissionCurrency})</div>
+              <div className="mt-2 text-base font-bold text-amber-800">
                 {tourCommissionTotal === null ? "—" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}`}
               </div>
             </div>
-            <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.06] p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Total NoLSAF revenue</div>
-              <div className="mt-2 text-base font-black text-white">
-                {totalNolsafRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNolsafRevenue))}`}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-emerald-700">Total NoLSAF revenue</div>
+              <div className="mt-2 text-base font-bold text-emerald-950">
+                {totalNoLSAFRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`}
               </div>
-              <div className="mt-1 text-[11px] font-bold text-amber-300/90">
+              <div className="mt-1 text-[10px] font-bold text-amber-700">
                 {tourCommissionTotal ? `+ ${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)} tour` : null}
               </div>
             </div>
           </div>
-          <div className="mt-3 text-[11px] text-slate-500">
-            Owner and driver commission settle in <span className="font-semibold text-slate-400">TZS</span> (money of record); tour commission settles in <span className="font-semibold text-amber-300/90">{tourCommissionCurrency}</span>. The two are reported side by side and never summed. Subscriptions (annual) are <span className="font-semibold text-slate-400">Planned</span>; totals update once subscription billing is enforced.
+          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-[10px] leading-4 text-blue-900">
+            Owner commission, driver commission, and verified or manually reconciled NRMS subscriptions are included in the <span className="font-semibold">TZS</span> total. Tour commission settles in <span className="font-semibold">{tourCommissionCurrency}</span> and remains separate.
           </div>
-        </div>
+        </section>
 
-        <div className="mx-6 mt-4 sm:mx-8 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-5">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <div className="text-sm font-bold text-white">Visual summary</div>
+              <div className="text-sm font-bold text-neutral-950">Visual summary</div>
               <div className="text-xs text-slate-400">Revenue trend · Invoice status · Breakdown by property type.</div>
             </div>
             {loading ? <div className="text-xs text-slate-500">Loading…</div> : null}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] p-4">
-              <div className="text-sm font-bold text-slate-200 mb-3">Revenue trend</div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="mb-2 text-xs font-bold text-neutral-800">Revenue trend</div>
               <Chart
                 type="line"
                 data={revenueChartData as any}
@@ -1223,13 +1166,13 @@ export default function AdminReportsPage() {
                     y: { grid: { display: false }, ticks: { display: false } },
                   },
                 } as any}
-                height={220}
+                height={190}
                 onCanvas={setRevCanvas}
               />
             </div>
 
-            <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] p-4">
-              <div className="text-sm font-bold text-slate-200 mb-3">Invoices by status</div>
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="mb-2 text-xs font-bold text-neutral-800">Invoices by status</div>
               <Chart
                 type="doughnut"
                 data={invoiceStatusChartData as any}
@@ -1244,19 +1187,19 @@ export default function AdminReportsPage() {
                   },
                   cutout: "62%",
                 } as any}
-                height={220}
+                height={190}
                 onCanvas={setStatusCanvas}
               />
             </div>
 
-            <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] p-4">
-              <div className="text-sm font-bold text-slate-200">Gross booking value by property type</div>
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="text-xs font-bold text-neutral-800">Gross booking value by property type</div>
               <div className="mt-1 text-xs text-slate-500">Total paid invoice value (turnover), not NoLSAF commission.</div>
 
               {revenueByTypeBreakdown.items.length ? (
                 <>
                   <div
-                    className="mt-3 h-3 rounded-full overflow-hidden border border-white/10 bg-white/[0.06] flex"
+                    className="mt-3 flex h-2 overflow-hidden rounded-full bg-neutral-200"
                     aria-label="Gross booking value by property type breakdown"
                   >
                     {revenueByTypeBreakdown.items.map((it) => (
@@ -1270,11 +1213,11 @@ export default function AdminReportsPage() {
 
                   <div className="mt-3 space-y-2">
                     {revenueByTypeBreakdown.items.slice(0, 10).map((it) => (
-                      <div key={it.label} className="flex items-center gap-2 text-xs">
+                      <div key={it.label} className="flex items-center gap-2 text-[10px]">
                         <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: it.color }} aria-hidden />
-                        <div className="min-w-0 flex-1 font-semibold text-slate-300 truncate">{it.label}</div>
+                        <div className="min-w-0 flex-1 truncate font-semibold text-neutral-700">{it.label}</div>
                         <div className="text-slate-500 font-semibold whitespace-nowrap">{Math.round(it.pct)}%</div>
-                        <div className="text-white font-extrabold whitespace-nowrap">TZS {fmtMoneyTZS(Number(it.value) || 0)}</div>
+                        <div className="whitespace-nowrap font-bold text-neutral-950">TZS {fmtMoneyTZS(Number(it.value) || 0)}</div>
                       </div>
                     ))}
                   </div>
@@ -1284,14 +1227,14 @@ export default function AdminReportsPage() {
               )}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="mx-6 mt-4 sm:mx-8 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-5">
-            <div className="text-sm font-bold text-white">Invoice Status Summary</div>
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="text-sm font-bold text-neutral-950">Invoice status summary</div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 border-b border-white/[0.08]">
+                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
                     <th className="text-left py-2.5 pr-2">Status</th>
                     <th className="text-right py-2.5 pl-2">Count</th>
                   </tr>
@@ -1301,9 +1244,9 @@ export default function AdminReportsPage() {
                     Object.entries(invoiceStatusCounts)
                       .sort((a, b) => a[0].localeCompare(b[0]))
                       .map(([k, v]) => (
-                        <tr key={k} className="border-b border-white/[0.06] last:border-b-0">
-                          <td className="py-2.5 pr-2 text-slate-300">{k}</td>
-                          <td className="py-2.5 pl-2 text-right font-bold text-white">{String(v ?? 0)}</td>
+                        <tr key={k} className="border-b border-neutral-100 last:border-b-0">
+                          <td className="py-2.5 pr-2 text-xs text-neutral-600">{k}</td>
+                          <td className="py-2.5 pl-2 text-right text-xs font-bold text-neutral-950">{String(v ?? 0)}</td>
                         </tr>
                       ))
                   ) : (
@@ -1316,17 +1259,17 @@ export default function AdminReportsPage() {
                 </tbody>
               </table>
             </div>
-        </div>
+        </section>
 
-        <div className="mx-6 mt-4 mb-6 sm:mx-8 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-5">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-bold text-white">Invoices (details)</div>
+              <div className="text-sm font-bold text-neutral-950">Invoice register</div>
               <div className="text-xs text-slate-500">Up to 200 loaded · prints up to 60</div>
             </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 border-b border-white/[0.08]">
+                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
                     <th className="text-left py-2.5 pr-2">Invoice</th>
                     <th className="text-left py-2.5 px-2">Status</th>
                     <th className="text-left py-2.5 px-2">Issued</th>
@@ -1340,30 +1283,30 @@ export default function AdminReportsPage() {
                 <tbody>
                   {invoiceItems.length ? (
                     invoiceItems.slice(0, 60).map((inv) => (
-                      <tr key={inv.id} className="border-b border-white/[0.06] last:border-b-0">
-                        <td className="py-2.5 pr-2 font-bold text-white whitespace-nowrap">
+                      <tr key={inv.id} className="border-b border-neutral-100 text-xs last:border-b-0 hover:bg-neutral-50/70">
+                        <td className="whitespace-nowrap py-2.5 pr-2 font-bold text-neutral-950">
                           {inv.invoiceNumber || `#${inv.id}`}
                         </td>
-                        <td className="py-2.5 px-2 text-slate-300 whitespace-nowrap">{inv.status || "—"}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-neutral-600">{inv.status || "—"}</td>
                         <td className="py-2.5 px-2 text-slate-400 whitespace-nowrap">
                           {inv.issuedAt ? fmtDateTime(inv.issuedAt) : "—"}
                         </td>
-                        <td className="py-2.5 px-2 text-slate-300 max-w-[320px] truncate">
+                        <td className="max-w-[320px] truncate px-2 py-2.5 text-neutral-700">
                           {inv.booking?.property?.title || "—"}
                         </td>
                         <td className="py-2.5 px-2 text-right text-slate-200 whitespace-nowrap">
                           TZS {fmtMoneyTZS(Number(inv.total || 0))}
                         </td>
-                        <td className="py-2.5 pl-2 text-right font-semibold text-white whitespace-nowrap">
+                        <td className="whitespace-nowrap py-2.5 pl-2 text-right font-semibold text-neutral-950">
                           TZS {fmtMoneyTZS(Number(inv.netPayable || 0))}
                         </td>
-                        <td className="py-2.5 pl-2 text-right font-semibold text-emerald-300 whitespace-nowrap">
+                        <td className="whitespace-nowrap py-2.5 pl-2 text-right font-semibold text-emerald-700">
                           {(() => {
                             const amt = calcCommissionAmount(inv.total, inv.netPayable);
                             return amt === null ? "—" : `TZS ${fmtMoneyTZS(amt)}`;
                           })()}
                         </td>
-                        <td className="py-2.5 pl-2 text-right text-slate-300 whitespace-nowrap">
+                        <td className="whitespace-nowrap py-2.5 pl-2 text-right text-neutral-600">
                           {fmtPct(calcCommissionPct(inv.total, inv.netPayable), 1)}
                         </td>
                       </tr>
@@ -1378,23 +1321,23 @@ export default function AdminReportsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
 
-        <div className="mx-6 mt-4 mb-6 sm:mx-8 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-5">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-bold text-white">Tour activities (details)</div>
+              <div className="text-sm font-bold text-neutral-950">Tour activity register</div>
               <div className="text-xs text-slate-500">Customer-paid tours in range · prints up to 60</div>
             </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 border-b border-white/[0.08]">
+                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
                     <th className="text-left py-2.5 pr-2">Booking</th>
                     <th className="text-left py-2.5 px-2">Operator</th>
                     <th className="text-left py-2.5 px-2">Activity (tour · destination)</th>
                     <th className="text-right py-2.5 px-2">Travelers</th>
                     <th className="text-right py-2.5 px-2">Gross</th>
-                    <th className="text-right font-bold py-2.5 px-2 text-amber-400">Commission</th>
+                    <th className="px-2 py-2.5 text-right font-bold text-amber-700">Commission</th>
                     <th className="text-left py-2.5 px-2">Status</th>
                     <th className="text-left py-2.5 pl-2">Created</th>
                   </tr>
@@ -1404,23 +1347,23 @@ export default function AdminReportsPage() {
                     tourRows.slice(0, 60).map((t) => {
                       const cur = t.currency || tourCommissionCurrency;
                       return (
-                        <tr key={`tour-${t.id}`} className="border-b border-white/[0.06] last:border-b-0">
-                          <td className="py-2.5 pr-2 font-bold text-white whitespace-nowrap">{t.bookingCode || `#${t.id}`}</td>
-                          <td className="py-2.5 px-2 text-slate-300 whitespace-nowrap">{t.operatorName || "—"}</td>
-                          <td className="py-2.5 px-2 text-slate-300 max-w-[360px] truncate">
+                        <tr key={`tour-${t.id}`} className="border-b border-neutral-100 text-xs last:border-b-0 hover:bg-neutral-50/70">
+                          <td className="whitespace-nowrap py-2.5 pr-2 font-bold text-neutral-950">{t.bookingCode || `#${t.id}`}</td>
+                          <td className="whitespace-nowrap px-2 py-2.5 text-neutral-700">{t.operatorName || "—"}</td>
+                          <td className="max-w-[360px] truncate px-2 py-2.5 text-neutral-700">
                             {t.tourTitle || "—"}
                             {t.destination ? <span className="text-slate-500"> · {t.destination}</span> : null}
                           </td>
-                          <td className="py-2.5 px-2 text-right text-slate-300 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right text-neutral-600">
                             {t.numberOfPeople ?? "—"}
                           </td>
-                          <td className="py-2.5 px-2 text-right text-slate-200 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right text-neutral-800">
                             {t.grossAmount === null || t.grossAmount === undefined ? "—" : `${cur} ${fmtMoneyUSD(Number(t.grossAmount) || 0)}`}
                           </td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-amber-300 whitespace-nowrap">
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right font-semibold text-amber-700">
                             {t.commissionAmount === null || t.commissionAmount === undefined ? "—" : `${cur} ${fmtMoneyUSD(Number(t.commissionAmount) || 0)}`}
                           </td>
-                          <td className="py-2.5 px-2 text-slate-300 whitespace-nowrap">{t.status || "—"}</td>
+                          <td className="whitespace-nowrap px-2 py-2.5 text-neutral-600">{t.status || "—"}</td>
                           <td className="py-2.5 pl-2 text-slate-400 whitespace-nowrap">{t.createdAt ? fmtDateTime(t.createdAt) : "—"}</td>
                         </tr>
                       );
@@ -1435,154 +1378,19 @@ export default function AdminReportsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-      </div>
-      </div>
-    </div>
-  );
-}
-
-function PopoverPositioner({ open, computePos }: { open: boolean; computePos: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    if (typeof window === "undefined") return;
-
-    computePos();
-    window.addEventListener("resize", computePos);
-    window.addEventListener("scroll", computePos, true);
-    return () => {
-      window.removeEventListener("resize", computePos);
-      window.removeEventListener("scroll", computePos, true);
-    };
-  }, [open, computePos]);
-
-  return null;
-}
-
-function MoreRangesPopover({
-  mounted,
-  moreRanges,
-  onSelectRange,
-  clampInfo,
-}: {
-  mounted: boolean;
-  moreRanges: Array<{ key: QuickRangeKey; label: string; hint: string; accent: string }>;
-  onSelectRange: (k: QuickRangeKey) => void;
-  clampInfo: { maxTo: string | null };
-}) {
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  const computePos = useCallback(() => {
-    const el = buttonRef.current;
-    if (!el) return;
-    if (typeof window === "undefined") return;
-    const rect = el.getBoundingClientRect();
-    const width = 256;
-    const rawLeft = rect.right - width;
-    const left = Math.max(12, Math.min(rawLeft, window.innerWidth - 12 - width));
-    const top = rect.bottom + 8;
-    setPos({ top, left, width });
-  }, []);
-
-  return (
-    <Popover className="relative shrink-0">
-      {({ open, close }) => (
-        <>
-          <PopoverPositioner open={open} computePos={computePos} />
-
-          <Popover.Button
-            ref={buttonRef}
-            type="button"
-            className={
-              "h-12 w-12 inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-slate-300 shadow-sm transition hover:bg-white/[0.10] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
-              (open ? "ring-1 ring-white/20" : "")
-            }
-            title="More ranges"
-            aria-label="More ranges"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                setTimeout(() => {
-                  try {
-                    computePos();
-                  } catch {
-                    // ignore
-                  }
-                }, 0);
-              }
-            }}
-          >
-            <Sliders className="h-4 w-4" aria-hidden />
-          </Popover.Button>
-
-          {mounted
-            ? createPortal(
-                <Transition
-                  as={Fragment}
-                  show={open}
-                  enter="transition ease-out duration-150"
-                  enterFrom="opacity-0 translate-y-1"
-                  enterTo="opacity-100 translate-y-0"
-                  leave="transition ease-in duration-120"
-                  leaveFrom="opacity-100 translate-y-0"
-                  leaveTo="opacity-0 translate-y-1"
-                >
-                  <Popover.Panel
-                    static
-                    className="fixed z-[10000] w-64 rounded-[18px] border border-white/10 bg-[#0d1f34] shadow-xl overflow-hidden"
-                    style={pos ? { top: pos.top, left: pos.left, width: pos.width } : undefined}
-                  >
-                    <div className="p-1">
-                      <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">More ranges</div>
-                      {moreRanges.map((p) => (
-                        <button
-                          key={p.key}
-                          type="button"
-                          onClick={() => {
-                            onSelectRange(p.key);
-                            close();
-                          }}
-                          className="w-full flex items-center gap-2 rounded-[12px] px-3 py-2 text-sm text-slate-300 hover:bg-white/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
-                          title={p.hint}
-                        >
-                          <span className={"h-2.5 w-2.5 rounded-sm " + p.accent} aria-hidden />
-                          <div className="min-w-0 text-left">
-                            <div className="font-bold leading-5 text-slate-200">{p.label}</div>
-                            <div className="text-[11px] text-slate-500 leading-4 truncate">{p.hint}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="px-3 py-2 border-t border-white/[0.07] text-[11px] text-slate-500">
-                      Max range: <span className="font-semibold">12 months</span>
-                      {clampInfo.maxTo ? (
-                        <span className="block">
-                          To max: <span className="font-semibold">{clampInfo.maxTo}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                  </Popover.Panel>
-                </Transition>,
-                document.body
-              )
-            : null}
-        </>
-      )}
-    </Popover>
+          </section>
+    </NoLSAFReportsFrame>
   );
 }
 
 function RangePill({
   label,
   hint,
-  accentClassName,
   active,
   onClick,
 }: {
   label: string;
   hint: string;
-  accentClassName: string;
   active: boolean;
   onClick: () => void;
 }) {
@@ -1592,14 +1400,12 @@ function RangePill({
       onClick={onClick}
       aria-label={hint}
       className={
-        "relative h-12 px-4 rounded-xl border text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40 " +
-        (active ? "border-[#02665e]/40 text-emerald-300 bg-[#02665e]/[0.18]" : "border-white/[0.12] bg-white/[0.07] text-slate-300 hover:bg-white/[0.12]")
+        "group relative h-9 w-full snap-start overflow-hidden rounded-md border px-3 text-[10px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 " +
+        (active ? "border-emerald-800 bg-gradient-to-b from-emerald-700 to-emerald-800 text-white shadow-emerald-900/15" : "border-neutral-200 bg-gradient-to-b from-white to-neutral-50 text-neutral-600 hover:border-emerald-300 hover:text-emerald-800")
       }
     >
-      <span className="inline-flex items-center gap-2">
-        <span className={"h-2 w-2 rounded-sm " + accentClassName} aria-hidden />
-        <span>{label}</span>
-      </span>
+      <span className="relative z-10">{label}</span>
+      <span className={`absolute inset-x-2 bottom-0 h-0.5 transition ${active ? "bg-emerald-300" : "bg-transparent group-hover:bg-emerald-300"}`} aria-hidden />
 
     </button>
   );

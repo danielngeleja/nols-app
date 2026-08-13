@@ -5,6 +5,7 @@ import { router as ownerEmail } from "./owner.email.verify";
 import ownerGroupStaysClaimsRouter from "./owner.groupStays.claims";
 import ownerGroupStaysRouter from "./owner.groupStays";
 import ownerInvoicesRouter from "./owner.invoices";
+import ownerPayoutsRouter from "./owner.payouts.js";
 import ownerNotificationsRouter from "./owner.notifications";
 import { router as ownerPhone } from "./owner.phone.verify";
 import { router as ownerProperties } from "./owner.properties";
@@ -12,6 +13,21 @@ import { router as ownerPropLayout } from "./owner.properties.layout";
 import { router as ownerReports } from "./owner.reports";
 import { router as ownerRevenue } from "./owner.revenue";
 import ownerAvailabilityRouter from "./owner.availability";
+import ownerNrmsRouter from "./owner.nrms";
+import ownerNrmsRoomsRouter from "./owner.nrms.rooms";
+import ownerNrmsCalendarRouter from "./owner.nrms.calendar";
+import ownerNrmsReservationsRouter from "./owner.nrms.reservations";
+import ownerNrmsGroupBlocksRouter from "./owner.nrms.groupBlocks";
+import ownerNrmsRoomingListRouter from "./owner.nrms.roomingList";
+import ownerNrmsGuestsRouter from "./owner.nrms.guests";
+import ownerNrmsSmsRouter from "./owner.nrms.sms";
+import ownerNrmsBillingRouter from "./owner.nrms.billing";
+import ownerNrmsReportsRouter from "./owner.nrms.reports";
+import ownerNrmsFinanceRouter from "./owner.nrms.finance";
+import ownerNrmsChannelsRouter from "./owner.nrms.channels";
+import ownerNrmsMarketReadinessRouter from "./owner.nrms.market-readiness";
+import nrmsPaymentsRouter from "./nrms.payments";
+import nrmsOperationsRouter from "./nrms.operations";
 
 export function registerOwnerPropertyRoutes(app: Express): void {
   app.use("/owner/properties", ownerProperties);
@@ -25,9 +41,26 @@ export function registerOwnerReportsRoute(app: Express): void {
 }
 
 export function registerOwnerBusinessRoutes(app: Express): void {
+  app.use("/api/nrms/payments", nrmsPaymentsRouter as RequestHandler);
+  app.use("/api/nrms/operations", nrmsOperationsRouter as RequestHandler);
   app.use("/api/owner/revenue", requireRole("OWNER") as RequestHandler, ownerRevenue);
   app.use("/api/owner/notifications", requireRole("OWNER") as RequestHandler, ownerNotificationsRouter as RequestHandler);
   app.use("/api/owner/availability", ownerAvailabilityRouter as RequestHandler);
+  // NRMS (doc section 12): rooms router mounted first so /nrms/rooms/* never
+  // falls through to the enrollment router's parameterized routes.
+  app.use("/api/owner/nrms/rooms", ownerNrmsRoomsRouter as RequestHandler);
+  app.use("/api/owner/nrms/calendar", ownerNrmsCalendarRouter as RequestHandler);
+  app.use("/api/owner/nrms/reservations", ownerNrmsReservationsRouter as RequestHandler);
+  app.use("/api/owner/nrms/group-blocks", ownerNrmsGroupBlocksRouter as RequestHandler);
+  app.use("/api/owner/nrms/rooming-lists", ownerNrmsRoomingListRouter as RequestHandler);
+  app.use("/api/owner/nrms/guests", ownerNrmsGuestsRouter as RequestHandler);
+  app.use("/api/owner/nrms/sms", ownerNrmsSmsRouter as RequestHandler);
+  app.use("/api/owner/nrms/billing", ownerNrmsBillingRouter as RequestHandler);
+  app.use("/api/owner/nrms/reports", ownerNrmsReportsRouter as RequestHandler);
+  app.use("/api/owner/nrms/finance", ownerNrmsFinanceRouter as RequestHandler);
+  app.use("/api/owner/nrms/channels", ownerNrmsChannelsRouter as RequestHandler);
+  app.use("/api/owner/nrms/market-readiness", ownerNrmsMarketReadinessRouter as RequestHandler);
+  app.use("/api/owner/nrms", ownerNrmsRouter as RequestHandler);
 }
 
 export function registerOwnerContactRoutes(app: Express): void {
@@ -40,6 +73,8 @@ export function registerOwnerBookingRoutes(app: Express): void {
   app.use("/api/owner/bookings", ownerBookingsRouter);
   app.use("/owner/invoices", ownerInvoicesRouter as RequestHandler);
   app.use("/api/owner/invoices", ownerInvoicesRouter as RequestHandler);
+  app.use("/owner/payouts", ownerPayoutsRouter as RequestHandler);
+  app.use("/api/owner/payouts", ownerPayoutsRouter as RequestHandler);
   app.use("/owner/group-stays", ownerGroupStaysRouter as RequestHandler);
   app.use("/api/owner/group-stays", ownerGroupStaysRouter as RequestHandler);
   app.use("/owner/group-stays/claims", ownerGroupStaysClaimsRouter as RequestHandler);

@@ -1,4 +1,22 @@
-# Deployment (Vercel + Render + AWS RDS)
+# Deployment (Vercel + AWS Elastic Beanstalk + AWS RDS)
+
+For production-stability gates, immutable migration rules, physical schema
+verification, Redis/worker topology, and the AWS release sequence, follow
+[`docs/PRODUCTION_STABILITY_RUNBOOK.md`](docs/PRODUCTION_STABILITY_RUNBOOK.md).
+
+## Release policy
+
+- `staging` is the single integration and QA source of truth.
+- All functional testing, authenticated workflow testing, migration rehearsal,
+  schema-drift investigation, destructive-case testing, and release acceptance
+  must happen on staging or an explicitly disposable/restored snapshot clone.
+- `main` contains only changes approved after staging QA.
+- AWS Elastic Beanstalk and production RDS are deployment targets, not test
+  environments. Production verification is limited to health, readiness,
+  observability, and narrowly scoped read-only canary checks defined by the
+  authoritative production runbook.
+- Never point a test runner, seed script, load test, migration experiment, or
+  generated test data at AWS production.
 
 This repo is a Node.js monorepo (workspaces) with:
 - **Web**: `apps/web` (Next.js)
@@ -8,7 +26,8 @@ This repo is a Node.js monorepo (workspaces) with:
 ## Target architecture
 
 - **Frontend**: Vercel (best for Next.js)
-- **Backend**: Render (Docker, supports Socket.IO)
+- **Production backend**: AWS Elastic Beanstalk (supports Socket.IO)
+- **Legacy or staging backend**: Render, when explicitly configured
 - **Database**: AWS RDS (MySQL 8+)
 
 ## CI/CD flow (recommended)
@@ -21,12 +40,13 @@ This repo already has CI in `.github/workflows/ci.yml`:
 - (optional) docker build on `main`
 
 Recommended branch protection:
-- Require CI checks to pass before merging to `main` / `develop`
+- Require CI checks to pass before updating `staging`.
+- Require staging QA approval and passing CI before merging `staging` to `main`.
 
 ### CD (Vercel + Render GitHub integrations)
 Use provider GitHub integrations instead of custom deploy jobs:
 - **PRs**: run CI, and rely on Vercel Preview Deployments
-- **develop**: deploy to **staging** (Render staging service + Vercel preview or a dedicated staging project/domain)
+- **staging**: deploy to **staging** (Render staging service + a dedicated Vercel staging project/domain)
 - **main**: deploy to **production**
 
 Why this is simpler:
@@ -36,10 +56,10 @@ Why this is simpler:
 
 ## Environment variables
 
-### API (Render) required
+### API environment variables
 At minimum:
 - `NODE_ENV=production`
-- `DATABASE_URL=...` (RDS connection string)
+- `DATABASE_URL=...` (environment-specific database connection string)
 - `JWT_SECRET=...` (JWT signing key)
 - `ENCRYPTION_KEY=...` (32-byte key for AES-256-GCM; base64 recommended)
 - `WEB_ORIGIN=https://<your web domain>`
@@ -57,6 +77,9 @@ Common optional:
 
 If you run a separate staging frontend/domain, add it too:
 - `CORS_ORIGIN=https://prod.example.com,https://staging.example.com`
+
+The staging API must use an isolated staging database such as Aiven or
+PlanetScale staging. It must never use the AWS production RDS connection string.
 
 Notes:
 - Socket.IO origin checks are in `apps/api/src/index.ts` and use `WEB_ORIGIN`, `APP_ORIGIN`, and `CORS_ORIGIN`.
@@ -87,6 +110,35 @@ From repo root `nolsaf/`:
 Recommended operational pattern on Render:
 - Run `npm run prisma:migrate` as a **pre-deploy / release step** (preferred)
 - Or run it manually before switching traffic
+
+Migration directory names are immutable once applied to a shared environment.
+Never rename, reorder, or delete an applied migration. Add a new forward-only
+migration instead. For the existing Aiven staging database, use
+`npm run prisma:migrate:staging`; it safely reconciles the repository's known
+legacy aliases before running the standard deploy command.
+
+### AWS Elastic Beanstalk production runbook
+
+[`API_DEPLOYMENT_GUIDE.md`](API_DEPLOYMENT_GUIDE.md) is the authoritative,
+copy-ready AWS production runbook. It covers:
+
+- staging QA and promotion to `main`;
+- RDS snapshot creation and verification;
+- Elastic Beanstalk bundle validation and deployment;
+- production-safe Prisma migrations over EB SSH;
+- post-deployment health checks;
+- failed-migration recovery and snapshot-clone testing;
+- application rollback and troubleshooting.
+
+For a normal API release, never use raw `eb deploy`. The required entry point is:
+
+```powershell
+cd D:\nolsapp2.1\nolsaf\apps\api
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-eb.ps1
+```
+
+Create and verify the RDS snapshot before running the Prisma migration section
+of the authoritative runbook.
 
 ## Render setup (API)
 
@@ -120,11 +172,15 @@ If Vercel shows: "No Next.js version detected", it almost always means the **Roo
 ## Staging vs production
 
 - **Production**: `main` branch
-- **Staging**: `develop` branch
+- **Staging**: `staging` branch
 
 Recommended:
-- Two Render services: `api-prod` (main) + `api-staging` (develop)
-- Vercel: production on `main`; staging on a separate project/domain or use Preview deployments for `develop`
+- Separate services: AWS EB production from `main`, and Render staging from
+  `staging`.
+- Vercel: production on `main`; dedicated staging project/domain from `staging`.
+- Staging uses an isolated non-production database and non-production secrets.
+- Promotion is one-way: feature branch → `staging` → QA approval → `main` →
+  production deployment.
 
 ## Rollbacks
 

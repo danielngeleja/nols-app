@@ -201,8 +201,10 @@ export default function PasskeysManager({
       }
 
       if (publicKey.user && publicKey.user.id != null && typeof publicKey.user.id === "string") {
-        const decoded = base64urlToUint8(publicKey.user.id)
-        publicKey.user.id = decoded ?? utf8ToUint8(publicKey.user.id)
+        // SimpleWebAuthn v8 returns userID verbatim. The browser expects bytes,
+        // so encode the opaque identifier as UTF-8 instead of attempting a
+        // Base64URL decode that succeeds or fails depending on the ID length.
+        publicKey.user.id = utf8ToUint8(publicKey.user.id)
       }
 
       if (Array.isArray(publicKey.excludeCredentials)) {

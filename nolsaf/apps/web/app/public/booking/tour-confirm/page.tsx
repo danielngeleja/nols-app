@@ -108,6 +108,7 @@ export default function TourConfirmPage() {
   const [nationality, setNationality] = useState("");
   const [departureAirportId, setDepartureAirportId] = useState("");
   const [wantsHotelLodgeViaNolsaf, setWantsHotelLodgeViaNolsaf] = useState(false);
+  const [cancellationPolicyAccepted, setCancellationPolicyAccepted] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -182,6 +183,7 @@ export default function TourConfirmPage() {
       return;
     }
     if (!nationality.trim()) { setFormError("Please enter your nationality."); return; }
+    if (!cancellationPolicyAccepted) { setFormError("Please review and accept the Tour Package Cancellation and Refund Policy."); return; }
     const minPax = Math.max(1, Number(pkg?.minPax) || 1);
     const maxPax = Math.max(minPax, Number(pkg?.maxPax) || minPax);
     if (travelers < minPax || travelers > maxPax) {
@@ -206,6 +208,7 @@ export default function TourConfirmPage() {
           guestEmail: guestEmail.trim(),
           nationality: nationality.trim(),
           notes: "",
+          cancellationPolicyAccepted: true,
           metadata: {
             departureAirport: departureAirport
               ? {
@@ -635,9 +638,13 @@ export default function TourConfirmPage() {
           )}
 
           {/* Submit button */}
+          <label className="flex items-start gap-3 rounded-2xl border border-teal-200 bg-teal-50/70 p-4 text-sm text-slate-700">
+            <input type="checkbox" checked={cancellationPolicyAccepted} onChange={(e) => setCancellationPolicyAccepted(e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-700" />
+            <span>I have reviewed and accept the <Link href="/cancellation-policy" target="_blank" className="font-bold text-teal-800 underline">Tour Package Cancellation and Refund Policy</Link>, including the 24-hour cooling-off rule, partial-refund window, non-refundable components and tour-commencement conditions.</span>
+          </label>
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || !cancellationPolicyAccepted}
             className="w-full py-4 rounded-2xl text-white font-bold text-base disabled:opacity-60 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 shadow-lg shadow-[#02665e]/25"
             style={{
               background: submitting

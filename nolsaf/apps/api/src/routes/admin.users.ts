@@ -1,15 +1,16 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '@nolsaf/prisma';
-import { Prisma } from '@prisma/client';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireRole, blockImpersonated } from '../middleware/auth.js';
+import { hasFinanceGrant, hasNrmsFinanceRole } from '../middleware/financeGrant.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { audit } from '../lib/audit.js';
 import { sendMail } from '../lib/mailer.js';
 import { sendSms } from '../lib/sms.js';
 import { getAdminRevocationEmail, getAdminRevocationSms } from '../lib/adminEmailTemplates.js';
+import { revokeUserAuthorization } from '../lib/authorizationInvalidation.js';
 
 export const router = Router();
-router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler);
+router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
 
 function sendJsonSafe(res: any, payload: unknown, status = 200) {
   try {
@@ -145,6 +146,7 @@ router.get('/', async (req, res) => {
           email: true,
           phone: true,
           role: true,
+          nrmsFinanceRole: true,
           createdAt: true,
           emailVerifiedAt: true,
           phoneVerifiedAt: true,
@@ -636,6 +638,8 @@ router.post('/:id/suspend', async (req, res) => {
       });
     }
 
+    await revokeUserAuthorization(id);
+
     res.json({ ok: true, user });
   } catch (err) {
     console.error('POST /admin/users/:id/suspend error:', err);
@@ -755,6 +759,8 @@ router.post(
       select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
     });
 
+    await revokeUserAuthorization(id);
+
     try {
       await audit(req, 'ADMIN_USER_PROMOTED_TO_ADMIN', `user:${id}`, before, { role: updated.role });
     } catch {
@@ -813,6 +819,8 @@ router.post(
       select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
     });
 
+    await revokeUserAuthorization(id);
+
     // Create audit log
     try {
       await audit(req, 'ADMIN_USER_DEMOTED_FROM_ADMIN', `user:${id}`, before, { 
@@ -866,13 +874,26 @@ router.patch('/:id', async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: 'invalid id' });
 
-    const { role, reset2FA, disable } = req.body as any;
+    const { role, reset2FA, disable, nrmsFinanceRole } = req.body as any;
     const me = (req.user as any)?.id;
 
     const update: any = {};
     // Role changes are not permitted via this endpoint.
     if (typeof role !== 'undefined') {
       return res.status(403).json({ error: 'role changes are not permitted' });
+    }
+
+    if (typeof nrmsFinanceRole !== 'undefined') {
+      if (!['NONE', 'OPERATOR', 'APPROVER'].includes(String(nrmsFinanceRole).toUpperCase())) {
+        return res.status(400).json({ error: 'invalid NRMS finance role' });
+      }
+      if (!hasNrmsFinanceRole(req as any, 'APPROVER')) {
+        return res.status(403).json({ error: 'Only an NRMS finance approver can assign finance permissions' });
+      }
+      if (!(await hasFinanceGrant(req))) {
+        return res.status(403).json({ error: 'OTP required', require2fa: true });
+      }
+      update.nrmsFinanceRole = String(nrmsFinanceRole).toUpperCase();
     }
 
     if (reset2FA === true) {
@@ -898,12 +919,15 @@ router.patch('/:id', async (req, res) => {
     if (typeof disable === 'boolean') {
       auditEvents.push({ action: disable ? 'DISABLE_USER' : 'ENABLE_USER', details: { disable } });
     }
+    if (typeof nrmsFinanceRole !== 'undefined') {
+      auditEvents.push({ action: 'NRMS_FINANCE_ROLE_CHANGE', details: { nrmsFinanceRole: update.nrmsFinanceRole } });
+    }
 
     const ops: any[] = [
       prisma.user.update({
         where: { id },
         data: update,
-        select: { id: true, name: true, email: true, phone: true, role: true, twoFactorEnabled: true, isDisabled: true } as any,
+        select: { id: true, name: true, email: true, phone: true, role: true, nrmsFinanceRole: true, twoFactorEnabled: true, isDisabled: true } as any,
       }),
     ];
 
@@ -924,13 +948,18 @@ router.patch('/:id', async (req, res) => {
 
     const result = await prisma.$transaction(ops);
     const user = result[0] as any;
+    if (disable === true || reset2FA === true || typeof nrmsFinanceRole !== 'undefined') {
+      await revokeUserAuthorization(id);
+    }
     res.json({ data: user });
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      // P2022: Column does not exist in the current database.
-      if (err.code === 'P2022') {
-        return res.status(400).json({ error: 'disable not supported - add isDisabled column via migration' });
-      }
+    const errorCode =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String(err.code)
+        : '';
+    // P2022: Column does not exist in the current database.
+    if (errorCode === 'P2022') {
+      return res.status(400).json({ error: 'disable not supported - add isDisabled column via migration' });
     }
     console.error('PATCH /admin/users/:id error:', err);
     res.status(500).json({ error: 'failed' });

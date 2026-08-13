@@ -4,10 +4,11 @@ import { prisma } from "@nolsaf/prisma";
 import { toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
 import { Prisma } from "@prisma/client";
 import QRCode from "qrcode";
-import { withCache, cacheKeys, cacheTags, measureTime } from "../lib/performance.js";
+import { withCache, cacheKeys, cacheTags, measureTime, publicCacheKey } from "../lib/performance.js";
 import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
+import { buildMenuUrl } from "../lib/nrmsOrderPoints.js";
 
 const router = Router();
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
@@ -572,7 +573,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   FROM \`property\` p
                   LEFT JOIN (
                     SELECT entityId, MAX(createdAt) AS approvedAt
-                    FROM \`auditlog\`
+                    FROM \`auditlog\` FORCE INDEX (\`idx_AuditLog_entity_entityId_id\`)
                     WHERE entity = 'PROPERTY'
                       AND action IN ('PROPERTY_APPROVE', 'PROPERTY_UNSUSPEND')
                     GROUP BY entityId
@@ -905,6 +906,8 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               services: true,
               roomsSpec: true,
               ownerId: true, // Include ownerId to check ownership on frontend
+              nrmsActivatedAt: true,
+              nrmsMenuPublic: true,
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.
@@ -969,8 +972,20 @@ const getPublicProperty: RequestHandler = async (req, res) => {
             });
           }
 
+          // A guest browsing before booking never needs a room/table QR to
+          // see the menu: the read-only PREVIEW order point stands in for one.
+          let nrmsMenuUrl: string | null = null;
+          if (p.nrmsActivatedAt && p.nrmsMenuPublic) {
+            const previewPoint = await prisma.nrmsOrderPoint.findFirst({
+              where: { propertyId: id, type: "PREVIEW", active: true },
+              select: { token: true },
+            });
+            if (previewPoint) nrmsMenuUrl = buildMenuUrl(previewPoint.token);
+          }
+
           const dto = toPublicDetail({
             ...p,
+            nrmsMenuUrl,
             photos: legacyPhotos,
             physicalVerification: {
               status: "VERIFIED",
@@ -1021,7 +1036,7 @@ const homeSummary: RequestHandler = async (_req, res) => {
   try {
     const { result, duration } = await measureTime("public.properties.homeSummary", async () => {
       return await withCache(
-        "properties:home-summary:v2",
+        publicCacheKey("properties-home-summary", { version: 2 }),
         async () => {
           const aliasesByKey = new Map<string, Set<string>>();
           const allTypeAliases = new Set<string>();
@@ -1097,7 +1112,7 @@ const homeSummary: RequestHandler = async (_req, res) => {
                   FROM \`property\` p
                   LEFT JOIN (
                     SELECT entityId, MAX(createdAt) AS approvedAt
-                    FROM \`auditlog\`
+                    FROM \`auditlog\` FORCE INDEX (\`idx_AuditLog_entity_entityId_id\`)
                     WHERE entity = 'PROPERTY'
                       AND action IN ('PROPERTY_APPROVE', 'PROPERTY_UNSUSPEND')
                     GROUP BY entityId
@@ -1434,13 +1449,21 @@ router.get("/availability", (async (req, res) => {
     ids.map(async (id) => {
       try {
         const result = await calculateAvailability(id, startDate, endDate, null, roomType);
+        // Sellable, not physically free: an owner who closed these dates in
+        // NRMS must read as unavailable here, or a guest is walked all the way
+        // to payment before anything objects.
+        const closed = result.restrictions[0] ?? null;
         return {
           id,
-          roomsAvailable: result.summary.totalAvailableRooms,
+          roomsAvailable: result.summary.totalSellableRooms,
           totalRooms: result.summary.totalRooms,
+          // Kept separate so the owner-facing calendar can still see real capacity behind a closure.
+          roomsPhysicallyFree: result.summary.totalAvailableRooms,
+          closed: !!closed,
+          closedReason: closed ? closed.message : null,
         };
       } catch {
-        return { id, roomsAvailable: null, totalRooms: null };
+        return { id, roomsAvailable: null, totalRooms: null, roomsPhysicallyFree: null, closed: false, closedReason: null };
       }
     })
   );

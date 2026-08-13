@@ -2,74 +2,107 @@ import crypto from "crypto";
 import { getRedis } from "../lib/redis.js";
 
 /**
- * Distributed "leader" lease for background workers.
+ * Distributed worker-leader lease.
  *
- * Why this exists:
- *   The background workers (transport auto-dispatch, stale-booking expiry,
- *   licence reminders) MUST run on exactly one process. There is no other
- *   coordination, so if two app instances both started the timers they would
- *   double-process the same jobs (e.g. send a driver two offers, delete a
- *   booking twice). This lease guarantees only ONE process runs them, no
- *   matter how many instances exist — so it survives auto-scaling, rolling
- *   deploys, and accidental duplicate environments without any AWS config.
- *
- * How it works:
- *   - Acquire with `SET key id NX EX 60` (only succeeds if nobody holds it).
- *   - A heartbeat renews the lease every 25s so the holder keeps leadership.
- *   - If the holder dies, the lease expires (≤60s) and another process can
- *     take over on its next start.
- *
- * Redis-unavailable policy (FAIL-OPEN):
- *   If Redis cannot be reached we cannot coordinate, so we ALLOW this process
- *   to run the workers. On a single-instance deployment this is exactly right
- *   (there is no second process to clash with). On a future multi-instance
- *   deployment, a sustained Redis outage is the only window where duplicates
- *   could briefly occur — an acceptable, documented trade-off versus the
- *   alternative of silently stopping dispatch/expiry during an outage.
+ * Acquisition, renewal, and release are ownership-checked in Redis. Production
+ * fails closed when coordination is unavailable. A known single-instance
+ * deployment can explicitly allow uncoordinated workers by setting both
+ * WORKER_SINGLE_INSTANCE=true and ALLOW_UNCOORDINATED_WORKERS=true.
  */
-
 const LOCK_KEY = "nolsaf:workers:leader";
 const LEASE_TTL_SECONDS = 60;
 const RENEW_INTERVAL_MS = 25_000;
+const LEASE_SAFETY_MARGIN_MS = 5_000;
 
-// Unique per process so we can verify we still own the lease before renewing.
+const RENEW_SCRIPT = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("EXPIRE", KEYS[1], ARGV[2])
+end
+return 0`;
+
+const RELEASE_SCRIPT = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0`;
+
 const instanceId = `${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
 
 let renewTimer: NodeJS.Timeout | null = null;
+let leaseDeadlineTimer: NodeJS.Timeout | null = null;
 let holdsLease = false;
+let leadershipLostHandler: ((reason: string) => void) | null = null;
 
-/**
- * Try to become the worker leader. Returns true if this process should run
- * the background workers.
- */
+function envEnabled(name: string): boolean {
+  return ["1", "true", "yes", "on"].includes(
+    String(process.env[name] || "").trim().toLowerCase(),
+  );
+}
+
+function uncoordinatedSingleInstanceAllowed(): boolean {
+  return envEnabled("WORKER_SINGLE_INSTANCE") && envEnabled("ALLOW_UNCOORDINATED_WORKERS");
+}
+
+export function setLeadershipLostHandler(handler: (reason: string) => void): void {
+  leadershipLostHandler = handler;
+}
+
+export function hasLeaderLease(): boolean {
+  return holdsLease;
+}
+
 export async function acquireLeaderLock(): Promise<boolean> {
   const redis = getRedis();
-
   if (!redis) {
-    console.warn(
-      "[workers] Redis unavailable — running workers without a distributed lock (safe on a single instance)."
-    );
-    holdsLease = true; // fail-open
-    return true;
+    if (uncoordinatedSingleInstanceAllowed()) {
+      console.warn("[workers] Running without Redis under the explicit single-instance override.");
+      holdsLease = true;
+      return true;
+    }
+    console.error("[workers] Redis unavailable; workers are disabled because leadership cannot be proven.");
+    return false;
   }
 
   try {
-    const res = await redis.set(LOCK_KEY, instanceId, "EX", LEASE_TTL_SECONDS, "NX");
-    if (res !== "OK") {
-      // Someone else already holds the lease.
-      return false;
-    }
+    const result = await redis.set(LOCK_KEY, instanceId, "EX", LEASE_TTL_SECONDS, "NX");
+    if (result !== "OK") return false;
+
     holdsLease = true;
+    armLeaseDeadline();
     startRenewal();
     return true;
-  } catch (err: any) {
-    console.warn(
-      "[workers] Could not reach Redis to acquire the worker lease — running without a lock (single-instance safe):",
-      err?.message || err
+  } catch (error: any) {
+    if (uncoordinatedSingleInstanceAllowed()) {
+      console.warn(
+        "[workers] Redis lease unavailable; using the explicit single-instance override:",
+        error?.message || error,
+      );
+      holdsLease = true;
+      return true;
+    }
+    console.error(
+      "[workers] Could not acquire the Redis worker lease; workers remain disabled:",
+      error?.message || error,
     );
-    holdsLease = true; // fail-open
-    return true;
+    return false;
   }
+}
+
+function armLeaseDeadline(): void {
+  if (leaseDeadlineTimer) clearTimeout(leaseDeadlineTimer);
+  leaseDeadlineTimer = setTimeout(
+    () => loseLeadership("The Redis lease could not be renewed before its safety deadline."),
+    LEASE_TTL_SECONDS * 1000 - LEASE_SAFETY_MARGIN_MS,
+  );
+  leaseDeadlineTimer.unref?.();
+}
+
+function loseLeadership(reason: string): void {
+  if (!holdsLease) return;
+  holdsLease = false;
+  stopRenewal();
+  console.error(`[workers] Leadership lost. ${reason}`);
+  leadershipLostHandler?.(reason);
 }
 
 function startRenewal(): void {
@@ -77,36 +110,24 @@ function startRenewal(): void {
 
   renewTimer = setInterval(async () => {
     const redis = getRedis();
-    if (!redis) return; // transient; keep the lease we already hold
+    if (!redis) return; // the independent deadline fails closed
+
     try {
-      const current = await redis.get(LOCK_KEY);
-      if (current === instanceId) {
-        // Still the leader — extend the lease.
-        await redis.set(LOCK_KEY, instanceId, "EX", LEASE_TTL_SECONDS);
-      } else if (current && current !== instanceId) {
-        // Another process owns the lease now (only possible if we stalled long
-        // enough for ours to expire). Stop renewing; we are no longer leader.
-        // We intentionally do NOT tear down in-flight timers here to avoid
-        // disrupting work mid-flight; the next restart re-evaluates leadership.
-        console.warn(
-          "[workers] Worker lease was taken over by another process; this process is no longer the leader."
-        );
-        holdsLease = false;
-        stopRenewal();
+      const renewed = Number(
+        await redis.eval(RENEW_SCRIPT, 1, LOCK_KEY, instanceId, String(LEASE_TTL_SECONDS)),
+      );
+      if (renewed === 1) {
+        armLeaseDeadline();
       } else {
-        // Lease expired with no owner — reclaim it.
-        const reclaimed = await redis.set(LOCK_KEY, instanceId, "EX", LEASE_TTL_SECONDS, "NX");
-        if (reclaimed !== "OK") {
-          holdsLease = false;
-          stopRenewal();
-        }
+        loseLeadership("Another process owns the lease or the lease expired.");
       }
-    } catch {
-      // Transient Redis error — keep the lease we already hold and retry next tick.
+    } catch (error: any) {
+      // A brief outage can recover at the next heartbeat. The deadline stops
+      // this process before its last known lease can be acquired elsewhere.
+      console.warn("[workers] Worker lease renewal failed:", error?.message || error);
     }
   }, RENEW_INTERVAL_MS);
 
-  // Don't keep the event loop alive solely for the heartbeat.
   renewTimer.unref?.();
 }
 
@@ -115,24 +136,23 @@ function stopRenewal(): void {
     clearInterval(renewTimer);
     renewTimer = null;
   }
+  if (leaseDeadlineTimer) {
+    clearTimeout(leaseDeadlineTimer);
+    leaseDeadlineTimer = null;
+  }
 }
 
-/**
- * Best-effort release on graceful shutdown so a redeploy can hand leadership
- * over immediately instead of waiting for the TTL to lapse.
- */
+/** Best-effort ownership-checked release during graceful shutdown. */
 export async function releaseLeaderLock(): Promise<void> {
   stopRenewal();
   if (!holdsLease) return;
   holdsLease = false;
+
   const redis = getRedis();
   if (!redis) return;
   try {
-    const current = await redis.get(LOCK_KEY);
-    if (current === instanceId) {
-      await redis.del(LOCK_KEY);
-    }
+    await redis.eval(RELEASE_SCRIPT, 1, LOCK_KEY, instanceId);
   } catch {
-    // Ignore — the lease will expire on its own.
+    // The lease expires without an unsafe delete of another owner's lock.
   }
 }

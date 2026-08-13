@@ -9,6 +9,7 @@ import { signPublicInvoiceAccessToken, verifyPublicInvoiceAccessToken } from "..
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
+import { confirmNoLsafBooking, NoLsafInventoryConflictError } from "../lib/nolsafMarketplaceNrms.js";
 
 async function getEffectiveCommissionPercent(params: {
   propertyServices: unknown;
@@ -295,6 +296,35 @@ function verifyBookingAccessToken(token: string, bookingId: number): boolean {
   }
 }
 
+type InvoiceAccessActor = {
+  id?: number;
+  role?: string;
+} | null | undefined;
+
+type InvoiceAccessBooking = {
+  userId?: number | null;
+  property?: { ownerId?: number | null } | null;
+};
+
+/**
+ * A public booking-link token is a bearer capability for guest checkout. An
+ * authenticated caller without that capability must still be the booking
+ * customer, the property's owner, or an administrator.
+ */
+export function canAccessBookingInvoice(
+  actor: InvoiceAccessActor,
+  booking: InvoiceAccessBooking,
+  hasValidBookingAccessToken: boolean,
+): boolean {
+  if (hasValidBookingAccessToken) return true;
+  if (!actor?.id) return false;
+
+  const role = String(actor.role || "").toUpperCase();
+  if (role === "ADMIN") return true;
+  if (booking.userId != null && Number(booking.userId) === Number(actor.id)) return true;
+  return role === "OWNER" && Number(booking.property?.ownerId) === Number(actor.id);
+}
+
 /**
  * POST /api/public/invoices/from-booking
  * Create invoice from booking (public endpoint, no authentication required)
@@ -319,9 +349,11 @@ router.post("/from-booking", publicInvoiceLimiter, async (req: Request, res: Res
     const { bookingId, bookingAccessToken } = validationResult.data;
 
     // Verify proof-of-creation token — blocks unauthenticated enumeration of sequential bookingIds.
-    // Authenticated users (req.user) are exempt so admin/owner tools still work.
-    const isAuthenticated = !!(req as any).user;
-    if (!isAuthenticated && !verifyBookingAccessToken(bookingAccessToken, bookingId)) {
+    // Authentication alone is not enough; ownership is checked after loading
+    // the booking, while a valid booking link remains usable for guest checkout.
+    const actor = (req as any).user as InvoiceAccessActor;
+    const hasValidBookingAccessToken = verifyBookingAccessToken(bookingAccessToken, bookingId);
+    if (!actor?.id && !hasValidBookingAccessToken) {
       return res.status(403).json({ error: "Invalid or expired booking access token" });
     }
 
@@ -354,7 +386,14 @@ router.post("/from-booking", publicInvoiceLimiter, async (req: Request, res: Res
     });
 
     if (!booking) {
+      if (!hasValidBookingAccessToken && String(actor?.role || "").toUpperCase() !== "ADMIN") {
+        return res.status(403).json({ error: "Invoice access is required" });
+      }
       return res.status(404).json({ error: "Booking not found" });
+    }
+
+    if (!canAccessBookingInvoice(actor, booking, hasValidBookingAccessToken)) {
+      return res.status(403).json({ error: "Invoice access is required" });
     }
 
     if (booking.property.status !== "APPROVED") {
@@ -649,10 +688,19 @@ router.get("/:id", publicInvoiceReadLimiter, async (req: Request, res: Response)
     let bookingCode = invoice.booking.code?.code || null;
     if (invoice.status === "PAID" && !bookingCode && invoice.booking.status !== "CANCELED") {
       if (invoice.booking.status === "NEW") {
-        await prisma.booking.update({
-          where: { id: invoice.booking.id },
-          data: { status: "CONFIRMED" },
-        });
+        try {
+          await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, invoice.booking.id));
+        } catch (error) {
+          if (error instanceof NoLsafInventoryConflictError) {
+            return res.status(409).json({
+              error: "room_unavailable_after_payment",
+              code: error.code,
+              message: "Payment was recorded, but this room can no longer be confirmed automatically. NoLSAF support must resolve the booking.",
+              availability: error.availability,
+            });
+          }
+          throw error;
+        }
       }
       const generated = await generateBookingCodeForBooking(invoice.booking.id);
       bookingCode = generated.code;

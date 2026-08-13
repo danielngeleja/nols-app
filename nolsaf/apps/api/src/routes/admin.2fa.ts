@@ -6,6 +6,11 @@ import { requireAuth, requireRole, AuthedRequest } from "../middleware/auth.js";
 import { generate6, hashCode } from "../lib/otp.js";
 import { audit } from "../lib/audit.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
+import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
+import { sendSms } from "../lib/sms.js";
+import { setFinanceGrant } from "../lib/financeGrantStore.js";
+import { requireNrmsFinanceRole } from "../middleware/financeGrant.js";
+import { getFinanceOtpEmail } from "../lib/financeOtpEmail.js";
 
 // ============================================================
 // Constants
@@ -31,10 +36,6 @@ export type OtpPurpose = typeof OTP_PURPOSE[keyof typeof OTP_PURPOSE];
 // ============================================================
 // TypeScript Interfaces
 // ============================================================
-interface FinanceSession {
-  financeOkUntil: number;
-}
-
 interface OtpVerificationAttempt {
   count: number;
   lockedUntil: number | null;
@@ -212,22 +213,29 @@ function validate<T extends z.ZodTypeAny>(schema: T) {
 }
 
 // Notification fallback with proper typing
-async function notifyAdmin(adminId: number, event: string, data: { code: string; purpose: string; expiresAt: Date }): Promise<void> {
-  try {
-    const mod = await import("../lib/notifications.js");
-    if (typeof (mod as any).notifyAdmin === "function") {
-      await (mod as any).notifyAdmin(String(adminId), event, data);
-      return;
-    }
-    if (typeof (mod as any).default === "function") {
-      await (mod as any).default(String(adminId), event, data);
-      return;
-    }
-  } catch (e) {
-    // Ignore dynamic import failures
+async function deliverAdminOtp(adminUser: { email: string | null; phone: string | null }, code: string): Promise<{ provider: string }> {
+  const expiryMinutes = Math.ceil(OTP_EXPIRY_MS / 60_000);
+  if (adminUser.email) {
+    const email = getFinanceOtpEmail({ code, expiryMinutes });
+    await sendMail(
+      adminUser.email,
+      email.subject,
+      email.html,
+      undefined,
+      { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
+    );
+    return { provider: "email" };
   }
-  // Fallback: log warning
-  console.warn("[NOTIFICATION] notifyAdmin not available; fallback no-op", { adminId, event });
+  if (adminUser.phone) {
+    const result = await sendSms(adminUser.phone, `Your NoLSAF finance verification code is ${code}. It expires in ${expiryMinutes} minutes. Do not share it.`, { bypassEligibilityCheck: true });
+    if (!result.success) throw new Error(result.error || "SMS delivery failed");
+    return { provider: result.provider || "sms" };
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(`[OTP:DEV] No admin email or phone configured; finance code is ${code}`);
+    return { provider: "console" };
+  }
+  throw new Error("Admin has no email or phone configured for OTP delivery");
 }
 
 // ============================================================
@@ -235,11 +243,12 @@ async function notifyAdmin(adminId: number, event: string, data: { code: string;
 // ============================================================
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler);
+const requireFinanceOperator = requireNrmsFinanceRole("OPERATOR") as RequestHandler;
 
 // ============================================================
 // POST /admin/2fa/otp/send
 // ============================================================
-router.post("/otp/send", limitOtpSend, validate(sendOtpSchema), async (req: any, res) => {
+router.post("/otp/send", requireFinanceOperator, limitOtpSend, validate(sendOtpSchema), async (req: any, res) => {
   try {
     const { purpose } = req.validatedBody;
     const adminId = getAdminId(req as AuthedRequest);
@@ -297,9 +306,15 @@ router.post("/otp/send", limitOtpSend, validate(sendOtpSchema), async (req: any,
         },
       });
 
-      // Send notification (non-blocking, but within transaction for consistency)
-      await notifyAdmin(adminId, "otp_code", { code, purpose, expiresAt });
     });
+
+    let delivery: { provider: string };
+    try {
+      delivery = await deliverAdminOtp(adminUser ?? { email: null, phone: null }, code);
+    } catch (deliveryError: any) {
+      console.error("[OTP_SEND] Delivery failed:", deliveryError);
+      return sendError(res, 502, "Failed to deliver OTP. Please try again later.");
+    }
 
     // Audit log
     await audit(req as AuthedRequest, "ADMIN_OTP_SENT", `admin:${adminId}`, null, { purpose, expiresAt });
@@ -318,7 +333,7 @@ router.post("/otp/send", limitOtpSend, validate(sendOtpSchema), async (req: any,
       policyCompliant: true,
     });
 
-    sendSuccess(res, { expiresAt }, "OTP sent successfully");
+    sendSuccess(res, { expiresAt, provider: delivery.provider }, "OTP sent successfully");
   } catch (error: any) {
     console.error("[OTP_SEND] Error:", error);
     sendError(res, 500, "Failed to send OTP. Please try again later.");
@@ -328,7 +343,7 @@ router.post("/otp/send", limitOtpSend, validate(sendOtpSchema), async (req: any,
 // ============================================================
 // POST /admin/2fa/otp/verify
 // ============================================================
-router.post("/otp/verify", limitOtpVerify, validate(verifyOtpSchema), async (req: any, res) => {
+router.post("/otp/verify", requireFinanceOperator, limitOtpVerify, validate(verifyOtpSchema), async (req: any, res) => {
   try {
     const { code, purpose } = req.validatedBody;
     const adminId = getAdminId(req as AuthedRequest);
@@ -396,14 +411,13 @@ router.post("/otp/verify", limitOtpVerify, validate(verifyOtpSchema), async (req
     // Clear failed verification attempts on success
     clearVerificationAttempts(adminId, purpose);
 
-    // Set finance grant in session
-    const session = req.session as FinanceSession | undefined;
-    if (session) {
-      session.financeOkUntil = Date.now() + FINANCE_GRANT_DURATION_MS;
-    }
+    // Bind the grant to this authenticated JWT. The web/API stack is JWT-based
+    // and does not install express-session, so req.session is not reliable.
+    const financeOkUntil = Date.now() + FINANCE_GRANT_DURATION_MS;
+    await setFinanceGrant(req, financeOkUntil);
 
     // Audit log
-    await audit(req as AuthedRequest, "ADMIN_OTP_VERIFIED", `admin:${adminId}`, null, { purpose, grantedUntil: session?.financeOkUntil });
+    await audit(req as AuthedRequest, "ADMIN_OTP_VERIFIED", `admin:${adminId}`, null, { purpose, grantedUntil: financeOkUntil });
 
     try {
       const entity = otpEntityKey(destinationType as any, destination, codeHash);
@@ -422,7 +436,7 @@ router.post("/otp/verify", limitOtpVerify, validate(verifyOtpSchema), async (req
     }
 
     sendSuccess(res, {
-      until: session?.financeOkUntil,
+      until: financeOkUntil,
       message: "OTP verified successfully. Finance access granted.",
     });
   } catch (error: any) {

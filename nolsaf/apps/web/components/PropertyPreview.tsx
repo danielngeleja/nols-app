@@ -644,7 +644,7 @@ export default function PropertyPreview({
     }
     try {
       setSaving(true);
-      await api.post(`/api/admin/properties/${propertyId}/suspend`, { 
+      const response = await api.post(`/api/admin/properties/${propertyId}/suspend`, {
         reason: suspendReason.trim(),
         notifyOwner: notifyOwnerOnSuspend
       });
@@ -655,9 +655,9 @@ export default function PropertyPreview({
       setNotifyOwnerOnSuspend(true);
       onUpdated?.();
       setAdminNotice({
-        kind: "success",
+        kind: response.data?.emailDelivery?.sent === false ? "info" : "success",
         title: "Property suspended successfully",
-        body: "The property has been removed from public view.",
+        body: `The property has been removed from public view.${response.data?.referenceCode ? ` Reference: ${response.data.referenceCode}.` : ""} ${response.data?.emailDelivery?.sent === false ? "The email could not be delivered; the failure was recorded for follow-up." : "The owner notification email was sent."}`,
       });
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.message || "Failed to suspend property";
@@ -682,7 +682,7 @@ export default function PropertyPreview({
     }
     try {
       setSaving(true);
-      await api.post(`/api/admin/properties/${propertyId}/unsuspend`, { 
+      const response = await api.post(`/api/admin/properties/${propertyId}/unsuspend`, {
         reason: unsuspendReason.trim()
       });
       await loadProperty();
@@ -691,9 +691,9 @@ export default function PropertyPreview({
       setUnsuspendReason("");
       onUpdated?.();
       setAdminNotice({
-        kind: "success",
+        kind: response.data?.emailDelivery?.sent === false ? "info" : "success",
         title: "Property unsuspended successfully",
-        body: "The property is now visible to the public again.",
+        body: `The property is now visible to the public again.${response.data?.referenceCode ? ` Reference: ${response.data.referenceCode}.` : ""} ${response.data?.emailDelivery?.sent === false ? "The restoration email could not be delivered; the failure was recorded." : "The restoration email was sent."}`,
       });
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.message || "Failed to unsuspend property";

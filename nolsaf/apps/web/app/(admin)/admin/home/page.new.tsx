@@ -1,10 +1,11 @@
 ﻿"use client";
 
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   BarChart2,
   Briefcase,
   Building2,
@@ -40,6 +41,134 @@ type RevenueChartData = {
   labels: string[];
   datasets: [RevenueChartDataset, RevenueChartDataset];
 };
+
+const KPI_TONES = {
+  emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
+  sky: "border-sky-100 bg-sky-50 text-sky-700",
+  blue: "border-blue-100 bg-blue-50 text-blue-700",
+  amber: "border-amber-100 bg-amber-50 text-amber-700",
+  violet: "border-violet-100 bg-violet-50 text-violet-700",
+} as const;
+
+type Tone = keyof typeof KPI_TONES;
+
+/** Solid progress-bar fill per tone. Solid, not a gradient: a two-stop gradient
+ *  on a 6px bar reads as noise rather than as a value. */
+const TONE_BAR: Record<Tone, string> = {
+  emerald: "bg-emerald-600",
+  sky: "bg-sky-600",
+  blue: "bg-blue-600",
+  amber: "bg-amber-600",
+  violet: "bg-violet-600",
+};
+
+/**
+ * Operations summary tile. Number and label only: the sparklines, donut rings and
+ * share percentages this replaced encoded no real series, they were generated from
+ * a seed, so they implied trend information the dashboard does not actually have.
+ */
+function KpiCard({
+  label,
+  detail,
+  tone,
+  Icon,
+  value,
+  ready,
+}: {
+  label: string;
+  detail: string;
+  tone: keyof typeof KPI_TONES;
+  Icon: any;
+  value: string;
+  ready: boolean;
+}) {
+  return (
+    // border-solid is required on every bordered element: preflight is disabled
+    // and nothing sets border-style, so a bare `border` utility renders nothing.
+    <div className="group min-w-0 rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] transition duration-200 hover:border-neutral-300 hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="m-0 min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">{label}</p>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid ${KPI_TONES[tone]}`}>
+          <Icon className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+      </div>
+      {ready ? (
+        <p className="m-0 mt-3.5 truncate text-[2rem] font-bold leading-none tabular-nums tracking-tight text-neutral-950">{value}</p>
+      ) : (
+        <div className="mt-3.5 h-8 w-16 animate-pulse rounded-lg bg-neutral-100" />
+      )}
+      {ready ? (
+        <p className="mb-0 mt-2 truncate text-xs font-medium text-neutral-500">{detail}</p>
+      ) : (
+        <div className="mt-3 h-3 w-24 animate-pulse rounded bg-neutral-100" />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Performance highlight card. The right-hand visual each of these used to carry
+ * was not real: three were makeSpark() trend lines from a seed, and two were
+ * MiniMeter bars showing 1 - exp(-value / k), a saturation curve rendered under
+ * a "Performance %" label. Both are dropped in favour of the actual figures.
+ */
+function HighlightCard({
+  href,
+  label,
+  value,
+  meta,
+  icon: Icon,
+  tone,
+  primary,
+  secondary,
+  footnote,
+  className,
+}: {
+  href: string;
+  label: string;
+  value: string;
+  meta?: string;
+  icon: any;
+  tone: Tone;
+  primary: string;
+  secondary: string;
+  footnote: string;
+  className?: string;
+}) {
+  const isEmptyValue = !value || value.trim() === "" || value.trim() === "--";
+  return (
+    <Link
+      href={href}
+      className={`group flex h-full flex-col rounded-2xl border border-solid border-neutral-200 bg-white p-5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] transition duration-200 hover:border-neutral-300 hover:no-underline hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)] ${className ?? ""}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="m-0 min-w-0 text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">{label}</p>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid ${KPI_TONES[tone]}`}>
+          <Icon className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+      </div>
+
+      <p
+        className={`mb-0 mt-2 truncate text-lg font-bold leading-tight tracking-tight ${
+          isEmptyValue ? "font-medium text-neutral-400" : "text-neutral-950"
+        }`}
+      >
+        {isEmptyValue ? "No data yet" : value}
+      </p>
+      {meta ? <p className="mb-0 mt-1 truncate text-xs font-medium text-neutral-500">{meta}</p> : null}
+
+      {/* mt-auto pins the figures to the card floor, so a label that wraps to two
+          lines cannot make this card taller than its neighbours. */}
+      <div className="mt-auto border-0 border-t border-solid border-neutral-100 pt-4">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="text-2xl font-bold leading-none tabular-nums text-neutral-950">{primary}</span>
+          <span className="min-w-0 text-xs font-medium text-neutral-500">{secondary}</span>
+        </div>
+        <p className="mb-0 mt-2 text-xs text-neutral-400">{footnote}</p>
+      </div>
+    </Link>
+  );
+}
 
 function MiniSparkline({
   values,
@@ -81,174 +210,6 @@ function MiniSparkline({
   );
 }
 
-function MiniBars({
-  values,
-  color,
-  width = 140,
-  height = 66,
-  className,
-}: {
-  values: number[];
-  color: string;
-  width?: number;
-  height?: number;
-  className?: string;
-}) {
-  const uid = useId();
-  const gradientId = `miniBarsGlow-${uid}`;
-  const safe = Array.isArray(values) ? values.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v)) : [];
-  const points = safe.length >= 2 ? safe.slice(-14) : [];
-  if (points.length < 2) return null;
-
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = Math.max(1e-6, max - min);
-  const w = width;
-  const h = height;
-  const gap = 4;
-  const barW = Math.max(2, Math.floor((w - gap * (points.length - 1)) / points.length));
-
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={"overflow-visible " + (className ?? "")} aria-hidden>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.95} />
-          <stop offset="100%" stopColor={color} stopOpacity={0.25} />
-        </linearGradient>
-      </defs>
-      {points.map((v, i) => {
-        const t = (v - min) / range;
-        const barH = 6 + t * (h - 10);
-        const x = i * (barW + gap);
-        const y = h - barH;
-        return <rect key={i} x={x} y={y} width={barW} height={barH} rx={barW / 2} fill={`url(#${gradientId})`} />;
-      })}
-    </svg>
-  );
-}
-
-function MiniRing({
-  percent,
-  color,
-  size = 84,
-  className,
-}: {
-  percent: number;
-  color: string;
-  size?: number;
-  className?: string;
-}) {
-  const p = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-  // Derive stroke and radius from size so the ring never overflows its box.
-  const strokeWidth = Math.max(4, Math.round(size * 0.1));
-  const r = size / 2 - strokeWidth / 2 - 2;
-  const cx = size / 2;
-  const cy = size / 2;
-  const c = 2 * Math.PI * r;
-  const dash = (p / 100) * c;
-  const gap = c - dash;
-
-  // Scale the label to fit the inner circle, accounting for digit count (e.g. "100%").
-  const label = `${Math.round(p)}%`;
-  const innerWidth = 2 * r - strokeWidth - 4;
-  const fontSize = Math.max(9, Math.min(size * 0.26, innerWidth / (label.length * 0.62)));
-
-  return (
-    <div className={"relative " + (className ?? "")} style={{ width: size, height: size }} aria-hidden>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={cx} cy={cy} r={r} stroke="rgba(255,255,255,0.22)" strokeWidth={strokeWidth} fill="none" />
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          stroke={color}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${gap}`}
-          transform={`rotate(-90 ${cx} ${cy})`}
-        />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div
-          className="font-extrabold text-white tabular-nums leading-none"
-          style={{ fontSize }}
-        >
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniMeter({
-  percent,
-  color,
-  className,
-}: {
-  percent: number;
-  color: string;
-  className?: string;
-}) {
-  const p = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-  return (
-    <div className={"w-[152px] " + (className ?? "")} aria-hidden>
-      <div className="h-2.5 rounded-full bg-white/10 border border-white/10 overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${p}%`, background: color }} />
-      </div>
-      <div className="mt-2 flex items-center justify-between">
-        <div className="text-[11px] text-white/60">Performance</div>
-        <div className="text-[11px] font-semibold tabular-nums text-white/80">{Math.round(p)}%</div>
-      </div>
-    </div>
-  );
-}
-
-function MiniDotTrend({
-  values,
-  color,
-  width = 156,
-  height = 58,
-  className,
-}: {
-  values: number[];
-  color: string;
-  width?: number;
-  height?: number;
-  className?: string;
-}) {
-  const safe = Array.isArray(values) ? values.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v)) : [];
-  const points = safe.length >= 2 ? safe.slice(-16) : [];
-  if (points.length < 2) return null;
-
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = Math.max(1e-6, max - min);
-
-  const w = width;
-  const h = height;
-  const pad = 6;
-  const innerW = w - pad * 2;
-  const innerH = h - pad * 2;
-
-  const coords = points.map((v, i) => {
-    const x = pad + (i / (points.length - 1)) * innerW;
-    const t = (v - min) / range;
-    const y = pad + (1 - t) * innerH;
-    return { x, y };
-  });
-  const d = coords.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
-
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={"overflow-visible " + (className ?? "")} aria-hidden>
-      <path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.9} />
-      {coords.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={2.3} fill={color} opacity={i === coords.length - 1 ? 1 : 0.75} />
-      ))}
-    </svg>
-  );
-}
-
 export default function AdminHomePage() {
   const router = useRouter();
 
@@ -258,8 +219,6 @@ export default function AdminHomePage() {
   const { recentActivities, refresh: refreshRecentActivities } = useAdminRecentActivities();
   const { driversPending, usersNew, paymentsWaiting } = useAdminHomeKpis();
   const { highlights } = useAdminPerformanceHighlights(30);
-
-  const [nowIso, setNowIso] = useState<string | null>(null);
 
   const [reduceMotion, setReduceMotion] = useState<boolean>(false);
   const [tilesInView, setTilesInView] = useState<boolean>(false);
@@ -279,25 +238,24 @@ export default function AdminHomePage() {
     return s.slice(0, Math.max(1, maxLen - 1)) + "…";
   };
 
+  // One segmented control, one active style. The three tabs previously used three
+  // different accent colours (emerald / yellow / blue), which read as three
+  // unrelated controls rather than one range switch.
   const revenueRangeTabClass = (tab: "hours" | "months" | "properties") => {
     const isActive = rangeType === tab;
     const base =
-      "px-3 py-1.5 rounded-xl text-xs font-semibold border " +
-      "transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/15 ";
+      "appearance-none px-3 py-1.5 rounded-lg text-xs font-bold border border-solid " +
+      "transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 ";
+
+    const selected = {
+      active: "border-neutral-200 bg-white text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
+      inactive: "border-transparent bg-transparent text-neutral-500 hover:text-neutral-900",
+    };
 
     const variants = {
-      hours: {
-        active: "bg-emerald-500/15 border-emerald-400/25 text-emerald-100",
-        inactive: "bg-transparent border-transparent text-slate-300 hover:bg-emerald-500/10 hover:border-emerald-400/20 hover:text-emerald-100",
-      },
-      months: {
-        active: "bg-yellow-500/15 border-yellow-400/25 text-yellow-100",
-        inactive: "bg-transparent border-transparent text-slate-300 hover:bg-yellow-500/10 hover:border-yellow-400/20 hover:text-yellow-100",
-      },
-      properties: {
-        active: "bg-blue-500/15 border-blue-400/25 text-blue-100",
-        inactive: "bg-transparent border-transparent text-slate-300 hover:bg-blue-500/10 hover:border-blue-400/20 hover:text-blue-100",
-      },
+      hours: selected,
+      months: selected,
+      properties: selected,
     } as const;
 
     return base + (isActive ? variants[tab].active : variants[tab].inactive);
@@ -355,38 +313,6 @@ export default function AdminHomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    setNowIso(new Date().toISOString());
-  }, []);
-
-  const greetingLabel = useMemo(() => {
-    if (!nowIso) return "Welcome";
-    const hour = new Date(nowIso).getHours();
-    return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  }, [nowIso]);
-
-  function ClientTime({ iso }: { iso?: string | null }) {
-    const [label, setLabel] = useState<string | null>(null);
-    useEffect(() => {
-      if (!iso) return;
-      try {
-        const d = new Date(iso);
-        if (!Number.isFinite(d.getTime())) {
-          setLabel(iso || null);
-          return;
-        }
-        const date = d.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-        const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        setLabel(`${date}, ${time}`);
-      } catch {
-        setLabel(iso || null);
-      }
-    }, [iso]);
-
-    if (!label) return <span className="text-xs text-slate-400">&nbsp;</span>;
-    return <span className="text-xs text-slate-400 whitespace-nowrap tabular-nums">{label}</span>;
-  }
-
   function RelativeTime({ iso }: { iso?: string | null }) {
     const [rel, setRel] = useState<string | null>(null);
     const [abs, setAbs] = useState<string>("");
@@ -421,9 +347,9 @@ export default function AdminHomePage() {
       return () => clearInterval(timer);
     }, [iso]);
 
-    if (!rel) return <span className="text-xs text-slate-500 shrink-0">&nbsp;</span>;
+    if (!rel) return <span className="shrink-0 text-xs text-neutral-400">&nbsp;</span>;
     return (
-      <time title={abs} className="text-xs text-slate-500 whitespace-nowrap shrink-0 tabular-nums">
+      <time title={abs} className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums text-neutral-400">
         {rel}
       </time>
     );
@@ -446,25 +372,25 @@ export default function AdminHomePage() {
     const a = String(action ?? "").toUpperCase();
     if (a.startsWith("PROPERTY_")) {
       return {
-        dot: "bg-emerald-400/60",
-        pill: "border-emerald-400/20 bg-emerald-500/10 text-emerald-100",
+        dot: "bg-emerald-600",
+        pill: "border-emerald-100 bg-emerald-50 text-emerald-700",
       };
     }
     if (a.startsWith("INVOICE_") || a.includes("PAYMENT")) {
       return {
-        dot: "bg-teal-400/60",
-        pill: "border-teal-400/20 bg-teal-500/10 text-teal-100",
+        dot: "bg-sky-600",
+        pill: "border-sky-100 bg-sky-50 text-sky-700",
       };
     }
     if (a.includes("USER") || a.includes("OWNER") || a.includes("DRIVER")) {
       return {
-        dot: "bg-blue-400/60",
-        pill: "border-blue-400/20 bg-blue-500/10 text-blue-100",
+        dot: "bg-blue-600",
+        pill: "border-blue-100 bg-blue-50 text-blue-700",
       };
     }
     return {
-      dot: "bg-white/30",
-      pill: "border-white/10 bg-white/5 text-white",
+      dot: "bg-neutral-400",
+      pill: "border-neutral-200 bg-neutral-50 text-neutral-700",
     };
   };
 
@@ -582,22 +508,19 @@ export default function AdminHomePage() {
       Number.isFinite(n) ? Math.max(0, Number(n)) : 0
     );
     const total = values.reduce((s, v) => s + v, 0);
+    // One colour per metric, matching the KPI tile tone for the same metric above
+    // (emerald, sky, blue, amber, violet). Solid 600-level values: the previous
+    // set used alpha, and slate-400 at 0.70 was invisible on a white surface.
     const colors = [
-      "rgba(2,102,94,0.92)",
-      "rgba(6,182,212,0.88)",
-      "rgba(56,189,248,0.88)",
-      "rgba(16,185,129,0.88)",
-      "rgba(148,163,184,0.70)",
+      "#059669",
+      "#0284c7",
+      "#2563eb",
+      "#d97706",
+      "#7c3aed",
     ];
 
     return { labels, values, total, colors };
   }, [bookingsValue, driversPendingValue, paymentsWaitingValue, pendingApprovalsValue, usersNewValue]);
-
-  const opsPercent = (value: number) => {
-    const total = opsSnapshot.total;
-    if (!total) return 0;
-    return Math.max(0, Math.min(100, (value / total) * 100));
-  };
 
   const formatTsh = (v: number) => {
     const n = Number(v);
@@ -610,14 +533,12 @@ export default function AdminHomePage() {
     title: string;
     description: string;
     icon: React.ComponentType<{ className?: string }>;
-    gradient: string;
-    iconWrap: string;
+    tone: Tone;
     badge?: number | string | null;
     seriesValues?: number[];
     seriesStroke?: string;
     className?: string;
     featured?: boolean;
-    progressGradient?: string;
     bottomSlot?: React.ReactNode;
   };
 
@@ -626,15 +547,13 @@ export default function AdminHomePage() {
     title,
     description,
     icon: Icon,
-    gradient,
-    iconWrap,
+    tone,
     badge,
     seriesValues,
     seriesStroke,
     className,
     featured,
     index,
-    progressGradient = "from-emerald-400 to-cyan-300",
     bottomSlot,
   }: NavItem & { index: number }) {
     const numericBadge = typeof badge === "number" && Number.isFinite(badge) ? badge : null;
@@ -667,117 +586,84 @@ export default function AdminHomePage() {
               }
         }
       >
-        <div
-          className={
-            "relative overflow-hidden rounded-[24px] border border-white/10 " +
-            gradient +
-            " motion-safe:transition-colors motion-safe:duration-200 group-hover:border-white/20"
-          }
-        >
-          <div className={"relative " + (featured ? "p-5 sm:p-5 min-h-[150px]" : "p-4 min-h-[128px]")}
-          >
+        <div className="relative h-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] motion-safe:transition motion-safe:duration-200 group-hover:border-neutral-300 group-hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)]">
+          <div className={"relative " + (featured ? "min-h-[132px] p-4" : "min-h-[112px] p-4")}>
             <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3 min-w-0">
-                <div
+              <div className="flex min-w-0 items-start gap-3">
+                <span
                   className={
-                    "shrink-0 border border-white/15 bg-white/10 text-white/95 flex items-center justify-center " +
-                    (featured ? "h-10 w-10 rounded-2xl" : "h-9 w-9 rounded-2xl") +
+                    "flex shrink-0 items-center justify-center rounded-xl border border-solid " +
+                    (featured ? "h-10 w-10" : "h-9 w-9") +
                     " " +
-                    iconWrap +
-                    " backdrop-blur-sm motion-safe:transition-transform motion-safe:duration-300 group-hover:scale-[1.03]"
+                    KPI_TONES[tone]
                   }
                 >
-                  <Icon className={featured ? "h-5 w-5" : "h-[18px] w-[18px]"} aria-hidden />
-                </div>
+                  <Icon className={featured ? "h-[18px] w-[18px]" : "h-4 w-4"} aria-hidden />
+                </span>
 
                 <div className="min-w-0">
                   <div
                     className={
-                      (featured ? "text-lg sm:text-xl" : "text-base") +
-                      " font-extrabold tracking-tight text-white leading-tight min-w-0 " +
+                      (featured ? "text-base" : "text-sm") +
+                      " font-bold tracking-tight text-neutral-950 leading-tight min-w-0 " +
                       "[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
                     }
                   >
                     {title}
                   </div>
-                  <div
-                    className={
-                      "mt-1 " +
-                      (featured ? "text-sm" : "text-xs") +
-                      " text-white/75 leading-snug min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
-                    }
-                  >
+                  <div className="mt-1 min-w-0 overflow-hidden text-xs font-medium leading-snug text-neutral-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                     {description}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2">
                 {showBadge ? (
-                  <div className="shrink-0 h-7 w-7 rounded-full bg-white/12 border border-white/15 text-white/90 text-[11px] font-extrabold flex items-center justify-center tabular-nums">
+                  <span className={`flex h-6 min-w-6 items-center justify-center rounded-full border border-solid px-1.5 text-[11px] font-bold tabular-nums ${KPI_TONES[tone]}`}>
                     {badgeLabel}
-                  </div>
+                  </span>
                 ) : null}
 
                 <ChevronRight
-                  className={
-                    "h-4 w-4 text-white/70 opacity-70 motion-safe:transition motion-safe:duration-300 " +
-                    "group-hover:opacity-100 group-hover:translate-x-0.5"
-                  }
+                  className="h-4 w-4 text-neutral-400 motion-safe:transition motion-safe:duration-200 group-hover:translate-x-0.5 group-hover:text-emerald-600"
                   aria-hidden
                 />
               </div>
             </div>
 
             {progressPct !== null ? (
-              <div className="mt-5 flex items-center gap-4">
-                <div className="flex items-center gap-2 text-[12px] text-white/75">
-                  <span className="h-2 w-2 rounded-full bg-black/20 border border-white/15" aria-hidden />
-                  <span className="font-medium">Activity</span>
-                </div>
-                <div className="flex-1">
-                  <div className="h-2 rounded-full bg-white/20 overflow-hidden">
+              <div className="mt-4 flex items-center gap-3">
+                <span className="text-[11px] font-medium text-neutral-500">Activity</span>
+                <div className="min-w-0 flex-1">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
                     <div
-                      className={`h-full rounded-full bg-gradient-to-r ${progressGradient} transition-[width] duration-700`}
+                      className={`h-full rounded-full ${TONE_BAR[tone]} transition-[width] duration-700`}
                       style={{ width: `${tilesInView ? progressPct : 0}%` }}
                       aria-hidden
                     />
                   </div>
                 </div>
-                <div className="text-[12px] font-semibold tabular-nums text-white/90">{progressPct}%</div>
+                <span className="text-[11px] font-bold tabular-nums text-neutral-700">{progressPct}%</span>
               </div>
             ) : null}
 
             {bottomSlot ? (
-              <div className="mt-4">{bottomSlot}</div>
+              <div className="mt-3.5">{bottomSlot}</div>
             ) : showSparkline ? (
               <div className="mt-4 flex items-center justify-between gap-3">
-                <div className="text-[11px] text-white/70">Trend</div>
-                <div className="opacity-85">
-                  <MiniSparkline
-                    values={seriesValues!}
-                    stroke={seriesStroke ?? "rgba(255,255,255,0.88)"}
-                    width={84}
-                    height={24}
-                  />
-                </div>
+                <span className="text-[11px] font-medium text-neutral-500">Trend</span>
+                <MiniSparkline
+                  values={seriesValues!}
+                  stroke={seriesStroke ?? "#059669"}
+                  width={84}
+                  height={24}
+                />
               </div>
             ) : null}
           </div>
         </div>
       </Link>
     );
-  }
-
-  function makeSpark(seed: number, len = 18) {
-    const s = Number.isFinite(seed) ? Number(seed) : 0;
-    const base = Math.max(1, Math.min(9999, Math.abs(s)));
-    return Array.from({ length: len }).map((_, i) => {
-      const w1 = Math.sin((i + 1) * 0.82 + base / 19);
-      const w2 = Math.cos((i + 1) * 0.37 + base / 31);
-      const drift = i * 0.12;
-      return base * (0.75 + 0.08 * w1 + 0.06 * w2) + drift;
-    });
   }
 
   useEffect(() => {
@@ -910,396 +796,165 @@ export default function AdminHomePage() {
   const totalSubscription = chartData ? chartData.datasets[1].data.reduce((s, v) => s + Number(v || 0), 0) : 0;
 
   return (
-    <div className="relative min-h-screen bg-[#070B1C] text-slate-100 overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        <div className="grid grid-cols-12 gap-6">
-          <main className="col-span-12 rounded-[32px] border border-white/10 bg-white/[0.02] shadow-[0_26px_110px_-70px_rgba(0,0,0,0.95)] p-5 sm:p-6 lg:p-8">
-            <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
-              <div>
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="flex items-center gap-[3px]" aria-hidden>
-                    {([ 
-                      { delay: 0,   color: "bg-sky-400",     shadow: "rgba(56,189,248,0.9)"  },
-                      { delay: 400, color: "bg-emerald-400", shadow: "rgba(52,211,153,0.9)"  },
-                      { delay: 800, color: "bg-red-400",     shadow: "rgba(248,113,113,0.9)" },
-                    ] as const).map(({ delay, color, shadow }) => (
-                      <span
-                        key={delay}
-                        className={`inline-block h-1.5 w-1.5 rounded-full ${color}`}
-                        style={{ boxShadow: `0 0 6px ${shadow}`, animation: "nols-seq-blink 1.2s ease-in-out infinite", animationDelay: `${delay}ms` }}
-                      />
-                    ))}
-                  </span>
-                  System operational
-                  <span className="mx-1 text-white/20">·</span>
-                  <ClientTime iso={nowIso} />
-                </div>
-                <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-                  {greetingLabel},&nbsp;Admin
-                </h1>
-                <div className="mt-1 text-sm text-slate-400">Approvals · Payments · Bookings · Revenue all in one view</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => router.push("/admin/revenue")}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-white/10 transition"
-                >
-                  <BarChart2 className="h-4 w-4 text-sky-200" aria-hidden />
-                  Revenue
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push("/admin/properties/previews")}
-                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/15 transition"
-                >
-                  <CheckCircle2 className="h-4 w-4 text-emerald-200" aria-hidden />
-                  Approvals
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-12 gap-6">
-              <section className="col-span-12">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                  <div className="group relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 via-emerald-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
-                    <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
-                      aria-hidden
-                      style={{
-                        background:
-                          "radial-gradient(520px circle at 15% 20%, rgba(2,102,94,0.30), transparent 55%), radial-gradient(520px circle at 90% 30%, rgba(34,197,94,0.18), transparent 60%)",
-                      }}
-                    />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium text-slate-200">Pending approvals</div>
-                      <div className="h-9 w-9 rounded-2xl border border-emerald-400/25 bg-emerald-500/15 flex items-center justify-center">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-300" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
-                      {monitoring ? Math.round(pendingApprovalsAnimated).toLocaleString() : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
-                    </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{monitoring ? "Listings to review" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
-                        Share <span className="text-slate-200 font-semibold">{opsPercent(pendingApprovalsValue).toFixed(0)}%</span>
-                      </div>
-                      <MiniBars values={makeSpark(pendingApprovalsValue + 11, 14)} color="rgba(34,197,94,0.95)" width={138} height={64} className="opacity-95" />
-                    </div>
-                  </div>
-
-                  <div className="group relative overflow-hidden rounded-3xl border border-sky-500/20 bg-gradient-to-br from-sky-950/50 via-sky-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
-                    <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
-                      aria-hidden
-                      style={{
-                        background:
-                          "radial-gradient(520px circle at 15% 25%, rgba(6,182,212,0.26), transparent 56%), radial-gradient(520px circle at 90% 22%, rgba(56,189,248,0.18), transparent 60%)",
-                      }}
-                    />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium text-slate-200">Payments waiting</div>
-                      <div className="h-9 w-9 rounded-2xl border border-sky-400/25 bg-sky-500/15 flex items-center justify-center">
-                        <CreditCard className="h-4 w-4 text-sky-300" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
-                      {paymentsWaiting != null
-                        ? Math.round(paymentsWaitingAnimated).toLocaleString()
-                        : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
-                    </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{paymentsWaiting != null ? "Payouts & settlements" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
-                        Share <span className="text-slate-200 font-semibold">{opsPercent(paymentsWaitingValue).toFixed(0)}%</span>
-                      </div>
-                      <MiniRing percent={opsPercent(paymentsWaitingValue)} color="rgba(56,189,248,0.95)" size={76} className="opacity-95" />
-                    </div>
-                  </div>
-
-                  <div className="group relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-blue-950/50 via-blue-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
-                    <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
-                      aria-hidden
-                      style={{
-                        background:
-                          "radial-gradient(520px circle at 18% 22%, rgba(56,189,248,0.26), transparent 56%), radial-gradient(520px circle at 92% 35%, rgba(59,130,246,0.18), transparent 62%)",
-                      }}
-                    />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium text-slate-200">Bookings</div>
-                      <div className="h-9 w-9 rounded-2xl border border-blue-400/25 bg-blue-500/15 flex items-center justify-center">
-                        <CalendarDays className="h-4 w-4 text-blue-300" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
-                      {monitoring ? Math.round(bookingsAnimated).toLocaleString() : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
-                    </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{monitoring ? "In the current window" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
-                        Share <span className="text-slate-200 font-semibold">{opsPercent(bookingsValue).toFixed(0)}%</span>
-                      </div>
-                      <MiniSparkline values={makeSpark(bookingsValue + 17, 24)} stroke="rgba(34,211,238,0.95)" width={140} height={56} className="opacity-95" />
-                    </div>
-                  </div>
-
-                  <div className="group relative overflow-hidden rounded-3xl border border-amber-500/20 bg-gradient-to-br from-amber-950/50 via-amber-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
-                    <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
-                      aria-hidden
-                      style={{
-                        background:
-                          "radial-gradient(520px circle at 18% 26%, rgba(245,158,11,0.22), transparent 56%), radial-gradient(520px circle at 92% 30%, rgba(251,191,36,0.14), transparent 62%)",
-                      }}
-                    />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium text-slate-200">Drivers pending</div>
-                      <div className="h-9 w-9 rounded-2xl border border-amber-400/25 bg-amber-500/15 flex items-center justify-center">
-                        <Truck className="h-4 w-4 text-amber-300" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
-                      {driversPending != null ? driversPending : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
-                    </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{driversPending != null ? "Awaiting verification" : <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
-                        Share <span className="text-slate-200 font-semibold">{opsPercent(driversPendingValue).toFixed(0)}%</span>
-                      </div>
-                      <MiniBars values={makeSpark(driversPendingValue + 23, 14)} color="rgba(2,102,94,0.95)" width={138} height={64} className="opacity-95" />
-                    </div>
-                  </div>
-
-                  <div className="group relative overflow-hidden rounded-3xl border border-violet-500/20 bg-gradient-to-br from-violet-950/50 via-violet-900/15 to-white/2 backdrop-blur-xl p-5 shadow-[0_22px_80px_-60px_rgba(0,0,0,0.95)] motion-safe:transition hover:-translate-y-0.5 hover:shadow-[0_28px_95px_-60px_rgba(0,0,0,0.98)]">
-                    <div
-                      className="pointer-events-none absolute inset-0 opacity-75"
-                      aria-hidden
-                      style={{
-                        background:
-                          "radial-gradient(520px circle at 18% 20%, rgba(139,92,246,0.22), transparent 56%), radial-gradient(520px circle at 92% 35%, rgba(167,139,250,0.16), transparent 62%)",
-                      }}
-                    />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="text-sm font-medium text-slate-200">New users</div>
-                      <div className="h-9 w-9 rounded-2xl border border-violet-400/25 bg-violet-500/15 flex items-center justify-center">
-                        <Users className="h-4 w-4 text-violet-300" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-4 text-4xl font-extrabold tracking-tight text-white tabular-nums">
-                      {usersNew != null ? usersNew : <div className="h-10 w-16 rounded-xl bg-white/10 animate-pulse" />}
-                    </div>
-                    <div className="relative mt-2 text-sm text-slate-400">{usersNew != null ? "Recently joined" : <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />}</div>
-                    <div className="relative mt-4 h-16 flex items-end justify-between gap-3">
-                      <div className="text-xs text-slate-400">
-                        Share <span className="text-slate-200 font-semibold">{opsPercent(usersNewValue).toFixed(0)}%</span>
-                      </div>
-                      <MiniRing percent={opsPercent(usersNewValue)} color="rgba(16,185,129,0.95)" size={76} className="opacity-95" />
-                    </div>
-                  </div>
+    <div id="admin-home" className="relative min-h-screen bg-neutral-50 text-neutral-900">
+      <style>{`
+        #admin-home,
+        #admin-home * {
+          box-sizing: border-box;
+        }
+      `}</style>
+      {/* No max-width here: the admin shell is fluid (see admin-soft-ui.css), so a
+          cap at this level would re-centre the content and reintroduce the gutters.
+          Horizontal padding deliberately mirrors AdminOperationalFooter's
+          `px-3 sm:px-4` so the section cards line up with the footer's edges. */}
+      <div className="relative w-full min-w-0 px-3 py-6 sm:px-4">
+        <div className="grid grid-cols-12 gap-5">
+          <main className="col-span-12 min-w-0">
+            {/* No page hero here. AdminSiteHeader carries the identity block and a
+                primary tab row that already names Approvals, Payments, Bookings and
+                Revenue, so a hero repeated all of it and pushed the KPI tiles
+                ~150px down a pane that is already height-capped. */}
+            <div className="grid grid-cols-12 gap-5">
+              <section className="col-span-12" aria-label="Operations summary">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                  <KpiCard
+                    label="Approvals"
+                    detail="Listings to review"
+                    tone="emerald"
+                    Icon={CheckCircle2}
+                    ready={Boolean(monitoring)}
+                    value={Math.round(pendingApprovalsAnimated).toLocaleString()}
+                  />
+                  <KpiCard
+                    label="Payments"
+                    detail="Payouts and settlements"
+                    tone="sky"
+                    Icon={CreditCard}
+                    ready={paymentsWaiting != null}
+                    value={Math.round(paymentsWaitingAnimated).toLocaleString()}
+                  />
+                  <KpiCard
+                    label="Bookings"
+                    detail="In the current window"
+                    tone="blue"
+                    Icon={CalendarDays}
+                    ready={Boolean(monitoring)}
+                    value={Math.round(bookingsAnimated).toLocaleString()}
+                  />
+                  <KpiCard
+                    label="Drivers"
+                    detail="Awaiting verification"
+                    tone="amber"
+                    Icon={Truck}
+                    ready={driversPending != null}
+                    value={String(driversPending ?? 0)}
+                  />
+                  <KpiCard
+                    label="New users"
+                    detail="Recently joined"
+                    tone="violet"
+                    Icon={Users}
+                    ready={usersNew != null}
+                    value={String(usersNew ?? 0)}
+                  />
                 </div>
               </section>
 
-              <section className="col-span-12">
-                <div className="flex items-end justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Performance highlights</div>
-                    <div className="text-xs text-slate-400">Top performers in the last {highlights?.windowDays ?? 30} days</div>
+              <section className="col-span-12" aria-label="Performance highlights">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+                      <Sparkles className="h-[18px] w-[18px]" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-950">Performance highlights</h2>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">
+                        Top performers in the last {highlights?.windowDays ?? 30} days
+                      </p>
+                    </div>
                   </div>
-                  <div className="inline-flex items-center gap-2 text-xs text-slate-400">
-                    <Sparkles className="h-4 w-4 text-emerald-200" aria-hidden />
+                  <span className="shrink-0 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-bold text-neutral-600">
                     Best of NoLSAF
-                  </div>
+                  </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  <Link
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <HighlightCard
                     href="/admin/properties/previews"
-                    className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#123c36] p-5 transition-colors duration-200 hover:border-white/20 no-underline hover:no-underline"
-                  >
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-400">Best property type</div>
-                        <div className="mt-1 text-lg font-extrabold text-white tracking-tight truncate">
-                          {highlights?.bestPropertyType?.type ?? "--"}
-                        </div>
-                      </div>
-                      <div className="h-9 w-9 rounded-2xl border border-white/10 bg-white/10 flex items-center justify-center">
-                        <Building2 className="h-4 w-4 text-white/90" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-3 flex items-end justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        <span className="font-semibold text-white tabular-nums">{(highlights?.bestPropertyType?.bookings ?? 0).toLocaleString()}</span> bookings
-                        <div className="mt-1 text-xs text-slate-400">
-                          {(highlights?.bestPropertyType?.interactions ?? 0).toLocaleString()} interactions
-                        </div>
-                      </div>
-                      <MiniDotTrend
-                        values={makeSpark((highlights?.bestPropertyType?.bookings ?? 0) + (highlights?.bestPropertyType?.interactions ?? 0) + 17, 16)}
-                        color="rgba(34,197,94,0.95)"
-                        width={156}
-                        height={58}
-                        className="opacity-95"
-                      />
-                    </div>
-                    <div className="relative mt-3 text-xs text-slate-500">Bookings + saves/reviews</div>
-                  </Link>
+                    label="Best property type"
+                    value={highlights?.bestPropertyType?.type ?? "--"}
+                    icon={Building2}
+                    tone="emerald"
+                    primary={(highlights?.bestPropertyType?.bookings ?? 0).toLocaleString()}
+                    secondary={`bookings, ${(highlights?.bestPropertyType?.interactions ?? 0).toLocaleString()} interactions`}
+                    footnote="Bookings plus saves and reviews"
+                  />
 
-                  <Link
+                  <HighlightCard
                     href={highlights?.bestDriver?.driverId ? `/admin/drivers/audit/${highlights.bestDriver.driverId}` : "/admin/drivers"}
-                    className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#172f45] p-5 transition-colors duration-200 hover:border-white/20 no-underline hover:no-underline"
-                  >
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-400">Best driver (NoLSAF revenue)</div>
-                        <div className="mt-1 text-lg font-extrabold text-white tracking-tight truncate">
-                          {highlights?.bestDriver?.name ?? "--"}
-                        </div>
-                      </div>
-                      <div className="h-9 w-9 rounded-2xl border border-white/10 bg-white/10 flex items-center justify-center">
-                        <Truck className="h-4 w-4 text-white/90" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-3 flex items-end justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        <div className="text-base font-extrabold text-white tabular-nums">
-                          {formatTsh(highlights?.bestDriver?.nolsRevenue ?? 0)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">
-                          {(highlights?.bestDriver?.bookings ?? 0).toLocaleString()} bookings
-                        </div>
-                      </div>
-                      <MiniMeter
-                        percent={Math.max(
-                          0,
-                          Math.min(100, Math.round(100 * (1 - Math.exp(-(highlights?.bestDriver?.nolsRevenue ?? 0) / 500000))))
-                        )}
-                        color="linear-gradient(90deg, rgba(56,189,248,0.95), rgba(34,211,238,0.95))"
-                        className="opacity-95"
-                      />
-                    </div>
-                    <div className="relative mt-3 text-xs text-slate-500">Commission from approved/paid invoices</div>
-                  </Link>
+                    label="Best driver"
+                    value={highlights?.bestDriver?.name ?? "--"}
+                    icon={Truck}
+                    tone="amber"
+                    primary={formatTsh(highlights?.bestDriver?.nolsRevenue ?? 0)}
+                    secondary={`${(highlights?.bestDriver?.bookings ?? 0).toLocaleString()} bookings`}
+                    footnote="Commission from approved and paid invoices"
+                  />
 
-                  <Link
+                  <HighlightCard
                     href={highlights?.bestOwner?.ownerId ? `/admin/owners/${highlights.bestOwner.ownerId}` : "/admin/owners"}
-                    className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#123a38] p-5 transition-colors duration-200 hover:border-white/20 no-underline hover:no-underline"
-                  >
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-400">Best owner (revenue + bookings)</div>
-                        <div className="mt-1 text-lg font-extrabold text-white tracking-tight truncate">
-                          {highlights?.bestOwner?.name ?? "--"}
-                        </div>
-                      </div>
-                      <div className="h-9 w-9 rounded-2xl border border-white/10 bg-white/10 flex items-center justify-center">
-                        <Briefcase className="h-4 w-4 text-white/90" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-3 flex items-end justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        <div className="text-base font-extrabold text-white tabular-nums">
-                          {formatTsh(highlights?.bestOwner?.nolsRevenue ?? 0)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">
-                          {(highlights?.bestOwner?.bookings ?? 0).toLocaleString()} bookings
-                        </div>
-                      </div>
-                      <MiniDotTrend
-                        values={makeSpark((highlights?.bestOwner?.bookings ?? 0) + (highlights?.bestOwner?.nolsRevenue ?? 0) / 10000 + 31, 16)}
-                        color="rgba(16,185,129,0.95)"
-                        width={156}
-                        height={58}
-                        className="opacity-95"
-                      />
-                    </div>
-                    <div className="relative mt-3 text-xs text-slate-500">Owner whose bookings earned most commission</div>
-                  </Link>
+                    label="Best owner"
+                    value={highlights?.bestOwner?.name ?? "--"}
+                    icon={Briefcase}
+                    tone="violet"
+                    primary={formatTsh(highlights?.bestOwner?.nolsRevenue ?? 0)}
+                    secondary={`${(highlights?.bestOwner?.bookings ?? 0).toLocaleString()} bookings`}
+                    footnote="Owner whose bookings earned most commission"
+                  />
 
-                  <Link
+                  <HighlightCard
                     href="/admin/bookings"
-                    className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#273548] p-5 transition-colors duration-200 hover:border-white/20 no-underline hover:no-underline"
-                  >
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-400">Most booked region</div>
-                        <div className="mt-1 text-lg font-extrabold text-white tracking-tight truncate">
-                          {highlights?.mostBookedRegion?.regionName ?? "--"}
-                        </div>
-                      </div>
-                      <div className="h-9 w-9 rounded-2xl border border-white/10 bg-white/10 flex items-center justify-center">
-                        <MapPin className="h-4 w-4 text-white/90" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-3 flex items-end justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        <span className="text-base font-extrabold text-white tabular-nums">{(highlights?.mostBookedRegion?.bookings ?? 0).toLocaleString()}</span>
-                        <div className="mt-1 text-xs text-slate-400">bookings</div>
-                      </div>
-                      <MiniMeter
-                        percent={Math.max(
-                          0,
-                          Math.min(100, Math.round(100 * (1 - Math.exp(-(highlights?.mostBookedRegion?.bookings ?? 0) / 25))))
-                        )}
-                        color="linear-gradient(90deg, rgba(148,163,184,0.95), rgba(56,189,248,0.80))"
-                        className="opacity-95"
-                      />
-                    </div>
-                    <div className="relative mt-3 text-xs text-slate-500">Region with highest check-ins</div>
-                  </Link>
+                    label="Most booked region"
+                    value={highlights?.mostBookedRegion?.regionName ?? "--"}
+                    icon={MapPin}
+                    tone="sky"
+                    primary={(highlights?.mostBookedRegion?.bookings ?? 0).toLocaleString()}
+                    secondary="bookings"
+                    footnote="Region with highest check-ins"
+                  />
 
-                  <Link
+                  <HighlightCard
                     href={
                       highlights?.topProperty?.propertyId
                         ? `/admin/properties/previews?previewId=${highlights.topProperty.propertyId}`
                         : "/admin/properties/previews"
                     }
-                    className="group relative overflow-hidden rounded-3xl border border-white/10 bg-[#123845] p-5 transition-colors duration-200 hover:border-white/20 md:col-span-2 xl:col-span-1 no-underline hover:no-underline"
-                  >
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-400">Top property (bookings + interactions)</div>
-                        <div className="mt-1 text-lg font-extrabold text-white tracking-tight truncate">
-                          {highlights?.topProperty?.title ?? "--"}
-                        </div>
-                      </div>
-                      <div className="h-9 w-9 rounded-2xl border border-white/10 bg-white/10 flex items-center justify-center">
-                        <LayoutDashboard className="h-4 w-4 text-white/90" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="relative mt-2 text-xs text-slate-400 truncate">
-                      {highlights?.topProperty ? `${highlights.topProperty.type} - ${highlights.topProperty.regionName}` : ""}
-                    </div>
-                    <div className="relative mt-3 flex items-end justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        <span className="font-semibold text-white tabular-nums">{(highlights?.topProperty?.bookings ?? 0).toLocaleString()}</span> bookings
-                        <div className="mt-1 text-xs text-slate-400">
-                          {(highlights?.topProperty?.interactions ?? 0).toLocaleString()} interactions
-                        </div>
-                      </div>
-                      <MiniDotTrend
-                        values={makeSpark((highlights?.topProperty?.bookings ?? 0) + (highlights?.topProperty?.interactions ?? 0) + 19, 16)}
-                        color="rgba(2,102,94,0.95)"
-                        width={156}
-                        height={58}
-                        className="opacity-95"
-                      />
-                    </div>
-                    <div className="relative mt-3 text-xs text-slate-500">Signals: check-ins, saves & reviews</div>
-                  </Link>
+                    className="md:col-span-2 xl:col-span-1"
+                    label="Top property"
+                    value={highlights?.topProperty?.title ?? "--"}
+                    meta={highlights?.topProperty ? `${highlights.topProperty.type}, ${highlights.topProperty.regionName}` : undefined}
+                    icon={LayoutDashboard}
+                    tone="blue"
+                    primary={(highlights?.topProperty?.bookings ?? 0).toLocaleString()}
+                    secondary={`bookings, ${(highlights?.topProperty?.interactions ?? 0).toLocaleString()} interactions`}
+                    footnote="Signals: check-ins, saves and reviews"
+                  />
                 </div>
               </section>
 
-              <section className="col-span-12 lg:col-span-7 overflow-hidden rounded-3xl border border-white/10 bg-[#111827]">
-                <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Revenue analytics</div>
-                    <div className="text-xs text-slate-400">Commission & subscription series</div>
+              <section className="col-span-12 lg:col-span-7 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Revenue analytics">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+                      <LineChart className="h-[18px] w-[18px]" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-950">Revenue analytics</h2>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Commission and subscription series</p>
+                    </div>
                   </div>
                   <div className="scrollbar-hide flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x">
-                    <div className="inline-flex shrink-0 rounded-2xl bg-white/5 p-1 border border-white/10">
+                    <div className="inline-flex shrink-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
                       <button
                         type="button"
                         onClick={() => setRangeType("hours")}
@@ -1326,7 +981,7 @@ export default function AdminHomePage() {
                     <button
                       type="button"
                       onClick={() => router.push("/admin/revenue")}
-                      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-2xl border border-teal-400/20 bg-teal-500/10 px-3 py-2 text-xs font-semibold text-teal-100 hover:bg-teal-500/15 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/25"
+                      className="inline-flex shrink-0 appearance-none items-center whitespace-nowrap rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25"
                     >
                       View details
                     </button>
@@ -1335,7 +990,7 @@ export default function AdminHomePage() {
                       <select
                         title="Hours range"
                         aria-label="Hours range"
-                        className="shrink-0 whitespace-nowrap border border-white/10 rounded-2xl px-3 py-2 bg-white/5 text-xs text-slate-100 hover:bg-white/10 transition-colors duration-200"
+                        className="shrink-0 whitespace-nowrap appearance-none rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-neutral-300"
                         value={hoursWindow}
                         onChange={(e) => setHoursWindow(Number(e.target.value))}
                       >
@@ -1349,7 +1004,7 @@ export default function AdminHomePage() {
                       <select
                         title="Months range"
                         aria-label="Months range"
-                        className="shrink-0 whitespace-nowrap border border-white/10 rounded-2xl px-3 py-2 bg-white/5 text-xs text-slate-100 hover:bg-white/10 transition-colors duration-200"
+                        className="shrink-0 whitespace-nowrap appearance-none rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-neutral-300"
                         value={monthsWindow}
                         onChange={(e) => setMonthsWindow(Number(e.target.value))}
                       >
@@ -1366,7 +1021,7 @@ export default function AdminHomePage() {
 
                 <div className="p-5 sm:p-6">
                   {chartData === null ? (
-                    <div className="py-10 text-center text-sm text-slate-400">Loading revenue data…</div>
+                    <div className="py-10 text-center text-sm font-medium text-neutral-400">Loading revenue data…</div>
                   ) : (
                     (() => {
                       const commissionArr = chartData.datasets[0].data;
@@ -1399,17 +1054,17 @@ export default function AdminHomePage() {
 
                       return (
                         <>
-                          <div className="rounded-2xl border border-white/10 bg-[#0d1524] p-4 sm:p-5">
+                          <div className="rounded-2xl border border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5">
                             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                               <div>
-                                <div className="text-sm font-semibold text-slate-100">Revenue performance</div>
-                                <div className="mt-0.5 text-xs text-slate-500">
+                                <div className="text-sm font-bold text-neutral-950">Revenue performance</div>
+                                <div className="mt-0.5 text-xs font-medium text-neutral-500">
                                   {rangeType === "properties" ? `Top ${propertiesCount} properties ranked by revenue` : `Commission and subscriptions across ${pointLabel}`}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />Commission</span>
-                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-400" />Subscription</span>
+                              <div className="flex items-center gap-3 text-[11px] font-medium text-neutral-600">
+                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-600" />Commission</span>
+                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" />Subscription</span>
                               </div>
                             </div>
 
@@ -1441,8 +1096,8 @@ export default function AdminHomePage() {
                                               ? ds.backgroundColor[i]
                                               : ds?.backgroundColor;
                                             return {
-                                              borderColor: borderColor ?? "rgba(226,232,240,0.9)",
-                                              backgroundColor: backgroundColor ?? "rgba(226,232,240,0.18)",
+                                              borderColor: borderColor ?? "rgba(82,82,82,0.9)",
+                                              backgroundColor: backgroundColor ?? "rgba(15,23,42,0.12)",
                                             };
                                           } catch {
                                             return undefined as any;
@@ -1455,14 +1110,14 @@ export default function AdminHomePage() {
                                     y: {
                                       beginAtZero: true,
                                       border: { display: false },
-                                      grid: { color: "rgba(255,255,255,0.055)", drawTicks: false },
+                                      grid: { color: "rgba(15,23,42,0.08)", drawTicks: false },
                                       ticks: { display: false },
                                     },
                                     x: {
                                       border: { display: false },
                                       grid: { display: false },
                                       ticks: {
-                                        color: "rgba(226,232,240,0.75)",
+                                        color: "rgba(82,82,82,0.9)",
                                         autoSkip: rangeType !== "properties",
                                         maxRotation: 45,
                                         minRotation: 0,
@@ -1483,23 +1138,23 @@ export default function AdminHomePage() {
                                 }}
                               />
                             ) : (
-                              <div className="relative flex h-full flex-col justify-end overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a1220] px-4 pb-8 pt-5">
-                                <div className="pointer-events-none absolute inset-x-4 top-1/4 border-t border-dashed border-white/[0.06]" />
-                                <div className="pointer-events-none absolute inset-x-4 top-1/2 border-t border-dashed border-white/[0.06]" />
-                                <div className="pointer-events-none absolute inset-x-4 top-3/4 border-t border-dashed border-white/[0.06]" />
-                                <div className="absolute inset-x-0 top-[38%] text-center">
-                                  <div className="text-sm font-semibold text-slate-300">Revenue baseline ready</div>
-                                  <div className="mt-1 text-xs text-slate-500">The line will rise when commission or subscription revenue is posted.</div>
+                              <div className="relative flex h-full flex-col justify-end overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white px-4 pb-8 pt-5">
+                                <div className="pointer-events-none absolute inset-x-4 top-1/4 border-0 border-t border-dashed border-neutral-200" />
+                                <div className="pointer-events-none absolute inset-x-4 top-1/2 border-0 border-t border-dashed border-neutral-200" />
+                                <div className="pointer-events-none absolute inset-x-4 top-3/4 border-0 border-t border-dashed border-neutral-200" />
+                                <div className="absolute inset-x-0 top-[38%] px-4 text-center">
+                                  <div className="text-sm font-bold text-neutral-700">Revenue baseline ready</div>
+                                  <div className="mt-1 text-xs font-medium text-neutral-500">The line will rise when commission or subscription revenue is posted.</div>
                                 </div>
                                 <div className="relative flex items-center">
                                   {baselineLabels.map((label, index) => (
                                     <div key={`${String(label)}-${index}`} className="flex min-w-0 flex-1 items-center">
-                                      <span className="h-2 w-2 shrink-0 rounded-full border-2 border-slate-500 bg-[#0a1220]" />
-                                      {index < baselineLabels.length - 1 && <span className="h-px min-w-0 flex-1 bg-slate-600" />}
+                                      <span className="h-2 w-2 shrink-0 rounded-full border-2 border-solid border-neutral-300 bg-white" />
+                                      {index < baselineLabels.length - 1 && <span className="h-px min-w-0 flex-1 bg-neutral-200" />}
                                     </div>
                                   ))}
                                 </div>
-                                <div className="mt-3 flex justify-between text-[10px] text-slate-500">
+                                <div className="mt-3 flex justify-between text-[10px] font-medium text-neutral-400">
                                   <span>{String(baselineLabels[0] ?? "Start")}</span>
                                   <span>{String(baselineLabels[baselineLabels.length - 1] ?? "Now")}</span>
                                 </div>
@@ -1509,21 +1164,21 @@ export default function AdminHomePage() {
                           </div>
 
                           <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-                              <div className="text-[11px] font-medium text-slate-500">Total revenue</div>
-                              <div className="mt-1 text-base font-bold text-white">Tsh {totalT.toLocaleString()}</div>
+                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Total revenue</div>
+                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {totalT.toLocaleString()}</div>
                             </div>
-                            <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-                              <div className="text-[11px] font-medium text-slate-500">Average / point</div>
-                              <div className="mt-1 text-base font-bold text-white">Tsh {averageRevenue.toLocaleString()}</div>
+                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Average / point</div>
+                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {averageRevenue.toLocaleString()}</div>
                             </div>
-                            <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-                              <div className="text-[11px] font-medium text-slate-500">Active {pointLabel}</div>
-                              <div className="mt-1 text-base font-bold text-white">{activePoints} / {baselineLabels.length}</div>
+                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Active {pointLabel}</div>
+                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{activePoints} / {baselineLabels.length}</div>
                             </div>
-                            <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-                              <div className="text-[11px] font-medium text-slate-500">Commission mix</div>
-                              <div className="mt-1 text-base font-bold text-white">{commissionShare}%</div>
+                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Commission mix</div>
+                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{commissionShare}%</div>
                             </div>
                           </div>
                         </>
@@ -1533,12 +1188,23 @@ export default function AdminHomePage() {
                 </div>
               </section>
 
-              <section className="col-span-12 lg:col-span-5 overflow-hidden rounded-3xl border border-white/10 bg-[#111827]">
-                <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Recent activities</div>
-                    <div className="text-xs text-slate-400">Latest changes</div>
+              <section className="col-span-12 lg:col-span-5 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Recent activities">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-violet-100 bg-violet-50 text-violet-700">
+                      <Activity className="h-[18px] w-[18px]" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-950">Recent activities</h2>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Latest changes</p>
+                    </div>
                   </div>
+                  <Link
+                    href="/admin/management/audit-log"
+                    className="shrink-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
+                  >
+                    View all
+                  </Link>
                 </div>
                 <div className="p-3">
                   {(() => {
@@ -1547,15 +1213,15 @@ export default function AdminHomePage() {
 
                     if (loading) {
                       return (
-                        <ul className="list-none divide-y divide-white/10 rounded-2xl border border-white/10 bg-[#0d1524] p-2">
+                        <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 rounded-xl border border-solid border-neutral-200 bg-white p-0">
                           {Array.from({ length: 5 }).map((_, i) => (
                             <li key={i} className="py-3 px-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="flex-1">
-                                  <div className="h-3 bg-white/10 rounded w-40 animate-pulse mb-2" />
-                                  <div className="h-2 bg-white/10 rounded w-56 animate-pulse" />
+                                  <div className="mb-2 h-3 w-40 animate-pulse rounded bg-neutral-100" />
+                                  <div className="h-2 w-56 animate-pulse rounded bg-neutral-100" />
                                 </div>
-                                <div className="h-3 bg-white/10 rounded w-20 animate-pulse" />
+                                <div className="h-3 w-20 animate-pulse rounded bg-neutral-100" />
                               </div>
                             </li>
                           ))}
@@ -1564,11 +1230,11 @@ export default function AdminHomePage() {
                     }
 
                     if (!hasItems) {
-                      return <div className="px-3 py-4 text-sm text-slate-400">No recent activities</div>;
+                      return <div className="px-3 py-6 text-center text-sm font-medium text-neutral-400">No recent activities</div>;
                     }
 
                     return (
-                      <ul className="list-none divide-y divide-white/10 rounded-2xl border border-white/10 bg-[#0d1524] p-2">
+                      <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 rounded-xl border border-solid border-neutral-200 bg-white p-0">
                         {recentActivities!.slice(0, 5).map((a: any) => {
                           const tone = auditTone(a.action);
                           const detailsText = formatAuditDetails(a.action, a.details);
@@ -1576,19 +1242,19 @@ export default function AdminHomePage() {
                           return (
                             <li
                               key={a.id ?? `${a.action}-${a.createdAt ?? ""}`}
-                              className="rounded-xl px-3 py-2.5"
+                              className="px-4 py-3"
                             >
                               <div className="flex items-start gap-3">
                                 <div className={"mt-1.5 h-2 w-2 rounded-full shrink-0 " + tone.dot} aria-hidden />
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-3">
-                                    <span className="text-sm font-semibold text-white leading-snug">
+                                    <span className="text-sm font-bold leading-snug text-neutral-900">
                                       {formatAuditAction(a.action)}
                                     </span>
                                     <RelativeTime iso={a.createdAt} />
                                   </div>
                                   {detailsText ? (
-                                    <div className="text-xs text-slate-400 mt-0.5 break-words">{detailsText}</div>
+                                    <div className="mt-1 break-words text-xs font-medium text-neutral-500">{detailsText}</div>
                                   ) : null}
                                 </div>
                               </div>
@@ -1602,143 +1268,78 @@ export default function AdminHomePage() {
               </section>
 
 
-              <section className="col-span-12 rounded-3xl border border-white/10 bg-white/5 shadow-[0_20px_80px_-60px_rgba(0,0,0,0.9)] overflow-hidden">
-                <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Operations snapshot</div>
-                    <div className="text-xs text-slate-400">Live distribution (totals)</div>
+              <section className="col-span-12 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Operations snapshot">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+                      <BarChart2 className="h-[18px] w-[18px]" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-950">Operations snapshot</h2>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Live distribution across open work</p>
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-300">
-                    Total: <span className="font-semibold text-white tabular-nums">{opsSnapshot.total.toLocaleString()}</span>
+                  <div className="shrink-0 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-bold text-neutral-600">
+                    Total <span className="tabular-nums text-neutral-950">{opsSnapshot.total.toLocaleString()}</span>
                   </div>
                 </div>
 
-                <div className="p-5 sm:p-6 grid grid-cols-12 gap-6 items-center">
-                  {/* --- NoLSAF Revenue Visa Card --- */}
-                  <div className="col-span-12 sm:col-span-5 lg:col-span-4">
-                    <div
-                      className="relative rounded-[22px] overflow-hidden shadow-2xl hover:-translate-y-1.5 transition-all duration-500 cursor-default select-none"
-                      style={{
-                        background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
-                        minHeight: "230px",
-                        boxShadow: "0 28px 65px -15px rgba(2,102,94,0.50), 0 8px 22px -8px rgba(14,42,122,0.55)",
-                      }}
-                    >
-                      {/* Decorative SVG layer */}
-                      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 380 260" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden>
-                        {/* Big arcs top-right */}
-                        <circle cx="360" cy="55"  r="155" stroke="white" strokeOpacity="0.07" strokeWidth="1" fill="none" />
-                        <circle cx="360" cy="55"  r="115" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-                        <circle cx="325" cy="25"  r="88"  stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-                        {/* Bottom-left arc */}
-                        <circle cx="22"  cy="238" r="100" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-                        {/* Sparkline wave */}
-                        <polyline
-                          points="18,215 55,190 95,202 135,172 175,182 215,152 255,162 295,132 335,144 375,112"
-                          stroke="white" strokeOpacity="0.15" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"
-                        />
-                        <polygon
-                          points="18,215 55,190 95,202 135,172 175,182 215,152 255,162 295,132 335,144 375,112 380,260 18,260"
-                          fill="white" fillOpacity="0.03"
-                        />
-                        {/* Sparkline dots */}
-                        {([[55,190],[135,172],[215,152],[295,132],[375,112]] as [number,number][]).map(([cx,cy],i) => (
-                          <circle key={i} cx={cx} cy={cy} r="2.5" fill="white" fillOpacity="0.25" />
-                        ))}
-                        {/* NFC arcs top-right */}
-                        <path d="M357 22 Q368 35 357 48" stroke="white" strokeOpacity="0.55" strokeWidth="2" fill="none" strokeLinecap="round" />
-                        <path d="M350 16 Q367 35 350 54" stroke="white" strokeOpacity="0.35" strokeWidth="2" fill="none" strokeLinecap="round" />
-                        <path d="M343 10 Q366 35 343 60" stroke="white" strokeOpacity="0.18" strokeWidth="2" fill="none" strokeLinecap="round" />
-                      </svg>
+                <div className="grid grid-cols-12 items-stretch gap-5 p-5 sm:p-6">
+                  {/* Platform revenue. Deliberately plain: the previous version was a
+                      simulated payment card (EMV chip, NFC arcs, dual circles) which
+                      implied a real card product that does not exist. */}
+                  <div className="col-span-12 lg:col-span-4">
+                    <div className="flex h-full min-h-[14rem] flex-col justify-between rounded-2xl border border-solid border-emerald-950/70 bg-[#082f2a] p-5 shadow-[0_14px_34px_rgba(8,47,42,0.18)]">
+                      <div className="min-w-0">
+                        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-100/50">Total platform revenue</p>
+                        <p className="mb-0 mt-2.5 truncate text-[2rem] font-bold leading-none tabular-nums tracking-tight text-white">
+                          {formatTsh(totalCommission + totalSubscription)}
+                        </p>
+                      </div>
 
-                      {/* Top sheen */}
-                      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent pointer-events-none" />
-
-                      {/* Card content */}
-                      <div className="relative flex flex-col justify-between p-5 pb-5" style={{ minHeight: "230px" }}>
-                        {/* Row 1 - brand + chip */}
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/50">NoLSAF</p>
-                            <p className="text-sm font-black text-white tracking-wide leading-tight mt-0.5">Revenue Card</p>
-                          </div>
-                          {/* EMV Chip */}
-                          <svg width="36" height="28" viewBox="0 0 38 30" fill="none" className="opacity-80 flex-shrink-0 mt-1" aria-hidden>
-                            <rect x="1" y="1" width="36" height="28" rx="4" fill="#c8a84b" stroke="#a07830" strokeWidth="0.8" />
-                            <rect x="1" y="10" width="36" height="10" fill="#b8983a" />
-                            <rect x="13" y="1" width="12" height="28" fill="#b8983a" />
-                            <rect x="13" y="10" width="12" height="10" fill="#a07830" />
-                            <rect x="1" y="10" width="36" height="0.8" fill="#8a6820" />
-                            <rect x="1" y="19.2" width="36" height="0.8" fill="#8a6820" />
-                            <rect x="13" y="1" width="0.8" height="28" fill="#8a6820" />
-                            <rect x="24.2" y="1" width="0.8" height="28" fill="#8a6820" />
-                          </svg>
+                      <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-white/10">
+                        <div className="min-w-0 bg-[#082f2a] px-3.5 py-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100/50">Commission</p>
+                          <p className="mb-0 mt-1 truncate text-sm font-bold tabular-nums text-white">{formatTsh(totalCommission)}</p>
                         </div>
-
-                        {/* Row 2 - total revenue hero */}
-                        <div className="mt-3">
-                          <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/45 mb-1.5">Total Platform Revenue</p>
-                          <p
-                            className="font-black text-white leading-none drop-shadow tabular-nums"
-                            style={{ fontSize: "clamp(1.45rem, 3.2vw, 2rem)", letterSpacing: "-0.02em" }}
-                          >
-                            {formatTsh(totalCommission + totalSubscription)}
-                          </p>
+                        <div className="min-w-0 bg-[#082f2a] px-3.5 py-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100/50">Subscription</p>
+                          <p className="mb-0 mt-1 truncate text-sm font-bold tabular-nums text-white">{formatTsh(totalSubscription)}</p>
                         </div>
+                      </div>
 
-                        {/* Row 3 - breakdown + circles */}
-                        <div className="mt-4 pt-3 border-t border-white/12 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div>
-                              <p className="text-[7px] font-bold uppercase tracking-widest text-white/40">Commission</p>
-                              <p className="text-xs font-black text-white tabular-nums mt-0.5">{formatTsh(totalCommission)}</p>
-                            </div>
-                            <div className="w-px h-7 bg-white/15 flex-shrink-0" />
-                            <div>
-                              <p className="text-[7px] font-bold uppercase tracking-widest text-white/40">Subscription</p>
-                              <p className="text-xs font-black text-white tabular-nums mt-0.5">{formatTsh(totalSubscription)}</p>
-                            </div>
-                            <div className="w-px h-7 bg-white/15 flex-shrink-0" />
-                            <div className="inline-flex items-center gap-1.5">
-                              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-                              </span>
-                              <p className="text-[7px] font-bold text-white/60 uppercase tracking-wide">Live</p>
-                            </div>
-                          </div>
-
-                          {/* Dual circles - Mastercard-style */}
-                          <div className="flex -space-x-3 flex-shrink-0 ml-1">
-                            <div className="w-8 h-8 rounded-full flex-shrink-0" style={{ background: "radial-gradient(circle at 38% 38%, #2563eb, #0e2a7a)", opacity: 0.92 }} />
-                            <div className="w-8 h-8 rounded-full flex-shrink-0" style={{ background: "radial-gradient(circle at 62% 38%, #02665e, #013f3a)", opacity: 0.80 }} />
-                          </div>
-                        </div>
+                      <div className="mt-4 flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
+                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/60">Live</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="col-span-12 sm:col-span-7 lg:col-span-8">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="col-span-12 lg:col-span-8">
+                    <div className="h-full overflow-hidden rounded-2xl border border-solid border-neutral-200">
                       {opsSnapshot.labels.map((label, i) => {
                         const value = opsSnapshot.values[i] ?? 0;
                         const pct = opsSnapshot.total > 0 ? Math.round((value / opsSnapshot.total) * 100) : 0;
                         return (
-                          <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                          <div
+                            key={label}
+                            className={`px-4 py-3 ${i > 0 ? "border-0 border-t border-solid border-neutral-100" : ""}`}
+                          >
                             <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex min-w-0 items-center gap-2.5">
                                 <span
-                                  className="h-2.5 w-2.5 rounded-full"
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
                                   style={{ backgroundColor: opsSnapshot.colors[i] }}
                                   aria-hidden
                                 />
-                                <div className="text-sm font-semibold text-white truncate">{label}</div>
+                                <span className="truncate text-sm font-bold text-neutral-800">{label}</span>
                               </div>
-                              <div className="text-xs text-slate-200 tabular-nums">
-                                {value.toLocaleString()} <span className="text-slate-400">({pct}%)</span>
+                              <div className="shrink-0 tabular-nums">
+                                <span className="text-sm font-bold text-neutral-950">{value.toLocaleString()}</span>
+                                <span className="ml-1.5 text-xs font-medium text-neutral-500">{pct}%</span>
                               </div>
                             </div>
-                            <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
                               <div
                                 className="h-full rounded-full transition-[width] duration-700"
                                 style={{ width: `${tilesInView ? pct : 0}%`, backgroundColor: opsSnapshot.colors[i] }}
@@ -1753,19 +1354,25 @@ export default function AdminHomePage() {
                 </div>
               </section>
 
-              <section className="col-span-12 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_20px_80px_-60px_rgba(0,0,0,0.9)] overflow-hidden">
-                <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="text-sm font-semibold text-white">Operations Hub</div>
-                    <div className="text-xs text-slate-400">Navigate every module instantly</div>
+              <section className="col-span-12 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Operations hub">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+                      <LayoutDashboard className="h-[18px] w-[18px]" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-950">Operations hub</h2>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Jump to any module</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                    Live
+                  <div className="flex shrink-0 items-center gap-2 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
+                    <span className="text-xs font-bold text-neutral-600">Live</span>
                   </div>
                 </div>
 
                 <div
-                  className="p-4 sm:p-5 grid grid-cols-12 gap-3"
+                  className="grid grid-cols-12 gap-4 p-5 sm:p-6"
                   ref={(node) => {
                     if (!node) return;
                     if (tilesInView) return;
@@ -1791,12 +1398,10 @@ export default function AdminHomePage() {
                     title="Approvals"
                     description="Review new properties"
                     icon={CheckCircle2}
-                    gradient="bg-[#12463f]"
-                    iconWrap="bg-brand-500/15 border-brand-300/20 text-white"
+                    tone="emerald"
                     badge={monitoring ? monitoring.pendingApprovals : null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-emerald-400 to-lime-300"
                     index={0}
                   />
 
@@ -1805,12 +1410,10 @@ export default function AdminHomePage() {
                     title="Payments"
                     description="Payouts & settlements"
                     icon={CreditCard}
-                    gradient="bg-[#174456]"
-                    iconWrap="bg-cyan-500/15 border-cyan-200/20 text-white"
+                    tone="sky"
                     badge={paymentsWaiting ?? null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-cyan-400 to-sky-300"
                     index={1}
                   />
 
@@ -1819,12 +1422,10 @@ export default function AdminHomePage() {
                     title="Bookings"
                     description="Trips, status, issues"
                     icon={CalendarDays}
-                    gradient="bg-[#193e59]"
-                    iconWrap="bg-sky-500/15 border-sky-200/20 text-white"
+                    tone="blue"
                     badge={monitoring ? Math.round(bookingsAnimated) : null}
                     className="col-span-12 sm:col-span-6 lg:col-span-4"
                     featured
-                    progressGradient="from-sky-400 to-blue-300"
                     index={2}
                   />
 
@@ -1833,27 +1434,26 @@ export default function AdminHomePage() {
                     title="Revenue"
                     description="Reports & breakdown"
                     icon={BarChart2}
-                    gradient="bg-[#174154]"
-                    iconWrap="bg-brand-500/15 border-brand-200/20 text-white"
+                    tone="emerald"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={3}
                     bottomSlot={
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center justify-between text-[10px] text-white/65">
-                          <span>Commission</span>
-                          <span className="font-semibold text-white/85 tabular-nums">{formatTsh(totalCommission)}</span>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium text-neutral-500">Commission</span>
+                          <span className="text-xs font-bold tabular-nums text-neutral-900">{formatTsh(totalCommission)}</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-300 transition-[width] duration-700"
-                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalCommission / (totalCommission + totalSubscription)) * 100)}%` : "50%" }} />
+                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                          <div className="h-full rounded-full bg-sky-600 transition-[width] duration-700"
+                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalCommission / (totalCommission + totalSubscription)) * 100)}%` : "0%" }} />
                         </div>
-                        <div className="flex items-center justify-between text-[10px] text-white/65 mt-0.5">
-                          <span>Subscription</span>
-                          <span className="font-semibold text-white/85 tabular-nums">{formatTsh(totalSubscription)}</span>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium text-neutral-500">Subscription</span>
+                          <span className="text-xs font-bold tabular-nums text-neutral-900">{formatTsh(totalSubscription)}</span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-300 transition-[width] duration-700"
-                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalSubscription / (totalCommission + totalSubscription)) * 100)}%` : "50%" }} />
+                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                          <div className="h-full rounded-full bg-emerald-600 transition-[width] duration-700"
+                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalSubscription / (totalCommission + totalSubscription)) * 100)}%` : "0%" }} />
                         </div>
                       </div>
                     }
@@ -1864,21 +1464,16 @@ export default function AdminHomePage() {
                     title="Properties"
                     description="Manage listings"
                     icon={Building2}
-                    gradient="bg-[#16463d]"
-                    iconWrap="bg-emerald-500/15 border-emerald-200/20 text-white"
+                    tone="blue"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={4}
                     bottomSlot={
-                      <div className="flex items-center gap-3">
-                        <MiniRing
-                          percent={Math.min(100, Math.round(100 * (1 - Math.exp(-((monitoring?.activeSessions ?? 0) + (pendingApprovalsValue ?? 0)) / 12))))}
-                          color="rgba(52,211,153,0.9)"
-                          size={50}
-                        />
-                        <div className="text-[11px] leading-tight">
-                          <div className="font-extrabold text-white tabular-nums">{monitoring?.activeSessions ?? 0}</div>
-                          <div className="text-white/60 mt-0.5">Active sessions</div>
-                        </div>
+                      // The donut ring here showed 1 - exp(-(sessions + approvals) / 12),
+                      // a saturation curve that is not a percentage of anything. Dropped
+                      // in favour of the real session count.
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xl font-bold leading-none tabular-nums text-neutral-950">{monitoring?.activeSessions ?? 0}</span>
+                        <span className="text-[11px] font-medium text-neutral-500">Active sessions</span>
                       </div>
                     }
                   />
@@ -1888,21 +1483,12 @@ export default function AdminHomePage() {
                     title="Analytics"
                     description="Trends & performance"
                     icon={LineChart}
-                    gradient="bg-[#344653]"
-                    iconWrap="bg-white/10 border-white/15 text-white"
+                    tone="violet"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={5}
-                    bottomSlot={
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[11px] text-white/65">Signals</div>
-                        <MiniDotTrend
-                          values={makeSpark(bookingsValue + pendingApprovalsValue + 9, 16)}
-                          color="rgba(147,197,253,0.92)"
-                          width={88}
-                          height={26}
-                        />
-                      </div>
-                    }
+                    // The "Signals" trend line here was makeSpark(), a seeded generator,
+                    // so it showed a shape unrelated to any analytics data. Removed
+                    // rather than replaced: there is no real series available here.
                   />
 
                   <NavTile
@@ -1910,18 +1496,12 @@ export default function AdminHomePage() {
                     title="Messages"
                     description="Inbox & communication"
                     icon={MessagesSquare}
-                    gradient="bg-[#243f61]"
-                    iconWrap="bg-blue-500/15 border-blue-200/20 text-white"
+                    tone="sky"
                     className="col-span-12 sm:col-span-6 lg:col-span-3"
                     index={6}
-                    bottomSlot={
-                      <div className="flex items-center gap-3">
-                        <div className="text-[11px] leading-tight">
-                          <span className="font-extrabold text-white tabular-nums">{usersNewValue}</span>
-                          <span className="text-white/55 ml-1">new this week</span>
-                        </div>
-                      </div>
-                    }
+                    // Previously rendered `usersNewValue` as "N new this week" on the
+                    // Messages tile. That is the new-user count, not a message count, so
+                    // it was mislabelled. Removed until a real unread count is available.
                   />
                 </div>
               </section>

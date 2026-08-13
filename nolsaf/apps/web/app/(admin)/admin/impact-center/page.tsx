@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Bug, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ExternalLink, FileCode2, History, RefreshCw, Search, ServerCrash, ShieldCheck, UserRound, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, Bug, Building2, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ExternalLink, FileCode2, History, RefreshCw, Search, ServerCrash, ShieldCheck, Truck, UserRound, Users, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type ImpactedUser = {
   key: string;
   userId: number | null;
   role: string | null;
+  profile: {
+    kind: "admin" | "agent" | "customer" | "driver" | "owner";
+    href: string;
+    label: string;
+  } | null;
   name: string | null;
   email: string | null;
   label: string;
@@ -79,6 +84,8 @@ export default function AdminImpactCenterPage() {
   const [restoreTarget, setRestoreTarget] = useState<ImpactedUser | null>(null);
   const [restoreNote, setRestoreNote] = useState("");
   const [restoring, setRestoring] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [environment, setEnvironment] = useState("Environment");
 
   const load = async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -87,6 +94,7 @@ export default function AdminImpactCenterPage() {
     try {
       const res = await apiClient.get("/api/admin/observability/impacted-users?limit=80");
       setItems(res.data?.items ?? []);
+      setLastUpdatedAt(new Date());
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || "Failed to load impacted users");
     } finally {
@@ -96,6 +104,15 @@ export default function AdminImpactCenterPage() {
   };
 
   useEffect(() => {
+    const configuredEnvironment = process.env.NEXT_PUBLIC_APP_ENV?.trim();
+    const hostname = window.location.hostname.toLowerCase();
+    setEnvironment(configuredEnvironment || (
+      hostname === "localhost" || hostname === "127.0.0.1"
+        ? "Local"
+        : hostname.includes("staging") || hostname.includes("preview")
+          ? "Staging"
+          : "Production"
+    ));
     load();
     const id = window.setInterval(() => load(true), 30000);
     return () => window.clearInterval(id);
@@ -108,13 +125,15 @@ export default function AdminImpactCenterPage() {
   const summary = useMemo(() => {
     const activeItems = items.filter((item) => item.resolution?.status !== "restored");
     return {
-      people: items.length,
+      people: activeItems.length,
       attention: activeItems.filter((item) => item.attention === "active").length,
       critical: activeItems.filter((item) => item.serverErrorCount > 0 || item.clientErrorCount > 0).length,
       slow: activeItems.filter((item) => item.slowCount > 0).length,
+      server: activeItems.filter((item) => item.serverErrorCount > 0).length,
       client: activeItems.filter((item) => item.clientErrorCount > 0).length,
       known: activeItems.filter((item) => item.userId).length,
       visitors: activeItems.filter((item) => !item.userId).length,
+      restored: items.filter((item) => item.resolution?.status === "restored").length,
     };
   }, [items]);
 
@@ -175,74 +194,102 @@ export default function AdminImpactCenterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8f8]">
-      <div className="space-y-4 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="border border-[#02665e] bg-[#02665e] text-white shadow-sm">
-          <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-w-0 space-y-4 sm:space-y-5">
+        <div
+          className="relative overflow-hidden rounded-2xl shadow-xl"
+          style={{
+            background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
+            boxShadow: "0 18px 42px -18px rgba(2,102,94,0.50), 0 6px 18px -10px rgba(14,42,122,0.45)",
+          }}
+        >
+          <div className="pointer-events-none absolute inset-0 opacity-60" aria-hidden>
+            <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full border border-white/10" />
+            <div className="absolute -right-10 -top-14 h-40 w-40 rounded-full border border-white/10" />
+            <div className="absolute -bottom-28 left-1/4 h-52 w-[38rem] rotate-[-10deg] rounded-[50%] border-t border-white/15" />
+          </div>
+          <div className="relative z-10 flex flex-col gap-4 px-5 py-4 sm:px-7 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <Link href="/admin/observability" className="inline-flex items-center gap-2 text-sm font-semibold text-white/65 no-underline transition-colors hover:text-white">
-                <ArrowLeft className="h-4 w-4" />
+              <Link href="/admin/observability" className="inline-flex items-center gap-2 text-xs font-semibold text-white/60 no-underline transition-colors hover:text-white">
+                <ArrowLeft className="h-3.5 w-3.5" />
                 Observability
               </Link>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-black tracking-tight text-white">Impact Center</h1>
-                <span className={`inline-flex w-fit items-center gap-2 border px-3 py-1 text-xs font-bold ${summary.critical > 0 ? "border-red-200 bg-white text-red-700" : "border-emerald-200 bg-white text-[#02665e]"}`}>
-                  <span className={`h-2 w-2 rounded-full ${summary.critical > 0 ? "bg-red-500" : "bg-[#02665e]"}`} />
-                  {summary.critical > 0 ? "Needs review" : "Quiet"}
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-black tracking-tight text-white">Technical Impact</h1>
+                <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${summary.critical > 0 ? "border-red-300/40 bg-red-500/20 text-red-100" : "border-emerald-200/30 bg-white/10 text-emerald-100"}`}>
+                  <span className={`h-2 w-2 rounded-full ${summary.critical > 0 ? "bg-red-300" : "bg-emerald-300"}`} />
+                  {summary.critical > 0
+                    ? `${summary.critical} unresolved critical`
+                    : summary.attention > 0
+                      ? `${summary.attention} active incident${summary.attention === 1 ? "" : "s"}`
+                      : summary.people > 0
+                        ? `${summary.people} unresolved`
+                        : "No unresolved impact"}
                 </span>
               </div>
-              <p className="mt-2 max-w-4xl text-sm leading-6 text-white/65">
-                People-first incident triage for slow calls, server errors, and frontend crashes across known users and visitor sessions.
+              <p className="mt-1.5 max-w-3xl text-sm leading-5 text-white/65">
+                Investigate errors and performance problems affecting customers and visitor sessions.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => load(true)}
-              disabled={refreshing}
-              className="inline-flex h-10 w-10 items-center justify-center border border-white/20 bg-white text-[#02665e] shadow-sm transition-colors hover:bg-emerald-50 disabled:opacity-60"
-              aria-label="Refresh impact center"
-              title="Refresh"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="text-right text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">
+                <div className="text-white/75">{environment} · Open incidents</div>
+                <div className="mt-1 normal-case tracking-normal">{lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Updating…"}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => load(true)}
+                disabled={refreshing}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-sm transition-colors hover:bg-white/20 disabled:opacity-60"
+                aria-label="Refresh technical impact"
+                title="Refresh"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
+            </div>
           </div>
         </div>
 
         {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</div> : null}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
-          <SummaryCard icon={ServerCrash} label="Active now" value={summary.attention} tone={summary.attention > 0 ? "red" : "green"} />
-          <SummaryCard icon={UserRound} label="Impacted people" value={summary.people} tone="slate" />
-          <SummaryCard icon={AlertTriangle} label="Critical people" value={summary.critical} tone={summary.critical > 0 ? "red" : "green"} />
-          <SummaryCard icon={Clock3} label="Slow experience" value={summary.slow} tone={summary.slow > 0 ? "amber" : "green"} />
-          <SummaryCard icon={Bug} label="Frontend crash" value={summary.client} tone={summary.client > 0 ? "red" : "green"} />
-          <SummaryCard icon={Users} label="Known users" value={summary.known} tone={summary.known > 0 ? "green" : "slate"} />
-          <SummaryCard icon={ShieldCheck} label="Visitors" value={summary.visitors} tone={summary.visitors > 0 ? "amber" : "slate"} />
+        <div className="grid w-full min-w-0 max-w-full grid-cols-2 gap-3 lg:grid-cols-4">
+          <SummaryCard icon={ServerCrash} label="Active incidents" value={summary.attention} note="Happening inside the active window" tone={summary.attention > 0 ? "red" : "green"} />
+          <SummaryCard icon={UserRound} label="Unresolved users" value={summary.people} note="Open or awaiting recovery confirmation" tone="slate" />
+          <SummaryCard icon={AlertTriangle} label="Critical impact" value={summary.critical} note="Users with server or client errors" tone={summary.critical > 0 ? "red" : "green"} />
+          <SummaryCard icon={Clock3} label="Slow sessions" value={summary.slow} note="Users experiencing slow requests" tone={summary.slow > 0 ? "amber" : "green"} />
         </div>
 
-        <section className="overflow-hidden border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-900">Affected sessions</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Showing {filtered.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filtered.length)} of {filtered.length}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+          <span className="font-black uppercase tracking-[0.12em] text-slate-400">Breakdown</span>
+          <span className="inline-flex items-center gap-1.5"><ServerCrash className="h-3.5 w-3.5 text-slate-400" /><strong className="text-slate-900">{summary.server}</strong> users with server errors</span>
+          <span className="inline-flex items-center gap-1.5"><Bug className="h-3.5 w-3.5 text-slate-400" /><strong className="text-slate-900">{summary.client}</strong> users with frontend crashes</span>
+          <span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-slate-400" /><strong className="text-slate-900">{summary.known}</strong> known users</span>
+          <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-slate-400" /><strong className="text-slate-900">{summary.visitors}</strong> visitor sessions</span>
+          {summary.restored > 0 ? <span className="ml-auto inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /><strong>{summary.restored}</strong> restored</span> : null}
+        </div>
+
+        <section className="w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-white/10 bg-gradient-to-br from-[#071b19] via-[#0a211f] to-[#0b202b] px-4 py-3.5 sm:px-5 lg:px-6">
+            <div className="flex min-w-0 max-w-full flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-sm font-black uppercase tracking-[0.16em] text-white/90">Impact review queue</h2>
+                <p className="mt-1 text-xs font-medium text-white/45">
+                  Showing {filtered.length ? (safePage - 1) * pageSize + 1 : 0}-{Math.min(safePage * pageSize, filtered.length)} of {filtered.length} affected users and sessions
                 </p>
               </div>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                <div className="relative w-full lg:w-72">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <div className="flex w-full min-w-0 max-w-2xl flex-col gap-2.5 sm:flex-row sm:items-center xl:justify-end">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search user or route"
-                    className="h-10 w-full border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm font-semibold text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[#02665e]/40 focus:bg-white focus:ring-2 focus:ring-[#02665e]/10"
+                    className="box-border h-10 w-full min-w-0 rounded-lg border border-white/15 bg-white/[0.08] pl-9 pr-3 text-sm font-semibold text-white outline-none transition-colors placeholder:font-medium placeholder:text-white/45 focus:border-emerald-300/40 focus:bg-white/10 focus:ring-2 focus:ring-emerald-300/10"
                   />
                 </div>
-                <PaginationControls page={safePage} totalPages={totalPages} onPageChange={setPage} align="end" />
+                <PaginationControls page={safePage} totalPages={totalPages} onPageChange={setPage} align="end" variant="dark" />
               </div>
             </div>
-            <div className="mt-4 flex max-w-full flex-wrap gap-1.5 border border-slate-200 bg-slate-50 p-1">
+            <div className="mt-3 flex max-w-full flex-wrap gap-2 border-t border-white/10 pt-3">
               <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>All</FilterButton>
               <FilterButton active={filter === "attention"} onClick={() => setFilter("attention")}>
                 Needs attention{summary.attention > 0 ? ` (${summary.attention})` : ""}
@@ -267,7 +314,6 @@ export default function AdminImpactCenterPage() {
             </div>
           ) : null}
         </section>
-      </div>
 
       {restoreTarget ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
@@ -343,53 +389,67 @@ function ImpactPersonCard({ item, onRestore }: { item: ImpactedUser; onRestore: 
   const diagnostic = item.lastEvent?.diagnostic;
 
   return (
-    <div className="px-4 py-4 sm:px-5">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
+    <article className="px-4 py-4 sm:px-5">
+      <div className="grid min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
         <div className="flex min-w-0 gap-3">
-          <div className={`grid h-10 w-10 shrink-0 place-items-center border ${iconClass}`}>
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border ${iconClass}`}>
             {restored ? <CheckCircle2 className="h-5 w-5" /> : serverIssue ? <ServerCrash className="h-5 w-5" /> : clientIssue ? <Bug className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h2 className="truncate text-[15px] font-bold leading-6 text-slate-950">{item.label}</h2>
-              <span className={`border px-2 py-0.5 text-[11px] font-bold uppercase ${restored ? "border-emerald-200 bg-emerald-50 text-emerald-700" : critical ? "border-red-200 bg-red-50 text-red-700" : item.slowCount > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] ${restored ? "border-emerald-200 bg-emerald-50 text-emerald-700" : critical ? "border-red-200 bg-red-50 text-red-700" : item.slowCount > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
                 {severity}
               </span>
               {!restored && item.attention === "active" ? (
-                <span className="inline-flex items-center gap-1 border border-red-300 bg-red-600 px-2 py-0.5 text-[11px] font-bold uppercase text-white">
+                <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-white">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                   Active
                 </span>
               ) : null}
               {!restored && item.attention === "unconfirmed" ? (
-                <span className="border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold uppercase text-amber-700">
-                  Unconfirmed
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-amber-700">
+                  Recovery unconfirmed
                 </span>
               ) : null}
-              {item.role ? <span className="border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-600">{item.role}</span> : null}
-              {!item.userId ? <span className="border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold uppercase text-sky-700">Visitor</span> : null}
+              {item.role ? <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">{item.role}</span> : null}
+              {!item.userId ? <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">Visitor</span> : null}
               {item.userId ? <span className="font-mono text-xs text-slate-400">#{item.userId}</span> : null}
             </div>
-            {item.email ? <p className="mt-0.5 truncate text-xs text-slate-500">{item.email}</p> : null}
-            <p className="mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-800">{eventLabel}</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              {item.email ? <span className="truncate">{item.email}</span> : null}
+              {item.lastSeenAt ? <span>Last seen {formatTime(item.lastSeenAt)}</span> : null}
+            </div>
+
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">Latest captured signal</div>
+              <p className="mt-1 max-w-4xl break-words font-mono text-xs font-semibold leading-5 text-slate-800">{eventLabel}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                {item.lastEvent?.statusCode ? <span>Latest HTTP {item.lastEvent.statusCode}</span> : null}
+                {item.lastEvent?.durationMs ? <span>{Math.round(item.lastEvent.durationMs)}ms</span> : null}
+                {item.lastEvent?.requestId ? <span className="font-mono">req {item.lastEvent.requestId}</span> : null}
+              </div>
+            </div>
             {diagnostic ? <DiagnosticPanel diagnostic={diagnostic} rawStack={item.lastEvent?.stack} /> : null}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {item.routes.map((route) => (
-                <span key={route} className="border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">
+            <div className="mt-3">
+              <div className="mb-1.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">Affected routes</div>
+              <div className="flex flex-wrap gap-1.5">
+              {item.routes.slice(0, 5).map((route) => (
+                <span key={route} className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[10px] text-slate-600">
                   {route}
                 </span>
               ))}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-              {item.lastSeenAt ? <span>Last seen {formatTime(item.lastSeenAt)}</span> : null}
-              {item.lastEvent?.statusCode ? <span>Status {item.lastEvent.statusCode}</span> : null}
-              {item.lastEvent?.durationMs ? <span>{Math.round(item.lastEvent.durationMs)}ms</span> : null}
-              {item.lastEvent?.requestId ? <span className="font-mono">req {item.lastEvent.requestId}</span> : null}
+              {item.routes.length > 5 ? <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">+{item.routes.length - 5} more</span> : null}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="border border-slate-100 bg-slate-50 p-3">
+        <aside className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">Impact counts</span>
+            <span className="text-[10px] font-semibold text-slate-400">{item.eventCount} captured</span>
+          </div>
           <div className="grid grid-cols-4 gap-2 text-center">
             <ImpactCount label="Events" value={item.eventCount} />
             <ImpactCount label="Slow" value={item.slowCount} tone={item.slowCount > 0 ? "amber" : "slate"} />
@@ -410,36 +470,45 @@ function ImpactPersonCard({ item, onRestore }: { item: ImpactedUser; onRestore: 
               {item.resolution.note ? <p className="mt-2 leading-6 text-emerald-800">{item.resolution.note}</p> : null}
             </div>
           ) : null}
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {item.userId ? (
-              <Link href={`/admin/users/list?search=${encodeURIComponent(String(item.userId))}`} className="inline-flex h-9 items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline shadow-sm hover:bg-slate-50">
-                <UserRound className="h-3.5 w-3.5" />
-                View user
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {item.profile ? (
+              <Link href={item.profile.href} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline shadow-sm hover:bg-slate-50">
+                <ImpactProfileIcon kind={item.profile.kind} />
+                {item.profile.label}
               </Link>
             ) : null}
-            <Link href="/admin/observability" className="inline-flex h-9 items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline shadow-sm hover:bg-slate-50">
+            <Link href="/admin/observability" className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-900 bg-slate-900 px-3 text-xs font-bold text-white no-underline shadow-sm hover:bg-slate-800 ${item.profile ? "" : "col-span-2"}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
-              Open logs
+              Investigate logs
             </Link>
-            <Link href="/admin/management/audit-log" className="inline-flex h-9 items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline shadow-sm hover:bg-slate-50">
+            <Link href="/admin/management/audit-log" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline shadow-sm hover:bg-slate-50">
               <History className="h-3.5 w-3.5" />
-              Audit
+              Audit trail
             </Link>
             {!restored ? (
               <button
                 type="button"
                 onClick={onRestore}
-                className="inline-flex h-9 items-center justify-center gap-2 border border-emerald-700 bg-emerald-700 px-3 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 sm:col-span-3"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-700 shadow-sm hover:bg-emerald-50"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                Mark restored
+                Confirm restored
               </button>
             ) : null}
           </div>
-        </div>
+        </aside>
       </div>
-    </div>
+    </article>
   );
+}
+
+function ImpactProfileIcon({ kind }: { kind: NonNullable<ImpactedUser["profile"]>["kind"] }) {
+  const className = "h-3.5 w-3.5";
+  if (kind === "owner") return <Building2 className={className} />;
+  if (kind === "driver") return <Truck className={className} />;
+  if (kind === "agent") return <Bot className={className} />;
+  if (kind === "admin") return <ShieldCheck className={className} />;
+  return <UserRound className={className} />;
 }
 
 function DiagnosticPanel({ diagnostic, rawStack }: { diagnostic: ErrorDiagnostic; rawStack?: string | null }) {
@@ -516,7 +585,7 @@ function DiagnosticPanel({ diagnostic, rawStack }: { diagnostic: ErrorDiagnostic
   );
 }
 
-function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof UserRound; label: string; value: number; tone: "slate" | "red" | "green" | "amber" }) {
+function SummaryCard({ icon: Icon, label, value, note, tone }: { icon: typeof UserRound; label: string; value: number; note: string; tone: "slate" | "red" | "green" | "amber" }) {
   const classes = {
     slate: {
       card: "border-slate-200 bg-white",
@@ -544,13 +613,14 @@ function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof UserRoun
     },
   }[tone];
   return (
-    <div className={`group border p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${classes.card}`}>
+    <div className={`group min-w-0 rounded-xl border p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${classes.card}`}>
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className={`text-[11px] font-bold uppercase leading-5 tracking-[0.14em] ${classes.label}`}>{label}</div>
-          <div className={`mt-2 text-2xl font-black tracking-tight ${classes.value}`}>{value}</div>
+          <div className={`mt-1 text-2xl font-black tracking-tight ${classes.value}`}>{value}</div>
+          <div className="mt-1 text-[11px] font-medium leading-4 text-slate-400">{note}</div>
         </div>
-        <div className={`grid h-10 w-10 shrink-0 place-items-center border shadow-sm transition-transform duration-300 group-hover:scale-105 ${classes.icon}`}>
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border shadow-sm transition-transform duration-300 group-hover:scale-105 ${classes.icon}`}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -563,10 +633,10 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
     <button
       type="button"
       onClick={onClick}
-      className={`h-8 border px-2.5 text-xs font-bold transition-all sm:px-3 sm:text-sm ${
+      className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-xs font-bold transition-all sm:px-3.5 ${
         active
-          ? "border-emerald-200 bg-emerald-700 text-white shadow-sm shadow-emerald-900/10"
-          : "border-transparent bg-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-950"
+          ? "border-emerald-300/45 bg-emerald-500/20 text-emerald-100 shadow-sm shadow-emerald-950/20"
+          : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/20 hover:bg-white/10 hover:text-white"
       }`}
     >
       {children}
@@ -579,31 +649,40 @@ function PaginationControls({
   totalPages,
   onPageChange,
   align = "start",
+  variant = "light",
 }: {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
   align?: "start" | "end";
+  variant?: "light" | "dark";
 }) {
+  const dark = variant === "dark";
+  const buttonClass = dark
+    ? "border-white/15 bg-white/[0.08] text-white/70 hover:border-white/25 hover:bg-white/15 disabled:text-white/25"
+    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:text-slate-300";
+  const pageClass = dark
+    ? "border-white/15 bg-white/[0.08] text-white/80"
+    : "border-slate-200 bg-slate-50 text-slate-600";
   return (
-    <div className={`flex items-center gap-2 ${align === "end" ? "justify-end" : ""}`}>
+    <div className={`flex shrink-0 items-center gap-2 ${align === "end" ? "justify-end" : ""}`}>
       <button
         type="button"
         onClick={() => onPageChange(Math.max(1, page - 1))}
         disabled={page <= 1}
-        className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-colors disabled:cursor-not-allowed ${buttonClass}`}
         aria-label="Previous page"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
-      <div className="min-w-24 border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-black uppercase tracking-wide text-slate-600">
+      <div className={`min-w-20 rounded-full border px-3 py-2 text-center text-xs font-black tracking-wide ${pageClass}`}>
         {page} / {totalPages}
       </div>
       <button
         type="button"
         onClick={() => onPageChange(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
-        className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-colors disabled:cursor-not-allowed ${buttonClass}`}
         aria-label="Next page"
       >
         <ChevronRight className="h-4 w-4" />
@@ -615,7 +694,7 @@ function PaginationControls({
 function ImpactCount({ label, value, tone = "slate" }: { label: string; value: number; tone?: "slate" | "amber" | "red" }) {
   const valueClass = tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : "text-slate-900";
   return (
-    <div className="border border-slate-200 bg-white px-2 py-2">
+    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2">
       <div className={`text-base font-black ${valueClass}`}>{value}</div>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
     </div>

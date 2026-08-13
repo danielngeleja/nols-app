@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import "@/styles/property-visualization.css";
 import { Suspense, type ReactNode } from "react";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import ToastContainer from "../components/ToastContainer";
 import SuspendedAccessOverlay from "../components/SuspendedAccessOverlay";
 import MobilePublicNav from "../components/MobilePublicNav";
@@ -13,6 +14,7 @@ import ClientErrorReporter from "../components/ClientErrorReporter";
 import PerformanceMeasureGuard from "../components/PerformanceMeasureGuard";
 import RouteChromeShell from "../components/RouteChromeShell";
 import { SITE_URL, buildRootJsonLd, seoKeywords } from "@/lib/seo";
+import { serializeJsonLd } from "@/lib/safeJsonLd";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -78,18 +80,20 @@ export const metadata: Metadata = {
  * Root shell: keep it neutral (no role header, no sidebars).
  * Child segment layouts (/admin, /owner) will render their own header/sidebar.
  */
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   const jsonLd = buildRootJsonLd();
+  const nonce = (await headers()).get("x-nonce") || undefined;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       {/* suppressHydrationWarning on <body> prevents browser-extension text/attribute
            injection (Grammarly, LastPass, etc.) from throwing React error #418. */}
       <body suppressHydrationWarning>
         <script
           type="application/ld+json"
+          nonce={nonce}
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
         />
         <GlobalAlertGuard />
         <ClientErrorReporter />

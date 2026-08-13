@@ -21,6 +21,8 @@ import {
 import { loadGroupStayDepositReceipt, loadGroupStayDepositReceiptData } from "../lib/groupStayReceipts.js";
 import { signGroupStayReceiptToken } from "../lib/groupStayReceiptToken.js";
 import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationPayout.js";
+import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
+import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -166,6 +168,15 @@ router.get("/", async (req, res) => {
         createdAt: gb.createdAt,
         updatedAt: gb.updatedAt,
         adminSuggestions, // Include admin suggestions/messages
+        lifecycle: mapGroupStayLifecycle({
+          bookingStatus: gb.status,
+          depositPaid: Boolean(gb.depositPaid),
+          depositPaidAt: gb.depositPaidAt,
+          depositAmount: gb.depositAmount,
+          depositExpired: gb.status === "AWAITING_DEPOSIT" && !gb.depositPaid && Boolean(gb.depositDueAt) && new Date(gb.depositDueAt).getTime() < now.getTime(),
+          confirmedPropertyId: gb.confirmedPropertyId,
+          cancellationLoaded: false,
+        }),
         deposit: {
           amount: gb.depositAmount != null ? Number(gb.depositAmount) : null,
           paid: gb.depositPaid === true,
@@ -700,6 +711,11 @@ router.post("/:id/deposit/initiate-mno", depositPaymentLimiter, async (req, res)
     }
     const { phoneNumber, provider } = parsed.data;
 
+    const providerGate = await getPaymentMethodAvailability(provider);
+    if (!providerGate.enabled) {
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: providerGate.reason });
+    }
+
     const normalizedPhone = normalizePhone(phoneNumber);
     if (!normalizedPhone) {
       return res.status(400).json({
@@ -830,6 +846,10 @@ router.post("/:id/deposit/initiate-bank", depositPaymentLimiter, async (req, res
       return res.status(400).json({ ok: false, error: "validation_error", details: parsed.error.flatten() });
     }
     const { bankCode, accountNumber, merchantMobileNumber, otp } = parsed.data;
+    const bankGate = await getPaymentMethodAvailability(`BANK_${bankCode}`);
+    if (!bankGate.enabled) {
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: bankGate.reason });
+    }
     const normalizedBankMobile = normalizePhone(merchantMobileNumber);
     if (!normalizedBankMobile) {
       return res.status(400).json({
@@ -974,6 +994,11 @@ router.post("/:id/deposit/initiate-card", depositPaymentLimiter, async (req, res
     const bookingId = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(bookingId)) {
       return res.status(400).json({ ok: false, error: "invalid_id" });
+    }
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled) {
+      return res.status(400).json({ ok: false, error: "payment_method_unavailable", message: cardGate.reason });
     }
 
     const coralConfig = requiredCoralConfig();

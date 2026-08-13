@@ -4,7 +4,7 @@ import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import { prisma } from "@nolsaf/prisma";
-import { socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
+import { monitorSocketSessionPolicy, socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
 import { touchActiveUser } from "../lib/activePresence.js";
 import {
   getProtectedDriverAccessDenial,
@@ -180,6 +180,7 @@ function registerSocketHandlers(io: SocketServer): void {
         }
         socket.data.user = verified;
         user = verified;
+        monitorSocketSessionPolicy(socket);
         try { touchActiveUser(verified.id, verified.role); } catch {}
         await joinAuthenticatedRooms(socket, verified);
         if (callback) callback({ status: "ok", userId: verified.id, role: verified.role });
@@ -522,6 +523,27 @@ function registerSocketHandlers(io: SocketServer): void {
 
 function getIo(): SocketServer | null {
   return ioRef;
+}
+
+/**
+ * Immediately terminate every live socket for an account whose authorization
+ * changed. With the Redis adapter, fetchSockets reaches every API instance.
+ * The periodic database recheck remains the fail-safe when no adapter exists.
+ */
+export async function disconnectUserSockets(
+  userId: number,
+  code = "AUTHORIZATION_CHANGED",
+  message = "Account authorization changed. Sign in again.",
+): Promise<number> {
+  if (!Number.isSafeInteger(userId) || userId <= 0) return 0;
+  const io = getIo();
+  if (!io) return 0;
+  const sockets = await io.in(`user:${userId}`).fetchSockets();
+  await Promise.all(sockets.map(async (socket: any) => {
+    try { socket.emit("session:expired", { code, message }); } catch {}
+    try { socket.disconnect(true); } catch {}
+  }));
+  return sockets.length;
 }
 
 export function emitReferralUpdate(driverId: string | number, referralData: any): void {

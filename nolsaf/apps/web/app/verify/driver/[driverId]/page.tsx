@@ -86,7 +86,7 @@ export default function DriverVerificationPage({ params }: { params: { driverId:
             <div className="flex items-center gap-4">
               <div className="relative h-20 w-20 overflow-hidden rounded-full border-4 border-emerald-100 bg-slate-100">
                 {driver.avatarUrl ? (
-                  <Image src={driver.avatarUrl} alt={driver.name} fill sizes="80px" className="object-cover" />
+                  <Image src={driver.avatarUrl} alt={driver.name} fill sizes="80px" unoptimized={/^https?:\/\//i.test(driver.avatarUrl)} className="object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-2xl font-black text-slate-500">
                     {(driver.name[0] || "D").toUpperCase()}

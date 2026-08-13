@@ -22,13 +22,22 @@ import { sendSms } from "../lib/sms.js";
 import { sendMail } from "../lib/mailer.js";
 import { getBookingReceivedEmail, getTourBookingConfirmedEmail, getGroupStayConfirmedEmail, getOwnerNewBookingEmail, getOperatorTourBookedEmail } from "../lib/bookingEmailTemplates.js";
 import { generateBookingReservationPdf } from "../lib/bookingPdfGen.js";
-import { notifyUser } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../lib/notifications.js";
+import { allocateReceiptNumber } from "../lib/documentSequence.js";
 import crypto from "crypto";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { safeEq } from "../lib/signature.js";
 import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
+import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
+import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
+import { confirmNoLsafBooking } from "../lib/nolsafMarketplaceNrms.js";
+import {
+  expectedInvoicePaymentAmount,
+  isPaymentAmountWithinTolerance,
+  PaymentAmountMismatchError,
+} from "../lib/paymentAmount.js";
 
 const router = Router();
 
@@ -70,7 +79,7 @@ async function notifyOwnerInvoicePaid(params: {
       where: {
         ownerId,
         type: "invoice",
-        meta: { path: ["invoiceId"], equals: invoiceId } as any,
+        meta: { path: "$.invoiceId", equals: invoiceId } as any,
       } as any,
       select: { id: true },
     });
@@ -231,27 +240,18 @@ async function notifyAdminsInvoicePaid(params: {
 // raw parser just for webhooks
 router.use(bodyParser.raw({ type: "*/*", limit: "1mb" }));
 
-// naive sequences for receipt/invoice numbers if needed
-function nextReceiptNumber(prefix = "RCPT", seq: number) {
-  const y = new Date().getFullYear();
-  return `${prefix}/${y}/${String(seq).padStart(5, "0")}`;
-}
+// Receipt numbers come from lib/documentSequence (the document_sequence table).
+// The old local nextReceiptNumber() derived them from COUNT(*) WHERE status='PAID',
+// which collided on the unique index and was copy-pasted into three files.
 
 async function ensurePaidBookingReady(bookingId: number) {
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    select: { id: true, status: true },
-  });
-  if (!booking || booking.status === "CANCELED") return;
-
-  if (booking.status === "NEW") {
-    await prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: "CONFIRMED" },
-    });
-  }
-
-  if (["NEW", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
+  // Preserve the webhook's historical idempotency: a late/replayed payment
+  // notification must never attempt to revive a cancelled accommodation.
+  const current = await prisma.booking.findUnique({ where: { id: bookingId }, select: { status: true } });
+  if (!current || current.status === "CANCELED") return;
+  const booking = await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, bookingId));
+  if (!booking) return;
+  if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
     await generateBookingCodeForBooking(bookingId);
   }
 }
@@ -345,8 +345,33 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
     return inv;
   }
 
-  const seq = await prisma.invoice.count({ where: { status: "PAID" } });
-  const receiptNumber = inv.receiptNumber ?? nextReceiptNumber("RCPT", seq + 1);
+  // This helper is called by webhooks and background reconciliation. Validate
+  // here as the final safety boundary so no caller can accidentally bypass the
+  // provider amount check and settle an underpayment as the full invoice.
+  if (confirmedAmount != null) {
+    const expectedAmount = expectedInvoicePaymentAmount(inv as any);
+    const receivedAmount = Math.round(Number(confirmedAmount));
+    if (!isPaymentAmountWithinTolerance(receivedAmount, expectedAmount)) {
+      throw new PaymentAmountMismatchError(expectedAmount, receivedAmount);
+    }
+  }
+
+  // Determine payment method from provider or method parameter
+  const finalPaymentMethod = provider || method || inv.paymentMethod || "AZAMPAY";
+
+  // Claim the invoice atomically, then build the receipt for whoever won.
+  //
+  // The status read above is a read, not a lock: the AzamPay webhook and an
+  // admin's manual mark-paid can both pass it for the same invoice and both
+  // go on to run the settlement side effects (commission accrual, guest email,
+  // SMS, transport publish). Only the writer whose conditional update actually
+  // matches a row is allowed to continue.
+  //
+  // The receipt number comes from the document_sequence allocator, so it is
+  // unique by construction and cannot collide on invoice.receiptNumber the way
+  // the old COUNT(*) derivation could. Allocating before the claim means a lost
+  // claim burns a number; that is the documented, accepted gap.
+  const receiptNumber = inv.receiptNumber ?? await allocateReceiptNumber();
 
   const payload = JSON.stringify({
     receipt: receiptNumber,
@@ -362,11 +387,8 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
   });
   const { png, payload: qrPayload } = await makeQR(payload);
 
-  // Determine payment method from provider or method parameter
-  const finalPaymentMethod = provider || method || inv.paymentMethod || "AZAMPAY";
-
-  const updated = await prisma.invoice.update({
-    where: { id: invId },
+  const claimed = await prisma.invoice.updateMany({
+    where: { id: invId, status: { not: "PAID" } },
     data: {
       status: "PAID",
       paidBy: null, // webhook/system
@@ -379,7 +401,19 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
       receiptQrPayload: qrPayload,
       receiptQrPng: png,
     },
-    include: { booking: true },
+  });
+
+  let updated: any = null;
+  if (claimed.count === 0) {
+    // Another settlement path won between our read and our write. It owns the
+    // side effects; we only make sure the booking is ready and return current state.
+    await ensurePaidBookingReady(inv.bookingId);
+    return await prisma.invoice.findUnique({ where: { id: invId }, include: { booking: true } }) ?? inv;
+  }
+
+  updated = await prisma.invoice.findUniqueOrThrow({ where: { id: invId }, include: { booking: true } });
+  await prisma.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, updated.id)).catch((error: any) => {
+    console.warn("[sales commission] Marketplace accrual deferred:", error?.message || String(error));
   });
 
   // A public booking is only confirmed after payment succeeds, and the check-in
@@ -563,6 +597,86 @@ function near(a: number, b: number): boolean {
   return Math.abs(a - b) <= absTolerance;
 }
 
+/**
+ * Record an expected-vs-received difference on the payment event and alert admins.
+ *
+ * `near()` accepts up to 1% short (capped at 500 TZS) so gateway rounding does not
+ * block a real payment. That is reasonable, but absorbing the difference without a
+ * trace is not: it is money that was expected and never arrived, invisible to every
+ * report. The delta goes into PaymentEvent.payload (already Json, so no schema
+ * change) and raises an admin notification.
+ *
+ * `outcome` is "absorbed" when the payment was settled anyway, "held" when it was
+ * outside tolerance and deliberately not settled.
+ */
+async function adminPaymentAlertExists(notificationKind: string, paymentEventId: number): Promise<boolean> {
+  try {
+    return !!(await prisma.notification.findFirst({
+      where: {
+        userId: null,
+        ownerId: null,
+        AND: [
+          { meta: { path: "$.paymentEventId", equals: paymentEventId } as any },
+          { meta: { path: "$.notificationKind", equals: notificationKind } as any },
+        ],
+      } as any,
+      select: { id: true },
+    }));
+  } catch {
+    // Alerting remains best-effort; a query failure must not block settlement.
+    return false;
+  }
+}
+
+async function recordPaymentVariance(
+  paymentEventId: number,
+  expected: number,
+  received: number,
+  target: string,
+  outcome: "absorbed" | "held" = "absorbed"
+): Promise<void> {
+  const shortfall = Math.round(expected - received);
+  if (outcome === "absorbed" && shortfall === 0) return; // exact payment, nothing to record
+
+  try {
+    const current = await prisma.paymentEvent.findUnique({
+      where: { id: paymentEventId },
+      select: { payload: true },
+    });
+    const basePayload =
+      current?.payload && typeof current.payload === "object" && !Array.isArray(current.payload)
+        ? (current.payload as any)
+        : {};
+    await prisma.paymentEvent.update({
+      where: { id: paymentEventId },
+      data: {
+        payload: {
+          ...basePayload,
+          variance: { expected, received, shortfall, outcome, recordedAt: new Date().toISOString() },
+        },
+      },
+    });
+  } catch (e: any) {
+    console.error(`[PAYMENT] Failed to record variance on event ${paymentEventId}:`, e?.message ?? e);
+  }
+
+  try {
+    const notificationKind = outcome === "held" ? "payment_amount_mismatch" : "payment_shortfall_absorbed";
+    if (!(await adminPaymentAlertExists(notificationKind, paymentEventId))) {
+      await notifyAdmins(notificationKind, {
+        paymentEventId,
+        target,
+        expected,
+        received,
+        shortfall,
+        actionUrl: "/admin/payments",
+      });
+    }
+  } catch {
+    // Notification failure must never block settlement.
+  }
+}
+
 type GroupBookingDepositTarget = {
   id: number;
   userId: number;
@@ -586,10 +700,10 @@ export async function markGroupBookingDepositPaid(
 ): Promise<{ ok: boolean; reason?: "already_paid" | "amount_mismatch" }> {
   if (groupBooking.depositPaid) return { ok: false, reason: "already_paid" };
   const want = Math.round(Number(groupBooking.depositAmount || 0));
-  if (!(want > 0 && near(amount, want))) return { ok: false, reason: "amount_mismatch" };
+  if (!isPaymentAmountWithinTolerance(amount, want)) return { ok: false, reason: "amount_mismatch" };
 
-  await prisma.groupBooking.update({
-    where: { id: groupBooking.id },
+  const claimed = await prisma.groupBooking.updateMany({
+    where: { id: groupBooking.id, depositPaid: false },
     data: {
       depositPaid: true,
       depositPaidAt: new Date(),
@@ -597,6 +711,7 @@ export async function markGroupBookingDepositPaid(
       paymentProvider: provider,
     },
   });
+  if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
 
   // Now that the deposit is in, finalize the winning owner's claim as ACCEPTED.
   // Before this point the claim sits in REVIEWING so the owner never sees a premature
@@ -713,6 +828,8 @@ export async function markTourBookingPaid(
       guestPhone: true,
       guestEmail: true,
       paymentStatus: true,
+      paymentRef: true,
+      customerPaymentRef: true,
       operatorAgentId: true,
       title: true,
       destination: true,
@@ -725,17 +842,36 @@ export async function markTourBookingPaid(
   if (tour.paymentStatus === "PAID") return { ok: false, reason: "already_paid" };
 
   const want = Math.round(Number(tour.grossAmount));
-  if (!(want > 0 && near(amount, want))) return { ok: false, reason: "amount_mismatch" };
+  if (!near(amount, want)) return { ok: false, reason: "amount_mismatch" };
 
-  await prisma.tourBooking.update({
-    where: { id: tour.id },
+  const claimed = await prisma.tourBooking.updateMany({
+    where: { id: tour.id, paymentStatus: { not: "PAID" } },
     data: {
       paymentStatus: "PAID",
       status: "CONFIRMED",
       paidAt: new Date(),
       paymentProvider: provider,
+      customerPaymentRef: tour.customerPaymentRef ?? tour.paymentRef,
     },
   });
+  if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
+
+  const incomingRef = tour.customerPaymentRef ?? tour.paymentRef;
+  if (incomingRef) {
+    await prisma.tourFinancialTransaction.upsert({
+      where: { reference: incomingRef },
+      create: {
+        tourBookingId: tour.id,
+        kind: "PAYMENT",
+        status: "PAID",
+        provider,
+        reference: incomingRef,
+        currency: tour.currency,
+        amount: tour.grossAmount,
+      },
+      update: { status: "PAID", provider },
+    });
+  }
 
   // Notify operator (agent): in-app + email + SMS, so they prepare immediately.
   if (tour.operatorAgentId) {
@@ -830,13 +966,50 @@ export async function markTourBookingPaid(
 
 /**
  * Check whether a client IP is in the configured allowlist.
- * Returns true when no allowlist is configured (empty → allow all).
+ * Returns true when no allowlist is configured (empty → allow all; callers
+ * that must fail closed check for an empty list themselves — see
+ * routes/payments.azampay.disbursement.ts).
  * Strips IPv4-mapped IPv6 prefix (::ffff:) before comparing.
+ *
+ * Entries may be a bare IPv4 address or IPv4 CIDR ("196.192.0.0/16").
+ * Providers egress from ranges, not single hosts, and without CIDR support an
+ * operator with a range has no way to express it and is pushed toward
+ * disabling the allowlist altogether.
  */
 export function isWebhookIpAllowed(clientIp: string, allowedIps: string[]): boolean {
   if (allowedIps.length === 0) return true;
-  const normalized = clientIp.replace("::ffff:", "");
-  return allowedIps.includes(normalized);
+  const normalized = clientIp.replace("::ffff:", "").trim();
+  if (allowedIps.includes(normalized)) return true;
+
+  const client = ipv4ToInt(normalized);
+  if (client === null) return false;
+
+  return allowedIps.some((entry) => {
+    const slash = entry.indexOf("/");
+    if (slash < 0) return false;
+    const base = ipv4ToInt(entry.slice(0, slash).trim());
+    const bits = Number(entry.slice(slash + 1));
+    if (base === null || !Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+    // A /0 mask would allow everything; shifting by 32 is undefined in JS
+    // bitwise ops, so handle the edge explicitly rather than accidentally.
+    if (bits === 0) return true;
+    const mask = (0xffffffff << (32 - bits)) >>> 0;
+    return (client & mask) >>> 0 === (base & mask) >>> 0;
+  });
+}
+
+/** Dotted-quad IPv4 to a 32-bit unsigned int. Returns null for anything that is not a strict IPv4 literal. */
+function ipv4ToInt(value: string): number | null {
+  const parts = value.split(".");
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet > 255) return null;
+    result = (result << 8) | octet;
+  }
+  return result >>> 0;
 }
 
 /**
@@ -864,17 +1037,34 @@ export function detectPaymentChannel(payload: any): "MNO" | "BANK" | "CARD" | nu
  */
 router.post("/azampay", webhookLimiter, async (req: any, res) => {
   try {
+    const diagIp = String(req.ip || "");
+    const diagCt = req.header("content-type") || "";
+    const diagSigHeader = req.header("X-Azampay-Signature") || req.header("x-azampay-signature") || null;
+    const diagBodyLen =
+      Buffer.isBuffer(req.body) ? req.body.length
+      : typeof req.body === "string" ? req.body.length
+      : JSON.stringify(req.body ?? {}).length;
+    // Trace every inbound call up front so a rejection further down (IP, content-type,
+    // missing/invalid signature) still leaves a record of exactly what AzamPay sent.
+    // Without this, a silently-rejected callback looks identical to one that never arrived.
+    console.info(
+      `[AzamPay Webhook] incoming ip=${diagIp} contentType=${diagCt || "-"} ` +
+      `sigHeaderPresent=${diagSigHeader != null} sigHeaderLen=${diagSigHeader?.length ?? 0} ` +
+      `bodyBytes=${diagBodyLen} headerNames=${Object.keys(req.headers || {}).join(",")}`
+    );
+
     // ── Optional IP allowlist check ────
     const allowedIps = (process.env.AZAMPAY_WEBHOOK_ALLOWED_IPS || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    if (!isWebhookIpAllowed(String(req.ip || ""), allowedIps)) {
-      console.warn("[Webhook] Request from non-allowlisted IP rejected");
+    if (!isWebhookIpAllowed(diagIp, allowedIps)) {
+      console.warn(`[AzamPay Webhook] rejected: IP not allowlisted (ip=${diagIp}, allowlistSize=${allowedIps.length})`);
       return res.status(403).json({ ok: false, error: "forbidden" });
     }
 
     // Reject non-JSON content types immediately (before touching body)
-    const ct = req.header("content-type") || "";
+    const ct = diagCt;
     if (!ct.includes("application/json") && !ct.includes("text/plain")) {
+      console.warn(`[AzamPay Webhook] rejected: unsupported content-type "${ct}" (ip=${diagIp})`);
       return res.status(415).json({ ok: false, error: "Unsupported content type" });
     }
 
@@ -884,15 +1074,18 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         : typeof req.body === "string"
           ? req.body
           : JSON.stringify(req.body ?? {});
-    const signature = req.header("X-Azampay-Signature") || req.header("x-azampay-signature");
+    const signature = diagSigHeader;
     const secret = process.env.AZAMPAY_WEBHOOK_SECRET;
 
     if (!secret) {
-      console.warn("AZAMPAY_WEBHOOK_SECRET not configured");
+      console.warn(`[AzamPay Webhook] rejected: AZAMPAY_WEBHOOK_SECRET not configured (ip=${diagIp})`);
       return res.status(500).json({ ok: false, error: "Webhook secret not configured" });
     }
 
     if (!signature) {
+      console.warn(
+        `[AzamPay Webhook] rejected: signature header missing (ip=${diagIp}, headerNames=${Object.keys(req.headers || {}).join(",")})`
+      );
       return res.status(400).json({ ok: false, error: "Signature missing" });
     }
 
@@ -900,9 +1093,13 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
     const sig = String(signature).trim().toLowerCase();
     if (!safeEq(computed, sig)) {
-      console.warn("Invalid AzamPay webhook signature");
+      console.warn(
+        `[AzamPay Webhook] rejected: signature mismatch (ip=${diagIp}, receivedLen=${sig.length}, receivedPrefix=${sig.slice(0, 8)}, ` +
+        `computedPrefix=${computed.slice(0, 8)}, bodyBytes=${rawBody.length})`
+      );
       return res.status(401).json({ ok: false, error: "Invalid signature" });
     }
+    console.info(`[AzamPay Webhook] signature verified (ip=${diagIp})`);
 
     const payload = JSON.parse(rawBody);
 
@@ -951,11 +1148,16 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
       where: { provider: "AZAMPAY", eventId: eventId.toString() },
     });
 
-    if (existing) {
-      if (existing.status === normalizedStatus) {
-        // Already processed with same outcome — safe to ack
-        return res.json({ ok: true, id: existing.id, message: "Event already processed" });
-      }
+    // Seeing this event before does NOT mean it was settled. The event row is
+    // written before markInvoicePaid / markTourBookingPaid / markGroupBookingDepositPaid
+    // run, and those are not in the same transaction, so a crash, deploy or DB
+    // blip in between leaves a SUCCESS event whose booking was never confirmed.
+    // Short-circuiting on the event row alone made every AzamPay retry a no-op
+    // and stranded the payment permanently. Resolve the target first and decide
+    // below, once we can actually see whether settlement happened.
+    const seenBefore = !!existing && existing.status === normalizedStatus;
+
+    if (existing && !seenBefore) {
       // Status changed (e.g. PENDING → SUCCESS): update in place
       const updated = await prisma.paymentEvent.update({
         where: { id: existing.id },
@@ -984,21 +1186,52 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     const tourIdHint  = Number(extraProps?.tourBookingId);
     const groupIdHint = Number(extraProps?.groupBookingId);
     const sessionHint = eventId ? eventId.toString() : null;
+    const existingPayload = existing?.payload && typeof existing.payload === "object" ? existing.payload as any : null;
+    const nrmsTokenHint = String(extraProps?.nrmsToken || existingPayload?.nrmsToken || (/^NRMS-/i.test(String(paymentRef || "")) ? paymentRef : "") || "");
+    const nrmsOr: any[] = [];
+    if (nrmsTokenHint) nrmsOr.push({ token: nrmsTokenHint });
+    if (sessionHint) nrmsOr.push({ checkoutSessionId: sessionHint });
+    const nrmsPaymentToken = nrmsOr.length
+      ? await (prisma as any).nrmsServicePaymentToken.findFirst({ where: { OR: nrmsOr }, include: { statement: { include: { account: true } }, payment: true } })
+      : null;
 
-    // Find invoice by paymentRef
+    // An existing PaymentEvent foreign key is the authoritative target on a
+    // replay. AzamPay does not reliably repeat paymentRef, and ignoring this
+    // relation could acknowledge a recorded SUCCESS event while its invoice
+    // remained stranded.
     let invoice = null as any;
-    if (paymentRef) {
-      invoice = await prisma.invoice.findFirst({
-        where: { paymentRef: paymentRef.toString() },
+    if (existing?.invoiceId) {
+      invoice = await prisma.invoice.findUnique({
+        where: { id: existing.invoiceId },
         include: { booking: { include: { user: true, property: true } } },
       });
+    } else {
+      const invoiceOr: any[] = [];
+      if (paymentRef) invoiceOr.push({ paymentRef: paymentRef.toString() });
+      if (sessionHint) invoiceOr.push({ checkoutSessionId: sessionHint });
+      if (invoiceOr.length) {
+      invoice = await prisma.invoice.findFirst({
+        where: { OR: invoiceOr },
+        include: { booking: { include: { user: true, property: true } } },
+      });
+      }
     }
 
     // Also find tour booking (when no invoice found). Match on any signal we have:
     // paymentRef, the tourBookingId we sent in additionalProperties, or the
     // checkoutSessionId that equals this transactionId.
     let tourBooking = null as any;
-    if (!invoice) {
+    if (!invoice && existing?.tourBookingId) {
+      tourBooking = await prisma.tourBooking.findUnique({
+        where: { id: existing.tourBookingId },
+        select: {
+          id: true, bookingCode: true, grossAmount: true, currency: true,
+          guestName: true, guestPhone: true, guestEmail: true, paymentStatus: true,
+          status: true, operatorAgentId: true, title: true, destination: true,
+          startDate: true, travelerCount: true,
+        },
+      });
+    } else if (!invoice) {
       const tourOr: any[] = [];
       if (paymentRef) tourOr.push({ paymentRef: paymentRef.toString() });
       if (Number.isInteger(tourIdHint) && tourIdHint > 0) tourOr.push({ id: tourIdHint });
@@ -1029,7 +1262,17 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // Also find a group booking deposit (when no invoice/tour booking found). Same
     // robust matching as tours: paymentRef, groupBookingId hint, or checkoutSessionId.
     let groupBooking = null as any;
-    if (!invoice && !tourBooking) {
+    if (!invoice && !tourBooking && existing?.groupBookingId) {
+      groupBooking = await prisma.groupBooking.findUnique({
+        where: { id: existing.groupBookingId },
+        select: {
+          id: true, userId: true, depositAmount: true, depositPaid: true,
+          currency: true, status: true, assignedOwnerId: true,
+          confirmedPropertyId: true, checkIn: true, checkOut: true,
+          roomsNeeded: true, toRegion: true, toDistrict: true,
+        },
+      });
+    } else if (!invoice && !tourBooking) {
       const groupOr: any[] = [];
       if (paymentRef) groupOr.push({ paymentRef: paymentRef.toString() });
       if (Number.isInteger(groupIdHint) && groupIdHint > 0) groupOr.push({ id: groupIdHint });
@@ -1059,10 +1302,35 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // Visibility: which entity (if any) this callback resolved to, and via which signal.
     console.info(
       `[Webhook] match status=${normalizedStatus} ` +
-      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} ` +
+      `invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} nrms=${nrmsPaymentToken?.id ?? "-"} ` +
       `(paymentRef=${paymentRef ? "y" : "n"} tourHint=${Number.isInteger(tourIdHint) ? tourIdHint : "-"} ` +
       `groupHint=${Number.isInteger(groupIdHint) ? groupIdHint : "-"} session=${sessionHint ? "y" : "n"})`
     );
+
+    // Now that the target is resolved, a repeat delivery can be answered
+    // honestly. Ack only when there is nothing left to settle: the target
+    // already reached its paid state, this is not a SUCCESS, or nothing matched
+    // at all (an unmatched event is surfaced by the reconciliation worker and
+    // the admin unmatched view, not by looping AzamPay forever). Otherwise fall
+    // through and let the settlement calls below run again — they are all
+    // individually idempotent, so a retry can only complete work, never double it.
+    if (seenBefore) {
+      const targetSettled =
+        normalizedStatus !== "SUCCESS" ||
+        (invoice ? invoice.status === "PAID"
+          : tourBooking ? tourBooking.paymentStatus === "PAID"
+          : groupBooking ? !!groupBooking.depositPaid
+          : nrmsPaymentToken ? !!nrmsPaymentToken.payment
+          : true);
+      if (targetSettled) {
+        return res.json({ ok: true, id: existing!.id, message: "Event already processed" });
+      }
+      console.warn(
+        `[Webhook] Replay of event ${eventId} whose target is still unsettled ` +
+        `(invoice=${invoice?.id ?? "-"} tour=${tourBooking?.id ?? "-"} group=${groupBooking?.id ?? "-"} ` +
+        `nrms=${nrmsPaymentToken?.id ?? "-"}). Re-running settlement.`
+      );
+    }
 
     // Record the payment event (only if not already existing)
     const recorded = existing ?? await prisma.paymentEvent.create({
@@ -1083,16 +1351,38 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         payload: {
           transactionId: eventId,
           paymentRef:    paymentRef ?? null,
+          nrmsToken:     nrmsPaymentToken?.token ?? null,
           status:        payload.status ?? null,
           provider:      payload.provider ?? null,
         },
       },
     });
 
+    // Money arrived and we cannot tell what it was for. Previously this wrote a
+    // PaymentEvent with all three foreign keys null and surfaced nowhere, so the
+    // customer was charged and nobody knew. Alert on the first delivery only
+    // (a repeat with no target is acked above, before reaching here).
+    if (normalizedStatus === "SUCCESS" && !invoice && !tourBooking && !groupBooking && !nrmsPaymentToken) {
+      console.error(
+        `[WEBHOOK] UNMATCHED successful payment: event=${eventId} amount=${amount} ` +
+        `paymentRef=${paymentRef ?? "-"} phone=${phone ?? "-"}. Recorded as PaymentEvent ${recorded.id}.`
+      );
+      await notifyAdmins("payment_unmatched", {
+        paymentEventId: recorded.id,
+        eventId: String(eventId),
+        amount,
+        status: normalizedStatus,
+        paymentRef: paymentRef ?? null,
+        // The unmatched list is served by GET /admin/payments/events?tab=unmatched.
+        // Point at the page that renders today; deep-link once it has that tab.
+        actionUrl: "/admin/payments",
+      }).catch(() => { /* never block the ack */ });
+    }
+
     // If payment is successful, mark invoice as paid
     if (invoice && normalizedStatus === "SUCCESS") {
       // TZS has no cents — compare as rounded integers to match what was sent to AzamPay.
-      const want = Math.round(Number(invoice.total || invoice.netPayable || 0));
+      const want = expectedInvoicePaymentAmount(invoice);
       
       // Extract phone number and provider from payment event payload or invoice
       const eventPayload = recorded.payload as any;
@@ -1100,7 +1390,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
       const provider = eventPayload?.provider || eventPayload?.paymentMethod || invoice.paymentMethod || "AZAMPAY";
       
       // Verify amount matches within tolerance
-      if (near(amount, want)) {
+      if (isPaymentAmountWithinTolerance(amount, want)) {
         await markInvoicePaid(
           invoice.id,
           "AZAMPAY",
@@ -1110,6 +1400,10 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           eventId.toString(),
           amount
         );
+        // A payment inside tolerance still may not be the full amount. Absorbing
+        // the difference silently means unrecorded money; record the variance on
+        // the event and tell admins so it can be chased or written off deliberately.
+        await recordPaymentVariance(recorded.id, want, amount, `invoice ${invoice.id}`);
       } else {
         // Suspicious underpayment — log with enough detail for admin investigation.
         console.warn(
@@ -1117,17 +1411,40 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           `expected ${want} TZS, received ${amount} TZS ` +
           `(diff ${Math.abs(amount - want)} TZS). Invoice NOT marked paid.`
         );
+        await recordPaymentVariance(recorded.id, want, amount, `Invoice ${invoice.id}`, "held");
       }
+    }
+
+    if (nrmsPaymentToken && normalizedStatus === "SUCCESS") {
+      try {
+        await reconcileNrmsPaymentAndAccrue(prisma, {
+          token: nrmsPaymentToken.token,
+          provider: "AZAMPAY",
+          providerRef: eventId.toString(),
+          idempotencyKey: `AZAMPAY:${eventId}`.slice(0, 120),
+          amount,
+        }, "AzamPay NRMS");
+      } catch (nrmsError: any) {
+        const message = String(nrmsError?.message || "");
+        if (!message.includes("AMOUNT_MISMATCH")) console.error("[Webhook] NRMS reconciliation failed:", message || nrmsError);
+      }
+    }
+    if (nrmsPaymentToken && normalizedStatus === "FAILED") {
+      await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
     }
 
     // ── Tour booking payment success ──────────────────────────────────────────
     if (tourBooking && normalizedStatus === "SUCCESS" && tourBooking.paymentStatus !== "PAID") {
       try {
         const result = await markTourBookingPaid(tourBooking.id, amount, "AZAMPAY");
+        const tourWant = Math.round(Number(tourBooking.grossAmount || 0));
         if (!result.ok && result.reason === "amount_mismatch") {
           console.warn(
             `[WEBHOOK] Amount mismatch on tour booking ${tourBooking.id}: received ${amount} TZS.`
           );
+          await recordPaymentVariance(recorded.id, tourWant, amount, `Tour booking ${tourBooking.id}`, "held");
+        } else if (result.ok) {
+          await recordPaymentVariance(recorded.id, tourWant, amount, `Tour booking ${tourBooking.id}`);
         }
       } catch (tourErr) {
         console.error(`[WEBHOOK] Failed to confirm tour booking ${tourBooking.id}:`, (tourErr as any)?.message ?? tourErr);
@@ -1138,11 +1455,15 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     if (groupBooking && normalizedStatus === "SUCCESS" && !groupBooking.depositPaid) {
       try {
         const result = await markGroupBookingDepositPaid(groupBooking, amount, "AZAMPAY");
+        const groupWant = Math.round(Number(groupBooking.depositAmount || 0));
         if (!result.ok && result.reason === "amount_mismatch") {
           console.warn(
             `[WEBHOOK] Amount mismatch on group booking deposit ${groupBooking.id}: ` +
-            `expected ${Math.round(Number(groupBooking.depositAmount || 0))} TZS, received ${amount} TZS.`
+            `expected ${groupWant} TZS, received ${amount} TZS.`
           );
+          await recordPaymentVariance(recorded.id, groupWant, amount, `Group booking ${groupBooking.id}`, "held");
+        } else if (result.ok) {
+          await recordPaymentVariance(recorded.id, groupWant, amount, `Group booking ${groupBooking.id}`);
         }
       } catch (groupErr) {
         console.error(`[WEBHOOK] Failed to mark group booking ${groupBooking.id} deposit as paid:`, (groupErr as any)?.message ?? groupErr);

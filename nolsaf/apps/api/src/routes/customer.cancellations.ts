@@ -5,6 +5,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { limitCancellationLookup, limitCancellationSubmit, limitCancellationMessages } from "../middleware/rateLimit.js";
+import { evaluateRefundWindow } from "../lib/refundWindowPolicy.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -56,18 +57,15 @@ function computeEligibility(args: {
     };
   }
 
-  // Before check-in policy windows
-  const hoursSinceBooking = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
-  const hoursBeforeCheckIn = (checkIn.getTime() - now.getTime()) / (1000 * 60 * 60);
+  // Before check-in policy windows (shared with tours — see lib/refundWindowPolicy.ts)
+  const window = evaluateRefundWindow({ bookedAt: createdAt, startsAt: checkIn, requestedAt: now });
 
-  // 2.1 Free cancellation: within 24h of booking AND at least 72h before check-in
-  if (hoursSinceBooking <= 24 && hoursBeforeCheckIn >= 72) {
-    return { eligible: true, refundPercent: 100, rule: "FREE_24H_72H", nextStep: "PLATFORM" };
+  if (window.tier === "FULL_100") {
+    return { eligible: true, refundPercent: window.refundPercent, rule: "FREE_24H_72H", nextStep: "PLATFORM" };
   }
 
-  // 2.2 Partial refund: at least 96h before check-in => 50% refund
-  if (hoursBeforeCheckIn >= 96) {
-    return { eligible: true, refundPercent: 50, rule: "PARTIAL_50_96H", nextStep: "PLATFORM" };
+  if (window.tier === "PARTIAL_50") {
+    return { eligible: true, refundPercent: window.refundPercent, rule: "PARTIAL_50_96H", nextStep: "PLATFORM" };
   }
 
   // Otherwise: not eligible through platform (direct communication required)
@@ -147,7 +145,7 @@ router.get("/lookup", limitCancellationLookup, (async (req: AuthedRequest, res) 
         where: {
           bookingId: checkinCode.booking.id,
           userId,
-          status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "PROCESSING"] },
+          status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "APPROVED", "REFUND_PENDING"] },
         },
         select: { id: true, status: true, createdAt: true },
       });
@@ -225,7 +223,7 @@ router.post("/request", limitCancellationSubmit, (async (req: AuthedRequest, res
 
     try {
       const existingPending = await prisma.cancellationRequest.findFirst({
-        where: { bookingId: checkinCode.booking.id, userId, status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "PROCESSING"] } },
+        where: { bookingId: checkinCode.booking.id, userId, status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "APPROVED", "REFUND_PENDING"] } },
         select: { id: true },
       });
       if (existingPending) {
@@ -297,6 +295,11 @@ router.get("/", (async (req: AuthedRequest, res) => {
         policyEligible: true,
         policyRefundPercent: true,
         policyRule: true,
+        refundAmount: true,
+        refundProvider: true,
+        refundReference: true,
+        refundInitiatedAt: true,
+        refundedAt: true,
         createdAt: true,
         updatedAt: true,
         booking: {
@@ -377,6 +380,9 @@ router.post("/:id/messages", limitCancellationMessages, (async (req: AuthedReque
       select: { id: true, status: true, bookingId: true, bookingCode: true },
     });
     if (!request) return res.status(404).json({ error: "Cancellation request not found" });
+    if (["REFUNDED", "REJECTED"].includes(request.status)) {
+      return res.status(409).json({ error: "Messages are locked because this cancellation is final" });
+    }
 
     const created = await prisma.cancellationMessage.create({
       data: {

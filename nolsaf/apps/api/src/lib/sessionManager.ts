@@ -1,4 +1,5 @@
-import jwt, { SignOptions } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+import { prisma } from "@nolsaf/prisma";
 import { 
   getSessionIdleMinutes, 
   getMaxSessionDurationHours,
@@ -61,19 +62,26 @@ async function getSessionSettings() {
  * Sign JWT token with dynamic expiration based on SystemSetting
  */
 export async function signUserJwt(
-  user: { id: number; role?: string | null; email?: string | null }
+  user: { id: number; role?: string | null; email?: string | null },
+  options: {
+    impersonated?: boolean;
+    expiresInSeconds?: number;
+    /** Required authentication method for a usable ADMIN session. */
+    adminMfa?: "passkey" | "totp";
+  } = {},
 ): Promise<string> {
+  let sessionId: string | null = null;
   try {
     const roleMaxMinutes = await getRoleSessionMaxMinutes(user.role);
     const maxDurationSeconds = Math.min(
-      roleMaxMinutes * 60,
-      7 * 24 * 60 * 60 // 7 days max
+      options.expiresInSeconds ?? roleMaxMinutes * 60,
+      7 * 24 * 60 * 60,
     );
     
     // Use environment variable if set, otherwise use calculated max duration (in seconds)
     // Always use number (seconds) for consistency - jsonwebtoken accepts this
     let expiresIn: number = maxDurationSeconds;
-    if (process.env.JWT_EXPIRES_IN) {
+    if (options.expiresInSeconds == null && process.env.JWT_EXPIRES_IN) {
       const envValue = process.env.JWT_EXPIRES_IN;
       const numValue = Number(envValue);
       // Only use numeric values from env; if not a number, use default
@@ -82,16 +90,33 @@ export async function signUserJwt(
       }
     }
     
+    // Create the server-side session before signing so every normal auth token
+    // is bound to one revocable device/session record.
+    const session = await prisma.session.create({
+      data: { userId: user.id, lastSeenAt: new Date() },
+      select: { id: true },
+    });
+    sessionId = session.id;
+
     return jwt.sign(
       { 
         sub: String(user.id),
         role: user.role ? String(user.role).toUpperCase() : undefined,
+        sid: session.id,
+        ...(options.impersonated ? { imp: true } : {}),
+        ...(options.adminMfa ? { amr: options.adminMfa } : {}),
         iat: Math.floor(Date.now() / 1000), // Issued at time
       },
       JWT_SECRET,
       { expiresIn }
     );
   } catch (error: any) {
+    if (sessionId) {
+      await prisma.session.updateMany({
+        where: { id: sessionId, userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }).catch(() => {});
+    }
     console.error("Error signing JWT:", error);
     throw new Error(`Failed to sign JWT: ${error?.message || String(error)}`);
   }
