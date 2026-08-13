@@ -4257,6 +4257,14 @@ model NrmsGroupBlock {
   /// need arrives with the group billing work.
   billingMode String @default("INDIVIDUAL") @db.VarChar(20)
 
+  /// The qualification rule frozen when the agreement was created. Standard
+  /// groups meet this room count; smaller contracted parties require an owner
+  /// approval reason. Existing groups are never reclassified later.
+  groupMinimumRooms       Int       @default(5)
+  agreedRoomsAtCreation   Int?
+  smallGroupApprovedAt    DateTime?
+  smallGroupApprovalReason String?  @db.VarChar(300)
+
   notes       String?   @db.Text
   createdById Int?
   releasedAt  DateTime?

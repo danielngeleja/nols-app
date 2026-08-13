@@ -23,6 +23,7 @@ import { encrypt } from "../lib/crypto.js";
 import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { qualifyGroupBlock, STANDARD_GROUP_MIN_ROOMS } from "../lib/nrmsGroupPolicy.js";
 import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
@@ -74,17 +75,18 @@ const createBlockSchema = z.object({
   name: z.string().trim().min(2).max(160),
   agencyName: z.string().trim().max(160).optional().nullable(),
   contactName: z.string().trim().min(2).max(160),
-  contactPhone: z.string().trim().max(40).optional().nullable(),
+  contactPhone: z.string().trim().min(7).max(40),
   contactEmail: z.string().trim().email().max(160),
   checkIn: dayString,
   checkOut: dayString,
   cutOffAt: dayString,
   billingMode: z.enum(BILLING_MODES).default("INDIVIDUAL"),
+  smallGroupApprovalReason: z.string().trim().max(300).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   rooms: z.array(blockRoomSchema).min(1).max(40),
 });
 
-const editBlockSchema = createBlockSchema.partial().omit({ rooms: true }).extend({
+const editBlockSchema = createBlockSchema.partial().omit({ rooms: true, smallGroupApprovalReason: true }).extend({
   rooms: z.array(z.object({
     id: z.number().int().positive(),
     quantity: z.number().int().min(1).max(200),
@@ -238,6 +240,11 @@ function formatBlock(block: any) {
     status: block.status,
     currency: block.currency,
     billingMode: block.billingMode,
+    groupMinimumRooms: block.groupMinimumRooms ?? STANDARD_GROUP_MIN_ROOMS,
+    agreedRoomsAtCreation: block.agreedRoomsAtCreation,
+    groupClassification: block.smallGroupApprovedAt ? "APPROVED_SMALL" : block.agreedRoomsAtCreation != null || roomsTotal >= (block.groupMinimumRooms ?? STANDARD_GROUP_MIN_ROOMS) ? "STANDARD" : "GRANDFATHERED",
+    smallGroupApprovedAt: block.smallGroupApprovedAt,
+    smallGroupApprovalReason: block.smallGroupApprovalReason,
     notes: block.notes,
     groupId: block.groupId,
     releasedAt: block.releasedAt,
@@ -442,6 +449,16 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
     if (!active) return;
     const propertyId = active.property.id as number;
     const data = parsed.data;
+    const agreedRooms = data.rooms.reduce((sum, room) => sum + room.quantity, 0);
+    const qualification = qualifyGroupBlock(agreedRooms, data.smallGroupApprovalReason);
+    if (!qualification.ok) {
+      return res.status(400).json({
+        error: qualification.error,
+        code: qualification.code,
+        agreedRooms,
+        standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+      });
+    }
     if (billingUsesMasterFolio(data.billingMode) && !String(data.agencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
     }
@@ -484,6 +501,10 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
           status: "HELD",
           currency: active.property.currency ?? "TZS",
           billingMode: data.billingMode,
+          groupMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+          agreedRoomsAtCreation: agreedRooms,
+          smallGroupApprovedAt: qualification.classification === "APPROVED_SMALL" ? new Date() : null,
+          smallGroupApprovalReason: qualification.approvalReason ? sanitizeText(qualification.approvalReason) : null,
           notes: data.notes ? sanitizeText(data.notes) : null,
           createdById: ownerId,
         },
@@ -770,9 +791,10 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
     const nextBillingMode = data.billingMode ?? block.billingMode;
     const nextAgencyName = data.agencyName !== undefined ? data.agencyName : block.agencyName;
     const nextContactName = data.contactName !== undefined ? data.contactName : block.contactName;
+    const nextContactPhone = data.contactPhone !== undefined ? data.contactPhone : block.contactPhone;
     const nextContactEmail = data.contactEmail !== undefined ? data.contactEmail : block.contactEmail;
-    if (!String(nextContactName || "").trim() || !String(nextContactEmail || "").trim()) {
-      return res.status(400).json({ error: "Group leader name and billing email are required", code: "BILLING_CONTACT_REQUIRED" });
+    if (!String(nextContactName || "").trim() || String(nextContactPhone || "").trim().length < 7 || !String(nextContactEmail || "").trim()) {
+      return res.status(400).json({ error: "Group leader name, contact phone and billing email are required", code: "BILLING_CONTACT_REQUIRED" });
     }
     if (billingUsesMasterFolio(nextBillingMode) && !String(nextAgencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
@@ -818,10 +840,12 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
       cutOffAt: data.cutOffAt ?? block.cutOffAt.toISOString(),
     });
     if ("error" in dates) return res.status(400).json({ error: dates.error });
+    const now = new Date();
+    const reactivatingExpiredHold = block.cutOffAt.getTime() <= now.getTime() && dates.cutOffAt.getTime() > now.getTime();
 
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
-      if (data.rooms) {
+      if (data.rooms || reactivatingExpiredHold) {
         const byId = new Map(block.rooms.map((room: any) => [room.id, room]));
         const availability = await getRoomTypesAvailability(
           tx,
@@ -831,10 +855,21 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
           dates.checkOut,
           { excludeGroupBlockId: block.id },
         );
-        for (const room of data.rooms) {
-          const existing = byId.get(room.id) as any;
-          const capacity = availability.get(existing.roomTypeId);
-          if (!capacity || capacity.available < room.quantity) throw new Error(`NRMS_BLOCK_CAPACITY:${existing.roomTypeId}:${room.quantity}:${capacity?.available ?? 0}`);
+        const requestedByRoomType = new Map<number, number>();
+        if (data.rooms) {
+          for (const room of data.rooms) {
+            const existing = byId.get(room.id) as any;
+            requestedByRoomType.set(existing.roomTypeId, (requestedByRoomType.get(existing.roomTypeId) ?? 0) + room.quantity);
+          }
+        } else {
+          for (const room of block.rooms) {
+            const held = Math.max(0, room.quantity - room.pickedUp);
+            requestedByRoomType.set(room.roomTypeId, (requestedByRoomType.get(room.roomTypeId) ?? 0) + held);
+          }
+        }
+        for (const [roomTypeId, requested] of requestedByRoomType) {
+          const capacity = availability.get(roomTypeId);
+          if (!capacity || capacity.available < requested) throw new Error(`NRMS_BLOCK_CAPACITY:${roomTypeId}:${requested}:${capacity?.available ?? 0}`);
         }
       }
       const changed = await tx.nrmsGroupBlock.update({
