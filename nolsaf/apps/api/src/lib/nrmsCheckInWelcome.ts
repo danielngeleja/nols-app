@@ -1,3 +1,5 @@
+import { buildStayOrderingToken } from "./nrmsStayToken.js";
+
 export const NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME = "NoLSAF automatic room-ordering welcome";
 
 type DbLike = any;
@@ -91,7 +93,11 @@ export async function queueNrmsCheckInWelcome(db: DbLike, reservationId: number)
     select: { id: true },
   });
 
-  const orderingUrl = `${webOrigin()}/menu/${point.token}`;
+  // Deliberately NOT `point.token`. That is the permanent capability printed on
+  // the wall, and an SMS lives in the guest's phone long after they check out.
+  // The per-stay token names this reservation, so the link dies at checkout on
+  // its own and the printed code never has to be rotated or reprinted (m7).
+  const orderingUrl = `${webOrigin()}/menu/${buildStayOrderingToken(reservation.id)}`;
   const renderedMessage = welcomeMessage(
     reservation.guestProfile.fullName || "Guest",
     reservation.property.title,

@@ -13,6 +13,7 @@ import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
 import { nrmsOrderPlacementSettlement } from "../lib/nrmsOrders.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
+import { readStayOrderingToken } from "../lib/nrmsStayToken.js";
 import {
   limitPublicQrMenu,
   limitPublicQrOrderCreate,
@@ -59,13 +60,28 @@ const publicOrderFeedbackSchema = z.object({
  * The checked-in stay occupying the point's room, if any. Used both to
  * advertise "charge to my room" on the menu and to verify it at order time.
  */
-async function findStayForPoint(point: { type: string; roomUnitId: number | null; propertyId: number }) {
+async function findStayForPoint(point: {
+  type: string;
+  roomUnitId: number | null;
+  propertyId: number;
+  /**
+   * Set only when the guest arrived on a per-stay token (m7). The printed room
+   * QR resolves to whoever occupies the room right now, which is what a code on
+   * the wall should do. A stay link instead names the reservation it was issued
+   * for, so it can never reach the folio of a later guest in the same room.
+   */
+  boundReservationId?: number | null;
+}) {
   if (point.type !== "ROOM" || point.roomUnitId == null) return null;
   const allocation = await db.reservationRoomAllocation.findFirst({
     where: {
       roomUnitId: point.roomUnitId,
       status: "ACTIVE",
-      reservation: { propertyId: point.propertyId, status: "CHECKED_IN" },
+      reservation: {
+        propertyId: point.propertyId,
+        status: "CHECKED_IN",
+        ...(point.boundReservationId ? { id: point.boundReservationId } : {}),
+      },
     },
     select: {
       reservation: {
@@ -86,6 +102,52 @@ function pointCustomerLabel(point: { type: string; label: string }): string {
   return `${kind} ${point.label} (QR)`.slice(0, 120);
 }
 
+/**
+ * Resolves a per-stay token (m7) to the room order point it belongs to, bound
+ * to its own reservation. Returns null when the value is not a stay token, so
+ * the caller falls through to the printed order-point lookup.
+ *
+ * A stay token stops working the moment its reservation leaves CHECKED_IN.
+ * That is what lets the printed QR stay permanent: the link we put in an SMS,
+ * which lives in the guest's phone forever, is not the same capability as the
+ * code on the wall.
+ */
+async function loadPointForStayToken(reservationId: number) {
+  const reservation = await db.reservation.findFirst({
+    where: { id: reservationId, status: "CHECKED_IN" },
+    select: {
+      id: true,
+      propertyId: true,
+      allocations: {
+        where: { status: "ACTIVE", roomUnitId: { not: null } },
+        select: { roomUnitId: true },
+        orderBy: { id: "asc" },
+      },
+    },
+  });
+  if (!reservation) return null;
+
+  const roomUnitIds = reservation.allocations
+    .map((allocation: { roomUnitId: number | null }) => allocation.roomUnitId)
+    .filter((id: number | null): id is number => id != null);
+  if (!roomUnitIds.length) return null;
+
+  const point = await db.nrmsOrderPoint.findFirst({
+    where: {
+      propertyId: reservation.propertyId,
+      type: "ROOM",
+      roomUnitId: { in: roomUnitIds },
+      active: true,
+      orderingEnabled: true,
+    },
+    include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
+    orderBy: { id: "asc" },
+  });
+  if (!point) return null;
+
+  return { ...point, boundReservationId: reservation.id };
+}
+
 /** Resolves an active order point + NRMS-active property, or replies and returns null. */
 async function loadActivePoint(req: Request, res: Response) {
   const token = String(req.params.token || "");
@@ -98,10 +160,27 @@ async function loadActivePoint(req: Request, res: Response) {
     res.status(503).json({ error: "Online ordering is temporarily unavailable. Please order with a staff member." });
     return null;
   }
-  const point = await db.nrmsOrderPoint.findUnique({
-    where: { token },
-    include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
-  });
+
+  // Only a cryptographically valid stay token owns the stay-token namespace.
+  // Printed point tokens are random and may coincidentally look like
+  // `s<digits>_<suffix>`; an invalid HMAC must still fall through to their
+  // normal database lookup instead of shadowing a permanent room QR.
+  const stayReservationId = readStayOrderingToken(token);
+  const stayPoint = stayReservationId ? await loadPointForStayToken(stayReservationId) : null;
+  if (stayReservationId && !stayPoint) {
+    res.status(404).json({
+      error: "This ordering link has ended because the stay is closed. Scan the QR code in the room to order.",
+      code: "STAY_LINK_CLOSED",
+    });
+    return null;
+  }
+
+  const point =
+    stayPoint ??
+    (await db.nrmsOrderPoint.findUnique({
+      where: { token },
+      include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
+    }));
   if (!point || !point.active || !point.property?.nrmsActivatedAt) {
     res.status(404).json({ error: "This QR code is no longer active. Please ask a staff member for help." });
     return null;

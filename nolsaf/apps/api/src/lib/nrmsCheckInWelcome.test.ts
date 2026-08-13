@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { queueNrmsCheckInWelcome } from "./nrmsCheckInWelcome.js";
+import { buildStayOrderingToken } from "./nrmsStayToken.js";
 
 function eligibleReservation(overrides: Record<string, unknown> = {}) {
   return {
@@ -30,6 +31,7 @@ describe("NRMS automatic check-in welcome", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.stubEnv("WEB_ORIGIN", "https://app.nolsaf.test/");
+    vi.stubEnv("PUBLIC_LINK_TOKEN_SECRET", "test_stay_token_secret");
   });
 
   it("queues one personalized room-ordering SMS for an eligible check-in", async () => {
@@ -44,7 +46,7 @@ describe("NRMS automatic check-in welcome", () => {
       create: expect.objectContaining({
         reservationId: 41,
         guestProfileId: 12,
-        renderedMessage: "Welcome Daniel Ngeleja to NoLSAF Hotel! Don't worry about food and drinks. We have them here. Tap to order from your room: https://app.nolsaf.test/menu/secure-room-token\nQuality Stay for Every Wallet",
+        renderedMessage: `Welcome Daniel Ngeleja to NoLSAF Hotel! Don't worry about food and drinks. We have them here. Tap to order from your room: https://app.nolsaf.test/menu/${buildStayOrderingToken(41)}\nQuality Stay for Every Wallet`,
       }),
       update: {},
     }));
