@@ -10,7 +10,7 @@
   "peerDependencies": {
     "expo-secure-store": "~56.0.4",
     "lucide-react-native": "^0.545.0",
-    "react": "19.2.3",
+    "react": "^19.2.3",
     "react-native": "0.85.3",
     "react-native-passkeys": "^0.4.1",
     "react-native-safe-area-context": "~5.7.0",
@@ -27,6 +27,14 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.14",
+    "expo": "~56.0.19",
+    "expo-secure-store": "~56.0.4",
+    "lucide-react-native": "^0.545.0",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-passkeys": "^0.4.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.5",
     "typescript": "~5.9.2"
   }
 }
