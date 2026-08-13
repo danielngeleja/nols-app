@@ -26,6 +26,7 @@ import { OnboardingScreen } from "../screens/OnboardingScreen";
 import { PaymentsScreen } from "../screens/PaymentsScreen";
 import { ProfileCompletionScreen } from "../screens/ProfileCompletionScreen";
 import { PropertyDetailScreen } from "../screens/PropertyDetailScreen";
+import { NrmsMenuScreen } from "../screens/NrmsMenuScreen";
 import { RegisterScreen } from "../screens/RegisterScreen";
 import { RideDetailScreen } from "../screens/RideDetailScreen";
 import { SavedPropertiesScreen } from "../screens/SavedPropertiesScreen";
@@ -117,6 +118,7 @@ export function AppNavigator() {
             <Stack.Screen name="TourBookingReview" component={TourBookingReviewScreen} />
             <Stack.Screen name="TourBookingPayment" component={TourBookingPaymentScreen} />
             <Stack.Screen name="PropertyDetail" component={PropertyDetailScreen} />
+            <Stack.Screen name="NrmsMenu" component={NrmsMenuScreen} />
             <Stack.Screen name="BookingReview" component={BookingReviewScreen} />
             <Stack.Screen name="BookingPayment" component={BookingPaymentScreen} />
             <Stack.Screen name="Payments" component={PaymentsScreen} />
@@ -133,6 +135,7 @@ export function AppNavigator() {
             <Stack.Screen name="TourOperator" component={TourOperatorScreen} />
             <Stack.Screen name="TourPackageDetail" component={TourPackageDetailScreen} />
             <Stack.Screen name="PropertyDetail" component={PropertyDetailScreen} />
+            <Stack.Screen name="NrmsMenu" component={NrmsMenuScreen} />
             <Stack.Screen name="Payments" component={PaymentsScreen} />
             <Stack.Screen name="Search" component={SearchScreen} />
           </>

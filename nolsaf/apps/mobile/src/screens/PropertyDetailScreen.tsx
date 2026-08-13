@@ -1,4 +1,5 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ArrowLeft,
   Beer,
@@ -11,6 +12,7 @@ import {
   Car,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Cigarette,
   Clock3,
@@ -42,6 +44,7 @@ import {
   Tags,
   Thermometer,
   Utensils,
+  UtensilsCrossed,
   Users,
   WashingMachine,
   Waves,
@@ -103,6 +106,7 @@ import {
   PublicPropertyDetail,
   useSavedProperties
 } from "../properties";
+import { extractNrmsMenuToken, fetchNrmsActiveRoomOrdering, NrmsActiveRoomOrdering } from "../nrms";
 import { fetchSystemCommission } from "../bookings/checkoutApi";
 import { getPropertyCommission, priceWithCommission } from "../bookings/priceUtils";
 import { colors, radius, shadows, spacing } from "../theme";
@@ -372,6 +376,43 @@ function PhysicalVerificationCard({ record }: { record?: PublicPropertyDetail["p
         onClose={() => setCertificateVisible(false)}
       />
     </View>
+  );
+}
+
+function NrmsMenuCard({
+  menuToken,
+  ordering,
+  onOpen
+}: {
+  menuToken: string | null;
+  ordering: NrmsActiveRoomOrdering | null;
+  onOpen: (token: string) => void;
+}) {
+  const token = ordering?.token || menuToken;
+  if (!token) return null;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={ordering ? "Order to your room" : "View live restaurant and bar menu"}
+      onPress={() => onOpen(token)}
+      style={styles.certificateButton}
+    >
+      <View style={styles.certificateButtonIcon}>
+        <UtensilsCrossed color={colors.primary} size={20} />
+      </View>
+      <View style={styles.flex}>
+        <AppText variant="bodySmall" weight="bold">
+          {ordering ? "Order to your room" : "View live restaurant and bar menu"}
+        </AppText>
+        <AppText variant="caption" tone="muted">
+          {ordering
+            ? `Charge to ${ordering.roomLabel} or pay at the counter.`
+            : "See today's dishes, drinks and prices."}
+        </AppText>
+      </View>
+      <ChevronRight color={colors.primary} size={18} />
+    </Pressable>
   );
 }
 
@@ -667,6 +708,23 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     [token, navigation, id, detail?.title, checkIn, checkOut]
   );
 
+  const [roomOrdering, setRoomOrdering] = useState<NrmsActiveRoomOrdering | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      setRoomOrdering(null);
+      if (!token) return undefined;
+      let cancelled = false;
+      fetchNrmsActiveRoomOrdering(token, id).then((stay) => {
+        if (!cancelled) setRoomOrdering(stay);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [token, id])
+  );
+
+  const menuToken = useMemo(() => extractNrmsMenuToken(detail?.nrmsMenuUrl), [detail?.nrmsMenuUrl]);
+
   const loadReviews = useCallback(() => {
     setReviewsLoading(true);
     fetchPropertyReviews(id)
@@ -840,6 +898,14 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                 </AppText>
               </View>
             ) : null}
+
+            <NrmsMenuCard
+              menuToken={menuToken}
+              ordering={roomOrdering?.propertyId === id ? roomOrdering : null}
+              onOpen={(menuTokenToOpen) =>
+                navigation.navigate("NrmsMenu", { token: menuTokenToOpen, title: detail?.title })
+              }
+            />
 
             <PhysicalVerificationCard record={verificationRecord} />
 
