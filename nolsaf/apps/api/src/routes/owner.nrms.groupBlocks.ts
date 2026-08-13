@@ -29,8 +29,7 @@ import {
   nightsBetween,
   pickupErrorBody,
   pickupStatus,
-  resolveGroupGuestProfile,
-  runBlockPickup,
+  runBlockPickupForGuest,
 } from "../lib/nrmsGroupPickup.js";
 import {
   billingUsesMasterFolio,
@@ -1076,22 +1075,17 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
     }
     const data = parsed.data;
 
-    // Guest profile is resolved outside the transaction: it touches no
-    // inventory and keeps the locked section short.
-    const guest = await resolveGroupGuestProfile(block.propertyId, ownerId, data.guest);
-    if ("error" in guest) return res.status(400).json({ error: "Guest profile not found for this property" });
-
-    const outcome = await runBlockPickup({
+    const outcome = await runBlockPickupForGuest({
       blockId: block.id,
+      propertyId: block.propertyId,
       ownerId,
       blockRoomId: data.blockRoomId,
-      guestProfileId: guest.guestProfileId,
       adults: data.adults,
       children: data.children,
       roomUnitId: data.roomUnitId ?? null,
       notes: data.notes ?? null,
       actorId,
-    });
+    }, data.guest);
 
     if ("error" in outcome) return res.status(pickupStatus(outcome.error)).json(pickupErrorBody(outcome));
 

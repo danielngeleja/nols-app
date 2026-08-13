@@ -24,8 +24,7 @@ import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
   pickupErrorBody,
-  resolveGroupGuestProfile,
-  runBlockPickup,
+  runBlockPickupForGuest,
   type PickupErrorCode,
 } from "../lib/nrmsGroupPickup.js";
 
@@ -450,28 +449,22 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
         failed.push({ rowId: row.id, fullName: row.fullName, error: "Choose which room type this guest takes before confirming", code: "NO_ROOM_TYPE" });
         continue;
       }
-      const guest = await resolveGroupGuestProfile(block.propertyId, ownerId, {
-        fullName: row.fullName,
-        phone: row.phone,
-        email: row.email,
-        nationality: row.nationality,
-      });
-      if ("error" in guest) {
-        failed.push({ rowId: row.id, fullName: row.fullName, error: "Guest details could not be saved", code: "GUEST_NOT_FOUND" });
-        continue;
-      }
-
       try {
-        const outcome = await runBlockPickup({
+        const outcome = await runBlockPickupForGuest({
           blockId: block.id,
+          propertyId: block.propertyId,
           ownerId,
           blockRoomId: row.blockRoomId,
-          guestProfileId: guest.guestProfileId,
           adults: row.adults,
           children: row.children,
           notes: row.notes ?? null,
           roomingListRowId: row.id,
           actorId,
+        }, {
+          fullName: row.fullName,
+          phone: row.phone,
+          email: row.email,
+          nationality: row.nationality,
         });
         if ("error" in outcome) {
           const body = pickupErrorBody(outcome as { error: PickupErrorCode });
@@ -491,6 +484,10 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
           continue;
         }
         console.error("[owner.nrms.roomingList] confirm row failed", { rowId: row.id, blockId: block.id }, err);
+        if (err && typeof err === "object" && "code" in err && err.code === "P2028") {
+          failed.push({ rowId: row.id, fullName: row.fullName, error: "Booking took too long to commit. Try this guest again.", code: "PICKUP_TIMEOUT" });
+          continue;
+        }
         failed.push({ rowId: row.id, fullName: row.fullName, error: "This guest could not be booked. Try again, and tell support if it keeps failing.", code: "PICKUP_FAILED" });
       }
     }
@@ -505,7 +502,8 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
 
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
     const updatedBlock = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
-    res.status(confirmed.length ? 200 : 409).json({
+    const responseStatus = confirmed.length ? 200 : failed.some((item) => item.code === "PICKUP_TIMEOUT") ? 503 : 409;
+    res.status(responseStatus).json({
       roomingList: list ? formatList(list, block) : null,
       confirmed,
       failed,
