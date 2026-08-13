@@ -66,6 +66,8 @@ export type PublicPropertyDetail = {
   totalBathrooms: number | null;
   services: unknown;
   roomsSpec: RoomSpec[];
+  /** Public read-only NRMS menu preview URL, when enabled by the property. */
+  nrmsMenuUrl?: string | null;
   physicalVerification?: {
     status: "VERIFIED" | "PENDING";
     verifiedAt: string | null;

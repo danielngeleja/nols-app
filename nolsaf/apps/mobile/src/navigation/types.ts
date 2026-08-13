@@ -51,6 +51,8 @@ export type RootStackParamList = {
   MyTours: undefined;
   TourDetail: { id: number };
   PropertyDetail: { id: number; title?: string };
+  /** Public menu preview or checked-in guest room-ordering surface. */
+  NrmsMenu: { token: string; title?: string };
   BookingReview: {
     propertyId: number;
     propertyTitle?: string;
