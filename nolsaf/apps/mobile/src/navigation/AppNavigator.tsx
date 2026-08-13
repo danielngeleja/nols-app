@@ -1,4 +1,4 @@
-import { LinkingOptions, NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { LinkingOptions, NavigationContainer, DefaultTheme, getStateFromPath } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuth } from "../auth";
@@ -26,6 +26,7 @@ import { OnboardingScreen } from "../screens/OnboardingScreen";
 import { PaymentsScreen } from "../screens/PaymentsScreen";
 import { ProfileCompletionScreen } from "../screens/ProfileCompletionScreen";
 import { PropertyDetailScreen } from "../screens/PropertyDetailScreen";
+import { PropertyVerificationScreen } from "../screens/PropertyVerificationScreen";
 import { NrmsMenuScreen } from "../screens/NrmsMenuScreen";
 import { RegisterScreen } from "../screens/RegisterScreen";
 import { RideDetailScreen } from "../screens/RideDetailScreen";
@@ -51,12 +52,29 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 // Lets a shared invite link (https://<web-origin>/register?ref=CUSTOMER-123 or
 // nolsaf://register?ref=CUSTOMER-123) open the app straight to the Register
 // screen with the referral code attached.
+//
+// The property certificate link the API prints into QR codes carries the signed token as
+// `?t=`, and the web page also accepts `?token=`, so both spellings map onto the same
+// screen param here.
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ["nolsaf://", webOrigin()],
   config: {
     screens: {
-      Register: "register"
+      Register: "register",
+      PropertyVerification: {
+        path: "verify/property",
+        parse: { token: (value: string) => value },
+        stringify: { token: (value: string) => value }
+      }
     }
+  },
+  getStateFromPath: (path, options) => {
+    // React Navigation matches query params by name, so rewrite the short `t=` the QR
+    // code uses into the `token=` the screen expects before the default parser runs.
+    const normalized = /^\/?verify\/property\b/.test(path)
+      ? path.replace(/([?&])t=/, "$1token=")
+      : path;
+    return getStateFromPath(normalized, options);
   }
 };
 
@@ -118,6 +136,7 @@ export function AppNavigator() {
             <Stack.Screen name="TourBookingReview" component={TourBookingReviewScreen} />
             <Stack.Screen name="TourBookingPayment" component={TourBookingPaymentScreen} />
             <Stack.Screen name="PropertyDetail" component={PropertyDetailScreen} />
+            <Stack.Screen name="PropertyVerification" component={PropertyVerificationScreen} />
             <Stack.Screen name="NrmsMenu" component={NrmsMenuScreen} />
             <Stack.Screen name="BookingReview" component={BookingReviewScreen} />
             <Stack.Screen name="BookingPayment" component={BookingPaymentScreen} />
@@ -135,6 +154,7 @@ export function AppNavigator() {
             <Stack.Screen name="TourOperator" component={TourOperatorScreen} />
             <Stack.Screen name="TourPackageDetail" component={TourPackageDetailScreen} />
             <Stack.Screen name="PropertyDetail" component={PropertyDetailScreen} />
+            <Stack.Screen name="PropertyVerification" component={PropertyVerificationScreen} />
             <Stack.Screen name="NrmsMenu" component={NrmsMenuScreen} />
             <Stack.Screen name="Payments" component={PaymentsScreen} />
             <Stack.Screen name="Search" component={SearchScreen} />

@@ -66,7 +66,11 @@ export type PublicPropertyDetail = {
   totalBathrooms: number | null;
   services: unknown;
   roomsSpec: RoomSpec[];
-  /** Public read-only NRMS menu preview URL, when enabled by the property. */
+  /**
+   * Link to the property's public read-only NRMS menu preview. Present only
+   * when NRMS is active on the property and the owner turned the public menu
+   * on; the API resolves it to the property's PREVIEW order point.
+   */
   nrmsMenuUrl?: string | null;
   physicalVerification?: {
     status: "VERIFIED" | "PENDING";
@@ -79,6 +83,33 @@ export type PublicPropertyDetail = {
     verificationUrl?: string | null;
     qrCodeDataUrl?: string | null;
   };
+};
+
+/** Shape returned by GET /api/public/properties/verification?token=... */
+export type PropertyVerificationCertificate = {
+  issuer: string;
+  property: {
+    id: number;
+    title: string;
+    type: string;
+    location: string;
+  };
+  verification: {
+    status: "VERIFIED";
+    verifiedAt: string | null;
+    verifiedBy: string;
+    verifiedByRole: string;
+    method: string;
+    note: string;
+    checklist: string[];
+    lastRefreshedAt: string | null;
+  };
+};
+
+export type PropertyVerificationResponse = {
+  ok: boolean;
+  valid?: boolean;
+  certificate?: PropertyVerificationCertificate;
 };
 
 export type PropertyListResponse = {

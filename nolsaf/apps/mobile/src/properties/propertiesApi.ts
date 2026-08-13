@@ -1,5 +1,5 @@
 import { apiRequest } from "../lib/apiClient";
-import { PropertyListResponse, PropertySearchParams, PublicHomeSummary, PublicPropertyDetail, SavedPropertyListResponse } from "./types";
+import { PropertyListResponse, PropertySearchParams, PropertyVerificationResponse, PublicHomeSummary, PublicPropertyDetail, SavedPropertyListResponse } from "./types";
 
 export async function fetchPublicProperties(params: PropertySearchParams = {}) {
   const query = new URLSearchParams();
@@ -61,6 +61,30 @@ export async function fetchPropertyDetail(idOrSlug: string | number) {
 
 export async function fetchPublicPropertiesHomeSummary() {
   return apiRequest<PublicHomeSummary>("/api/public/properties/home-summary");
+}
+
+/**
+ * Public, no-login property certificate lookup. The API re-checks the database on every
+ * call, so a token stays readable while the property is approved and verified, and starts
+ * returning `valid: false` the moment either stops being true.
+ */
+export async function fetchPropertyVerification(token: string) {
+  return apiRequest<PropertyVerificationResponse>(
+    `/api/public/properties/verification?token=${encodeURIComponent(token)}`
+  );
+}
+
+/** Pulls the `t` (or `token`) query parameter out of a /verify/property certificate link. */
+export function extractPropertyVerificationToken(url: string | null | undefined): string | null {
+  const raw = String(url || "").trim();
+  if (!raw) return null;
+  const match = raw.match(/[?&](?:t|token)=([^&#]+)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]) || null;
+  } catch {
+    return match[1] || null;
+  }
 }
 
 export type AvailabilityResponse = {

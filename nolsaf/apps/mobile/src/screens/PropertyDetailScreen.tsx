@@ -95,6 +95,7 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { RootStackParamList } from "../navigation/types";
 import {
   createPropertyReview,
+  extractPropertyVerificationToken,
   fetchAvailabilityRange,
   fetchPropertyDetail,
   fetchPropertyReviews,
@@ -291,7 +292,13 @@ function normalizeVerificationRecord(detail: PublicPropertyDetail): PublicProper
   };
 }
 
-function PhysicalVerificationCard({ record }: { record?: PublicPropertyDetail["physicalVerification"] }) {
+function PhysicalVerificationCard({
+  record,
+  onOpenCertificate
+}: {
+  record?: PublicPropertyDetail["physicalVerification"];
+  onOpenCertificate: (verificationUrl: string) => void;
+}) {
   const [checksExpanded, setChecksExpanded] = useState(false);
   const [certificateVisible, setCertificateVisible] = useState(false);
   const verifiedBy = record?.verifiedBy?.trim();
@@ -374,11 +381,17 @@ function PhysicalVerificationCard({ record }: { record?: PublicPropertyDetail["p
         verifiedBy={verifiedBy}
         verifiedAt={verifiedAt}
         onClose={() => setCertificateVisible(false)}
+        onOpenCertificate={onOpenCertificate}
       />
     </View>
   );
 }
 
+/**
+ * One row, two states. A checked-in guest gets their own room's ordering token;
+ * everyone else gets the read-only preview, matching the web listing page. If
+ * neither exists the property has no public menu and nothing renders.
+ */
 function NrmsMenuCard({
   menuToken,
   ordering,
@@ -453,13 +466,15 @@ function VerificationCertificateModal({
   record,
   verifiedBy,
   verifiedAt,
-  onClose
+  onClose,
+  onOpenCertificate
 }: {
   visible: boolean;
   record: NonNullable<PublicPropertyDetail["physicalVerification"]>;
   verifiedBy?: string;
   verifiedAt: string;
   onClose: () => void;
+  onOpenCertificate: (verificationUrl: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
@@ -468,9 +483,8 @@ function VerificationCertificateModal({
 
   const openCertificate = () => {
     if (!record.verificationUrl) return;
-    Linking.openURL(record.verificationUrl).catch(() => {
-      Alert.alert("NoLSAF verification", "Could not open this certificate right now.");
-    });
+    onClose();
+    onOpenCertificate(record.verificationUrl);
   };
 
   return (
@@ -708,9 +722,15 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     [token, navigation, id, detail?.title, checkIn, checkOut]
   );
 
+  // Ordering entitlement is resolved from the signed-in guest's own reservation on every
+  // visit and never stored. The server only returns a token while that stay is CHECKED_IN,
+  // so checkout removes ordering on its own and the preview stays available to everyone.
   const [roomOrdering, setRoomOrdering] = useState<NrmsActiveRoomOrdering | null>(null);
   useFocusEffect(
     useCallback(() => {
+      // Clear the previous entitlement immediately. A retained navigation
+      // screen must never show room ordering while a fresh checkout-sensitive
+      // lookup is still in flight.
       setRoomOrdering(null);
       if (!token) return undefined;
       let cancelled = false;
@@ -724,6 +744,22 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   );
 
   const menuToken = useMemo(() => extractNrmsMenuToken(detail?.nrmsMenuUrl), [detail?.nrmsMenuUrl]);
+
+  // The certificate is rendered natively so it works without the web app being reachable.
+  // Only if the link somehow carries no token do we hand off to the browser.
+  const openCertificate = useCallback(
+    (verificationUrl: string) => {
+      const certificateToken = extractPropertyVerificationToken(verificationUrl);
+      if (certificateToken) {
+        navigation.navigate("PropertyVerification", { token: certificateToken });
+        return;
+      }
+      Linking.openURL(verificationUrl).catch(() => {
+        Alert.alert("NoLSAF verification", "Could not open this certificate right now.");
+      });
+    },
+    [navigation]
+  );
 
   const loadReviews = useCallback(() => {
     setReviewsLoading(true);
@@ -907,7 +943,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               }
             />
 
-            <PhysicalVerificationCard record={verificationRecord} />
+            <PhysicalVerificationCard record={verificationRecord} onOpenCertificate={openCertificate} />
 
             <IncludedServicesCard items={includedServices} />
 

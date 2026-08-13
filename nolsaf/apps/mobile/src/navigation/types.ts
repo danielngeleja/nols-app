@@ -51,7 +51,16 @@ export type RootStackParamList = {
   MyTours: undefined;
   TourDetail: { id: number };
   PropertyDetail: { id: number; title?: string };
-  /** Public menu preview or checked-in guest room-ordering surface. */
+  /**
+   * Public certificate view. `token` is the signed `t` value from a
+   * /verify/property link, which is also what the printed QR code encodes.
+   */
+  PropertyVerification: { token: string };
+  /**
+   * Guest menu. `token` is an NRMS order-point token: a PREVIEW point for
+   * read-only browsing, or the guest's own ROOM point while checked in. The
+   * server decides which, so the screen never has to trust the caller.
+   */
   NrmsMenu: { token: string; title?: string };
   BookingReview: {
     propertyId: number;

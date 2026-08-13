@@ -10,6 +10,12 @@ import { TOURISM_COUNTRIES } from "../data/destinations";
 import { RootStackParamList } from "../navigation/types";
 import { fetchCustomerNotifications } from "../notifications";
 import { fetchPublicProperties, fetchPublicPropertiesHomeSummary, PublicPropertyCard } from "../properties";
+import campsiteFallback from "../../assets/property-types/campsite.jpg";
+import guestHouseFallback from "../../assets/property-types/guest_house.jpg";
+import hotelFallback from "../../assets/property-types/hotel.jpg";
+import localHousesFallback from "../../assets/property-types/local_houses.jpg";
+import villaFallback from "../../assets/property-types/villa.jpg";
+import villageStayFallback from "../../assets/property-types/village_stay.jpg";
 import { colors, radius, spacing } from "../theme";
 import { FeaturedTourOperator, fetchFeaturedTourOperators } from "../tours";
 
@@ -29,21 +35,24 @@ const searchPrompts = [
   "Regions and wards"
 ];
 
+// `fallbackImage` mirrors the web home page: when a type has no approved listing with a
+// renderable photo, the card still shows a stock image instead of a flat colour block.
 const propertyTypes: Array<{
   key: PropertyTypeKey;
   title: string;
   accent: string;
+  fallbackImage: ImageSourcePropType;
 }> = [
-  { key: "HOTEL", title: "Hotel", accent: "#02b4f5" },
-  { key: "LODGE", title: "Lodge", accent: "#10b981" },
-  { key: "APARTMENT", title: "Apartment", accent: "#fbbf24" },
-  { key: "VILLA", title: "Villa", accent: "#a78bfa" },
-  { key: "GUEST_HOUSE", title: "Guest house", accent: "#fb7185" },
-  { key: "BUNGALOW", title: "Bungalow", accent: "#02b4f5" },
-  { key: "CABIN", title: "Cabin", accent: "#10b981" },
-  { key: "HOMESTAY", title: "Homestay", accent: "#fbbf24" },
-  { key: "CONDO", title: "Condo", accent: "#a78bfa" },
-  { key: "HOUSE", title: "House", accent: "#fb7185" }
+  { key: "HOTEL", title: "Hotel", accent: "#02b4f5", fallbackImage: hotelFallback },
+  { key: "LODGE", title: "Lodge", accent: "#10b981", fallbackImage: guestHouseFallback },
+  { key: "APARTMENT", title: "Apartment", accent: "#fbbf24", fallbackImage: localHousesFallback },
+  { key: "VILLA", title: "Villa", accent: "#a78bfa", fallbackImage: villaFallback },
+  { key: "GUEST_HOUSE", title: "Guest house", accent: "#fb7185", fallbackImage: villageStayFallback },
+  { key: "BUNGALOW", title: "Bungalow", accent: "#02b4f5", fallbackImage: villaFallback },
+  { key: "CABIN", title: "Cabin", accent: "#10b981", fallbackImage: campsiteFallback },
+  { key: "HOMESTAY", title: "Homestay", accent: "#fbbf24", fallbackImage: localHousesFallback },
+  { key: "CONDO", title: "Condo", accent: "#a78bfa", fallbackImage: localHousesFallback },
+  { key: "HOUSE", title: "House", accent: "#fb7185", fallbackImage: localHousesFallback }
 ];
 
 const propertyTypeRows = [propertyTypes.slice(0, 5), propertyTypes.slice(5)];
@@ -449,7 +458,8 @@ export function OnboardingScreen({ navigation }: Props) {
                           key={item.key}
                           title={item.title}
                           width={propertyCardWidth}
-                          image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : null}
+                          image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : item.fallbackImage}
+                          fallbackImage={item.fallbackImage}
                           accent={item.accent}
                           count={typeCounts[item.key]}
                           onPress={() =>
@@ -916,6 +926,7 @@ function SwipeCue() {
 function PropertyTypeCard({
   title,
   image,
+  fallbackImage,
   accent,
   count,
   width,
@@ -923,12 +934,22 @@ function PropertyTypeCard({
 }: {
   title: string;
   image: ImageSourcePropType | null;
+  fallbackImage: ImageSourcePropType;
   accent: string;
   count?: number | null;
   width: number;
   onPress: () => void;
 }) {
   const hoverValue = useRef(new Animated.Value(0)).current;
+  // A listing photo that fails to load (expired CDN link, offline) drops back to the
+  // bundled stock image rather than leaving an empty card.
+  const [imageFailed, setImageFailed] = useState(false);
+  const source = !image || imageFailed ? fallbackImage : image;
+  const gradientId = title.replace(/[^a-zA-Z0-9]+/g, "-");
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [image]);
 
   function animateHover(next: boolean) {
     Animated.timing(hoverValue, {
@@ -985,18 +1006,33 @@ function PropertyTypeCard({
       <Animated.View style={[styles.propertyTypeCard, cardAnimatedStyle]}>
         <View style={styles.propertyImageClip}>
           <Animated.View style={[styles.propertyImageZoom, imageAnimatedStyle]}>
-            {image ? (
-              <ImageBackground source={image} resizeMode="cover" style={styles.propertyImage} imageStyle={styles.propertyImageRadius}>
-                <View style={styles.propertyOverlay} />
-              </ImageBackground>
-            ) : (
-              <View style={[styles.propertyImage, styles.propertyImageFallback, { backgroundColor: accent }]}>
-                <Building2 color={colors.white} size={34} strokeWidth={1.8} />
-                <AppText variant="caption" weight="bold" tone="inverse">
-                  Verified {title}
-                </AppText>
+            <ImageBackground
+              source={source}
+              resizeMode="cover"
+              style={styles.propertyImage}
+              imageStyle={styles.propertyImageRadius}
+              onError={() => setImageFailed(true)}
+            >
+              {/* Same scrim as the web card: dark at the bottom for label legibility, close
+                  to clear at the top so the photo itself stays visible. */}
+              <View pointerEvents="none" style={styles.propertyOverlay}>
+                <Svg width="100%" height="100%">
+                  <Defs>
+                    <LinearGradient id={`propertyScrim-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
+                      <Stop offset="0" stopColor="#000000" stopOpacity="0.1" />
+                      <Stop offset="0.5" stopColor="#000000" stopOpacity="0.2" />
+                      <Stop offset="1" stopColor="#000000" stopOpacity="0.75" />
+                    </LinearGradient>
+                    <LinearGradient id={`propertyTint-${gradientId}`} x1="0" y1="1" x2="0" y2="0">
+                      <Stop offset="0" stopColor={accent} stopOpacity="0.16" />
+                      <Stop offset="0.55" stopColor={accent} stopOpacity="0" />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect width="100%" height="100%" fill={`url(#propertyScrim-${gradientId})`} />
+                  <Rect width="100%" height="100%" fill={`url(#propertyTint-${gradientId})`} />
+                </Svg>
               </View>
-            )}
+            </ImageBackground>
           </Animated.View>
           <View style={[styles.propertyStatus, { borderColor: accent }]}>
             <View style={[styles.propertyStatusDot, { backgroundColor: accent }]} />
@@ -2263,18 +2299,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     backgroundColor: colors.surface
   },
-  propertyImageFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing[2]
-  },
   propertyImageRadius: {
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22
   },
   propertyOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(1,42,38,0.44)"
+    ...StyleSheet.absoluteFill
   },
   propertyStatus: {
     position: "absolute",
