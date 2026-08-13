@@ -696,6 +696,7 @@ export function GroupBlockDetailModal({
   const [agencyPaymentAmount, setAgencyPaymentAmount] = useState("");
   const [agencyPaymentMethod, setAgencyPaymentMethod] = useState("BANK");
   const [agencyPaymentReference, setAgencyPaymentReference] = useState("");
+  const [agencyPaymentError, setAgencyPaymentError] = useState<string | null>(null);
   const [proFormaError, setProFormaError] = useState<{ message: string; code?: string } | null>(null);
   const [proFormaNotice, setProFormaNotice] = useState<string | null>(null);
   const [statementNotice, setStatementNotice] = useState<string | null>(null);
@@ -849,9 +850,11 @@ export function GroupBlockDetailModal({
   const recordAgencyPayment = async () => {
     if (!block?.masterFolio) return;
     const amount = Number(agencyPaymentAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return setError("Enter the agency payment amount");
+    if (!Number.isFinite(amount) || amount <= 0) return setAgencyPaymentError("Enter the agency payment amount");
+    if (amount > block.masterFolio.paymentDue) return setAgencyPaymentError(`Payment cannot exceed the agency balance of ${block.masterFolio.paymentDue.toLocaleString()}`);
     setBusy(true);
     setError(null);
+    setAgencyPaymentError(null);
     try {
       await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments`, {
         amount,
@@ -863,7 +866,7 @@ export function GroupBlockDetailModal({
       setAgencyPaymentReference("");
       await onChanged();
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to record the agency payment");
+      setAgencyPaymentError(e?.response?.data?.error || "Failed to record the agency payment");
     } finally {
       setBusy(false);
     }
@@ -1222,12 +1225,24 @@ export function GroupBlockDetailModal({
 
                   {block.masterFolio.paymentDue > 0.005 && (
                     <div className="grid gap-2 sm:grid-cols-[1fr_160px_1fr_auto]">
-                      <input className={inputCls} type="number" min="0.01" max={block.masterFolio.paymentDue} step="0.01" value={agencyPaymentAmount} onChange={(e) => setAgencyPaymentAmount(e.target.value)} placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`} />
+                      <input
+                        className={`${inputCls} ${agencyPaymentError ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
+                        type="number"
+                        min="0.01"
+                        max={block.masterFolio.paymentDue}
+                        step="0.01"
+                        value={agencyPaymentAmount}
+                        onChange={(e) => { setAgencyPaymentAmount(e.target.value); setAgencyPaymentError(null); }}
+                        placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`}
+                        aria-invalid={Boolean(agencyPaymentError)}
+                        aria-describedby={agencyPaymentError ? "agency-payment-error" : undefined}
+                      />
                       <select className={inputCls} value={agencyPaymentMethod} onChange={(e) => setAgencyPaymentMethod(e.target.value)}>
                         <option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="CASH">Cash</option><option value="OTHER">Other</option>
                       </select>
                       <input className={inputCls} value={agencyPaymentReference} onChange={(e) => setAgencyPaymentReference(e.target.value)} placeholder="Transfer reference (optional)" />
                       <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="cursor-pointer rounded-xl border-0 bg-sky-700 px-4 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-50">Record payment</button>
+                      {agencyPaymentError && <p id="agency-payment-error" className="m-0 text-xs font-semibold text-red-700 sm:col-span-4">{agencyPaymentError}</p>}
                     </div>
                   )}
                   {block.masterFolio.payments.length > 0 && (
