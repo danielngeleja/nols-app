@@ -45,13 +45,15 @@ export interface AzamPayDisburseResponse {
 export interface AzamPayNameLookupRequest {
   bankName: AzamPayDisburseBankName | string;
   accountNumber: string;
-  checksum: string;
+  /** Optional in the current AzamPay test environment; include when a field contract is configured. */
+  checksum?: string;
 }
 
 export interface AzamPayNameLookupResponse {
   name: string;
   fname?: string;
   lname?: string;
+  message?: string;
   status: boolean;
   statusCode: number;
   accountNumber: string;

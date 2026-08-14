@@ -69,6 +69,10 @@ describe("AzamPay disbursement HTTP contract", () => {
   });
 
   it("sends name lookup with bearer auth and the calculated checksum", async () => {
+    vi.stubEnv(
+      "AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP",
+      JSON.stringify({ fields: ["bankName", "accountNumber"], separator: "" })
+    );
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         name: "ASHA MTUMWA",
@@ -93,6 +97,31 @@ describe("AzamPay disbursement HTTP contract", () => {
       accountNumber: "255688000001",
       checksum: "checksum-value",
     });
+  });
+
+  it("supports the test API without a Name Lookup checksum and normalizes fName/lName", async () => {
+    vi.stubEnv("AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP", "");
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        fName: "ASHA",
+        lName: "MTUMWA",
+        status: true,
+        statusCode: 200,
+        accountNumber: "255688000001",
+        bankName: "airtel",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await azamPayNameLookup({ bankName: "airtel", accountNumber: "255688000001" });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      bankName: "airtel",
+      accountNumber: "255688000001",
+    });
+    expect(result).toMatchObject({ name: "ASHA MTUMWA", fname: "ASHA", lname: "MTUMWA" });
+    expect(mocks.checksumInput).not.toHaveBeenCalled();
+    expect(mocks.checksum).not.toHaveBeenCalled();
   });
 
   it("refreshes once on 401 and replays the exact same disbursement reference", async () => {

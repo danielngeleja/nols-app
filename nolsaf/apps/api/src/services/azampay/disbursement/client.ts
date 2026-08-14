@@ -6,11 +6,10 @@
  * job is: attach a token, attach a checksum, call the endpoint, classify
  * errors, and return typed results.
  *
- * The public key and checksum field composition are unconfirmed by AzamPay
- * as of this writing (docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md). Calls will
- * throw a clear configuration error until AZAMPAY_DISBURSE_PUBLIC_KEY and
- * the AZAMPAY_CHECKSUM_FIELDS_* env vars are set — this is intentional, not
- * a bug, so nobody accidentally ships a request AzamPay will reject.
+ * Disbursement remains fail-closed until its public key and checksum field
+ * composition are configured. Name Lookup is read-only and the current test
+ * environment accepts it without a checksum. Configuring
+ * AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP automatically adds the encrypted value.
  */
 
 import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "./auth.js";
@@ -130,13 +129,15 @@ function invalidProviderResponse(status: number, body: any, detail: string): nev
 export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
-  const publicKey = requirePublicKey();
-
-  const checksumInput = buildChecksumInput("NAMELOOKUP", input);
   const request: AzamPayNameLookupRequest = {
     ...input,
-    checksum: azamPayChecksum(checksumInput, publicKey),
   };
+
+  if (String(process.env.AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP || "").trim()) {
+    const publicKey = requirePublicKey();
+    const checksumInput = buildChecksumInput("NAMELOOKUP", input);
+    request.checksum = azamPayChecksum(checksumInput, publicKey);
+  }
 
   const { status, body } = await withAuthRetry((token) =>
     postJson("/api/v1/azampay/namelookup", request, token)
@@ -149,7 +150,18 @@ export async function azamPayNameLookup(
     invalidProviderResponse(status, body, "name lookup statusCode is missing or non-success");
   }
 
-  return body as AzamPayNameLookupResponse;
+  // The live test API returns fName/lName while older documentation and
+  // examples use fname/lname/name. Normalise both shapes for every caller.
+  const fname = String(body.fName ?? body.fname ?? "").trim();
+  const lname = String(body.lName ?? body.lname ?? "").trim();
+  const name = String(body.name ?? [fname, lname].filter(Boolean).join(" ")).trim();
+
+  return {
+    ...body,
+    name,
+    fname: fname || undefined,
+    lname: lname || undefined,
+  } as AzamPayNameLookupResponse;
 }
 
 /**
