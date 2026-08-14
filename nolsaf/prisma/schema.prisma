@@ -131,8 +131,11 @@ model User {
   /// Driver weekly goals set by the driver, synced across devices, e.g. { "trips": 20, "money": 150000, "moneyUrgent": false }
   driverGoals Json?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Owner-requested account deletion marker. The row remains available for
+  /// financial, booking, fraud-prevention, and statutory relationships.
+  deletedAt DateTime?
 
   // Relations
   // Properties owned by this user (if owner)
@@ -354,6 +357,7 @@ model User {
   @@index([suspendedAt])
   @@index([kycStatus])
   @@index([referredBy])
+  @@index([deletedAt])
   @@map("user")
 }
 

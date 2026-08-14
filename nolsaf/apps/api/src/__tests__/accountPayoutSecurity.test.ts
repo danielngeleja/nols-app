@@ -104,6 +104,27 @@ describe("secure payout destination update", () => {
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
   });
 
+  it("soft-deletes an account without relying on Prisma delegate metadata", async () => {
+    mocks.userFindUnique.mockResolvedValue({ id: 44, name: "Account Owner" });
+
+    const response = await request(app()).delete("/account");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      message: "Account deleted successfully",
+    });
+    expect(mocks.userUpdate).toHaveBeenCalledWith({
+      where: { id: 44 },
+      data: {
+        deletedAt: expect.any(Date),
+        name: "Deleted Driver",
+        email: expect.stringMatching(/^deleted_44_\d+@nolsaf\.invalid$/),
+        phone: null,
+      },
+    });
+  });
+
   it("accepts only the supported payout banks and stores their canonical code", async () => {
     mocks.lookup.mockResolvedValue({
       name: "AGREY MBILINYI",

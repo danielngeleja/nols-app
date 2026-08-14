@@ -2943,25 +2943,18 @@ const deleteAccount: RequestHandler = async (req, res) => {
     const driverName: string = before?.name ?? 'Deleted Driver';
 
     // ── 5. Soft-delete with PII anonymisation ────────────────────────────
-    const meta = (prisma as any).user?._meta ?? {};
-    if (Object.prototype.hasOwnProperty.call(meta, 'deletedAt')) {
-      await (prisma.user.update as any)({
-        where: { id: userId },
-        data: {
-          deletedAt: new Date(),
-          name: 'Deleted Driver',
-          email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
-          phone: null,
-        },
-      });
-    } else {
-      try {
-        await (prisma.user.delete as any)({ where: { id: userId } });
-      } catch (e: any) {
-        console.error('Failed to delete user', e);
-        return sendError(res, 500, "Failed to delete account");
-      }
-    }
+    // deletedAt is part of the canonical Prisma schema. Do not infer schema
+    // support from the private delegate _meta property: it is not guaranteed
+    // at runtime and previously made this endpoint fall back to a hard delete.
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletedAt: new Date(),
+        name: 'Deleted Driver',
+        email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
+        phone: null,
+      },
+    });
 
     // ── 6. Alert admins in real-time if any trips returned to pool ───────
     try {
