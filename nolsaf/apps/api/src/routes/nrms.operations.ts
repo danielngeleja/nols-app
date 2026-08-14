@@ -86,6 +86,25 @@ const outletSchema = z.object({
   currency: z.string().trim().length(3).optional(),
 });
 
+const RESTAURANT_MENU_CATEGORIES = new Set([
+  "Breakfast", "Starters", "Soups", "Salads", "Local specialities", "Main courses",
+  "Grills and barbecue", "Seafood", "Chicken dishes", "Meat dishes", "Vegetarian and vegan",
+  "Rice dishes", "Pasta and noodles", "Pizza", "Burgers and sandwiches", "Sides", "Kids menu",
+  "Desserts", "Tea and coffee", "Fresh juices", "Soft drinks", "Water",
+]);
+
+const BAR_MENU_CATEGORIES = new Set([
+  "Beer", "Cider", "Red wine", "White wine", "Rosé wine", "Sparkling wine", "Whisky", "Gin",
+  "Vodka", "Rum", "Tequila", "Brandy and cognac", "Liqueurs", "Cocktails", "Mocktails",
+  "Soft drinks and mixers", "Energy drinks", "Water", "Bar snacks",
+]);
+
+export function menuCategoryAllowed(outletType: string, category: string): boolean {
+  if (outletType === "RESTAURANT") return RESTAURANT_MENU_CATEGORIES.has(category);
+  if (outletType === "BAR") return BAR_MENU_CATEGORIES.has(category);
+  return RESTAURANT_MENU_CATEGORIES.has(category) || BAR_MENU_CATEGORIES.has(category);
+}
+
 const menuItemSchema = z.object({
   name: z.string().trim().min(1).max(160),
   category: z.string().trim().max(80).optional().nullable(),
@@ -813,13 +832,18 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
   }
   const parsed = menuItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid menu item", details: parsed.error.flatten() });
+  const category = parsed.data.category?.trim();
+  if (!category) return res.status(400).json({ error: "Choose a menu category" });
+  if (!menuCategoryAllowed(resolved.outlet.type, category)) {
+    return res.status(400).json({ error: `Choose a category available for this ${resolved.outlet.type === "BAR" ? "bar" : resolved.outlet.type === "RESTAURANT" ? "restaurant" : "outlet"}` });
+  }
   const menuQuota = await checkNrmsQuota(db, resolved.outlet.propertyId, "menuItems");
   if (!menuQuota.allowed) return res.status(409).json({ error: "NRMS menu item quota reached", quota: menuQuota });
   const item = await db.nrmsMenuItem.create({
     data: {
       outletId: resolved.outlet.id,
       name: sanitizeText(parsed.data.name),
-      category: parsed.data.category ? sanitizeText(parsed.data.category) : null,
+      category: sanitizeText(category),
       sku: parsed.data.sku ? sanitizeText(parsed.data.sku).toUpperCase() : null,
       price: parsed.data.price,
       description: parsed.data.description ? sanitizeText(parsed.data.description) : null,
@@ -848,9 +872,16 @@ router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Respons
   const parsed = menuItemUpdateSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid menu item update", details: parsed.error.flatten() });
   const input = parsed.data;
+  if (input.category !== undefined) {
+    const category = input.category?.trim();
+    if (!category) return res.status(400).json({ error: "Choose a menu category" });
+    if (!menuCategoryAllowed(resolved.outlet.type, category)) {
+      return res.status(400).json({ error: `Choose a category available for this ${resolved.outlet.type === "BAR" ? "bar" : resolved.outlet.type === "RESTAURANT" ? "restaurant" : "outlet"}` });
+    }
+  }
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) data.name = sanitizeText(input.name);
-  if (input.category !== undefined) data.category = input.category ? sanitizeText(input.category) : null;
+  if (input.category !== undefined) data.category = sanitizeText(input.category!);
   if (input.sku !== undefined) data.sku = input.sku ? sanitizeText(input.sku).toUpperCase() : null;
   if (input.price !== undefined) data.price = input.price;
   if (input.description !== undefined) data.description = input.description ? sanitizeText(input.description) : null;
@@ -1738,16 +1769,58 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
     // hand out, so it never appears mixed into this admin list.
     db.nrmsOrderPoint.findMany({
       where: { propertyId: access.property.id, type: { not: "PREVIEW" } },
-      include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+      include: {
+        roomUnit: {
+          select: {
+            id: true,
+            code: true,
+            floor: true,
+            status: true,
+            allocations: {
+              where: { status: "ACTIVE", reservation: { status: "CHECKED_IN" } },
+              select: {
+                reservation: {
+                  select: {
+                    id: true,
+                    checkIn: true,
+                    checkOut: true,
+                    checkedInAt: true,
+                    guestProfile: { select: { fullName: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: [{ type: "asc" }, { label: "asc" }],
     }),
     db.property.findUnique({ where: { id: access.property.id }, select: { nrmsGuestPayInstructions: true } }),
   ]);
   res.json({
-    orderPoints: points.map((p: any) => ({
-      ...p,
-      menuUrl: p.active ? buildMenuUrl(p.token) : null,
-    })),
+    orderPoints: points.map((p: any) => {
+      const activeStay = [...(p.roomUnit?.allocations ?? [])]
+        .sort((left: any, right: any) => {
+          const leftTime = left.reservation.checkedInAt ? new Date(left.reservation.checkedInAt).getTime() : 0;
+          const rightTime = right.reservation.checkedInAt ? new Date(right.reservation.checkedInAt).getTime() : 0;
+          return rightTime - leftTime;
+        })[0]?.reservation ?? null;
+      return {
+        ...p,
+        roomUnit: p.roomUnit
+          ? { id: p.roomUnit.id, code: p.roomUnit.code, floor: p.roomUnit.floor, status: p.roomUnit.status }
+          : null,
+        currentStay: activeStay
+          ? {
+              reservationId: activeStay.id,
+              guestName: activeStay.guestProfile?.fullName ?? null,
+              checkIn: activeStay.checkIn,
+              checkOut: activeStay.checkOut,
+            }
+          : null,
+        menuUrl: p.active ? buildMenuUrl(p.token) : null,
+      };
+    }),
     guestPayInstructions: Array.isArray(propertyRow?.nrmsGuestPayInstructions) ? propertyRow.nrmsGuestPayInstructions : [],
   });
 }) as RequestHandler);

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { z } from "zod";
@@ -21,7 +22,11 @@ router.use((req, _res, next) => {
   next();
 });
 router.use(requireAuth);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+const MAX_TRAVELLER_DOCUMENT_BYTES = 2 * 1024 * 1024;
+export const MAX_NRMS_MENU_PHOTO_BYTES = 2 * 1024 * 1024;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
+const nrmsMenuUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_NRMS_MENU_PHOTO_BYTES } });
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -50,9 +55,6 @@ const signQuerySchema = z
   })
   .strict();
 
-    const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
-    const MAX_TRAVELLER_DOCUMENT_BYTES = 2 * 1024 * 1024;
-
 const allowedFolderPatterns: Array<{ type: "exact"; value: string } | { type: "prefix"; value: string }> = [
   { type: "exact", value: "uploads" },
   { type: "exact", value: "avatars" },
@@ -80,6 +82,42 @@ function isAllowedFolder(folder: string): boolean {
 
 function folderMatches(folder: string, base: string): boolean {
   return folder === base || folder.startsWith(`${base}/`);
+}
+
+export function maxCloudinaryUploadBytesForFolder(folder: string): number | null {
+  if (folderMatches(folder, "uploads")) return MAX_TRAVELLER_DOCUMENT_BYTES;
+  if (folderMatches(folder, "nrms-menu")) return MAX_NRMS_MENU_PHOTO_BYTES;
+  return null;
+}
+
+/**
+ * Parse the multipart upload with the correct limit before buffering the full
+ * file. NRMS menu callers identify the folder in the query string as well as
+ * the form body, so a 2MB+ photo is stopped at the boundary rather than being
+ * allowed through the shared 15MB parser first.
+ */
+function parseCloudinaryUpload(req: Request, res: Response, next: NextFunction): void {
+  const requestedFolder = String(req.query?.folder || "").trim();
+  const parser = folderMatches(requestedFolder, "nrms-menu") ? nrmsMenuUpload : upload;
+  parser.single("file")(req, res, (error: unknown) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      const formFolder = String(req.body?.folder || "").trim();
+      const folder = requestedFolder || formFolder;
+      const menuPhoto = folderMatches(folder, "nrms-menu");
+      const maxBytes = menuPhoto ? MAX_NRMS_MENU_PHOTO_BYTES : MAX_UPLOAD_BYTES;
+      res.status(413).json({
+        error: "file_too_large",
+        code: "UPLOAD_SIZE_LIMIT_EXCEEDED",
+        maxBytes,
+        message: menuPhoto
+          ? "Photo exceeds the 2MB upload limit. Choose a smaller image."
+          : "File exceeds the 15MB upload limit. Choose a smaller file.",
+      });
+      return;
+    }
+    next(error);
+  });
 }
 
 function isFolderAllowedForRole(req: any, folder: string): boolean {
@@ -130,9 +168,10 @@ router.get("/sign", limitCloudinarySign as any, async (req, res) => {
   const requestedMaxBytes = parsed.data.maxBytes;
   let maxFileSize: number | undefined;
 
-  if (folderMatches(folder, "uploads")) {
-    // Traveller/customer documents under uploads are hard-limited to 2MB.
-    maxFileSize = MAX_TRAVELLER_DOCUMENT_BYTES;
+  const folderLimit = maxCloudinaryUploadBytesForFolder(folder);
+  if (folderLimit != null) {
+    // Traveller documents and NRMS menu photos are hard-limited to 2MB.
+    maxFileSize = folderLimit;
   } else if (typeof requestedMaxBytes === "number" && Number.isFinite(requestedMaxBytes) && requestedMaxBytes > 0) {
     maxFileSize = Math.min(Math.floor(requestedMaxBytes), MAX_UPLOAD_BYTES);
   }
@@ -156,11 +195,15 @@ router.get("/sign", limitCloudinarySign as any, async (req, res) => {
 });
 
 /** POST /uploads/cloudinary/upload */
-router.post("/upload", limitUploadPresign as any, upload.single("file"), async (req, res) => {
+router.post("/upload", limitUploadPresign as any, parseCloudinaryUpload, async (req, res) => {
   const parsed = signQuerySchema.safeParse({ folder: req.body?.folder });
   if (!parsed.success) return res.status(400).json({ error: "invalid_folder" });
 
   const folder = parsed.data.folder || "uploads";
+  const requestedFolder = String(req.query?.folder || "").trim();
+  if (requestedFolder && requestedFolder !== folder) {
+    return res.status(400).json({ error: "folder_mismatch" });
+  }
   if (!isAllowedFolder(folder)) {
     return res.status(400).json({ error: "invalid_folder" });
   }
@@ -175,6 +218,17 @@ router.post("/upload", limitUploadPresign as any, upload.single("file"), async (
   const file = req.file;
   if (!file?.buffer?.length) {
     return res.status(400).json({ error: "file_required" });
+  }
+  const folderLimit = maxCloudinaryUploadBytesForFolder(folder);
+  if (folderLimit != null && file.size > folderLimit) {
+    return res.status(413).json({
+      error: "file_too_large",
+      code: "UPLOAD_SIZE_LIMIT_EXCEEDED",
+      maxBytes: folderLimit,
+      message: folderMatches(folder, "nrms-menu")
+        ? "Photo exceeds the 2MB upload limit. Choose a smaller image."
+        : "Files in this area must be 2MB or smaller.",
+    });
   }
   if (!isCloudinaryFileTypeAllowed(file.mimetype)) {
     return res.status(400).json({ error: "invalid_file_type" });

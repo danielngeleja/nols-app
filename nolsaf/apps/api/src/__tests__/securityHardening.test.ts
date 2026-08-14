@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { validateSecrets } from "../lib/validateSecrets";
-import { isCloudinaryFileTypeAllowed } from "../routes/uploads.cloudinary";
+import { isCloudinaryFileTypeAllowed, maxCloudinaryUploadBytesForFolder } from "../routes/uploads.cloudinary";
 import { isCareerResumeFileTypeAllowed } from "../routes/public.careers.apply";
 import { bankInitiateSchema } from "../routes/payments.azampay.bank";
 import { BANK_PROVIDER_CATALOG } from "../lib/azampay.helpers";
 import { isWebhookIpAllowed } from "../routes/webhooks.payments";
+import { menuCategoryAllowed } from "../routes/nrms.operations";
 
 const originalEnv = { ...process.env };
 
@@ -69,6 +70,21 @@ describe("security hardening", () => {
     expect(isCloudinaryFileTypeAllowed("image/svg+xml")).toBe(false);
     expect(isCloudinaryFileTypeAllowed("text/html")).toBe(false);
     expect(isCloudinaryFileTypeAllowed("application/javascript")).toBe(false);
+  });
+
+  it("caps NRMS menu photos at 2MB, including nested menu folders", () => {
+    expect(maxCloudinaryUploadBytesForFolder("nrms-menu")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("nrms-menu/property-1")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("properties")).toBeNull();
+  });
+
+  it("keeps restaurant and bar menu categories separated", () => {
+    expect(menuCategoryAllowed("RESTAURANT", "Breakfast")).toBe(true);
+    expect(menuCategoryAllowed("RESTAURANT", "Whisky")).toBe(false);
+    expect(menuCategoryAllowed("BAR", "Whisky")).toBe(true);
+    expect(menuCategoryAllowed("BAR", "Breakfast")).toBe(false);
+    expect(menuCategoryAllowed("OTHER", "Breakfast")).toBe(true);
+    expect(menuCategoryAllowed("OTHER", "Whisky")).toBe(true);
   });
 
   it("keeps public career resume uploads restricted to document MIME types", () => {

@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Trash2,
   UtensilsCrossed,
+  UserRound,
   WalletCards,
   X,
   XCircle,
@@ -38,6 +39,12 @@ type OrderPoint = {
   active: boolean;
   menuUrl: string | null;
   roomUnit: RoomUnit | null;
+  currentStay: {
+    reservationId: number;
+    guestName: string | null;
+    checkIn: string;
+    checkOut: string;
+  } | null;
   createdAt: string;
 };
 
@@ -613,6 +620,18 @@ function PointCard({
           <div className="min-w-0"><p className="m-0 truncate text-sm font-bold tracking-tight text-neutral-950">{point.label}</p><p className="mb-0 mt-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">{typeLabel}{point.roomUnit?.floor != null ? ` · Floor ${point.roomUnit.floor}` : ""}</p></div>
           <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold ${point.active ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`}><span className={`h-1.5 w-1.5 rounded-full ${point.active ? "bg-emerald-500" : "bg-neutral-400"}`} />{point.active ? "Live" : "Paused"}</span>
         </div>
+
+        {point.type === "ROOM" && (
+          <div className={`mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2 ${point.currentStay ? "border-sky-100 bg-sky-50/80" : "border-emerald-100 bg-emerald-50/70"}`}>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${point.currentStay ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
+              {point.currentStay ? <UserRound className="h-3.5 w-3.5" /> : <BedDouble className="h-3.5 w-3.5" />}
+            </span>
+            <div className="min-w-0">
+              <p className={`m-0 text-[8px] font-bold uppercase tracking-[0.12em] ${point.currentStay ? "text-sky-600" : "text-emerald-600"}`}>{point.currentStay ? "Checked-in guest" : "Room status"}</p>
+              <p className={`mb-0 mt-0.5 truncate text-[10px] font-bold ${point.currentStay ? "text-sky-950" : "text-emerald-900"}`} title={point.currentStay?.guestName ?? undefined}>{point.currentStay ? (point.currentStay.guestName || "Guest name not recorded") : "Available"}</p>
+            </div>
+          </div>
+        )}
 
         <div className="mt-3 border-t border-dashed border-neutral-200 pt-2.5">
           {point.active && point.menuUrl ? (
