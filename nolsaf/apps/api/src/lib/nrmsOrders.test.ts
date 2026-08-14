@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+
+const assertBusinessDayWritable = vi.hoisted(() => vi.fn());
+vi.mock("./nrmsShifts.js", () => ({ assertNrmsBusinessDayWritable: assertBusinessDayWritable }));
+
 import { advanceNrmsOutletOrder, nrmsOrderDescription, nrmsOrderPlacementSettlement } from "./nrmsOrders.js";
 
 function preparingOrder(overrides: Record<string, unknown> = {}) {
   return {
     id: 5,
+    propertyId: 3,
     status: "PREPARING",
     folioChargeId: null,
     settlementMode: "ROOM_FOLIO",
@@ -59,6 +64,7 @@ describe("NRMS outlet order folio transition", () => {
       include: { folioCharge: { select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true } } },
     }));
     expect(tx.reservation.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { chargesTotal: 25_000 } });
+    expect(assertBusinessDayWritable).toHaveBeenCalledWith(tx, 3);
   });
 
   it("is idempotent after the order already owns a folio charge", async () => {

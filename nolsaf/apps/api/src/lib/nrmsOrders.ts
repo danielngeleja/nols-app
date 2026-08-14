@@ -1,4 +1,5 @@
 import { routeChargeToMasterFolio } from "./nrmsMasterFolio.js";
+import { assertNrmsBusinessDayWritable } from "./nrmsShifts.js";
 
 function amount(value: unknown): number {
   const parsed = Number(value);
@@ -72,6 +73,8 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
   if (order.settlementMode === "ROOM_FOLIO" && order.reservationId != null && order.reservation?.status !== "CHECKED_IN") {
     throw new Error("NRMS_ORDER_GUEST_NOT_IN_HOUSE");
   }
+
+  await assertNrmsBusinessDayWritable(tx, order.propertyId);
 
   const now = new Date();
   if (order.settlementMode === "OUTLET_PAYMENT") {

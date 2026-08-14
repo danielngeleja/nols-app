@@ -19,6 +19,7 @@ import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
 import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 import { summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
 import {
   billingRoutesExtras,
@@ -133,7 +134,7 @@ const editReservationSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 });
 
-const reasonSchema = z.object({ reason: z.string().trim().max(300).optional().nullable() });
+const reasonSchema = z.object({ reason: z.string().trim().min(2).max(300) });
 const checkoutVerificationSchema = z.object({
   verifiedChargeIds: z.array(z.number().int().positive()).max(500).default([]),
 });
@@ -158,6 +159,7 @@ const groupTerminalSchema = z.object({ reason: z.string().trim().min(2).max(300)
 const paymentSchema = z.object({
   amount: z.number().positive(),
   method: z.enum(PAYMENT_METHODS),
+  idempotencyKey: z.string().trim().min(8).max(120),
   reference: z.string().trim().max(120).optional().nullable(),
   note: z.string().trim().max(300).optional().nullable(),
 });
@@ -167,6 +169,15 @@ const chargeSchema = z.object({
   description: z.string().trim().max(300).optional().nullable(),
   amount: z.number().positive(),
 });
+
+function rejectLockedBusinessDay(res: Response, error: unknown): boolean {
+  if (!(error instanceof Error) || error.message !== NRMS_BUSINESS_DAY_LOCKED) return false;
+  res.status(409).json({
+    error: "This business date is closing or closed. Post a controlled correction on an open business date.",
+    code: NRMS_BUSINESS_DAY_LOCKED,
+  });
+  return true;
+}
 
 const moveRoomSchema = z.object({
   allocationId: z.number().int().positive(),
@@ -1101,6 +1112,7 @@ router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Respons
 
 function groupActionFailure(err: unknown): GroupBlocker {
   const message = err instanceof Error ? err.message : "";
+  if (message === NRMS_BUSINESS_DAY_LOCKED) return { code: NRMS_BUSINESS_DAY_LOCKED, message: "The current business date is closing or closed." };
   if (message.startsWith("NRMS_GUEST_BALANCE_DUE:")) return { code: "GUEST_BALANCE_DUE", message: "The guest folio still has an amount due." };
   if (message.startsWith("NRMS_GUEST_CREDIT_REMAINS:")) return { code: "GUEST_CREDIT_REMAINS", message: "The guest folio has an unresolved credit." };
   if (message.startsWith("NRMS_OPEN_OUTLET_ORDERS:")) return { code: "OPEN_OUTLET_ORDERS", message: "Restaurant or bar orders remain open." };
@@ -1154,6 +1166,7 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
         try {
           const outcome = await prisma.$transaction(async (tx: any) => {
             await lockPropertyInventory(tx, group.propertyId);
+            if (action === "CHECK_OUT") await assertNrmsBusinessDayWritable(tx, group.propertyId);
             const member = await tx.reservation.findFirst({
               where: { id: existing.id, groupId: group.id, propertyId: group.propertyId, ownerId, bookingId: null },
               include: groupMemberInclude,
@@ -2094,6 +2107,7 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     if (reservation.status !== "CHECKED_IN") return res.status(409).json({ error: "Only checked-in stays can be checked out", code: "INVALID_TRANSITION" });
     const billing = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
       return finalizeNrmsCheckout(tx, reservation, ownerId, verification.data.verifiedChargeIds);
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
@@ -2161,6 +2175,7 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
         bookingStatus: status,
       });
     }
+    if (rejectLockedBusinessDay(res, err)) return;
     console.error("[owner.nrms.reservations] checkout failed", err);
     res.status(500).json({ error: "Failed to check out reservation" });
   }
@@ -2273,6 +2288,21 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       return res.status(400).json({ error: "Invalid payment", details: parsed.error.flatten() });
     }
     const data = parsed.data;
+    const normalizedReference = data.reference ? sanitizeText(data.reference) : null;
+    const normalizedNote = data.note ? sanitizeText(data.note) : null;
+    const samePayment = (payment: any) => Number(payment.amount) === data.amount
+      && payment.currency === reservation.currency
+      && payment.method === data.method
+      && (payment.reference ?? null) === normalizedReference
+      && (payment.note ?? null) === normalizedNote;
+    const existingPayment = await prisma.externalPaymentRecord.findUnique({
+      where: { reservationId_idempotencyKey: { reservationId: reservation.id, idempotencyKey: data.idempotencyKey } },
+    });
+    if (existingPayment) {
+      if (!samePayment(existingPayment)) return res.status(409).json({ error: "This payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
+      const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
+      return res.status(200).json({ reservation: formatReservation(updated), idempotent: true });
+    }
     const transferredToMaster = (reservation.masterFolioItems ?? []).filter((item: any) => !item.voidedAt).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0);
     const outstanding = computeOutstanding(reservation.totalAmount, reservation.chargesTotal, Number(reservation.amountPaid) + transferredToMaster);
     if (outstanding <= 0) {
@@ -2282,8 +2312,16 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       return res.status(400).json({ error: `Payment cannot exceed the outstanding balance of ${reservation.currency} ${outstanding.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE" });
     }
 
-    await prisma.$transaction(async (tx: any) => {
+    const transactionResult = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
+      const duplicate = await tx.externalPaymentRecord.findUnique({
+        where: { reservationId_idempotencyKey: { reservationId: reservation.id, idempotencyKey: data.idempotencyKey } },
+      });
+      if (duplicate) {
+        if (!samePayment(duplicate)) throw new Error("NRMS_PAYMENT_IDEMPOTENCY_CONFLICT");
+        return { idempotent: true };
+      }
       const current = await tx.reservation.findUnique({
         where: { id: reservation.id },
         select: { totalAmount: true, chargesTotal: true, amountPaid: true },
@@ -2298,8 +2336,9 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           amount: data.amount,
           currency: reservation.currency,
           method: data.method,
-          reference: data.reference ? sanitizeText(data.reference) : null,
-          note: data.note ? sanitizeText(data.note) : null,
+          idempotencyKey: data.idempotencyKey,
+          reference: normalizedReference,
+          note: normalizedNote,
           recordedById: ownerId,
         },
       });
@@ -2324,10 +2363,11 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           data: { amount: data.amount, method: data.method },
         },
       });
+      return { idempotent: false };
     }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
-    res.status(201).json({ reservation: formatReservation(updated) });
+    res.status(transactionResult.idempotent ? 200 : 201).json({ reservation: formatReservation(updated), idempotent: transactionResult.idempotent });
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_PAYMENT_COMPLETE") {
       return res.status(409).json({ error: "This reservation is already paid in full", code: "PAYMENT_COMPLETE" });
@@ -2336,6 +2376,8 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       const outstanding = Number(err.message.split(":")[1]);
       return res.status(400).json({ error: `Payment cannot exceed the outstanding balance of ${outstanding.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE" });
     }
+    if (err instanceof Error && err.message === "NRMS_PAYMENT_IDEMPOTENCY_CONFLICT") return res.status(409).json({ error: "This payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
+    if (rejectLockedBusinessDay(res, err)) return;
     console.error("[owner.nrms.reservations] payment failed", err);
     res.status(500).json({ error: "Failed to record payment" });
   }
@@ -2355,10 +2397,12 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
     if (!payment) return res.status(404).json({ error: "Payment not found on this reservation" });
     if (payment.voidedAt) return res.status(409).json({ error: "Payment is already voided" });
     const parsed = reasonSchema.safeParse(req.body ?? {});
-    const reason = parsed.success && parsed.data.reason ? sanitizeText(parsed.data.reason) : null;
+    if (!parsed.success) return res.status(400).json({ error: "A void reason is required" });
+    const reason = sanitizeText(parsed.data.reason);
 
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
       await tx.externalPaymentRecord.update({
         where: { id: paymentId },
         data: { voidedAt: new Date(), voidReason: reason },
@@ -2381,6 +2425,7 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     console.error("[owner.nrms.reservations] void payment failed", err);
     res.status(500).json({ error: "Failed to void payment" });
   }
@@ -2408,6 +2453,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
 
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
       const current = await tx.reservation.findUnique({ where: { id: reservation.id }, select: { status: true } });
       if (!current || !["CONFIRMED", "CHECKED_IN"].includes(current.status)) throw new Error("NRMS_CHARGE_INVALID_STATUS");
       const charge = await tx.reservationCharge.create({
@@ -2438,6 +2484,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
     if (err instanceof Error && err.message === "NRMS_CHARGE_INVALID_STATUS") {
       return res.status(409).json({ error: "Charges can only be posted on confirmed or checked-in reservations", code: "CHARGE_INVALID_STATUS" });
     }
+    if (rejectLockedBusinessDay(res, err)) return;
     console.error("[owner.nrms.reservations] post charge failed", err);
     res.status(500).json({ error: "Failed to post charge" });
   }
@@ -2459,10 +2506,12 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
     if (!charge) return res.status(404).json({ error: "Charge not found on this reservation" });
     if (charge.voidedAt) return res.status(409).json({ error: "Charge is already voided" });
     const parsed = reasonSchema.safeParse(req.body ?? {});
-    const reason = parsed.success && parsed.data.reason ? sanitizeText(parsed.data.reason) : null;
+    if (!parsed.success) return res.status(400).json({ error: "A void reason is required" });
+    const reason = sanitizeText(parsed.data.reason);
 
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
       await tx.reservationCharge.update({
         where: { id: chargeId },
         data: { voidedAt: new Date(), voidReason: reason },
@@ -2482,6 +2531,7 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     console.error("[owner.nrms.reservations] void charge failed", err);
     res.status(500).json({ error: "Failed to void charge" });
   }

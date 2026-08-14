@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { expectedCashForShift, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
 
 describe("shiftMoney", () => {
   it("rounds to two decimals and coerces junk to zero", () => {
@@ -15,6 +15,50 @@ describe("shiftDayKey", () => {
     // 2026-07-24 22:30 UTC is already 2026-07-25 01:30 in Dar es Salaam (UTC+3).
     expect(shiftDayKey(new Date("2026-07-24T22:30:00Z"))).toBe("2026-07-25");
     expect(shiftDayKey(new Date("2026-07-24T10:00:00Z"))).toBe("2026-07-24");
+  });
+});
+
+describe("nextShiftDayKey", () => {
+  it("advances sequential business dates across month and year boundaries", () => {
+    expect(nextShiftDayKey("2026-08-14")).toBe("2026-08-15");
+    expect(nextShiftDayKey("2026-12-31")).toBe("2027-01-01");
+  });
+});
+
+describe("NRMS business-day write seal", () => {
+  it("allows financial writes while the day is open", async () => {
+    const tx = { nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ status: "OPEN" }) } };
+    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).resolves.toBe("2026-07-24");
+  });
+
+  it.each(["CLOSING", "CLOSED"])("rejects financial writes when the day is %s", async (status) => {
+    const tx = { nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ status }) } };
+    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).rejects.toThrow(NRMS_BUSINESS_DAY_LOCKED);
+  });
+
+  it("routes new operations to the active open business day", async () => {
+    const tx = {
+      nrmsBusinessDay: {
+        findUnique: vi.fn().mockResolvedValue({ status: "CLOSED", businessDate: new Date("2026-08-14T00:00:00Z") }),
+        findFirst: vi.fn().mockResolvedValue({ status: "OPEN", businessDate: new Date("2026-08-15T00:00:00Z") }),
+      },
+    };
+    await expect(assertNrmsBusinessDayWritable(tx, 3)).resolves.toBe("2026-08-15");
+  });
+
+  it("recovers a closed property by opening the next sequential business day", async () => {
+    const upsert = vi.fn().mockResolvedValue({ status: "OPEN", businessDate: new Date("2026-08-15T00:00:00Z") });
+    const tx = {
+      nrmsBusinessDay: {
+        findUnique: vi.fn().mockResolvedValue({ status: "CLOSED", businessDate: new Date("2026-08-14T00:00:00Z") }),
+        findFirst: vi.fn().mockResolvedValue({ status: "CLOSED", businessDate: new Date("2026-08-14T00:00:00Z") }),
+        upsert,
+      },
+    };
+    await expect(assertNrmsBusinessDayWritable(tx, 3)).resolves.toBe("2026-08-15");
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ propertyId: 3, businessDate: new Date("2026-08-15T00:00:00Z"), openedById: null }),
+    }));
   });
 });
 

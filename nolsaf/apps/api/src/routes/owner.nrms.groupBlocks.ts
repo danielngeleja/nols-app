@@ -24,6 +24,7 @@ import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { qualifyGroupBlock, STANDARD_GROUP_MIN_ROOMS } from "../lib/nrmsGroupPolicy.js";
+import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
@@ -112,6 +113,7 @@ const pickupSchema = z.object({
 const masterPaymentSchema = z.object({
   amount: z.number().positive().max(1_000_000_000),
   method: z.enum(PAYMENT_METHODS),
+  idempotencyKey: z.string().trim().min(8).max(120),
   reference: z.string().trim().max(120).optional().nullable(),
   note: z.string().trim().max(300).optional().nullable(),
 });
@@ -143,6 +145,15 @@ const manualProFormaBankSchema = z.object({
   instructions: z.string().trim().max(500).optional().nullable(),
   policyAccepted: z.literal(true),
 });
+
+function rejectLockedBusinessDay(res: Response, error: unknown): boolean {
+  if (!(error instanceof Error) || error.message !== NRMS_BUSINESS_DAY_LOCKED) return false;
+  res.status(409).json({
+    error: "This business date is closing or closed. Post a controlled correction on an open business date.",
+    code: NRMS_BUSINESS_DAY_LOCKED,
+  });
+  return true;
+}
 
 function utcDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -923,10 +934,25 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
     }
     const masterFolioId = block.masterFolio.id;
     const data = parsed.data;
-    await prisma.$transaction(async (tx: any) => {
+    const normalizedReference = data.reference ? sanitizeText(data.reference) : null;
+    const normalizedNote = data.note ? sanitizeText(data.note) : null;
+    const transactionResult = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, ownerId: block.ownerId, blockId: block.id } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
+      const duplicate = await tx.nrmsMasterFolioPayment.findUnique({
+        where: { masterFolioId_idempotencyKey: { masterFolioId: folio.id, idempotencyKey: data.idempotencyKey } },
+      });
+      if (duplicate) {
+        const samePayment = Number(duplicate.amount) === data.amount
+          && duplicate.currency === folio.currency
+          && duplicate.method === data.method
+          && (duplicate.reference ?? null) === normalizedReference
+          && (duplicate.note ?? null) === normalizedNote;
+        if (!samePayment) throw new Error("NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT");
+        return { idempotent: true };
+      }
       const totals = await getMasterFolioTotals(tx, folio.id);
       const latestProForma = await tx.nrmsMasterFolioProForma.findFirst({
         where: { masterFolioId: folio.id, status: { in: ["DRAFT", "SENT"] } },
@@ -949,23 +975,27 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
           amount: data.amount,
           currency: folio.currency,
           method: data.method,
-          reference: data.reference ? sanitizeText(data.reference) : null,
+          idempotencyKey: data.idempotencyKey,
+          reference: normalizedReference,
           receiptNumber: buildMasterPaymentReceiptNumber(folio.id),
-          note: data.note ? sanitizeText(data.note) : null,
+          note: normalizedNote,
           recordedById: actorId,
         },
       });
       await refreshMasterFolioStatus(tx, folio.id);
+      return { idempotent: false };
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
-    res.status(201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
+    res.status(transactionResult.idempotent ? 200 : 201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio, idempotent: transactionResult.idempotent });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:")) {
       const balance = Number(err.message.split(":")[1] ?? 0);
       return res.status(400).json({ error: `Payment cannot exceed the agency balance of ${balance.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE", balance });
     }
     if (err instanceof Error && err.message === "NRMS_MASTER_FOLIO_MISSING") return res.status(409).json({ error: "The agency master folio is missing", code: "MASTER_FOLIO_MISSING" });
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT") return res.status(409).json({ error: "This agency payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
     console.error("[owner.nrms.groupBlocks] master payment failed", err);
     res.status(500).json({ error: "Failed to record the agency payment" });
   }
@@ -985,6 +1015,7 @@ router.post("/blocks/:blockId/master-folio/payments/:paymentId/void", (async (re
     if (!Number.isInteger(paymentId) || paymentId <= 0) return res.status(400).json({ error: "Invalid agency payment id" });
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const payment = await tx.nrmsMasterFolioPayment.findFirst({ where: { id: paymentId, masterFolioId } });
       if (!payment) throw new Error("NRMS_MASTER_PAYMENT_NOT_FOUND");
       if (payment.voidedAt) throw new Error("NRMS_MASTER_PAYMENT_ALREADY_VOID");
@@ -997,6 +1028,7 @@ router.post("/blocks/:blockId/master-folio/payments/:paymentId/void", (async (re
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_NOT_FOUND") return res.status(404).json({ error: "Agency payment not found" });
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_ALREADY_VOID") return res.status(409).json({ error: "Agency payment is already voided" });
     console.error("[owner.nrms.groupBlocks] master payment void failed", err);
@@ -1018,6 +1050,7 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
     const actorId = req.user!.id;
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, propertyId: block.propertyId, ownerId: block.ownerId } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
       const totals = await getMasterFolioTotals(tx, folio.id);
@@ -1041,6 +1074,7 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.status(201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NO_CREDIT") return res.status(409).json({ error: "This agency account has no credit available to refund", code: "NO_AGENCY_CREDIT" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_REFUND_EXCEEDS_CREDIT:")) {
       const credit = Number(err.message.split(":")[1] ?? 0);
@@ -1066,6 +1100,7 @@ router.post("/blocks/:blockId/master-folio/refunds/:refundId/void", (async (req:
     if (!Number.isInteger(refundId) || refundId <= 0) return res.status(400).json({ error: "Invalid agency refund id" });
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const refund = await tx.nrmsMasterFolioRefund.findFirst({ where: { id: refundId, masterFolioId } });
       if (!refund) throw new Error("NRMS_MASTER_REFUND_NOT_FOUND");
       if (refund.voidedAt) throw new Error("NRMS_MASTER_REFUND_ALREADY_VOID");
@@ -1078,6 +1113,7 @@ router.post("/blocks/:blockId/master-folio/refunds/:refundId/void", (async (req:
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NOT_FOUND") return res.status(404).json({ error: "Agency refund not found" });
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_ALREADY_VOID") return res.status(409).json({ error: "Agency refund is already voided" });
     console.error("[owner.nrms.groupBlocks] master refund void failed", err);

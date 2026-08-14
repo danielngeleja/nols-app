@@ -72,11 +72,11 @@ export async function loadNrmsPropertyAccess(
     res.status(403).json({ error: "NRMS operations are not active for this property", code: "NRMS_NOT_ACTIVE" });
     return null;
   }
-  if (account.status === "FROZEN") {
+  if (["FROZEN", "CLOSED"].includes(account.status)) {
     const restriction = await findOpenRestrictionCase(RESTRICTION_SCOPE.NRMS_PROPERTY, propertyId);
     res.status(423).json({
-      error: "NRMS operations are temporarily frozen for this property",
-      code: "NRMS_PROPERTY_FROZEN",
+      error: account.status === "CLOSED" ? "NRMS operations are closed for this property" : "NRMS operations are temporarily frozen for this property",
+      code: account.status === "CLOSED" ? "NRMS_PROPERTY_CLOSED" : "NRMS_PROPERTY_FROZEN",
       referenceCode: restriction?.referenceCode ?? null,
       reason: restriction?.reason ?? account.frozenReason ?? null,
     });

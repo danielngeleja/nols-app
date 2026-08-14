@@ -4260,10 +4260,10 @@ model NrmsGroupBlock {
   /// The qualification rule frozen when the agreement was created. Standard
   /// groups meet this room count; smaller contracted parties require an owner
   /// approval reason. Existing groups are never reclassified later.
-  groupMinimumRooms       Int       @default(5)
-  agreedRoomsAtCreation   Int?
-  smallGroupApprovedAt    DateTime?
-  smallGroupApprovalReason String?  @db.VarChar(300)
+  groupMinimumRooms        Int       @default(5)
+  agreedRoomsAtCreation    Int?
+  smallGroupApprovedAt     DateTime?
+  smallGroupApprovalReason String?   @db.VarChar(300)
 
   notes       String?   @db.Text
   createdById Int?
@@ -4465,15 +4465,16 @@ model NrmsMasterFolioItem {
 /// One real payment from the agency/group organiser. Corrections retain the
 /// original row and mark it void, mirroring guest folio payments.
 model NrmsMasterFolioPayment {
-  id            Int     @id @default(autoincrement())
-  masterFolioId Int
-  amount        Decimal @db.Decimal(12, 2)
-  currency      String  @default("TZS") @db.VarChar(3)
-  method        String  @db.VarChar(30)
-  reference     String? @db.VarChar(120)
-  receiptNumber String  @unique @db.VarChar(40)
-  note          String? @db.VarChar(300)
-  recordedById  Int?
+  id             Int     @id @default(autoincrement())
+  masterFolioId  Int
+  amount         Decimal @db.Decimal(12, 2)
+  currency       String  @default("TZS") @db.VarChar(3)
+  method         String  @db.VarChar(30)
+  reference      String? @db.VarChar(120)
+  idempotencyKey String? @db.VarChar(120)
+  receiptNumber  String  @unique @db.VarChar(40)
+  note           String? @db.VarChar(300)
+  recordedById   Int?
 
   voidedAt   DateTime?
   voidReason String?   @db.VarChar(300)
@@ -4482,6 +4483,7 @@ model NrmsMasterFolioPayment {
   masterFolio NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade)
   recordedBy  User?           @relation("NrmsMasterPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
 
+  @@unique([masterFolioId, idempotencyKey])
   @@index([masterFolioId, createdAt])
   @@index([method])
   @@map("nrms_master_folio_payment")
@@ -5132,14 +5134,15 @@ model ChannelCalendarEventMap {
 /// Rows are never deleted or edited after creation: corrections use voidedAt
 /// plus a replacement row (immutable change history, doc 7.7).
 model ExternalPaymentRecord {
-  id            Int     @id @default(autoincrement())
-  reservationId Int
-  amount        Decimal @db.Decimal(12, 2)
-  currency      String  @default("TZS") @db.VarChar(3)
-  method        String  @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
-  reference     String? @db.VarChar(120)
-  note          String? @db.VarChar(300)
-  recordedById  Int?
+  id             Int     @id @default(autoincrement())
+  reservationId  Int
+  amount         Decimal @db.Decimal(12, 2)
+  currency       String  @default("TZS") @db.VarChar(3)
+  method         String  @db.VarChar(30) // CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  reference      String? @db.VarChar(120)
+  idempotencyKey String? @db.VarChar(120)
+  note           String? @db.VarChar(300)
+  recordedById   Int?
 
   voidedAt   DateTime?
   voidReason String?   @db.VarChar(300)
@@ -5149,6 +5152,7 @@ model ExternalPaymentRecord {
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   recordedBy  User?       @relation("NrmsPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
 
+  @@unique([reservationId, idempotencyKey])
   @@index([reservationId, createdAt])
   @@index([method])
   @@map("external_payment_record")

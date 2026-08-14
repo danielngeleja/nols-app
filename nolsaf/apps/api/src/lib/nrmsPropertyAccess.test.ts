@@ -128,4 +128,21 @@ describe("loadNrmsPropertyAccess", () => {
       referenceCode: "RST-004",
     }));
   });
+
+  it("blocks operations when the property account is closed", async () => {
+    mocks.membershipFindFirst.mockResolvedValue({ role: "MANAGER" });
+    mocks.accountFindUnique.mockResolvedValue({ id: 44, status: "CLOSED", trialEndsAt: new Date("2026-12-01T00:00:00.000Z") });
+    const res = responseDouble();
+
+    const access = await loadNrmsPropertyAccess(
+      { user: { id: 23, role: "USER" } } as any,
+      res,
+      91,
+      ["OWNER", "MANAGER", "FRONT_DESK"],
+    );
+
+    expect(access).toBeNull();
+    expect(res.status).toHaveBeenCalledWith(423);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "NRMS_PROPERTY_CLOSED" }));
+  });
 });

@@ -2,7 +2,7 @@
 
 // NRMS reservations (doc 7.3, 7.4): list, create external/walk-in
 // reservations, and run the stay lifecycle with payments and balances.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
@@ -1456,6 +1456,7 @@ function ReservationDetailModal({
   const [payAmount, setPayAmount] = useState("");
   const [payAmountManuallyEdited, setPayAmountManuallyEdited] = useState(false);
   const [payMethod, setPayMethod] = useState("CASH");
+  const paymentRequest = useRef<{ signature: string; key: string } | null>(null);
   const [chargeCategory, setChargeCategory] = useState<string>("LAUNDRY");
   const [chargeDescription, setChargeDescription] = useState("");
   const [chargeAmount, setChargeAmount] = useState("");
@@ -1508,13 +1509,17 @@ function ReservationDetailModal({
 
   const recordPayment = async () => {
     if (!payAmount) return;
+    const signature = JSON.stringify([reservationId, Number(payAmount), payMethod]);
+    if (paymentRequest.current?.signature !== signature) paymentRequest.current = { signature, key: crypto.randomUUID() };
     setBusyAction("payments");
     setError(null);
     try {
       await apiClient.post(`/api/owner/nrms/reservations/${reservationId}/payments`, {
         amount: Number(payAmount),
         method: payMethod,
+        idempotencyKey: paymentRequest.current.key,
       });
+      paymentRequest.current = null;
       setPayAmount("");
       setPayAmountManuallyEdited(false);
       await reload();

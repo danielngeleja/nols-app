@@ -696,6 +696,7 @@ export function GroupBlockDetailModal({
   const [agencyPaymentAmount, setAgencyPaymentAmount] = useState("");
   const [agencyPaymentMethod, setAgencyPaymentMethod] = useState("BANK");
   const [agencyPaymentReference, setAgencyPaymentReference] = useState("");
+  const agencyPaymentRequest = useRef<{ signature: string; key: string } | null>(null);
   const [agencyPaymentError, setAgencyPaymentError] = useState<string | null>(null);
   const [proFormaError, setProFormaError] = useState<{ message: string; code?: string } | null>(null);
   const [proFormaNotice, setProFormaNotice] = useState<string | null>(null);
@@ -852,6 +853,8 @@ export function GroupBlockDetailModal({
     const amount = Number(agencyPaymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return setAgencyPaymentError("Enter the agency payment amount");
     if (amount > block.masterFolio.paymentDue) return setAgencyPaymentError(`Payment cannot exceed the agency balance of ${block.masterFolio.paymentDue.toLocaleString()}`);
+    const signature = JSON.stringify([blockId, amount, agencyPaymentMethod, agencyPaymentReference.trim()]);
+    if (agencyPaymentRequest.current?.signature !== signature) agencyPaymentRequest.current = { signature, key: crypto.randomUUID() };
     setBusy(true);
     setError(null);
     setAgencyPaymentError(null);
@@ -859,8 +862,10 @@ export function GroupBlockDetailModal({
       await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments`, {
         amount,
         method: agencyPaymentMethod,
+        idempotencyKey: agencyPaymentRequest.current.key,
         reference: agencyPaymentReference.trim() || null,
       });
+      agencyPaymentRequest.current = null;
       await reload();
       setAgencyPaymentAmount("");
       setAgencyPaymentReference("");
@@ -1379,7 +1384,7 @@ export function GroupBlockDetailModal({
                   <tr className="border-b border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
                     <th className="px-4 py-2.5">Room type</th>
                     <th className="px-4 py-2.5 text-center">Agreed</th>
-                    <th className="px-4 py-2.5 text-center">Picked up</th>
+                    <th className="whitespace-nowrap px-4 py-2.5 text-center">Picked up</th>
                     <th className="px-4 py-2.5 text-center">Still held</th>
                     <th className="px-4 py-2.5 text-right">Rate per night</th>
                     <th className="px-4 py-2.5 text-right">Name a guest</th>
