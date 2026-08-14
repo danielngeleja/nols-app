@@ -31,7 +31,7 @@ const TENDER_LABELS: Record<string, string> = { CASH: "Cash", MOBILE_MONEY: "Mob
 const tenderLabel = (value?: string | null) => (value ? TENDER_LABELS[value] ?? value : "Not stated");
 
 function nextStep(status: string): { label: string; icon: typeof ChefHat; needsTender: boolean } | null {
-  if (status === "CONFIRMED") return { label: "Start preparing", icon: ChefHat, needsTender: false };
+  if (status === "CONFIRMED") return { label: "Begin preparation", icon: ChefHat, needsTender: false };
   if (status === "PREPARING") return { label: "Take to guest", icon: ArrowRight, needsTender: false };
   if (status === "SERVING") return { label: "Serve & settle", icon: ReceiptText, needsTender: true };
   return null;
@@ -348,7 +348,7 @@ export default function NrmsTablesPage() {
                                     <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option>
                                   </select>
                                 )}
-                                <button type="button" disabled={busyId === order.id || (step.needsTender && !tender[order.id])} onClick={() => void advance(order)} className={`inline-flex h-8 items-center gap-1 rounded-lg px-3 text-[10px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400 ${order.status === "SERVING" ? "bg-emerald-800 hover:bg-emerald-900" : order.status === "PREPARING" ? "bg-cyan-700 hover:bg-cyan-800" : "bg-neutral-900 hover:bg-neutral-800"}`}>{busyId === order.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <step.icon className="h-3.5 w-3.5" />}{step.label}</button>
+                                <button type="button" disabled={busyId === order.id || (step.needsTender && !tender[order.id])} onClick={() => void advance(order)} className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold shadow-sm transition disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400 ${order.status === "SERVING" ? "border-emerald-800 bg-emerald-800 text-white hover:bg-emerald-900" : order.status === "PREPARING" ? "border-cyan-700 bg-cyan-700 text-white hover:bg-cyan-800" : "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400 hover:bg-amber-100"}`}>{busyId === order.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <step.icon className="h-3.5 w-3.5" />}{step.label}</button>
                               </div>
                             )}
                           </div>

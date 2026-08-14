@@ -3,9 +3,11 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
+import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
-import { ensureBusinessDay, expectedCashForShift, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -16,16 +18,10 @@ const PAYMENT_METHODS = ["CASH", "MOBILE_MONEY", "BANK", "CARD", "OTHER"] as con
 const EXPENSE_CATEGORIES = ["STAFF_WAGES", "UTILITIES", "SUPPLIES", "MAINTENANCE", "MARKETING", "RENT", "LICENSING", "OTHER"] as const;
 const activeRevenueStatuses = ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
 
-type FinanceAccess = { property: { id: number; ownerId: number; title: string; currency: string | null }; role: "OWNER" | "MANAGER" | "FRONT_DESK" };
+type FinanceAccess = NrmsPropertyAccess & { role: "OWNER" | "MANAGER" | "FRONT_DESK" };
 
 async function loadFinanceAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<FinanceAccess | null> {
-  if (!Number.isInteger(propertyId) || propertyId <= 0) { res.status(400).json({ error: "Invalid property id" }); return null; }
-  const property = await db.property.findUnique({ where: { id: propertyId }, select: { id: true, ownerId: true, title: true, currency: true, nrmsActivatedAt: true } });
-  if (!property?.nrmsActivatedAt) { res.status(404).json({ error: "Active NRMS property not found" }); return null; }
-  if (property.ownerId === req.user!.id) return { property, role: "OWNER" };
-  const membership = await db.nrmsStaffMembership.findFirst({ where: { propertyId, userId: req.user!.id, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } }, select: { role: true } });
-  if (!membership) { res.status(403).json({ error: "You do not have access to this property's financial controls" }); return null; }
-  return { property, role: membership.role };
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]) as Promise<FinanceAccess | null>;
 }
 
 function requireManager(access: FinanceAccess, res: Response): boolean {
@@ -109,15 +105,19 @@ function personName(user: any): string {
 }
 
 
-async function controlIssues(propertyId: number, key: string) {
-  const { end, start } = dayRange(key);
-  const [openShifts, openOrders, dueOut, unclassified, missingVoidReasons] = await Promise.all([
-    db.nrmsCashierShift.count({ where: { propertyId, status: "OPEN", businessDate: dateOnly(key) } }),
-    db.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } } }),
-    db.reservation.count({ where: { propertyId, status: "CHECKED_IN", checkOut: { lte: end } } }),
-    db.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: start, lt: end } } }),
-    db.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["VOIDED", "CANCELLED"] }, voidReason: null, updatedAt: { gte: start, lt: end } } }),
+async function controlIssues(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }) {
+  const serviceWindow = dayRange(key);
+  const { start, end } = eventWindow ?? serviceWindow;
+  const [openShifts, openOrders, dueOut, unclassified, missingOrderVoidReasons, missingPaymentVoidReasons, missingChargeVoidReasons] = await Promise.all([
+    source.nrmsCashierShift.count({ where: { propertyId, status: "OPEN", businessDate: dateOnly(key) } }),
+    source.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } } }),
+    source.reservation.count({ where: { propertyId, status: "CHECKED_IN", checkOut: { lte: serviceWindow.end } } }),
+    source.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: start, lt: end } } }),
+    source.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["VOIDED", "CANCELLED"] }, voidReason: null, updatedAt: { gte: start, lt: end } } }),
+    source.externalPaymentRecord.count({ where: { reservation: { propertyId }, voidReason: null, voidedAt: { gte: start, lt: end } } }),
+    source.reservationCharge.count({ where: { reservation: { propertyId }, voidReason: null, voidedAt: { gte: start, lt: end } } }),
   ]);
+  const missingVoidReasons = missingOrderVoidReasons + missingPaymentVoidReasons + missingChargeVoidReasons;
   const blockers = [
     openShifts ? { code: "OPEN_CASHIER_SHIFTS", count: openShifts, message: `${openShifts} cashier shift${openShifts === 1 ? " is" : "s are"} still open.` } : null,
     openOrders ? { code: "OPEN_OUTLET_ORDERS", count: openOrders, message: `${openOrders} restaurant or bar order${openOrders === 1 ? " is" : "s are"} not completed.` } : null,
@@ -133,38 +133,38 @@ type Posting = {
   entries: Array<{ accountCode: string; accountName: string; accountType: string; debit: number; credit: number }>;
 };
 
-async function buildPostings(propertyId: number, key: string): Promise<Posting[]> {
-  const { start, end } = dayRange(key);
-  const [reservations, payments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
-    db.reservation.findMany({
-      where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: end }, checkOut: { gt: start } },
+async function buildPostings(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }): Promise<Posting[]> {
+  const serviceWindow = dayRange(key);
+  const { start, end } = eventWindow ?? serviceWindow;
+  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
+    source.reservation.findMany({
+      where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: serviceWindow.end }, checkOut: { gt: serviceWindow.start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
     }),
-    db.externalPaymentRecord.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
-    db.reservationCharge.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    source.externalPaymentRecord.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    source.nrmsMasterFolioItem.findMany({ where: { masterFolio: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    source.nrmsMasterFolioPayment.findMany({ where: { masterFolio: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] }, include: { masterFolio: { select: { billToName: true } } } }),
+    source.reservationCharge.findMany({ where: { reservation: { propertyId }, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
     // Direct outlet-payment sales are matched by settlement OR by void, independent
     // of the order's current status, so a same-day settle-then-void posts both the
     // original sale and its reversal instead of silently cancelling each other out.
-    db.nrmsOutletOrder.findMany({
+    source.nrmsOutletOrder.findMany({
       where: { propertyId, settlementMode: "OUTLET_PAYMENT", OR: [{ settledAt: { gte: start, lt: end } }, { status: "VOIDED", voidedAt: { gte: start, lt: end } }] },
       include: { outlet: { select: { type: true } } },
     }),
-    db.nrmsOutletOrder.findMany({ where: { propertyId, tipAmount: { gt: 0 }, tipConfirmedAt: { gte: start, lt: end } }, select: { id: true, orderNumber: true, tipAmount: true, tipMethod: true, currency: true, tipConfirmedAt: true } }),
-    db.nrmsUsageEvent.findMany({ where: { propertyId, serviceDate: dateOnly(key), amount: { gt: 0 } } }),
-    // Scoped the same way reservationCharge is above: by incurredAt OR voidedAt
-    // falling in this business date's window, so a same-day record-then-void
-    // posts both the original expense and its reversal in one pass, and a
-    // later-day void against an earlier expense still posts its reversal on
-    // the day it was actually voided.
-    db.nrmsExpense.findMany({ where: { propertyId, OR: [{ incurredAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    source.nrmsOutletOrder.findMany({ where: { propertyId, tipAmount: { gt: 0 }, tipConfirmedAt: { gte: start, lt: end } }, select: { id: true, orderNumber: true, tipAmount: true, tipMethod: true, currency: true, tipConfirmedAt: true } }),
+    source.nrmsUsageEvent.findMany({ where: { propertyId, amount: { gt: 0 }, createdAt: { gte: start, lt: end } } }),
+    // Expense recognition follows the operational window in which the record
+    // was entered; a later void follows the window in which it was reversed.
+    source.nrmsExpense.findMany({ where: { propertyId, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
   ]);
   const postings: Posting[] = [];
   for (const stay of reservations) {
-    const gross = money(allocateStayValue(money(stay.totalAmount), stay.checkIn, stay.checkOut, start, end));
-    const tax = Math.min(gross, money(allocateStayValue(money(stay.taxAmount), stay.checkIn, stay.checkOut, start, end)));
+    const gross = money(allocateStayValue(money(stay.totalAmount), stay.checkIn, stay.checkOut, serviceWindow.start, serviceWindow.end));
+    const tax = Math.min(gross, money(allocateStayValue(money(stay.taxAmount), stay.checkIn, stay.checkOut, serviceWindow.start, serviceWindow.end)));
     const net = money(gross - tax);
     if (gross <= 0) continue;
-    postings.push({ sourceKey: `ROOM:${propertyId}:${stay.id}:${key}`, sourceType: "ROOM_NIGHT", sourceId: stay.id, description: `Room revenue ${stay.receiptNumber || `reservation ${stay.id}`}`, currency: stay.currency, occurredAt: start, entries: [
+    postings.push({ sourceKey: `ROOM:${propertyId}:${stay.id}:${key}`, sourceType: "ROOM_NIGHT", sourceId: stay.id, description: `Room revenue ${stay.receiptNumber || `reservation ${stay.id}`}`, currency: stay.currency, occurredAt: serviceWindow.start, entries: [
       { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: gross, credit: 0 },
       { accountCode: "4000", accountName: "Room revenue", accountType: "REVENUE", debit: 0, credit: net },
       ...(tax > 0 ? [{ accountCode: "2200", accountName: "Tax payable", accountType: "LIABILITY", debit: 0, credit: tax }] : []),
@@ -182,6 +182,17 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
       { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
     ] });
   }
+  for (const item of masterItems) {
+    const amount = money(item.amount);
+    if (new Date(item.createdAt) >= start && new Date(item.createdAt) < end) postings.push({ sourceKey: `MASTER_ITEM:${propertyId}:${item.id}`, sourceType: "MASTER_FOLIO_TRANSFER", sourceId: item.id, description: item.description || `${item.kind} transferred to master folio`, currency: item.currency, occurredAt: item.createdAt, entries: [
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (item.voidedAt && new Date(item.voidedAt) >= start && new Date(item.voidedAt) < end) postings.push({ sourceKey: `MASTER_ITEM_VOID:${propertyId}:${item.id}`, sourceType: "MASTER_FOLIO_TRANSFER_REVERSAL", sourceId: item.id, description: `Reversal: ${item.description || `${item.kind} transferred to master folio`}`, currency: item.currency, occurredAt: item.voidedAt, entries: [
+      { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+  }
   for (const payment of payments) {
     const tender = accountForPayment(payment.method);
     const amount = money(payment.amount);
@@ -191,6 +202,18 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     ] });
     if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: ${payment.method.replace(/_/g, " ")} guest payment`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
       { accountCode: "1100", accountName: "Guest ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+  }
+  for (const payment of masterPayments) {
+    const tender = accountForPayment(payment.method);
+    const amount = money(payment.amount);
+    if (new Date(payment.createdAt) >= start && new Date(payment.createdAt) < end) postings.push({ sourceKey: `MASTER_PAYMENT:${propertyId}:${payment.id}`, sourceType: "MASTER_FOLIO_PAYMENT", sourceId: payment.id, description: `${payment.method.replace(/_/g, " ")} agency payment from ${payment.masterFolio.billToName}`, currency: payment.currency, occurredAt: payment.createdAt, entries: [
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `MASTER_PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "MASTER_FOLIO_PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: agency payment from ${payment.masterFolio.billToName}`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
+      { accountCode: "1110", accountName: "City ledger receivable", accountType: "ASSET", debit: amount, credit: 0 },
       { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
     ] });
   }
@@ -221,7 +244,7 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
   for (const event of usageEvents) {
     const amount = money(event.amount);
     if (amount <= 0) continue;
-    postings.push({ sourceKey: `PAYG:${propertyId}:${event.id}`, sourceType: "PLATFORM_FEE", sourceId: event.id, description: `NoLSAF platform fee, ${event.classification.replace(/_/g, " ").toLowerCase()}`, currency: event.currency, occurredAt: start, entries: [
+    postings.push({ sourceKey: `PAYG:${propertyId}:${event.id}`, sourceType: "PLATFORM_FEE", sourceId: event.id, description: `NoLSAF platform fee, ${event.classification.replace(/_/g, " ").toLowerCase()}`, currency: event.currency, occurredAt: event.createdAt, entries: [
       { accountCode: "5000", accountName: "Platform fees (NoLSAF)", accountType: "EXPENSE", debit: amount, credit: 0 },
       { accountCode: "2100", accountName: "NoLSAF fees payable", accountType: "LIABILITY", debit: 0, credit: amount },
     ] });
@@ -233,7 +256,7 @@ async function buildPostings(propertyId: number, key: string): Promise<Posting[]
     // owed to a supplier rather than paid out of a specific till or account.
     const settlement = expense.paymentMethod ? accountForPayment(expense.paymentMethod) : { code: "2400", name: "Accounts payable" };
     const settlementType = expense.paymentMethod ? "ASSET" : "LIABILITY";
-    if (new Date(expense.incurredAt) >= start && new Date(expense.incurredAt) < end) postings.push({ sourceKey: `EXPENSE:${propertyId}:${expense.id}`, sourceType: "OPERATING_EXPENSE", sourceId: expense.id, description: expense.description || `${expense.category} expense`, currency: expense.currency, occurredAt: expense.incurredAt, entries: [
+    if (new Date(expense.createdAt) >= start && new Date(expense.createdAt) < end) postings.push({ sourceKey: `EXPENSE:${propertyId}:${expense.id}`, sourceType: "OPERATING_EXPENSE", sourceId: expense.id, description: expense.description || `${expense.category} expense`, currency: expense.currency, occurredAt: expense.incurredAt, entries: [
       { accountCode: category.code, accountName: category.name, accountType: "EXPENSE", debit: amount, credit: 0 },
       { accountCode: settlement.code, accountName: settlement.name, accountType: settlementType, debit: 0, credit: amount },
     ] });
@@ -307,7 +330,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const [day, shifts, issues, nbs, nightAudits, unclassifiedTenders] = await Promise.all([
       db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } }),
       db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
-      controlIssues(propertyId, businessDate),
+      controlIssues(db, propertyId, businessDate),
       nbsStatistics(propertyId, month),
       db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
       db.nrmsOutletOrder.findMany({
@@ -402,6 +425,7 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (!parsed.success) return res.status(400).json({ error: "Enter the cash physically counted at shift close" });
   const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
   if (!shift) return res.status(404).json({ error: "Open cashier shift not found" });
+  if (shift.userId !== req.user!.id && !requireManager(active, res)) return;
   const until = new Date();
   const [expected, summary] = await Promise.all([expectedCashForShift(db, shift, until), shiftHandoverSummary(db, shift, until)]);
   const variance = money(parsed.data.declaredCash - expected);
@@ -435,11 +459,18 @@ router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req
   if (!parsed.success) return res.status(400).json({ error: "Select a supported payment method" });
   const order = await db.nrmsOutletOrder.findFirst({ where: { id: Number(req.params.orderId), propertyId: active.property.id, status: "SETTLED", settlementMode: "OUTLET_PAYMENT" } });
   if (!order) return res.status(404).json({ error: "Settled outlet order not found" });
-  const businessDate = dayKey(order.settledAt || order.updatedAt);
-  const closedDay = await db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(businessDate) } } });
-  if (closedDay?.status === "CLOSED") return res.status(409).json({ error: "The related business date is closed. Post a controlled correction instead of changing its tender." });
-  const updated = await db.nrmsOutletOrder.update({ where: { id: order.id }, data: { settlementMethod: parsed.data.method, settledById: order.settledById || req.user!.id } });
-  res.json({ order: updated });
+  try {
+    const businessDate = dayKey(order.settledAt || order.updatedAt);
+    const updated = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(`${businessDate}T12:00:00+03:00`));
+      return tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { settlementMethod: parsed.data.method, settledById: order.settledById || req.user!.id } });
+    });
+    res.json({ order: updated });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "The related business date is closing or closed. Post a controlled correction instead of changing its tender.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 router.post("/property/:propertyId/night-audit/close", (async (req: AuthedRequest, res: Response) => {
@@ -448,48 +479,93 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
   if (!requireManager(active, res)) return;
   const parsed = closeDaySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a valid business date" });
-  const issues = await controlIssues(active.property.id, parsed.data.businessDate);
+  const today = dayKey(new Date());
+  if (parsed.data.businessDate >= today) {
+    const latestClosable = new Date(`${today}T00:00:00.000Z`);
+    latestClosable.setUTCDate(latestClosable.getUTCDate() - 1);
+    const latestClosableDate = latestClosable.toISOString().slice(0, 10);
+    return res.status(409).json({
+      error: `Night Audit can close only a completed business date. Choose ${latestClosableDate} or an earlier open date; ${parsed.data.businessDate} is still operating.`,
+      code: "BUSINESS_DAY_NOT_COMPLETED",
+      latestClosableDate,
+    });
+  }
   const reportNumber = `NA-${active.property.id}-${parsed.data.businessDate.replace(/-/g, "")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
-  const day = await db.$transaction((tx: any) => ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id));
-  if (day.status === "CLOSED") return res.status(409).json({ error: "This business date is already closed." });
-  if (issues.blockers.length) {
-    const audit = await db.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "BLOCKED", reportNumber, blockers: issues.blockers, warnings: issues.warnings, startedById: req.user!.id, completedAt: new Date() } });
-    return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: issues.blockers, audit });
+  try {
+    const result = await db.$transaction(async (tx: any) => {
+      // The property row is the shared serialization lock used by every NRMS
+      // financial writer. Nothing can enter the audit snapshot after this.
+      await lockPropertyInventory(tx, active.property.id);
+      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
+      if (["CLOSING", "CLOSED"].includes(day.status)) throw new Error("BUSINESS_DAY_CLOSED");
+      const closeBoundary = new Date();
+      const calendarWindow = dayRange(parsed.data.businessDate);
+      const openedAt = day.openedAt ? new Date(day.openedAt) : calendarWindow.start;
+      const eventWindow = {
+        start: new Date(Math.min(calendarWindow.start.getTime(), openedAt.getTime())),
+        end: closeBoundary,
+      };
+      await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
+
+      const issues = await controlIssues(tx, active.property.id, parsed.data.businessDate, eventWindow);
+      if (issues.blockers.length) {
+        const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "BLOCKED", reportNumber, blockers: issues.blockers, warnings: issues.warnings, startedById: req.user!.id, completedAt: new Date() } });
+        await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "OPEN" } });
+        return { blocked: true as const, blockers: issues.blockers, audit };
+      }
+
+      const candidates = await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow);
+      const alreadyPosted = candidates.length
+        ? await tx.nrmsLedgerTransaction.findMany({
+          where: { propertyId: active.property.id, sourceKey: { in: candidates.map((posting) => posting.sourceKey) } },
+          select: { sourceKey: true },
+        })
+        : [];
+      const postedKeys = new Set(alreadyPosted.map((posting: any) => posting.sourceKey));
+      const postings = candidates.filter((posting) => !postedKeys.has(posting.sourceKey));
+      for (const posting of postings) {
+        const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
+        const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
+        if (debit !== credit) throw new Error(`UNBALANCED_ACCOUNTING_EVENT:${posting.description}`);
+      }
+
+      const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "DRAFT", reportNumber, blockers: [], warnings: issues.warnings, startedById: req.user!.id } });
+      let debitTotal = 0;
+      for (const [index, posting] of postings.entries()) {
+        debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
+        await createNightAuditLedgerTransaction(tx, {
+          propertyId: active.property.id,
+          businessDayId: day.id,
+          nightAuditRunId: audit.id,
+          transactionNumber: `GL-${parsed.data.businessDate.replace(/-/g, "")}-${String(index + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+          sourceKey: posting.sourceKey,
+          sourceType: posting.sourceType,
+          sourceId: posting.sourceId,
+          description: posting.description,
+          currency: posting.currency,
+          occurredAt: posting.occurredAt,
+          entries: { create: posting.entries },
+        });
+      }
+      const summary = { transactionCount: postings.length, debitTotal: money(debitTotal), creditTotal: money(debitTotal) };
+      const closedAt = closeBoundary;
+      const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
+      const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
+      const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
+      const nextBusinessDay = await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
+      if (["CLOSING", "CLOSED"].includes(nextBusinessDay.status)) throw new Error("NEXT_BUSINESS_DAY_LOCKED");
+      return { blocked: false as const, businessDay: closed, nextBusinessDay, audit: closedAudit };
+    }, { maxWait: 10_000, timeout: 30_000 });
+
+    if (result.blocked) return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: result.blockers, audit: result.audit });
+    res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closing or closed.", code: NRMS_BUSINESS_DAY_LOCKED });
+    if (code === "NEXT_BUSINESS_DAY_LOCKED") return res.status(409).json({ error: "The next business date is already closing or closed. Review the business-day sequence before continuing.", code });
+    if (code.startsWith("UNBALANCED_ACCOUNTING_EVENT:")) return res.status(500).json({ error: `Unbalanced accounting event: ${code.slice("UNBALANCED_ACCOUNTING_EVENT:".length)}` });
+    throw error;
   }
-  const postings = await buildPostings(active.property.id, parsed.data.businessDate);
-  for (const posting of postings) {
-    const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
-    const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
-    if (debit !== credit) return res.status(500).json({ error: `Unbalanced accounting event: ${posting.description}` });
-  }
-  const result = await db.$transaction(async (tx: any) => {
-    const current = await tx.nrmsBusinessDay.findUnique({ where: { id: day.id } });
-    if (!current || current.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
-    await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
-    const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "DRAFT", reportNumber, blockers: [], warnings: issues.warnings, startedById: req.user!.id } });
-    let debitTotal = 0;
-    for (const [index, posting] of postings.entries()) {
-      debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
-      await createNightAuditLedgerTransaction(tx, {
-        propertyId: active.property.id,
-        businessDayId: day.id,
-        nightAuditRunId: audit.id,
-        transactionNumber: `GL-${parsed.data.businessDate.replace(/-/g, "")}-${String(index + 1).padStart(4, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-        sourceKey: posting.sourceKey,
-        sourceType: posting.sourceType,
-        sourceId: posting.sourceId,
-        description: posting.description,
-        currency: posting.currency,
-        occurredAt: posting.occurredAt,
-        entries: { create: posting.entries },
-      });
-    }
-    const summary = { transactionCount: postings.length, debitTotal: money(debitTotal), creditTotal: money(debitTotal) };
-    await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: new Date(), summary } });
-    const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt: new Date() } });
-    return { businessDay: closed, audit: { ...audit, status: "CLOSED", summary } };
-  }, { maxWait: 10_000, timeout: 30_000 });
-  res.json(result);
 }) as RequestHandler);
 
 /**
@@ -536,21 +612,28 @@ router.post("/property/:propertyId/expenses", (async (req: AuthedRequest, res: R
   if (!parsed.success) return res.status(400).json({ error: "Enter a valid expense category, description, amount and date" });
   const currency = active.property.currency?.toUpperCase();
   if (!currency) return res.status(409).json({ error: "Set the property currency before recording an expense" });
-  const closedDay = await db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(parsed.data.incurredAt) } } });
-  if (closedDay?.status === "CLOSED") return res.status(409).json({ error: "This business date is already closed. Record the expense against today's date instead." });
-  const expense = await db.nrmsExpense.create({
-    data: {
-      propertyId: active.property.id,
-      category: parsed.data.category,
-      description: parsed.data.description,
-      amount: parsed.data.amount,
-      currency,
-      paymentMethod: parsed.data.paymentMethod || null,
-      incurredAt: dateOnly(parsed.data.incurredAt),
-      recordedById: req.user!.id,
-    },
-  });
-  res.status(201).json({ expense });
+  try {
+    const expense = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(`${parsed.data.incurredAt}T12:00:00+03:00`));
+      return tx.nrmsExpense.create({
+        data: {
+          propertyId: active.property.id,
+          category: parsed.data.category,
+          description: parsed.data.description,
+          amount: parsed.data.amount,
+          currency,
+          paymentMethod: parsed.data.paymentMethod || null,
+          incurredAt: dateOnly(parsed.data.incurredAt),
+          recordedById: req.user!.id,
+        },
+      });
+    });
+    res.status(201).json({ expense });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed. Record the expense against an open business date.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 router.post("/property/:propertyId/expenses/:expenseId/void", (async (req: AuthedRequest, res: Response) => {
@@ -561,10 +644,18 @@ router.post("/property/:propertyId/expenses/:expenseId/void", (async (req: Authe
   if (!parsed.success) return res.status(400).json({ error: "Explain why this expense is being voided" });
   const expense = await db.nrmsExpense.findFirst({ where: { id: Number(req.params.expenseId), propertyId: active.property.id, voidedAt: null } });
   if (!expense) return res.status(404).json({ error: "Active expense not found" });
-  const closedDay = await db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(dayKey(expense.incurredAt)) } } });
-  if (closedDay?.status === "CLOSED") return res.status(409).json({ error: "The related business date is closed. Post a controlled correction instead of voiding this expense." });
-  const voided = await db.nrmsExpense.update({ where: { id: expense.id }, data: { voidedAt: new Date(), voidReason: parsed.data.reason } });
-  res.json({ expense: voided });
+  try {
+    const expenseDay = dayKey(expense.incurredAt);
+    const voided = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(`${expenseDay}T12:00:00+03:00`));
+      return tx.nrmsExpense.update({ where: { id: expense.id }, data: { voidedAt: new Date(), voidReason: parsed.data.reason } });
+    });
+    res.json({ expense: voided });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "The related business date is closing or closed. Post a controlled correction instead of voiding this expense.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 export default router;

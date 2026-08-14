@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Coffee,
   DoorOpen,
   FileText,
   LayoutDashboard,
@@ -36,6 +37,7 @@ import {
   WalletCards,
   Wine,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
@@ -54,43 +56,85 @@ const PRIMARY_TABS = [
   { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
 ];
 
-const NAV_GROUPS = [
+type NavItem = { href: string; label: string; icon: LucideIcon; exact?: boolean };
+type NavSection = { label?: string; items: NavItem[] };
+type NavGroup = { label: string; sections: NavSection[] };
+
+const NAV_GROUPS: NavGroup[] = [
   {
     label: "Operations",
-    items: [
-      { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
-      { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
-      { href: "/owner/nrms/tables", label: "Tables & tabs", icon: LayoutGrid },
-      { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
-      { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
-      { href: "/owner/nrms/guests", label: "Guests", icon: Users },
+    sections: [
+      {
+        label: "Stay management",
+        items: [
+          { href: "/owner/nrms", label: "Front desk", icon: LayoutDashboard, exact: true },
+          { href: "/owner/nrms/calendar", label: "Room calendar", icon: CalendarDays },
+          // Not the Owner workspace "Group Stays" (the NoLSAF-brokered marketplace
+          // product). These are NRMS reservations worked as one travelling party.
+          { href: "/owner/nrms/groups", label: "Group reservations", icon: UsersRound },
+          { href: "/owner/nrms/guests", label: "Guests", icon: Users },
+        ],
+      },
+      {
+        label: "Housekeeping",
+        items: [
+          { href: "/owner/nrms/housekeeping", label: "Housekeeping", icon: Sparkles },
+        ],
+      },
+      {
+        label: "Food & drink",
+        items: [
+          { href: "/owner/nrms/orders", label: "Restaurant & bar", icon: ShoppingBasket },
+          { href: "/owner/nrms/tables", label: "Tables & tabs", icon: LayoutGrid },
+          { href: "/owner/nrms/breakfast", label: "Breakfast list", icon: Coffee },
+        ],
+      },
     ],
   },
   {
     label: "Management",
-    items: [
-      { href: "/owner/nrms/outlets", label: "Outlets & menus", icon: Store },
-      { href: "/owner/nrms/stock", label: "Stock", icon: Package },
-      { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
-      { href: "/owner/nrms/staff", label: "Staff & roles", icon: UsersRound },
-      { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
-      { href: "/owner/nrms/channels", label: "OTA channels", icon: Link2 },
-      { href: "/owner/nrms/controls", label: "Hotel controls", icon: SlidersHorizontal },
+    sections: [
+      {
+        label: "Food service setup",
+        items: [
+          { href: "/owner/nrms/outlets", label: "Outlets & menus", icon: Store },
+          { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
+          { href: "/owner/nrms/stock", label: "Stock", icon: Package },
+        ],
+      },
+      {
+        label: "Property & distribution",
+        items: [
+          { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
+          { href: "/owner/nrms/controls", label: "Hotel controls", icon: SlidersHorizontal },
+          { href: "/owner/nrms/channels", label: "OTA channels", icon: Link2 },
+        ],
+      },
+      {
+        label: "Team access",
+        items: [
+          { href: "/owner/nrms/staff", label: "Staff & roles", icon: UsersRound },
+        ],
+      },
     ],
   },
   {
     label: "Shift & cash",
-    items: [
-      { href: "/owner/nrms/shift", label: "Shift & cash", icon: Wallet },
+    sections: [
+      { items: [{ href: "/owner/nrms/shift", label: "Shift & cash", icon: Wallet }] },
     ],
   },
   {
     label: "Finance",
-    items: [
-      { href: "/owner/nrms/finance", label: "Finance & Night Audit", icon: WalletCards },
-      { href: "/owner/nrms/analytics", label: "Revenue & analytics", icon: BarChart3 },
-      { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
-      { href: "/owner/nrms/billing", label: "NRMS billing", icon: ReceiptText },
+    sections: [
+      {
+        items: [
+          { href: "/owner/nrms/finance", label: "Finance & Night Audit", icon: WalletCards },
+          { href: "/owner/nrms/analytics", label: "Revenue & analytics", icon: BarChart3 },
+          { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
+          { href: "/owner/nrms/billing", label: "NRMS billing", icon: ReceiptText },
+        ],
+      },
     ],
   },
 ];
@@ -113,10 +157,13 @@ function roleCanSee(href: string, role: string) {
   // their assigned bar or restaurant, not owner, manager, front desk or a
   // supervisor covering multiple outlets.
   if (href === "/owner/nrms/shift") return role === "BAR" || role === "RESTAURANT";
+  // The breakfast list is a front office to restaurant handover, so both sides
+  // of that handover can open it, plus the manager who covers for either.
+  if (href === "/owner/nrms/breakfast") return ["OWNER", "MANAGER", "FRONT_DESK", "RESTAURANT"].includes(role);
   if (role === "OWNER") return true;
-  if (role === "MANAGER") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
   if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock"].includes(href);
-  if (role === "FRONT_DESK") return ["/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
+  if (role === "FRONT_DESK") return ["/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);
   if (role === "HOUSEKEEPER") return href === "/owner/nrms/housekeeping";
   // Bar and restaurant staff: their floor, their outlet's stock, performance and shift.
   return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/stock", "/owner/nrms/shift"].includes(href);
@@ -312,34 +359,46 @@ function NrmsShell({ children }: { children: ReactNode }) {
     : accessRole === "FRONT_DESK" ? "Front desk"
     : accessRole === "OUTLET_SUPERVISOR" ? "Outlet operations"
     : accessRole === "MANAGER" ? "Hotel management"
-    : "Property management system";
+    : "Room management system";
 
   const sidebar = (
     <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
       <div className={`flex min-h-[5rem] items-center border-b border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm"><Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority /></span>
-        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">NRMS Workspace</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
+        {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[0.02em]">NRMS WORKSPACE</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="NRMS workspace navigation">
         {NAV_GROUPS.map((group) => {
           // A role that can see nothing in a group must not see the group label
           // either: bar staff were getting empty MANAGEMENT and FINANCE headers.
-          const visibleItems = group.items.filter((item) => roleCanSee(item.href, accessRole));
-          if (!visibleItems.length) return null;
+          const visibleSections = group.sections
+            .map((section) => ({ ...section, items: section.items.filter((item) => roleCanSee(item.href, accessRole)) }))
+            .filter((section) => section.items.length > 0);
+          if (!visibleSections.length) return null;
           return (
           <div key={group.label} className="mb-3.5 last:mb-0">
-            {!collapsed && <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">{group.label}</p>}
-            <div className="space-y-0.5">
-              {visibleItems.map((item) => {
+            {!collapsed && <p className="mb-2 px-2.5 text-[9px] font-bold uppercase tracking-[0.2em] text-emerald-100/50">{group.label}</p>}
+            <div className="space-y-2.5">
+              {visibleSections.map((section, sectionIndex) => (
+                <div key={section.label ?? `${group.label}-${sectionIndex}`} className={sectionIndex > 0 && !collapsed ? "border-t border-white/[0.06] pt-2.5" : ""}>
+                  {!collapsed && section.label && (
+                    <div className="mb-1 flex items-center gap-2 px-2.5">
+                      <span className="shrink-0 text-[8px] font-bold uppercase tracking-[0.16em] text-emerald-100/30">{section.label}</span>
+                      <span className="h-px flex-1 bg-white/[0.05]" aria-hidden />
+                    </div>
+                  )}
+                  <div className="space-y-0.5">
+                  {section.items.map((item) => {
                 const override = item.href === "/owner/nrms/orders" ? ordersNavPresentation(accessRole) : null;
                 const Icon = override?.icon ?? item.icon;
                 const label = override?.label ?? item.label;
                 const active = isActive(pathname, item);
-                // A page's own badge clears while you are on it: being on the
-                // page is reading its new orders. It reappears when you leave.
+                // Tables & tabs is an operational workload count, not only an
+                // unread notification: keep it visible while the page is open
+                // until every table/walk-in order has been completed.
                 const badge = item.href === "/owner/nrms/tables"
-                  ? (!active && liveOrders?.placedTable ? liveOrders.placedTable : null)
+                  ? (liveOrders?.openTable ? liveOrders.openTable : null)
                   : item.href === "/owner/nrms/orders"
                   ? (!active && liveOrders?.placedRoom ? liveOrders.placedRoom : null)
                   : null;
@@ -347,11 +406,14 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                     {!collapsed && <span className="flex-1 truncate">{label}</span>}
-                    {!collapsed && badge != null && <span className="shrink-0 animate-pulse rounded-full bg-violet-500 px-1.5 text-center text-[10px] font-bold leading-[18px] text-white" aria-label={`${badge} new orders`}>{badge}</span>}
-                    {collapsed && badge != null && <span className="absolute right-1 top-1 h-2 w-2 animate-pulse rounded-full bg-violet-400" aria-label={`${badge} new orders`} />}
+                    {!collapsed && badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={`${badge} active orders`}>{badge > 99 ? "99+" : badge}</span>}
+                    {collapsed && badge != null && <span className={`absolute right-0.5 top-0.5 min-w-[16px] rounded-full px-1 text-center text-[8px] font-bold leading-4 text-white ${active ? "bg-emerald-950" : "animate-pulse bg-violet-500"}`} aria-label={`${badge} active orders`}>{badge > 9 ? "9+" : badge}</span>}
                   </Link>
                 );
-              })}
+                  })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
           );

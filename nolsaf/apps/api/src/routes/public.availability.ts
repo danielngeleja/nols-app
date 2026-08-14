@@ -8,6 +8,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlocks.js";
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
+import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "../lib/nrmsRestrictions.js";
 
 export const router = Router();
 
@@ -336,10 +337,25 @@ router.post("/check", availabilityLimiter, (async (req: Request, res: Response) 
       0
     );
 
-    const isAvailable = totalAvailableRooms > 0 || totalAvailableBeds > 0;
+    // An owner who closed these dates in NRMS closes them here too. Without
+    // this the funnel reported free rooms and the guest was only stopped at
+    // invoice creation, after filling the whole form.
+    const restrictionBlocks = await findRestrictionBlocks(prisma, {
+      propertyId,
+      roomTypeId: await resolveRoomTypeIdForCode(prisma, propertyId, requestedRoomCode),
+      checkIn,
+      checkOut,
+      channelCode: "NOLSAF",
+    });
+    const closed = restrictionBlocks[0] ?? null;
+
+    const isAvailable = !closed && (totalAvailableRooms > 0 || totalAvailableBeds > 0);
 
     const payload = {
       available: isAvailable,
+      // Present only when a control closed the dates, so the funnel can say why
+      // rather than showing a bare "no availability" over empty rooms.
+      closed: closed ? { reason: closed.code, message: closed.message } : null,
       propertyId,
       checkIn: checkIn.toISOString(),
       checkOut: checkOut.toISOString(),

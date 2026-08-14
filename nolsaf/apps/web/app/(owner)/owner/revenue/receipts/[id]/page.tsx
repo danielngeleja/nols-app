@@ -5,6 +5,23 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, Printer, MapPin, BadgeCheck, Building2, User, CalendarDays, Clock, Loader2 } from "lucide-react";
 const api = apiClient;
+const RECEIPT_FONT = '"Trebuchet MS", Trebuchet, Arial, sans-serif';
+
+function formatSettlement(value: string, timeZone = "Africa/Dar_es_Salaam"): string {
+  const dateTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value));
+
+  return `${dateTime} EAT`;
+}
 
 export default function Receipt() {
   const routeParams = useParams<{ id?: string | string[] }>();
@@ -24,33 +41,37 @@ export default function Receipt() {
       .catch((e: any) => setError(String(e?.response?.data?.error || e?.message || "Failed to load receipt")));
   }, [idParam]);
 
-  // Generate QR client-side once invoice data is available
+  // Load the exact server-signed QR used by the emailed PDF. The browser never
+  // creates or signs receipt claims itself.
   useEffect(() => {
-    if (!data?.invoice) return;
-    const inv = data.invoice;
+    if (!data?.invoice || !idParam) return;
+    let alive = true;
     (async () => {
       try {
-        const QR: any = await import("qrcode");
-        const toDataURL: any = QR?.toDataURL ?? QR?.default?.toDataURL;
-        if (typeof toDataURL !== "function") return;
-        const payload = JSON.stringify({
-          invoiceId: inv.id,
-          receiptNumber: inv.receiptNumber,
-          paidAt: inv.paidAt,
-          ownerPayout: Number(inv.netPayable ?? inv.total ?? 0),
-          paymentRef: inv.paymentRef,
+        const response = await fetch(`/api/owner/revenue/invoices/${encodeURIComponent(idParam)}/receipt/qr.png`, {
+          credentials: "include",
+          cache: "force-cache",
         });
-        const url = await toDataURL(payload, { margin: 1, width: 256, errorCorrectionLevel: "M" });
-        setQrDataUrl(url);
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(reader.error);
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.readAsDataURL(blob);
+        });
+        if (alive) setQrDataUrl(url);
       } catch {
-        setQrDataUrl(null);
+        if (alive) setQrDataUrl(null);
       }
     })();
-  }, [data]);
+    return () => { alive = false; };
+  }, [data, idParam]);
 
   async function handlePrint() {
     if (!data?.invoice) return;
     const inv = data.invoice;
+    const receipt = data.receipt || {};
     const property = inv?.booking?.property;
     const booking = inv?.booking;
     const codeVis = inv?.booking?.code?.codeVisible ?? inv?.booking?.code?.code ?? "-";
@@ -83,7 +104,7 @@ export default function Receipt() {
 <style>
   @page { size: 148mm 210mm; margin: 8mm 7mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e3a38; }
+  body { font-family: 'Trebuchet MS', Trebuchet, Arial, sans-serif; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e3a38; }
   .card { width: 134mm; background: #fff; border: 1px solid #e2eae9; border-radius: 14px; overflow: hidden; }
 
   /* dot rows */
@@ -104,14 +125,14 @@ export default function Receipt() {
   .receipt-title { font-size: 18px; font-weight: 900; color: #0f2e2b; letter-spacing: -0.02em; }
   .amount-block { text-align: center; }
   .amount-num { font-size: 30px; font-weight: 900; color: #02665e; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-  .amount-cur { font-size: 13px; font-weight: 700; color: #5a9990; margin-left: 4px; }
+  .amount-cur { font-size: 13px; font-weight: 700; color: #5a9990; margin-left: 2px; }
   .paid-date { font-size: 9px; font-weight: 500; color: #8aaca9; margin-top: 2px; }
 
   /* reference strip */
-  .ref-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 16px; background: #f7fbfa; border-bottom: 1px solid #edf4f3; }
-  .ref-item { min-width: 0; }
+  .ref-strip { display: grid; grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr); align-items: center; gap: 12px; padding: 6px 16px; background: #f7fbfa; border-bottom: 1px solid #edf4f3; }
+  .ref-item { min-width: 0; overflow: hidden; }
   .ref-item.right { text-align: right; }
-  .ref-num { font-family: monospace; font-size: 9.5px; font-weight: 700; color: #1e3a38; letter-spacing: 0.06em; }
+  .ref-num { font-family: monospace; font-size: 9px; font-weight: 700; color: #1e3a38; letter-spacing: 0.04em; white-space: nowrap; }
   .ref-divider { width: 1px; height: 20px; background: #d0e8e5; flex-shrink: 0; }
 
   /* body */
@@ -167,8 +188,8 @@ export default function Receipt() {
     </div>
     <div class="amount-block">
       <div class="label-xs">Owner Payout</div>
-      <span class="amount-num">${esc(Number((inv.netPayable ?? inv.total) || 0).toLocaleString())}</span><span class="amount-cur">TZS</span>
-      ${inv.paidAt ? `<div class="paid-date">${esc(new Date(inv.paidAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}</div>` : ""}
+      <span class="amount-num">${esc(Number((inv.netPayable ?? inv.total) || 0).toLocaleString())}</span><span class="amount-cur">${esc(receipt.currency || "TZS")}</span>
+      ${inv.paidAt ? `<div class="paid-date">${esc(formatSettlement(inv.paidAt, receipt.timeZone))}</div>` : ""}
     </div>
   </div>
 
@@ -189,8 +210,10 @@ export default function Receipt() {
       <div class="card-cell">
         <div class="sec-label"><span class="sec-label-text">Payment</span></div>
         <div class="detail-row"><span class="dl">Method</span><span class="dv">${esc(inv.paymentMethod || "—")}</span></div>
-        ${inv.paidAt ? `<div class="detail-row"><span class="dl">Date</span><span class="dv">${esc(fmt(new Date(inv.paidAt)))}</span></div>` : ""}
-        <div class="detail-row"><span class="dl">Reference</span><span class="dv mono">${esc(inv.paymentRef || "—")}</span></div>
+        ${inv.paidAt ? `<div class="detail-row"><span class="dl">Settled</span><span class="dv">${esc(formatSettlement(inv.paidAt, receipt.timeZone))}</span></div>` : ""}
+        <div class="detail-row"><span class="dl">Provider ref</span><span class="dv mono">${esc(receipt.providerReference || inv.paymentRef || "—")}</span></div>
+        <div class="detail-row"><span class="dl">NoLSAF ref</span><span class="dv mono">${esc(receipt.nolsafReference || "—")}</span></div>
+        <div class="detail-row"><span class="dl">Destination</span><span class="dv mono">${esc(receipt.maskedDestination || "Not recorded")}</span></div>
       </div>
       <div class="card-cell">
         <div class="sec-label"><span class="sec-label-text">Booking</span></div>
@@ -227,7 +250,7 @@ export default function Receipt() {
     <div class="seal-body">
       <div>
         <div class="seal-badge-row"><div class="seal-dot"></div><span class="seal-title">NoLSAF &middot; Certified Receipt</span></div>
-        <div class="seal-text">Thank you for partnering with NoLSAF.<br/>Questions? Contact support.</div>
+        <div class="seal-text">${esc(receipt.disclaimer || "This is a NoLSAF payout confirmation, not an AzamPay, bank, or mobile-network-issued receipt.")}</div>
         <div class="seal-scan">Scan QR to verify this receipt.</div>
       </div>
       <div class="qr-wrap">
@@ -280,6 +303,8 @@ export default function Receipt() {
   }
 
   const { invoice: inv } = data;
+  const receipt = data.receipt || {};
+  const settlementLabel = inv?.paidAt ? formatSettlement(inv.paidAt, receipt.timeZone) : null;
   const codeVisible = inv?.booking?.code?.codeVisible ?? inv?.booking?.code?.code ?? "-";
   const property = inv?.booking?.property;
   const booking = inv?.booking;
@@ -292,7 +317,7 @@ export default function Receipt() {
   })();
 
   return (
-    <div className="bg-white min-h-screen" id="receipt-root" data-receipt-ready="true">
+    <div className="bg-white min-h-screen" id="receipt-root" data-receipt-ready="true" style={{ fontFamily: RECEIPT_FONT }}>
       <style jsx global>{`
         @media print {
           @page {
@@ -385,30 +410,30 @@ export default function Receipt() {
             {/* Amount */}
             <div className="text-center">
               <p className="text-[8px] font-bold uppercase tracking-[0.18em] mb-1" style={{ color: "#8aaca9" }}>Owner Payout</p>
-              <div className="flex items-baseline justify-center gap-2 leading-none">
+              <div className="flex items-baseline justify-center gap-1 leading-none">
                 <span className="text-[36px] font-black tabular-nums tracking-tight" style={{ color: "#02665e" }}>
                   {Number((inv?.netPayable ?? inv?.total) || 0).toLocaleString()}
                 </span>
-                <span className="text-[15px] font-bold" style={{ color: "#5a9990" }}>TZS</span>
+                <span className="text-[15px] font-bold" style={{ color: "#5a9990" }}>{receipt.currency || "TZS"}</span>
               </div>
               {inv?.paidAt && (
                 <p className="text-[10px] mt-1 font-medium" style={{ color: "#8aaca9" }}>
-                  {new Date(inv.paidAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                  {settlementLabel}
                 </p>
               )}
             </div>
           </div>
 
           {/* ══ REFERENCE STRIP ═════ */}
-          <div className="px-5 py-2 flex items-center justify-between gap-4 border-b" style={{ background: "#f7fbfa", borderColor: "#edf4f3" }}>
-            <div className="min-w-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] items-center gap-3 px-5 py-2 border-b" style={{ background: "#f7fbfa", borderColor: "#edf4f3" }}>
+            <div className="min-w-0 overflow-hidden">
               <p className="text-[7.5px] font-bold uppercase tracking-[0.18em] mb-0.5" style={{ color: "#8aaca9" }}>Receipt Number</p>
-              <p className="font-mono text-[10.5px] font-bold tracking-[0.08em] truncate" style={{ color: "#1e3a38" }}>{inv?.receiptNumber || "—"}</p>
+              <p className="whitespace-nowrap font-mono text-[8px] sm:text-[10px] font-bold tracking-[0.01em] sm:tracking-[0.06em]" style={{ color: "#1e3a38" }}>{inv?.receiptNumber || "—"}</p>
             </div>
             <div className="w-px h-6 self-center" style={{ background: "#d0e8e5" }} />
-            <div className="min-w-0 text-right">
+            <div className="min-w-0 overflow-hidden text-right">
               <p className="text-[7.5px] font-bold uppercase tracking-[0.18em] mb-0.5" style={{ color: "#8aaca9" }}>Invoice</p>
-              <p className="font-mono text-[10.5px] font-bold tracking-[0.08em] truncate" style={{ color: "#1e3a38" }}>{inv?.invoiceNumber || "—"}</p>
+              <p className="whitespace-nowrap font-mono text-[8px] sm:text-[10px] font-bold tracking-[0.01em] sm:tracking-[0.06em]" style={{ color: "#1e3a38" }}>{inv?.invoiceNumber || "—"}</p>
             </div>
           </div>
 
@@ -421,10 +446,10 @@ export default function Receipt() {
                 <SectionLabel icon={<Clock className="w-2.5 h-2.5" />} label="Payment" />
                 <div className="mt-2 space-y-1.5">
                   <DetailRow label="Method" value={inv?.paymentMethod || "—"} />
-                  {inv?.paidAt && (
-                    <DetailRow label="Date" value={new Date(inv.paidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} />
-                  )}
-                  <DetailRow label="Reference" value={inv?.paymentRef || "—"} mono wrap />
+                  {settlementLabel && <DetailRow label="Settled" value={settlementLabel} wrap />}
+                  <DetailRow label="Provider ref" value={receipt.providerReference || inv?.paymentRef || "—"} mono wrap />
+                  <DetailRow label="NoLSAF ref" value={receipt.nolsafReference || "—"} mono wrap />
+                  <DetailRow label="Destination" value={receipt.maskedDestination || "Not recorded"} mono />
                 </div>
               </div>
               <div className="rounded-xl p-2.5" style={{ background: "#f7fbfa", border: "1px solid #edf4f3" }}>
@@ -519,8 +544,7 @@ export default function Receipt() {
                   <span className="text-[8.5px] font-black uppercase tracking-[0.15em]" style={{ color: "#024d47" }}>NoLSAF · Certified Receipt</span>
                 </div>
                 <p className="text-[9px] leading-relaxed" style={{ color: "#5a9990" }}>
-                  Thank you for partnering with NoLSAF.<br />
-                  Questions? Contact support.
+                  {receipt.disclaimer || "This is a NoLSAF payout confirmation, not an AzamPay, bank, or mobile-network-issued receipt."}
                 </p>
                 <p className="text-[8px] mt-1" style={{ color: "#9ab8b6" }}>Scan QR to verify this receipt.</p>
               </div>
@@ -550,7 +574,7 @@ export default function Receipt() {
         </div>
 
         <p className="no-print text-center text-[10px] mt-3" style={{ color: "#9ab8b6" }}>
-          NoLSAF | Official Payment Document · Secure & Verified
+          NoLSAF payout confirmation · Signed and independently verifiable
         </p>
       </div>
     </div>

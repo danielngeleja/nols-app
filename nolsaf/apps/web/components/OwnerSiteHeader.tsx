@@ -56,7 +56,6 @@ if (typeof document !== "undefined") {
     .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .animate-slide-in-left { animation: slide-in-left 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .animate-fade-in-overlay { animation: fade-in-overlay 0.25s ease forwards; }
-    .glass-effect { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   `;
   style.setAttribute("data-owner-header-animations", "true");
   if (!document.head.querySelector('style[data-owner-header-animations]')) {
@@ -142,19 +141,8 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
     <header
       className="fixed top-0 left-0 right-0 z-50 text-white transition-all duration-300 bg-transparent"
     >
-      {/* Admin-like ambient overlay */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        aria-hidden
-        style={{
-          background:
-            "radial-gradient(900px circle at 20% 0%, rgba(255,255,255,0.10), transparent 55%), radial-gradient(900px circle at 80% 0%, rgba(56,189,248,0.10), transparent 60%), linear-gradient(to bottom, rgba(2,102,94,0.55), rgba(2,102,94,0.12) 70%, rgba(2,102,94,0.00))",
-        }}
-      />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/10" aria-hidden />
-
-      <div className="public-container h-16 flex items-center relative">
-        <div className="relative flex h-14 w-full items-center rounded-3xl border border-white/10 bg-[#02665e] px-3 sm:px-4 md:px-6 backdrop-blur-xl shadow-[0_18px_70px_rgba(0,0,0,0.28),0_0_50px_rgba(2,102,94,0.18)]">
+      <div className="relative box-border flex h-16 min-w-0 max-w-full items-center px-3">
+        <div className="relative box-border flex h-14 min-w-0 max-w-full flex-1 items-center rounded-2xl bg-[#02665e] px-3 sm:px-4 md:px-6">
           {/* Left: mobile burger + desktop sidebar toggle + desktop brand */}
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <button

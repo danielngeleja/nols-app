@@ -5,6 +5,14 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import QRCode from "qrcode";
 import { Prisma } from "@prisma/client";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
+import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
+import {
+  buildOwnerPayoutReceiptVerificationUrl,
+  createOwnerPayoutReceiptSnapshot,
+  maskPayoutDestination,
+  signOwnerPayoutReceipt,
+  type OwnerPayoutReceiptSnapshot,
+} from "../lib/ownerPayoutReceiptSeal.js";
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler);
 
@@ -31,6 +39,84 @@ function applyRevenueVisibility(where: any) {
 function extractPropertyCommissionPercent(propertyServices: unknown, fallbackPercent: number): number {
   const value = Number((propertyServices as any)?.commissionPercent);
   return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : fallbackPercent;
+}
+
+async function ensureOwnerReceiptSeal(inv: any, payout: number): Promise<{
+  snapshot: OwnerPayoutReceiptSnapshot;
+  verificationUrl: string;
+  qrPng: Buffer | null;
+}> {
+  if (inv.receiptSnapshot && inv.receiptQrPayload) {
+    return {
+      snapshot: inv.receiptSnapshot as OwnerPayoutReceiptSnapshot,
+      verificationUrl: String(inv.receiptQrPayload),
+      qrPng: inv.receiptQrPng ? Buffer.from(inv.receiptQrPng) : null,
+    };
+  }
+
+  const settledAt = inv.paidAt ? new Date(inv.paidAt) : null;
+  if (!settledAt || Number.isNaN(settledAt.getTime())) throw new Error("paid_invoice_missing_settlement_time");
+
+  const disbursement = await prisma.disbursement.findFirst({
+    where: { sourceType: "OWNER_INVOICE", sourceId: inv.id, status: "PAID" },
+    orderBy: { paidAt: "desc" },
+    include: { payoutAccount: { select: { accountNumber: true } } },
+  });
+  const receiptNumber = inv.receiptNumber || `RCPT-${settledAt.getFullYear()}${String(settledAt.getMonth() + 1).padStart(2, "0")}-${String(inv.id).padStart(7, "0")}`;
+  const providerReference =
+    disbursement?.fspReferenceId || disbursement?.pgReferenceId || disbursement?.externalReferenceId || "Not recorded";
+  const nolsafReference = disbursement?.externalReferenceId || inv.paymentRef || receiptNumber;
+  const amount = Number(disbursement?.amount ?? inv.netPayable ?? payout);
+  const snapshot = createOwnerPayoutReceiptSnapshot({
+    receiptNumber,
+    invoiceId: inv.id,
+    invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
+    ownerId: inv.ownerId,
+    ownerName: inv.owner?.fullName || inv.owner?.name || `Owner #${inv.ownerId}`,
+    ownerEmail: inv.owner?.email || null,
+    bookingId: inv.bookingId,
+    bookingCode: inv.booking?.code?.codeVisible || inv.booking?.codeVisible || null,
+    propertyName: inv.booking?.property?.title || "Property",
+    checkIn: new Date(inv.booking.checkIn).toISOString(),
+    checkOut: new Date(inv.booking.checkOut).toISOString(),
+    totalRevenue: Number(inv.total),
+    commissionPercent: inv.commissionPercent == null ? null : Number(inv.commissionPercent),
+    commissionAmount: inv.commissionAmount == null ? null : Number(inv.commissionAmount),
+    taxPercent: inv.taxPercent == null ? null : Number(inv.taxPercent),
+    taxAmount: null,
+    netPayable: Number.isFinite(amount) ? amount : payout,
+    currency: disbursement?.currency || "TZS",
+    paymentMethod: disbursement?.bankName || inv.paymentMethod || "Not recorded",
+    payoutProvider: disbursement?.provider || "azampay",
+    providerReference,
+    nolsafReference,
+    maskedDestination: disbursement?.payoutAccount?.accountNumber
+      ? maskPayoutDestination(disbursement.payoutAccount.accountNumber)
+      : "Not recorded",
+    settledAt: settledAt.toISOString(),
+    issuedAt: settledAt.toISOString(),
+  });
+  const verificationUrl = buildOwnerPayoutReceiptVerificationUrl(signOwnerPayoutReceipt(snapshot));
+
+  await prisma.invoice.updateMany({
+    where: { id: inv.id, receiptIssuedAt: null },
+    data: {
+      receiptNumber,
+      receiptSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      receiptIssuedAt: settledAt,
+      receiptQrPayload: verificationUrl,
+    },
+  });
+  const sealed = await prisma.invoice.findUnique({
+    where: { id: inv.id },
+    select: { receiptSnapshot: true, receiptQrPayload: true, receiptQrPng: true },
+  });
+  if (!sealed?.receiptSnapshot || !sealed.receiptQrPayload) throw new Error("receipt_snapshot_persistence_failed");
+  return {
+    snapshot: sealed.receiptSnapshot as unknown as OwnerPayoutReceiptSnapshot,
+    verificationUrl: sealed.receiptQrPayload,
+    qrPng: sealed.receiptQrPng ? Buffer.from(sealed.receiptQrPng) : null,
+  };
 }
 
 router.get("/invoices", (async (req: AuthedRequest, res) => {
@@ -310,6 +396,9 @@ router.get("/invoices/:id", (async (req: AuthedRequest, res) => {
     commissionPercent: null,
     commissionAmount: null,
     notes: null,
+    receiverName: NOLSAF_BILLING_CONTACT.name,
+    receiverEmail: NOLSAF_BILLING_CONTACT.email,
+    receiverAddress: NOLSAF_BILLING_CONTACT.address,
   });
 }) as RequestHandler);
 
@@ -319,6 +408,7 @@ router.get("/invoices/:id/receipt", (async (req: AuthedRequest, res) => {
   const inv = await prisma.invoice.findFirst({
     where: { id, ownerId: req.user!.id, status: "PAID" },
     include: {
+      owner: { select: { id: true, email: true, name: true, fullName: true } },
       booking: {
         include: {
           property: {
@@ -357,24 +447,35 @@ router.get("/invoices/:id/receipt", (async (req: AuthedRequest, res) => {
     commissionPercent,
   });
 
+  const sealed = await ensureOwnerReceiptSeal(inv as any, payout);
+  const snapshot = sealed.snapshot;
+
   const safeInvoice = {
     ...(inv as any),
-    total: payout,
-    netPayable: payout,
-    commissionPercent: null,
-    commissionAmount: null,
+    invoiceNumber: snapshot.invoiceNumber,
+    receiptNumber: snapshot.receiptNumber,
+    total: snapshot.totalRevenue,
+    netPayable: snapshot.netPayable,
+    commissionPercent: snapshot.commissionPercent,
+    commissionAmount: snapshot.commissionAmount,
+    taxPercent: snapshot.taxPercent,
+    paidAt: snapshot.settledAt,
+    paymentMethod: snapshot.paymentMethod,
+    paymentRef: snapshot.providerReference,
     notes: null,
+    booking: {
+      id: snapshot.bookingId,
+      checkIn: snapshot.checkIn,
+      checkOut: snapshot.checkOut,
+      codeVisible: snapshot.bookingCode,
+      code: { codeVisible: snapshot.bookingCode },
+      property: {
+        title: snapshot.propertyName,
+      },
+    },
   };
 
-  const qrPayload = {
-    invoiceId: inv.id,
-    receiptNumber: inv.receiptNumber,
-    paidAt: inv.paidAt,
-    ownerPayout: payout,
-    paymentRef: inv.paymentRef,
-  };
-
-  res.json({ invoice: safeInvoice, qrPayload });
+  res.json({ invoice: safeInvoice, receipt: snapshot, verificationUrl: sealed.verificationUrl });
 }) as RequestHandler);
 
 
@@ -382,7 +483,15 @@ router.get("/invoices/:id/receipt/qr.png", (async (req: AuthedRequest, res) => {
   const id = Number(req.params.id);
   const inv = await prisma.invoice.findFirst({
     where: { id, ownerId: req.user!.id, status: "PAID" },
-    include: { booking: { include: { code: true, property: { select: { services: true } } } } } as any,
+    include: {
+      owner: { select: { id: true, email: true, name: true, fullName: true } },
+      booking: {
+        include: {
+          code: true,
+          property: { select: { title: true, services: true } },
+        },
+      },
+    } as any,
   });
   if (!inv) return res.status(404).json({ error: "Receipt not available" });
 
@@ -396,15 +505,15 @@ router.get("/invoices/:id/receipt/qr.png", (async (req: AuthedRequest, res) => {
     commissionPercent,
   });
 
-  const payload = JSON.stringify({
-    invoiceId: inv.id,
-    receiptNumber: inv.receiptNumber,
-    paidAt: inv.paidAt,
-    ownerPayout: payout,
-    paymentRef: inv.paymentRef,
-  });
-
-  const png = await QRCode.toBuffer(payload, { type: "png", margin: 1, width: 256 });
+  const sealed = await ensureOwnerReceiptSeal(inv as any, payout);
+  const png = sealed.qrPng || await QRCode.toBuffer(sealed.verificationUrl, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+  if (!sealed.qrPng) {
+    await prisma.invoice.updateMany({
+      where: { id, receiptQrPng: null },
+      data: { receiptQrPng: png },
+    });
+  }
   res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "private, max-age=3600, immutable");
   res.send(png);
 }) as RequestHandler);

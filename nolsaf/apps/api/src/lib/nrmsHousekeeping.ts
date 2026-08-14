@@ -15,6 +15,7 @@ const CLEANING_TASK_TYPES = ["TURNOVER", "DAILY_CLEAN", "DEEP_CLEAN"];
 const OPEN_TASK_STATUSES = ["OPEN", "IN_PROGRESS"];
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DEFAULT_DAILY_SERVICE_TIME = "11:00";
+const DAILY_HOUSEKEEPING_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 };
 
 export type DailyHousekeepingResult = {
   due: boolean;
@@ -133,7 +134,7 @@ export async function ensureDailyOccupiedCleaning(
       serviceDate: window.serviceDate,
       serviceAt: window.serviceAt,
     };
-  });
+  }, DAILY_HOUSEKEEPING_TX_OPTIONS);
 }
 
 /** Roles allowed to work the housekeeping board. */

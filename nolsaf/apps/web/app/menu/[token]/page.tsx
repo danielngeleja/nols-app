@@ -967,21 +967,22 @@ export default function GuestMenuPage() {
 
       {/* Cart sheet */}
       {cartOpen && activeOutlet && (
-        <div className="fixed inset-0 z-[300] flex items-end justify-center overflow-x-hidden p-0 lg:items-center lg:p-6">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center overflow-x-hidden p-2 sm:p-4 lg:p-6">
           <button type="button" aria-label="Close order summary" className="absolute inset-0 border-0 bg-[#041f1a]/65 backdrop-blur-sm" onClick={() => setCartOpen(false)} />
-          <div role="dialog" aria-modal="true" aria-labelledby="guest-order-title" className="relative mb-2 box-border max-h-[calc(100dvh-0.5rem)] w-[calc(100%-1rem)] max-w-lg min-w-0 overscroll-contain overflow-x-hidden overflow-y-auto rounded-[16px] bg-white p-5 pb-[calc(1.75rem+env(safe-area-inset-bottom))] shadow-2xl lg:mb-0 lg:max-h-[92dvh] lg:p-6">
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-200 lg:hidden" />
-            <button type="button" onClick={() => setCartOpen(false)} aria-label="Close your order" className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"><X className="h-3.5 w-3.5" /></button>
-            <div className="flex min-w-0 items-start gap-3 pr-10"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100">{isBarOutlet ? <Wine className="h-5 w-5" /> : <UtensilsCrossed className="h-5 w-5" />}</span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{isBarOutlet ? "Review bar order" : "Review restaurant order"}</p><h2 id="guest-order-title" className="mb-0 mt-1 text-[28px] font-bold leading-tight tracking-[-0.025em] text-neutral-950">Your order</h2><p className="mb-0 mt-1 truncate text-sm text-neutral-400">{activeOutlet.name} · {pointLabel}</p></div></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="guest-order-title" className="relative box-border max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] max-w-lg min-w-0 overscroll-contain overflow-x-hidden overflow-y-auto rounded-[14px] border border-stone-300 bg-white p-5 pb-[calc(1.75rem+env(safe-area-inset-bottom))] shadow-[0_28px_80px_rgba(4,31,26,0.34)] sm:max-h-[calc(100dvh-2.5rem)] lg:max-h-[90dvh] lg:p-6">
+            <button type="button" onClick={() => setCartOpen(false)} aria-label="Close your order" className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-500 shadow-sm transition hover:border-stone-300 hover:bg-stone-50 hover:text-stone-800"><X className="h-3.5 w-3.5" /></button>
+            <div className="-mx-5 -mt-5 border-b border-stone-100 bg-gradient-to-r from-emerald-50/70 via-white to-white px-5 pb-4 pt-5 lg:-mx-6 lg:-mt-6 lg:px-6 lg:pt-6">
+              <div className="flex min-w-0 items-start gap-3 pr-10"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-800 shadow-sm ring-1 ring-emerald-100">{isBarOutlet ? <Wine className="h-5 w-5" /> : <UtensilsCrossed className="h-5 w-5" />}</span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{isBarOutlet ? "Review bar order" : "Review restaurant order"}</p><h2 id="guest-order-title" className="mb-0 mt-1 text-[28px] font-bold leading-tight tracking-[-0.025em] text-neutral-950">Your order</h2><p className="mb-0 mt-1 truncate text-sm text-neutral-400">{activeOutlet.name} · {pointLabel}</p></div></div>
+            </div>
 
-            <div className="mt-5 min-w-0 space-y-2 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+            <div className="mt-4 min-w-0 divide-y divide-stone-100 overflow-hidden rounded-[10px] border border-stone-200 bg-white shadow-sm">
               {cartLines.map(({ item, quantity }) => (
-                <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-lg bg-white px-3 py-3 shadow-sm ring-1 ring-stone-100">
+                <div key={item.id} className="flex min-w-0 items-center gap-3 px-4 py-3.5">
                   <div className="min-w-0 flex-1">
                     <p className="m-0 truncate text-base font-bold text-neutral-800">{item.name}</p>
                     <p className="mb-0 mt-0.5 text-xs font-bold text-emerald-800">{money(item.price * quantity, activeOutlet.currency)}</p>
                   </div>
-                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50">
+                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-stone-200 bg-stone-50">
                     <button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Remove one ${item.name}`} className="flex h-9 w-9 items-center justify-center border-0 bg-transparent text-neutral-600"><Minus className="h-4 w-4" /></button>
                     <span className="min-w-5 text-center text-sm font-bold text-neutral-900">{quantity}</span>
                     <button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Add one ${item.name}`} className="flex h-9 w-9 items-center justify-center border-0 bg-transparent text-neutral-600"><Plus className="h-4 w-4" /></button>
@@ -990,21 +991,21 @@ export default function GuestMenuPage() {
               ))}
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 rounded-[10px] border border-stone-200 bg-stone-50/60 p-4">
               <p className="m-0 mb-2 text-sm font-bold text-neutral-700">How would you like to pay? <span className="text-red-500">*</span></p>
               {menu.roomChargeAvailable && (
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setChargeToRoom(false)}
-                    className={`min-w-0 rounded-lg border px-3 py-3 text-sm font-bold transition ${!chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
+                    className={`min-w-0 rounded-md border px-3 py-3 text-sm font-bold transition ${!chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
                   >
                     Pay Now
                   </button>
                   <button
                     type="button"
                     onClick={() => { setChargeToRoom(true); setGuestPaymentMethod(""); }}
-                    className={`min-w-0 rounded-lg border px-3 py-3 text-sm font-bold transition ${chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
+                    className={`min-w-0 rounded-md border px-3 py-3 text-sm font-bold transition ${chargeToRoom ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white text-neutral-500"}`}
                   >
                     Add to my bill
                   </button>
@@ -1022,7 +1023,7 @@ export default function GuestMenuPage() {
                         role="radio"
                         aria-checked={guestPaymentMethod === method.value}
                         onClick={() => { setGuestPaymentMethod(method.value); setPlaceError(null); }}
-                        className={`min-h-11 rounded-lg border px-2.5 py-2 text-xs font-bold transition ${guestPaymentMethod === method.value ? "border-emerald-600 bg-emerald-700 text-white shadow-sm" : "border-stone-200 bg-white text-neutral-600 hover:border-emerald-300 hover:bg-emerald-50"}`}
+                        className={`min-h-11 rounded-md border px-2.5 py-2 text-xs font-bold transition ${guestPaymentMethod === method.value ? "border-emerald-600 bg-emerald-700 text-white shadow-sm" : "border-stone-200 bg-white text-neutral-600 hover:border-emerald-300 hover:bg-emerald-50"}`}
                       >
                         {method.label}
                       </button>

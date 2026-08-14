@@ -1,14 +1,15 @@
 ﻿"use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import Link from "next/link";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import Image from "next/image";
 import {
-  ArrowLeft, Car, CheckCircle, CheckCircle2, Clock, CreditCard, Eye, FileText,
+  ArrowLeft, Car, CheckCircle2, Clock, CreditCard, Eye, FileText,
   Globe, Lock, LogOut, Mail, MapPin, Pencil, Phone, Plus, Save, Shield, Trash2,
-  Truck, Upload, User, UserCircle, Wallet, X, AlertCircle, Calendar,
+  Truck, Upload, User, UserCircle, X, AlertCircle, Calendar,
 } from "lucide-react";
 import DatePickerField from "@/components/DatePickerField";
+import SecurePayoutPreferenceCard from "@/components/SecurePayoutPreferenceCard";
 
 // --- Driver document types --------------------------------------------------
 const DRIVER_DOC_TYPES = [
@@ -24,16 +25,6 @@ function getLatestDriverDoc(docs: any[], type: string) {
 }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
-function maskAccount(v?: string | null) {
-  if (!v) return "—";
-  const s = String(v).replace(/\s+/g, "");
-  return s.length <= 4 ? "****" + s : "****" + s.slice(-4);
-}
-function maskPhone(v?: string | null) {
-  if (!v) return "—";
-  const s = String(v);
-  return s.length <= 6 ? s.replace(/.(?=.{2})/g, "*") : s.slice(0, 4) + "————" + s.slice(-2);
-}
 function maskRef(v?: string | null) {
   if (!v) return "—";
   const s = String(v);
@@ -41,30 +32,6 @@ function maskRef(v?: string | null) {
 }
 
 const api = apiClient;
-
-// --- Shared display components -----------------------------------------------
-function InfoItem({
-  icon, label, value, tone = "light", accent = "brand",
-}: {
-  icon: React.ReactNode; label: string; value: React.ReactNode;
-  tone?: "light" | "dark"; accent?: "brand" | "amber";
-}) {
-  const dark = tone === "dark";
-  const iconCls = dark
-    ? accent === "amber"
-      ? "h-10 w-10 rounded-2xl bg-amber-500/10 border border-amber-300/20 flex items-center justify-center text-amber-300 flex-shrink-0"
-      : "h-10 w-10 rounded-2xl bg-[#02665e]/10 border border-[#02665e]/20 flex items-center justify-center text-[#02665e] flex-shrink-0"
-    : "h-10 w-10 rounded-2xl bg-[#02665e]/5 border border-[#02665e]/15 flex items-center justify-center text-[#02665e] flex-shrink-0";
-  return (
-    <div className="flex items-start gap-3">
-      <div className={iconCls}>{icon}</div>
-      <div className="min-w-0">
-        <div className={dark ? "text-xs font-semibold text-white/60" : "text-xs font-semibold text-slate-600"}>{label}</div>
-        <div className={dark ? "text-sm font-normal text-white mt-0.5 break-words" : "text-sm font-normal text-slate-900 mt-0.5 break-words"}>{value}</div>
-      </div>
-    </div>
-  );
-}
 
 function EditableInfoItem({
   icon, label, value, fieldKey, fieldType = "text", selectOptions,
@@ -247,7 +214,10 @@ export default function DriverProfile() {
           if (!mounted) return;
           const pd = pm.data?.data ?? pm.data;
           setPaymentMethods(pd?.methods ?? null);
-          if (pd?.payout) setForm((prev: any) => ({ ...prev, ...pd.payout }));
+          if (pd?.payout) {
+            setForm((prev: any) => ({ ...prev, ...pd.payout }));
+            setMe((prev: any) => ({ ...(prev || {}), ...pd.payout }));
+          }
         } catch { /* ignore */ } finally { if (mounted) setLoadingPaymentMethods(false); }
       } catch (err: any) {
         if (!mounted) return;
@@ -301,13 +271,47 @@ export default function DriverProfile() {
       if (typeof form.gender !== "undefined") payload.gender = form.gender;
       await api.put("/api/driver/profile", payload);
       setForm((p: any) => ({ ...p, avatarUrl }));
-      try {
-        const pp: any = { bankAccountName: form.bankAccountName, bankName: form.bankName, bankAccountNumber: form.bankAccountNumber, bankBranch: form.bankBranch, mobileMoneyProvider: form.mobileMoneyProvider, mobileMoneyNumber: form.mobileMoneyNumber, payoutPreferred: form.payoutPreferred };
-        if (Object.values(pp).some(v => v != null && v !== "")) await api.put("/api/account/payouts", pp);
-      } catch { /* ignore */ }
+      const preferred = String(form.payoutPreferred || "").trim().toUpperCase();
+      const payoutKeys = ["payoutPreferred", "bankName", "bankAccountName", "bankAccountNumber", "bankBranch", "mobileMoneyProvider", "mobileMoneyNumber"];
+      const payoutChanged = payoutKeys.some((key) => String(form[key] || "").trim() !== String(me?.[key] || "").trim());
+      let payoutDraft: Record<string, string> | null = null;
+      if (payoutChanged && preferred === "BANK") {
+        payoutDraft = {
+          payoutPreferred: "BANK",
+          bankName: String(form.bankName || "").trim(),
+          bankAccountName: String(form.bankAccountName || "").trim(),
+          bankAccountNumber: String(form.bankAccountNumber || "").trim(),
+          bankBranch: String(form.bankBranch || "").trim(),
+        };
+      } else if (payoutChanged && preferred === "MOBILE_MONEY") {
+        payoutDraft = {
+          payoutPreferred: "MOBILE_MONEY",
+          mobileMoneyProvider: String(form.mobileMoneyProvider || "").trim(),
+          mobileMoneyNumber: String(form.mobileMoneyNumber || "").trim(),
+        };
+      }
+      if (payoutDraft) {
+        // Keep the driver flow compatible with the server's single-use,
+        // name-verified confirmation contract. The owner profile presents the
+        // resolved holder interactively before consuming this challenge.
+        const verification = await api.post("/api/account/payouts/verify", payoutDraft);
+        const challengeToken = (verification as any)?.data?.data?.challengeToken;
+        if (!challengeToken) throw new Error("Payout verification did not return a confirmation token.");
+        await api.put("/api/account/payouts", { challengeToken });
+      }
       setSaveSuccess("Profile saved."); setSaveError(null);
       setTimeout(() => setSaveSuccess(null), 3000);
-      const updated = { ...(me ?? {}), ...payload };
+      const updated = {
+        ...(me ?? {}),
+        ...payload,
+        payoutPreferred: form.payoutPreferred,
+        bankName: form.bankName,
+        bankAccountName: form.bankAccountName,
+        bankAccountNumber: form.bankAccountNumber,
+        bankBranch: form.bankBranch,
+        mobileMoneyProvider: form.mobileMoneyProvider,
+        mobileMoneyNumber: form.mobileMoneyNumber,
+      };
       setMe(updated);
       try { (window as any).ME = updated; } catch { /* ignore */ }
     } catch (err: any) {
@@ -525,71 +529,13 @@ export default function DriverProfile() {
           </div>
         </div>
 
-        {/* -- Payment phone — dark card ----------------------------------- */}
-        <div className="lg:col-span-6 relative rounded-2xl border border-white/10 bg-slate-950/70 shadow-card overflow-hidden backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#02665e]/20 via-slate-950/80 to-slate-950" aria-hidden />
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-white/10 to-transparent" aria-hidden />
-          <div className="relative p-5 sm:p-6 border-b border-white/10 bg-white/5">
-            <div className="text-sm font-bold text-white">Payment phone</div>
-            <div className="text-sm text-white/70 mt-1">M-Pesa / Tigo / Airtel number for payouts.</div>
-          </div>
-          <div className="relative p-5 sm:p-6 space-y-4">
-            <div className="flex items-start gap-3 group w-full max-w-full min-w-0 overflow-hidden">
-              <div className="h-10 w-10 rounded-2xl bg-[#02665e]/10 border border-[#02665e]/20 flex items-center justify-center text-[#02665e] flex-shrink-0"><Phone className="w-5 h-5" /></div>
-              <div className="min-w-0 flex-1 w-full max-w-full overflow-hidden">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-white/60">Payment phone number</div>
-                  <button type="button" onClick={() => setEditingField(editingField === "paymentPhone" ? null : "paymentPhone")}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/60 hover:text-white/90 focus-visible:opacity-100 focus-visible:outline-none">
-                    {editingField === "paymentPhone" ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-                {editingField === "paymentPhone"
-                  ? (
-                    <div className="mt-0.5 w-fit max-w-full min-w-0 overflow-hidden rounded-xl">
-                      <input
-                        type="tel"
-                        value={form.paymentPhone || ""}
-                        inputMode="numeric"
-                        pattern="\d*"
-                        maxLength={15}
-                        onChange={(e) => {
-                          const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 15);
-                          setForm((p: any) => ({ ...p, paymentPhone: digitsOnly }));
-                        }}
-                        autoFocus
-                        onBlur={() => setEditingField(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") setEditingField(null);
-                        }}
-                        className="block w-[16ch] max-w-full min-w-0 box-border tabular-nums rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-semibold text-white appearance-none outline-none shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 focus:shadow-none focus:ring-offset-0 focus:border-[#02665e]/40"
-                      />
-                    </div>
-                  )
-                  : <div className={`text-sm font-normal mt-0.5 ${!form.paymentPhone ? "text-white/40" : "text-white"}`}>{form.paymentPhone || "—"}</div>}
-                {form.paymentVerified || form.paymentPhoneVerified
-                  ? <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400"><CheckCircle className="w-3 h-3" />Verified</span>
-                  : <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400"><AlertCircle className="w-3 h-3" />Not verified</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* -- Payout details — dark card ---------------------------------- */}
-        <div className="lg:col-span-6 relative rounded-2xl border border-white/10 bg-slate-950/70 shadow-card overflow-hidden backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#0a5c82]/15 via-slate-950/85 to-slate-950" aria-hidden />
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-white/10 to-transparent" aria-hidden />
-          <div className="relative p-5 sm:p-6 border-b border-white/10 bg-white/5">
-            <div className="text-sm font-bold text-white">Payout details</div>
-            <div className="text-sm text-white/70 mt-1">Bank and mobile money for earnings.</div>
-          </div>
-          <div className="relative p-5 sm:p-6 grid grid-cols-2 gap-4">
-            <InfoItem tone="dark" icon={<CreditCard className="w-5 h-5" />} label="Bank name" value={form.bankName || "—"} />
-            <InfoItem tone="dark" icon={<CreditCard className="w-5 h-5" />} label="Account number" value={maskAccount(form.bankAccountNumber)} />
-            <InfoItem tone="dark" icon={<Wallet className="w-5 h-5" />} label="Mobile money" value={form.mobileMoneyProvider ? `${form.mobileMoneyProvider} — ${maskPhone(form.mobileMoneyNumber)}` : "—"} />
-            <InfoItem tone="dark" icon={<CreditCard className="w-5 h-5" />} label="Preferred payout" value={form.payoutPreferred || "—"} />
-          </div>
-        </div>
+        {/* One shared component owns every payout method and destination. */}
+        <SecurePayoutPreferenceCard
+          className="lg:col-span-12"
+          value={form}
+          disabled={saving}
+          onChange={(patch) => setForm((current: any) => ({ ...current, ...patch }))}
+        />
 
         {/* -- Required documents ------------------------------------------ */}
         <div className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
@@ -1000,7 +946,7 @@ export default function DriverProfile() {
                                             <div className="col-span-2 mt-1.5">
                         <div style={{ background: "#ffffff", borderRadius: "3px", padding: "4px 6px 2px" }}>
                           <svg width="100%" height="28" viewBox="0 0 210 28" preserveAspectRatio="xMidYMid meet" aria-hidden style={{ display: "block" }}>
-                            {(()=>{ const p=[1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,1,3,1,2,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,3,1,2,1,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,1,3,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3]; const r:JSX.Element[]=[]; let x=2; p.forEach((w,i)=>{ if(i%2===0){r.push(<rect key={i} x={x} y={1} width={w} height={26} fill="#1a1a1a"/>);} x+=w; }); return r; })()}
+                            {(()=>{ const p=[1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,1,3,1,2,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,3,1,2,1,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,1,3,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; p.forEach((w,i)=>{ if(i%2===0){r.push(<rect key={i} x={x} y={1} width={w} height={26} fill="#1a1a1a"/>);} x+=w; }); return r; })()}
                           </svg>
                           <p style={{ textAlign:"center", fontFamily:"monospace", fontSize:"5.5px", letterSpacing:"0.28em", color:"#444", marginTop:"1px", lineHeight:1 }}>NLS-{String(me.id).padStart(4,"0")}-{new Date().getFullYear()}</p>
                         </div>
@@ -1057,7 +1003,7 @@ export default function DriverProfile() {
                       <div className="flex items-center gap-2">
                         <p className="text-[7px] font-black uppercase tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NoLSAF \u00a9 {new Date().getFullYear()}</p>
                         <svg className="flex-1" height="16" viewBox="0 0 130 16" preserveAspectRatio="xMidYMid meet" aria-hidden style={{background:"rgba(255,255,255,0.12)",borderRadius:"2px"}}>
-                          {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:JSX.Element[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
+                          {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
                         </svg>
                         <p className="text-[7px] font-mono tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NLS-{String(me.id).padStart(4,"0")}</p>
                       </div>

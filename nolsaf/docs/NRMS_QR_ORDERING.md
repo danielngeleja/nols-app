@@ -1,6 +1,6 @@
 # NRMS QR Ordering: Guest Self-Service for Restaurant and Bar
 
-Status: ALL 6 MILESTONES BUILT (2026-07-18). Migrations prepared, pending approval: 20260718113000_nrms_menu_polish, 20260718140000_nrms_order_points, 20260718170000_nrms_qr_guest_orders, 20260718200000_nrms_guest_pay_instructions. Milestone 1 and earlier migrations are applied locally. Decisions applied: out-of-stock shows greyed "Not available today", auto-accept defaults off with a per-outlet toggle, 200-char guest note included. Milestone 5: charge-to-room verified purely by the point->stay link (room QR resolving to an ACTIVE allocation on a CHECKED_IN reservation); no guest name entry (decision 2026-07-24, superseding the earlier last-name check). Milestone 6 (decision 2026-07-18): NO NoLSAF checkout for guest orders. Money goes directly to the property's own receiving channels (their Lipa Namba, bank, card machine, cash), avoiding collection, disbursement delay and reconciliation cost. The owner configures payment details once (QR order points page); the guest order page displays them; staff record the tender at settle exactly as for any outlet sale.
+Status: ALL 8 MILESTONES BUILT (2026-08-13). Migrations prepared, pending approval: 20260718113000_nrms_menu_polish, 20260718140000_nrms_order_points, 20260718170000_nrms_qr_guest_orders, 20260718200000_nrms_guest_pay_instructions. Milestone 1 and earlier migrations are applied locally. Decisions applied: out-of-stock shows greyed "Not available today", auto-accept defaults off with a per-outlet toggle, 200-char guest note included. Milestone 5: charge-to-room verified purely by the point->stay link (room QR resolving to an ACTIVE allocation on a CHECKED_IN reservation); no guest name entry (decision 2026-07-24, superseding the earlier last-name check). Milestone 6 (decision 2026-07-18): NO NoLSAF checkout for guest orders. Money goes directly to the property's own receiving channels (their Lipa Namba, bank, card machine, cash), avoiding collection, disbursement delay and reconciliation cost. The owner configures payment details once (QR order points page); the guest order page displays them; staff record the tender at settle exactly as for any outlet sale. Milestone 7 (decision 2026-08-03): an eligible front-desk check-in automatically queues a personalized SMS containing the assigned room's secure ordering link. Milestone 8 (decision 2026-08-13): the traveller app carries the menu, and the SMS moves to a per-stay token so a checked-out guest's link stops ordering without the printed QR ever being rotated or reprinted. No schema change.
 Owner: Daniel
 Written: 2026-07-17
 Rule: no implementation begins until this document is reviewed and approved. Any scope change is edited here first.
@@ -53,6 +53,7 @@ The QR page is a shop window. The shop must be presentable first.
    - In-house guest (QR is a room with a checked-in stay): may choose "Add to my bill", posted straight to the folio through the existing pipeline. No name entry: the room's QR resolving to an ACTIVE allocation on a CHECKED_IN reservation is the verification (decision 2026-07-24, replacing the earlier last-name check). The link needs no rotation at check-in/checkout: the lookup is scoped to the currently active stay on that room, so it tracks whichever guest is actually checked in and goes quiet automatically once they check out.
    - Anyone else: chooses "Pay Now" and pays at the counter/waiter exactly like today's outlet payment (cash, mobile money, bank, card), tender required before settle.
 7. Later phase: pay from the phone via mobile money using the payment rails already used for booking deposits.
+8. At check-in, NoLSAF automatically sends the guest a personalized room-ordering welcome when all eligibility checks pass: NRMS is active, the guest has a phone number, QR ordering is not administratively frozen, an assigned room has an active ordering-enabled ROOM point, and the property has an active RESTAURANT or BAR outlet. The SMS is queued transactionally and delivered by the guest-automation worker, so provider downtime cannot cause a duplicate message or a partially sent check-in. Group and marketplace-projected NRMS check-ins use the same rule.
 
 ## 5. Build milestones (dependency order, each independently shippable)
 
@@ -62,8 +63,10 @@ The QR page is a shop window. The shop must be presentable first.
 | 2 | Menu polish | Descriptions, photos, availability toggles, category ordering, outlet screen management UI | nothing (parallel with 1) |
 | 3 | Order points and QR | Order-point model (ROOM or TABLE, signed revocable token), QR generation and downloadable/printable PDF sheet from the Outlets page | 1 |
 | 4 | Public menu and ordering | Public token-scoped API (menu fetch, order create, status poll), mobile-first guest page, PLACED status with staff Accept, rate limiting and abuse caps | 1, 2, 3 |
-| 5 | Room folio charging | "Charge to my room" with last-name verification when the room has a checked-in stay | 4 |
+| 5 | Room folio charging | "Charge to my room" when the room QR resolves to an active allocation on a checked-in stay | 4 |
 | 6 | Guest mobile-money payment | Pay the order from the phone via existing AzamPay/Coral rails, recorded as settled outlet payment | 4 (5 optional) |
+| 7 | Automatic check-in welcome | On eligible check-in, queue one personalized SMS per stay with the assigned room's secure ordering link; skip safely when the guest, room QR, outlet, or QR service is ineligible | 3, 4, 5 |
+| 8 | Per-stay tokens and the traveller app | SMS carries a per-stay token instead of the printed order-point token; charge-to-room binds to the reservation the link was issued for; app shows the public preview to anyone and ordering only while checked in | 4, 5, 7 |
 
 Definition of done for each milestone: a real outlet runs a full day on it without falling back to paper.
 
@@ -75,11 +78,68 @@ Definition of done for each milestone: a real outlet runs a full day on it witho
 - Room charging requires an actually checked-in stay on that exact room (the point->stay lookup, scoped to ACTIVE allocations on CHECKED_IN reservations); failure falls back to pay-at-counter. No guest personal data is shown on the public page.
 - NoLSAF never handles the guest's money for outlet orders: payment goes directly to the property's own channels (their Lipa Namba, bank, card machine, cash) and staff record the tender at settle.
 
-### 6.1 Fair use (the promise and its boundary)
+### 6.1 Two token classes, and why the printed QR is never rotated
+
+A printed room QR is a permanent bearer capability for a physical room. It resolves to
+whoever is checked in right now, which is exactly right for a code screwed to the wall,
+and it is why we do not rotate it: rotation would mean reprinting every room after every
+checkout, which no property will sustain.
+
+That same token is the wrong thing to send in an SMS. A message stays in the guest's
+phone forever, so a guest who checked out last month would keep a working link to the
+room, and once someone else checks in, "charge to my room" would reach that stranger's
+folio. Binding cannot be bolted onto the same link: any extra URL parameter is simply
+deleted by exactly the person we are trying to stop.
+
+So the SMS carries a different class of token, derived per stay as
+`s<reservationId>_<HMAC>` (`nrmsStayToken.ts`, signed with `PUBLIC_LINK_TOKEN_SECRET`,
+same pattern as the property verification token). Nothing is stored, so there is no
+schema change and no row to clean up; the HMAC is what makes the reservation id
+unforgeable, and the token is deterministic so a retried welcome SMS cannot produce a
+second live link.
+
+Validity is then a status lookup rather than a rotation. `loadActivePoint` resolves a
+stay token to its reservation, requires it to still be CHECKED_IN with an ACTIVE
+allocation, and answers `STAY_LINK_CLOSED` otherwise. The link dies at checkout on its
+own, with no operational step, and the printed code is untouched.
+
+The second benefit matters more than the first: `findStayForPoint` takes a
+`boundReservationId` from the stay path, so charge-to-room reaches the reservation the
+link was issued for rather than the room's current occupant. The printed QR keeps its
+old behaviour, and its residual risk stays what it always was, which is that you had to
+have physically been in that room.
+
+### 6.2 Fair use (the promise and its boundary)
 
 Ordinary guest ordering is free and stays free: no per-order charge, no per-scan charge, no cap on how many genuine orders a busy restaurant takes in a day. NRMS billing remains what it is today (PAYG per room-night); QR traffic adds nothing to an owner's bill.
 
 The boundary is abuse, not volume of real business. Automated or plainly non-human traffic (scripted scanning, order flooding, token scraping) is throttled by the rate limits above and may be blocked at source; a room or table generating abusive traffic can be rotated or deactivated by the owner in one click. These controls exist to protect the shared infrastructure every property depends on, never to monetize orders. If a legitimate property ever hits a limit through real guest volume, the limit is raised, not billed.
+
+### 6.3 Traveller app surface (m8)
+
+The app never stores an ordering token. `GET /api/customer/nrms/room-ordering?propertyId=<id>`
+(authenticated) resolves the signed-in guest's own stay through
+`Booking.userId -> Reservation(source NOLSAF, CHECKED_IN) -> ACTIVE allocation -> that
+room's active orderingEnabled ROOM point` and returns a freshly derived per-stay token,
+or `{ stay: null }`. Scoping by property also handles accounts checked into more than
+one property at once. The app re-asks whenever the property or menu screen regains focus,
+so checkout removes ordering
+by itself and there is no replayable link sitting in an account.
+
+Property detail shows one row: "Order to your room" for a checked-in guest at that
+property, otherwise the read-only "View live restaurant and bar menu" preview when the
+owner has enabled the public menu. The app treats a missing `orderingEnabled` as
+disabled, which is stricter than the web page, so an unexpected response can never
+surface a cart. No `/menu/*` deep link is registered: scanning a QR keeps opening the
+browser for everyone, unchanged.
+
+Coverage limit, accepted rather than fixed: only `source = "NOLSAF"` reservations have a
+NoLSAF account to resolve. Walk-in, phone, direct and OTA guests are the majority at most
+properties and keep the SMS and the printed QR as their path. The app is additive reach
+for marketplace guests, not a replacement for the code on the wall.
+
+Not built in the app: guest feedback and tip (`POST /orders/:publicCode/feedback`), and
+no in-app QR scanner.
 
 ## 7. Explicitly out of scope (for now)
 

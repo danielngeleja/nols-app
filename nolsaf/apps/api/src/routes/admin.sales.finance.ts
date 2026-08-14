@@ -45,10 +45,6 @@ const approvePayoutSchema = z.object({
   deductionAmount: z.coerce.number().finite().min(0).default(0),
   reason,
 }).strict();
-const paidSchema = z.object({
-  paymentReference: z.string().trim().min(3).max(120).transform(sanitizeText),
-  reason,
-}).strict();
 const adjustmentSchema = z.object({
   salesPartnerId: z.coerce.number().int().positive(),
   propertyId: z.coerce.number().int().positive().nullable().optional(),
@@ -420,72 +416,12 @@ router.post("/payouts/:id/reject", limitSalesAdminWrite, requireAdminFinanceGran
   res.json({ ok: true, payout: { id, status: "REJECTED" } });
 }));
 
-router.post("/payouts/:id/processing", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const params = idSchema.safeParse(req.params);
-  const parsed = actionSchema.safeParse(req.body);
-  if (invalid(res, params) || invalid(res, parsed)) return;
-  const id = params.data!.id;
-  const now = new Date();
-  const changed = await db.$transaction(async (tx: any) => {
-    const current = await tx.salesPayoutRequest.findUnique({ where: { id }, select: { status: true } });
-    if (!current) throw new FinanceNotFoundError("Payout request not found");
-    if (!canTransitionSalesPayout(current.status, "PROCESSING")) throw new FinanceConflictError("Only an APPROVED payout can start processing");
-    const updated = await tx.salesPayoutRequest.updateMany({ where: { id, status: "APPROVED" }, data: { status: "PROCESSING", processedAt: now, adminNotes: parsed.data!.reason } });
-    if (updated.count !== 1) throw new FinanceConflictError("Payout was changed by another administrator");
-    await tx.auditLog.create({ data: auditData(req, "SALES_PAYOUT_PROCESSING", "SALES_PAYOUT_REQUEST", id, { status: current.status }, { status: "PROCESSING", reason: parsed.data!.reason }) });
-    return true;
-  });
-  res.json({ ok: changed, payout: { id, status: "PROCESSING" } });
-}));
-
-router.post("/payouts/:id/paid", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const params = idSchema.safeParse(req.params);
-  const parsed = paidSchema.safeParse(req.body);
-  if (invalid(res, params) || invalid(res, parsed)) return;
-  const id = params.data!.id;
-  const input = parsed.data!;
-  const now = new Date();
-  const payout = await db.$transaction(async (tx: any) => {
-    const current = await tx.salesPayoutRequest.findUnique({
-      where: { id },
-      include: {
-        items: { select: { commissionId: true } },
-        salesPartner: { select: { userId: true } },
-      },
-    });
-    if (!current) throw new FinanceNotFoundError("Payout request not found");
-    if (!canTransitionSalesPayout(current.status, "PAID")) throw new FinanceConflictError("Only a PROCESSING payout can be marked paid");
-    if (!current.items.length) throw new FinanceConflictError("Payout has no locked earnings");
-    const commissionIds = current.items.map((item: any) => item.commissionId);
-    const paidCommissions = await tx.salesCommission.updateMany({
-      where: { id: { in: commissionIds }, salesPartnerId: current.salesPartnerId, status: "AVAILABLE" },
-      data: { status: "PAID", paidAt: now },
-    });
-    if (paidCommissions.count !== commissionIds.length) throw new FinanceConflictError("One or more locked commissions are no longer available");
-    const changed = await tx.salesPayoutRequest.updateMany({
-      where: { id, status: "PROCESSING" },
-      data: {
-        status: "PAID",
-        paidAt: now,
-        paymentReference: input.paymentReference,
-        receiptUrl: `/api/sales/payouts/${id}/receipt`,
-        adminNotes: input.reason,
-      },
-    });
-    if (changed.count !== 1) throw new FinanceConflictError("Payout was changed by another administrator");
-    await tx.auditLog.create({ data: auditData(req, "SALES_PAYOUT_PAID", "SALES_PAYOUT_REQUEST", id,
-      { status: current.status, commissionIds },
-      { status: "PAID", paidAt: now, paymentReference: input.paymentReference, reason: input.reason }) });
-    return current;
-  });
-  await notifyUser(payout.salesPartner.userId, "sales_partner_payout_paid", {
-    referenceNumber: payout.referenceNumber,
-    amount: number(payout.netPaidAmount),
-    currency: payout.currency,
-    paymentReference: input.paymentReference,
-  }).catch(() => {});
-  res.json({ ok: true, payout: { id, status: "PAID", paidAt: now, receiptUrl: `/api/sales/payouts/${id}/receipt` } });
-}));
+// POST /payouts/:id/processing and /payouts/:id/paid (the manual arm) were
+// retired — sales partner payouts are now paid exclusively through the
+// AzamPay Disbursement ledger (services/payouts/ledger.ts), reached once a
+// payout request is APPROVED. See admin.disbursements.ts. The write-back in
+// ledger.ts sets SalesPayoutRequest.status = "PAID" and the linked
+// SalesCommission rows to "PAID" once AzamPay confirms.
 
 const financeErrorHandler: ErrorRequestHandler = (error: any, _req, res, next) => {
   if (error instanceof FinanceNotFoundError) {

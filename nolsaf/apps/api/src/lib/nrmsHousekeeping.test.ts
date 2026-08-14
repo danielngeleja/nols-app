@@ -64,6 +64,7 @@ describe("daily occupied-room housekeeping", () => {
     const client = { $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)) };
     const result = await ensureDailyOccupiedCleaning(client, 1, new Date("2026-07-17T08:05:00.000Z"));
     expect(result).toMatchObject({ due: true, processed: true, occupiedRooms: 2, scheduledRooms: 1 });
+    expect(client.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 30_000 });
     expect(tx.nrmsHousekeepingTask.createMany).toHaveBeenCalledWith(expect.objectContaining({
       data: [expect.objectContaining({ roomUnitId: 4, reservationId: 90, type: "DAILY_CLEAN", status: "OPEN" })],
       skipDuplicates: true,

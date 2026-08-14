@@ -57,7 +57,7 @@ function tableColumns(table) {
 }
 
 for (const match of migrationSql.matchAll(
-  /CREATE TABLE(?: IF NOT EXISTS)? `([^`]+)`\s*\(([\s\S]*?)\)\s*(?:DEFAULT|;)/gi,
+  /CREATE TABLE(?: IF NOT EXISTS)? `([^`]+)`\s*\(([\s\S]*?)\)\s*(?:ENGINE|DEFAULT|;)/gi,
 )) {
   const [, table, body] = match;
   const columns = tableColumns(table);

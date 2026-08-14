@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { advanceNrmsOutletOrder, nrmsOrderDescription } from "./nrmsOrders.js";
+
+const assertBusinessDayWritable = vi.hoisted(() => vi.fn());
+vi.mock("./nrmsShifts.js", () => ({ assertNrmsBusinessDayWritable: assertBusinessDayWritable }));
+
+import { advanceNrmsOutletOrder, nrmsOrderDescription, nrmsOrderPlacementSettlement } from "./nrmsOrders.js";
 
 function preparingOrder(overrides: Record<string, unknown> = {}) {
   return {
     id: 5,
+    propertyId: 3,
     status: "PREPARING",
     folioChargeId: null,
     settlementMode: "ROOM_FOLIO",
@@ -39,11 +44,11 @@ describe("NRMS physical service transition", () => {
 
 describe("NRMS outlet order folio transition", () => {
   it("posts the charge and links the folio in one atomic nested write", async () => {
-    const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44 } });
+    const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44, reservationId: 9, category: "RESTAURANT", description: "Order", amount: 25_000, currency: "TZS" } });
     const tx = {
       nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder()), update: orderUpdate },
       reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 25_000 } }) },
-      reservation: { update: vi.fn().mockResolvedValue({}) },
+      reservation: { findUnique: vi.fn().mockResolvedValue({ id: 9, groupId: null }), update: vi.fn().mockResolvedValue({}) },
       reservationEvent: { create: vi.fn().mockResolvedValue({}) },
     };
     const result = await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12 });
@@ -56,9 +61,10 @@ describe("NRMS outlet order folio transition", () => {
         status: "POSTED_TO_FOLIO",
         folioCharge: { create: expect.objectContaining({ reservationId: 9, postedById: 12, amount: 25_000 }) },
       }),
-      include: { folioCharge: { select: { id: true } } },
+      include: { folioCharge: { select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true } } },
     }));
     expect(tx.reservation.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { chargesTotal: 25_000 } });
+    expect(assertBusinessDayWritable).toHaveBeenCalledWith(tx, 3);
   });
 
   it("is idempotent after the order already owns a folio charge", async () => {
@@ -94,8 +100,73 @@ describe("NRMS outlet order folio transition", () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 5 }, data: expect.objectContaining({ status: "SETTLED", settlementMethod: "CASH", settledById: 12 }) }));
   });
 
+  it("settles a guest-attributed outlet payment without posting to the folio after checkout", async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const tx = {
+      nrmsOutletOrder: {
+        findUnique: vi.fn().mockResolvedValue(servingOrder({
+          settlementMode: "OUTLET_PAYMENT",
+          reservationId: 9,
+          reservation: { status: "CHECKED_OUT" },
+        })),
+        update,
+      },
+      reservationCharge: { create: vi.fn() },
+    };
+    await expect(advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12, settlementMethod: "CASH" }))
+      .resolves.toEqual({ status: "SETTLED", folioChargeId: null });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SETTLED" }) }));
+    expect(tx.reservationCharge.create).not.toHaveBeenCalled();
+  });
+
   it("keeps the printed folio description compact", () => {
     expect(nrmsOrderDescription(preparingOrder())).toBe("Order RST-260715-ABC123 - 2x Pilau");
+  });
+});
+
+describe("NRMS room-QR order placement", () => {
+  const stay = { id: 91, currency: "TZS" };
+
+  it("keeps the guest link on an outlet-paid order without routing it to the folio", () => {
+    expect(nrmsOrderPlacementSettlement({
+      chargeToRoom: false,
+      paymentMethod: "CASH",
+      stay,
+      outletCurrency: "TZS",
+    })).toEqual({
+      reservationId: 91,
+      settlementMode: "OUTLET_PAYMENT",
+      guestPaymentMethod: "CASH",
+      currency: "TZS",
+    });
+  });
+
+  it("routes only add-to-room-bill orders to the folio", () => {
+    expect(nrmsOrderPlacementSettlement({
+      chargeToRoom: true,
+      paymentMethod: null,
+      stay,
+      outletCurrency: "USD",
+    })).toEqual({
+      reservationId: 91,
+      settlementMode: "ROOM_FOLIO",
+      guestPaymentMethod: null,
+      currency: "TZS",
+    });
+  });
+
+  it("allows a true walk-in outlet payment without a reservation", () => {
+    expect(nrmsOrderPlacementSettlement({
+      chargeToRoom: false,
+      paymentMethod: "CARD",
+      stay: null,
+      outletCurrency: "TZS",
+    })).toEqual({
+      reservationId: null,
+      settlementMode: "OUTLET_PAYMENT",
+      guestPaymentMethod: "CARD",
+      currency: "TZS",
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 // NRMS channel connections and provider-specific onboarding.
 // Provider credentials are verified before persistence, encrypted at rest,
 // and never returned to the owner or written to logs.
+import crypto from "node:crypto";
 import { Router, type Response } from "express";
 import type { RequestHandler } from "express";
 import type { Prisma } from "@prisma/client";
@@ -17,6 +18,8 @@ import { parseBookingResponseHasErrors } from "../lib/channels/bookingComReserva
 import { ExpediaApiError, expediaClient, type ExpediaCredentials } from "../lib/channels/expediaClient.js";
 import { activeExpediaCredentials, runExpediaReservationSync } from "../lib/channels/expediaReservationSync.js";
 import { queueExpediaFullAriUpdates, queueExpediaPropertyAriUpdates, runExpediaOutboundDelivery } from "../lib/channels/expediaDelivery.js";
+import { fetchIcalText, IcalFetchError } from "../lib/channels/icalFetch.js";
+import { importIcalFeed } from "../lib/channels/icalSync.js";
 
 export const router = Router();
 
@@ -753,6 +756,354 @@ router.post("/:propertyId/expedia/disconnect", (async (req: AuthedRequest, res: 
   ]);
   await audit(req, "NRMS_EXPEDIA_DISCONNECTED", "PROPERTY", undefined, { propertyId: active.property.id, channelConnectionId: connection.id });
   res.json({ ok: true, status: "DISCONNECTED" });
+}) as RequestHandler);
+
+/* ------------------------------------------------------------------ *
+ * Calendar (iCal) connections
+ *
+ * Airbnb has no self-serve API, and a calendar link is the only connection
+ * it offers without a partnership. These routes are provider-neutral on
+ * purpose: any OTA that publishes an .ics can be attached the same way, and
+ * the trust tier says plainly that this is a delayed connection rather than
+ * the live push Booking.com and Expedia get.
+ * ------------------------------------------------------------------ */
+
+const icalFeedSchema = z.object({
+  providerCode: z.string().trim().min(2).max(40).transform((value) => value.toUpperCase()),
+  roomTypeId: z.number().int().positive(),
+  label: z.string().trim().max(160).optional().nullable(),
+  /** The provider's export link. Null clears an existing import. */
+  importUrl: z.string().trim().min(1).max(2000).optional().nullable(),
+  /** Whether NRMS should publish this room type back to the provider. */
+  publishExport: z.boolean().optional().default(true),
+  /** Rooms held back from the provider as a safety margin. Must stay below the room type's capacity. */
+  exportBuffer: z.number().int().min(0).max(50).optional().default(0),
+}).superRefine((value, context) => {
+  if (!value.importUrl && !value.publishExport) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["publishExport"], message: "Import or publish at least one calendar" });
+  }
+});
+
+/** Canonical public origin for bearer calendar URLs. Never trust forwarded host headers. */
+export function calendarOrigin(req: AuthedRequest): string {
+  const configured = process.env.NRMS_CALENDAR_ORIGIN || process.env.PUBLIC_API_URL;
+  if (configured) {
+    let parsed: URL;
+    try {
+      parsed = new URL(configured);
+    } catch {
+      throw new Error("NRMS_CALENDAR_ORIGIN must be an absolute public URL");
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("NRMS_CALENDAR_ORIGIN contains unsupported URL components");
+    if (parsed.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && parsed.protocol === "http:")) {
+      throw new Error("NRMS_CALENDAR_ORIGIN must use HTTPS");
+    }
+    return parsed.origin;
+  }
+  if (process.env.NODE_ENV === "production") throw new Error("NRMS_CALENDAR_ORIGIN is required in production");
+  const host = req.get("host") || "localhost:4000";
+  return new URL(`${req.protocol === "https" ? "https" : "http"}://${host}`).origin;
+}
+
+function exportFeedUrl(req: AuthedRequest, token: string): string {
+  return `${calendarOrigin(req)}/api/public/nrms/calendars/${token}.ics`;
+}
+
+function icalFeedPayload(req: AuthedRequest, feed: any) {
+  const isExport = feed.direction === "EXPORT";
+  let address: string | null = null;
+  try {
+    if (feed.encryptedUrl) {
+      const value = decrypt(feed.encryptedUrl);
+      address = isExport ? exportFeedUrl(req, value) : value;
+    }
+  } catch {
+    // A row encrypted under a retired key must not take the whole page down.
+    address = null;
+  }
+  return {
+    id: feed.id,
+    direction: feed.direction,
+    status: feed.status,
+    roomTypeId: feed.roomTypeId,
+    roomTypeName: feed.roomType?.name ?? null,
+    label: feed.label,
+    exportBuffer: feed.exportBuffer ?? 0,
+    address,
+    lastPolledAt: feed.lastPolledAt,
+    lastSuccessAt: feed.lastSuccessAt,
+    nextPollAt: feed.nextPollAt,
+    lastError: feed.lastError,
+  };
+}
+
+const icalFeedInclude = { roomType: { select: { id: true, name: true } } };
+
+async function loadIcalConnection(propertyId: number, providerCode: string) {
+  const provider = await prisma.channelProvider.findUnique({ where: { code: providerCode } });
+  if (!provider) return null;
+  return prisma.channelConnection.findUnique({
+    where: { propertyId_providerId: { propertyId, providerId: provider.id } },
+    include: { provider: true },
+  });
+}
+
+/** GET /:propertyId/ical - every calendar feed on the property, plus the room types they can be attached to. */
+router.get("/:propertyId/ical", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
+  if (!active) return;
+  const propertyId = active.property.id as number;
+  const [feeds, roomTypes, providers] = await Promise.all([
+    prisma.channelCalendarFeed.findMany({
+      where: { status: { not: "REVOKED" }, connection: { propertyId } },
+      include: { ...icalFeedInclude, connection: { select: { provider: { select: { code: true, name: true } }, status: true, trustTier: true } } },
+      orderBy: [{ roomTypeId: "asc" }, { direction: "asc" }],
+    }),
+    // Capacity travels with the room type so the safety margin selector can
+    // stop an owner closing a listing by holding back every room.
+    prisma.roomType.findMany({
+      where: { propertyId, status: "ACTIVE" },
+      select: { id: true, name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
+      orderBy: { name: "asc" },
+    }),
+    prisma.channelProvider.findMany({ where: { status: "ACTIVE" }, select: { code: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
+  res.json({
+    roomTypes: roomTypes.map((roomType: any) => ({ id: roomType.id, name: roomType.name, capacity: roomType._count.units })),
+    providers,
+    feeds: feeds.map((feed: any) => ({
+      ...icalFeedPayload(req, feed),
+      providerCode: feed.connection?.provider?.code ?? null,
+      providerName: feed.connection?.provider?.name ?? null,
+      connectionStatus: feed.connection?.status ?? null,
+    })),
+  });
+}) as RequestHandler);
+
+/**
+ * POST /:propertyId/ical/feeds
+ * Attaches one room type to one provider calendar. The import link is fetched
+ * once before it is stored, so a wrong paste fails here rather than silently
+ * every half hour afterwards.
+ */
+router.post("/:propertyId/ical/feeds", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
+  if (!active) return;
+  const parsed = icalFeedSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid calendar feed", details: parsed.error.flatten() });
+  const input = parsed.data;
+  const propertyId = active.property.id as number;
+
+  const roomType = await prisma.roomType.findFirst({
+    where: { id: input.roomTypeId, propertyId },
+    select: { id: true, name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
+  });
+  if (!roomType) return res.status(400).json({ error: "That room type does not belong to this property" });
+  // A buffer at or above capacity closes the listing permanently, which is
+  // never what an owner means by "keep one back".
+  const capacity = roomType._count.units;
+  if (input.publishExport && input.exportBuffer >= capacity) {
+    return res.status(400).json({
+      error: capacity <= 1
+        ? `${roomType.name} has only one room, so no room can be held back. Publish with no safety margin, or do not publish this type.`
+        : `Hold back fewer than ${capacity} rooms. A margin of ${input.exportBuffer} would close ${roomType.name} on the provider permanently.`,
+      code: "BUFFER_EXCEEDS_CAPACITY",
+    });
+  }
+
+  const provider = await prisma.channelProvider.findUnique({ where: { code: input.providerCode } });
+  if (!provider || provider.status !== "ACTIVE") return res.status(404).json({ error: "Unknown channel provider", code: "CHANNEL_PROVIDER_MISSING" });
+
+  const existingConnection = await prisma.channelConnection.findUnique({
+    where: { propertyId_providerId: { propertyId, providerId: provider.id } },
+  });
+  // A provider already speaking the live API must not be quietly downgraded to
+  // a calendar: one connection row per provider, and the API one wins.
+  if (existingConnection && existingConnection.connectionType !== "ICAL" && existingConnection.status !== "DISCONNECTED") {
+    return res.status(409).json({ error: `${provider.name} is already connected over its API on this property`, code: "API_CONNECTION_EXISTS" });
+  }
+
+  if (input.importUrl) {
+    try {
+      await fetchIcalText(input.importUrl);
+    } catch (error) {
+      const failure = error instanceof IcalFetchError ? error : null;
+      return res.status(400).json({
+        error: failure?.message ?? "That calendar link could not be read.",
+        code: failure?.code ?? "FEED_UNREADABLE",
+      });
+    }
+  }
+  if (input.publishExport) {
+    try {
+      calendarOrigin(req);
+    } catch (error) {
+      return res.status(503).json({ error: error instanceof Error ? error.message : "Calendar publishing is not configured", code: "CALENDAR_ORIGIN_MISSING" });
+    }
+  }
+
+  const result = await prisma.$transaction(async (tx: any) => {
+    const connection = existingConnection
+      ? await tx.channelConnection.update({
+          where: { id: existingConnection.id },
+          data: { connectionType: "ICAL", status: "ACTIVE", trustTier: "DELAYED", lastErrorCode: null, lastErrorMessage: null },
+        })
+      : await tx.channelConnection.create({
+          data: { propertyId, providerId: provider.id, connectionType: "ICAL", status: "ACTIVE", trustTier: "DELAYED" },
+        });
+
+    const feeds: any[] = [];
+    const existingImport = await tx.channelCalendarFeed.findFirst({ where: { connectionId: connection.id, roomTypeId: input.roomTypeId, direction: "IMPORT" } });
+    if (input.importUrl) {
+      const data = {
+        encryptedUrl: encrypt(input.importUrl),
+        urlFingerprint: crypto.createHash("sha256").update(input.importUrl).digest("hex"),
+        label: input.label ?? null,
+        status: "ACTIVE",
+        lastError: null,
+        // Due immediately: the owner expects the first import without waiting
+        // out a poll interval.
+        nextPollAt: new Date(),
+      };
+      feeds.push(existingImport
+        ? await tx.channelCalendarFeed.update({ where: { id: existingImport.id }, data, include: icalFeedInclude })
+        : await tx.channelCalendarFeed.create({ data: { connectionId: connection.id, roomTypeId: input.roomTypeId, direction: "IMPORT", ...data }, include: icalFeedInclude }));
+    } else if (existingImport) {
+      await tx.channelCalendarFeed.update({ where: { id: existingImport.id }, data: { status: "REVOKED", encryptedUrl: null, urlFingerprint: null, nextPollAt: null } });
+    }
+
+    const existingExport = await tx.channelCalendarFeed.findFirst({ where: { connectionId: connection.id, roomTypeId: input.roomTypeId, direction: "EXPORT" } });
+    if (input.publishExport) {
+      if (existingExport) {
+        const token = existingExport.encryptedUrl ? null : crypto.randomBytes(32).toString("base64url");
+        feeds.push(await tx.channelCalendarFeed.update({
+          where: { id: existingExport.id },
+          data: {
+            status: "ACTIVE",
+            label: input.label ?? existingExport.label,
+            exportBuffer: input.exportBuffer,
+            ...(token ? { encryptedUrl: encrypt(token), urlFingerprint: crypto.createHash("sha256").update(token).digest("hex") } : {}),
+          },
+          include: icalFeedInclude,
+        }));
+      } else {
+        const token = crypto.randomBytes(32).toString("base64url");
+        feeds.push(await tx.channelCalendarFeed.create({
+          data: {
+            connectionId: connection.id,
+            roomTypeId: input.roomTypeId,
+            direction: "EXPORT",
+            status: "ACTIVE",
+            label: input.label ?? null,
+            exportBuffer: input.exportBuffer,
+            encryptedUrl: encrypt(token),
+            urlFingerprint: crypto.createHash("sha256").update(token).digest("hex"),
+          },
+          include: icalFeedInclude,
+        }));
+      }
+    } else if (existingExport) {
+      await tx.channelCalendarFeed.update({ where: { id: existingExport.id }, data: { status: "REVOKED", encryptedUrl: null, urlFingerprint: null } });
+    }
+    return { connectionId: connection.id, feeds };
+  });
+
+  await audit(req, "NRMS_ICAL_FEED_SAVED", "PROPERTY", undefined, {
+    propertyId,
+    providerCode: input.providerCode,
+    roomTypeId: input.roomTypeId,
+    channelConnectionId: result.connectionId,
+    hasImport: Boolean(input.importUrl),
+    publishExport: input.publishExport,
+  });
+
+  // First import runs inline so the owner sees the blocks appear immediately.
+  const importFeed = result.feeds.find((feed: any) => feed.direction === "IMPORT");
+  let firstImport: unknown = null;
+  if (importFeed) {
+    try {
+      firstImport = await importIcalFeed(importFeed.id);
+    } catch (error) {
+      firstImport = { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  res.status(201).json({ feeds: result.feeds.map((feed: any) => icalFeedPayload(req, feed)), firstImport });
+}) as RequestHandler);
+
+/** POST /:propertyId/ical/feeds/:feedId/poll - pull the provider calendar now. */
+router.post("/:propertyId/ical/feeds/:feedId/poll", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
+  if (!active) return;
+  const feed = await prisma.channelCalendarFeed.findFirst({
+    where: { id: Number(req.params.feedId), direction: "IMPORT", connection: { propertyId: active.property.id as number } },
+    select: { id: true },
+  });
+  if (!feed) return res.status(404).json({ error: "Calendar feed not found" });
+  try {
+    const summary = await importIcalFeed(feed.id);
+    res.json({ ok: true, summary });
+  } catch (error) {
+    const failure = error instanceof IcalFetchError ? error : null;
+    res.status(502).json({
+      error: failure?.message ?? "The calendar could not be read right now.",
+      code: failure?.code ?? "SYNC_FAILED",
+    });
+  }
+}) as RequestHandler);
+
+/**
+ * POST /:propertyId/ical/feeds/:feedId/rotate
+ * Issues a new published address. The old one stops working immediately, so
+ * this is the answer to a leaked calendar link.
+ */
+router.post("/:propertyId/ical/feeds/:feedId/rotate", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
+  if (!active) return;
+  try {
+    calendarOrigin(req);
+  } catch (error) {
+    return res.status(503).json({ error: error instanceof Error ? error.message : "Calendar publishing is not configured", code: "CALENDAR_ORIGIN_MISSING" });
+  }
+  const feed = await prisma.channelCalendarFeed.findFirst({
+    where: { id: Number(req.params.feedId), direction: "EXPORT", connection: { propertyId: active.property.id as number } },
+    select: { id: true },
+  });
+  if (!feed) return res.status(404).json({ error: "Published calendar not found" });
+  const token = crypto.randomBytes(32).toString("base64url");
+  const updated = await prisma.channelCalendarFeed.update({
+    where: { id: feed.id },
+    data: { encryptedUrl: encrypt(token), urlFingerprint: crypto.createHash("sha256").update(token).digest("hex"), status: "ACTIVE" },
+    include: icalFeedInclude,
+  });
+  await audit(req, "NRMS_ICAL_EXPORT_ROTATED", "PROPERTY", undefined, { propertyId: active.property.id, feedId: feed.id });
+  res.json({ feed: icalFeedPayload(req, updated) });
+}) as RequestHandler);
+
+/**
+ * DELETE /:propertyId/ical/feeds/:feedId
+ * Stops the connection. Calendar holds already imported are deliberately left
+ * alone: the rooms are unavailable, and silently freeing them would oversell the
+ * property the moment the owner detached a calendar.
+ */
+router.delete("/:propertyId/ical/feeds/:feedId", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
+  if (!active) return;
+  const feed = await prisma.channelCalendarFeed.findFirst({
+    where: { id: Number(req.params.feedId), connection: { propertyId: active.property.id as number } },
+    select: { id: true, direction: true, connectionId: true },
+  });
+  if (!feed) return res.status(404).json({ error: "Calendar feed not found" });
+  await prisma.channelCalendarFeed.update({
+    where: { id: feed.id },
+    data: { status: "REVOKED", encryptedUrl: null, urlFingerprint: null, nextPollAt: null },
+  });
+  const remaining = await prisma.channelCalendarFeed.count({ where: { connectionId: feed.connectionId, status: { not: "REVOKED" } } });
+  if (remaining === 0) {
+    await prisma.channelConnection.update({ where: { id: feed.connectionId }, data: { status: "DISCONNECTED", trustTier: "UNTRUSTED" } });
+  }
+  await audit(req, "NRMS_ICAL_FEED_REMOVED", "PROPERTY", undefined, { propertyId: active.property.id, feedId: feed.id, direction: feed.direction });
+  res.json({ ok: true, keptImportedBlocks: true });
 }) as RequestHandler);
 
 export default router;

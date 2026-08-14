@@ -14,6 +14,7 @@ import {
   getBookingCodeLockoutStatus,
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
+import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 router.use(
@@ -397,7 +398,7 @@ const getForCheckoutBookings: RequestHandler = async (req, res) => {
         checkOut: { lte: cutoff },
       },
       include: {
-        property: { select: { id: true, title: true, services: true } },
+        property: { select: { id: true, title: true, services: true, nrmsActivatedAt: true } },
         code: { select: { id: true, codeVisible: true, status: true, usedAt: true, usedByOwner: true } },
         user: { select: { id: true, name: true, email: true, phone: true } },
       },
@@ -786,9 +787,20 @@ const confirmCheckout: RequestHandler = async (req, res) => {
 
   const booking = await prisma.booking.findFirst({
     where: { id, property: { ownerId: r.user!.id } },
-    include: { property: { select: { id: true, title: true, type: true, basePrice: true, currency: true } } },
+    include: { property: { select: { id: true, title: true, type: true, basePrice: true, currency: true, nrmsActivatedAt: true } } },
   });
   if (!booking) return (res as Response).status(404).json({ error: "Booking not found" });
+
+  // Once NRMS is active, it is the sole checkout writer for this property.
+  // The legacy queue remains readable because both surfaces share the same
+  // calendar, but it must not independently advance the booking lifecycle.
+  if (booking.property.nrmsActivatedAt) {
+    return (res as Response).status(409).json({
+      error: "This property is managed in NRMS. Complete check-out from the NRMS front desk.",
+      code: "NRMS_CHECKOUT_MANAGED",
+      redirectTo: "/owner/nrms",
+    });
+  }
 
   if (booking.status === "CHECKED_OUT") {
     return (res as Response).json({ ok: true, bookingId: booking.id, status: booking.status, alreadyConfirmed: true });
@@ -796,7 +808,7 @@ const confirmCheckout: RequestHandler = async (req, res) => {
   if (booking.status !== "CHECKED_IN") return (res as Response).status(400).json({ error: "Booking must be CHECKED_IN to confirm check-out" });
   if (!Number.isFinite(rating) || rating < 1 || rating > 5) return (res as Response).status(400).json({ error: "Please rate the guest (1–5) before confirming check-out" });
 
-  const updated = await prisma.booking.update({ where: { id: booking.id }, data: { status: "CHECKED_OUT" } });
+  const updated = await prisma.$transaction((tx: any) => updateNoLsafBookingStatus(tx, booking.id, "CHECKED_OUT"));
 
   // AuditLog (preferred)
   try {

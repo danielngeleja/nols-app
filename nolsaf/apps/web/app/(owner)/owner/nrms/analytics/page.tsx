@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Banknote,
   BarChart3,
+  Building2,
   CalendarRange,
   CheckCircle2,
   CircleDollarSign,
@@ -37,7 +38,11 @@ type CurrencyAnalytics = {
   extraChargeRevenue: number;
   extraChargeCount: number;
   collectedRevenue: number;
+  agencyCollectedRevenue: number;
   amountDue: number;
+  agencyAmountDue: number;
+  masterFolioCount: number;
+  agencyFoliosDue: number;
   collectionRate: number;
   averageReservationValue: number;
   reservationCount: number;
@@ -53,6 +58,7 @@ type CurrencyAnalytics = {
 type AnalyticsResponse = {
   range: { from: string | null; to: string | null };
   reservationCount: number;
+  masterFolioCount: number;
   currencies: CurrencyAnalytics[];
 };
 
@@ -260,15 +266,16 @@ export default function RevenueAnalyticsPage() {
           <section className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-5" aria-label="Revenue KPIs">
             <KpiCard icon={TrendingUp} label="Confirmed revenue" value={money(analytics.confirmedRevenue)} note={`${money(analytics.roomRevenue)} rooms plus guest services`} tone="emerald" />
             <KpiCard icon={UtensilsCrossed} label="Extra charges" value={money(analytics.extraChargeRevenue)} note={`${analytics.extraChargeCount} restaurant, bar and service charges`} tone="rose" />
-            <KpiCard icon={WalletCards} label="Collected revenue" value={money(analytics.collectedRevenue)} note="Payments successfully recorded" tone="blue" />
-            <KpiCard icon={Clock3} label="Amount due" value={money(analytics.amountDue)} note={`${analytics.partiallyPaidCount + analytics.unpaidCount} reservations with money due`} tone={analytics.amountDue > 0 ? "amber" : "emerald"} />
+            <KpiCard icon={WalletCards} label="Collected revenue" value={money(analytics.collectedRevenue)} note={analytics.agencyCollectedRevenue > 0 ? `${money(analytics.agencyCollectedRevenue)} received on agency bills` : "Guest and agency payments recorded"} tone="blue" />
+            <KpiCard icon={Clock3} label="Amount due" value={money(analytics.amountDue)} note={`${analytics.partiallyPaidCount + analytics.unpaidCount} guest folios${analytics.agencyFoliosDue > 0 ? ` · ${analytics.agencyFoliosDue} agency ${analytics.agencyFoliosDue === 1 ? "bill" : "bills"}` : ""} due`} tone={analytics.amountDue > 0 ? "amber" : "emerald"} />
             <KpiCard icon={CircleDollarSign} label="Collection rate" value={`${analytics.collectionRate.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`} note="Collected against confirmed value" tone="violet" />
           </section>
 
-          <section className="grid overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)] sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)] sm:grid-cols-2 xl:grid-cols-5">
             <MiniKpi label="Reservations" value={String(analytics.reservationCount)} icon={ReceiptText} />
-            <MiniKpi label="Paid in full" value={String(analytics.fullyPaidCount)} icon={CheckCircle2} />
-            <MiniKpi label="Partially paid" value={String(analytics.partiallyPaidCount)} icon={Banknote} />
+            <MiniKpi label="Guest folios clear" value={String(analytics.fullyPaidCount)} icon={CheckCircle2} />
+            <MiniKpi label="Guest folios partial" value={String(analytics.partiallyPaidCount)} icon={Banknote} />
+            <MiniKpi label="Agency bills" value={String(analytics.masterFolioCount)} icon={Building2} />
             <MiniKpi label="Average reservation" value={money(analytics.averageReservationValue)} icon={BarChart3} />
           </section>
 

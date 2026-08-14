@@ -132,10 +132,8 @@ function nextInvoiceNumber(prefix = "INV", seq: number) {
   const y = new Date().getFullYear();
   return `${prefix}/${y}/${String(seq).padStart(5, "0")}`;
 }
-function nextReceiptNumber(prefix = "RCPT", seq: number) {
-  const y = new Date().getFullYear();
-  return `${prefix}/${y}/${String(seq).padStart(5, "0")}`;
-}
+// Receipt numbers come from lib/documentSequence. The count()-based helper that
+// used to live here had no call sites and was the third copy of the same bug.
 
 function formatPremiumDocNumber(prefix: "INV" | "RCPT", issuedAt: Date, uniqueId: number) {
   const d = issuedAt && Number.isFinite(+issuedAt) ? issuedAt : new Date();
@@ -653,11 +651,12 @@ router.post("/invoices/:id/verify", async (req, res) => {
 
     const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true } });
 
-    const updated = await prisma.invoice.update({
-      where: { id },
+    const claimed = await prisma.invoice.updateMany({
+      where: { id, status: { not: "PAID" } },
       data: { status: "VERIFIED", verifiedBy: adminId, verifiedAt: new Date(), notes },
-      include: { booking: true },
     });
+    if (claimed.count !== 1) return res.status(409).json({ error: "A paid invoice cannot be verified again" });
+    const updated = await prisma.invoice.findUniqueOrThrow({ where: { id }, include: { booking: true } });
     await createAdminAuditSafe({
       adminId,
       targetUserId: before?.ownerId ?? updated.ownerId,
@@ -777,8 +776,8 @@ router.post("/invoices/:id/approve", async (req, res) => {
     // ensure stable paymentRef for gateway + webhook reconciliation
     const paymentRef = inv.paymentRef ?? `INVREF-${inv.id}-${Date.now()}`;
 
-    const updated = await prisma.invoice.update({
-      where: { id },
+    const claimed = await prisma.invoice.updateMany({
+      where: { id, status: { not: "PAID" } },
       data: {
         status: "APPROVED",
         approvedBy: adminId,
@@ -792,8 +791,9 @@ router.post("/invoices/:id/approve", async (req, res) => {
         netPayable: calc.netPayable,
         paymentRef, // <<—— critical
       },
-      include: { booking: true },
     });
+    if (claimed.count !== 1) return res.status(409).json({ error: "A paid invoice cannot return to approved" });
+    const updated = await prisma.invoice.findUniqueOrThrow({ where: { id }, include: { booking: true } });
 
     await createAdminAuditSafe({
       adminId,
@@ -873,6 +873,11 @@ router.post("/invoices/:id/approve", async (req, res) => {
  * - emits socket "admin:invoice:paid" so Admin UI auto-refreshes
  */
 router.post("/invoices/:id/mark-paid", async (req, res) => {
+  return res.status(410).json({
+    error: "Legacy settlement endpoint retired",
+    detail: "Use POST /api/admin/invoices/:id/mark-paid.",
+  });
+
   try {
     const id = Number(req.params.id);
     const adminId = (req.user as any)!.id;
@@ -1005,7 +1010,7 @@ router.post("/invoices/:id/mark-paid", async (req, res) => {
             where: {
               ownerId: updated.ownerId,
               type: "invoice",
-              meta: { path: ["invoiceId"], equals: updated.id } as any,
+              meta: { path: "$.invoiceId", equals: updated.id } as any,
             } as any,
             select: { id: true },
           });

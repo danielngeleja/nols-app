@@ -164,9 +164,41 @@ router.get("/invoices", async (req, res) => {
 
 // GET /admin/payments/events?status=&q=&page=&pageSize= (keep for backward compatibility)
 router.get("/events", async (req, res) => {
-  const { status, q, page = "1", pageSize = "50" } = req.query as any;
+  const { status, q, tab, page = "1", pageSize = "50" } = req.query as any;
   const where: any = {};
   if (status) where.status = String(status);
+
+  // tab=unmatched: money arrived and the callback resolved to nothing. These are
+  // the events where a customer was charged and no booking, tour, group stay or
+  // NRMS token was advanced, so they need a human. Without this filter they were
+  // only findable by scrolling the full event list.
+  if (String(tab || "") === "unmatched") {
+    const rows = await prisma.$queryRaw<Array<{ id: number }>>`
+      SELECT id FROM payment_events
+      WHERE status = 'SUCCESS'
+        AND invoiceId IS NULL
+        AND tourBookingId IS NULL
+        AND groupBookingId IS NULL
+        AND JSON_EXTRACT(payload, '$.nrmsToken') IS NULL
+      ORDER BY id DESC
+      LIMIT 5000
+    `;
+    where.id = { in: rows.map((row) => Number(row.id)) };
+  }
+
+  // tab=variance: settled or held payments whose amount did not match what was
+  // expected, including shortfalls absorbed inside the tolerance window.
+  //
+  // recordedAt is always an ISO timestamp written by recordPaymentVariance.
+  // Filtering that scalar avoids a capped raw-ID prequery, so older variance
+  // rows remain pageable instead of disappearing after the newest 5,000.
+  if (String(tab || "") === "variance") {
+    where.payload = {
+      path: "$.variance.recordedAt",
+      string_contains: "T",
+    };
+  }
+
   if (q) {
     // MySQL doesn't support `mode: "insensitive"`; rely on default CI collations.
     const search = String(q).trim().slice(0, 120);

@@ -322,6 +322,16 @@ html, body {
   max-width: 100%;
 }
 
+/* Tailwind preflight is disabled in this app, so its usual border-box reset is
+   unavailable. Keep the owner workspace on one predictable sizing model:
+   `w-full` includes padding and borders instead of growing beyond its parent. */
+.owner-workspace,
+.owner-workspace *,
+.owner-workspace *::before,
+.owner-workspace *::after {
+  box-sizing: border-box;
+}
+
 /* Admin UI refinements */
 /* Admin layout variables: sidebar width and footer height used site-wide */
 :root { --admin-sidebar-width: 14rem; --admin-footer-height: 48px; }
@@ -405,12 +415,10 @@ html, body {
   color: inherit !important;
 }
 
-/* Owner-specific sidebar container when placed inside the centered layout frame.
-  Keep the sidebar's native background and visual treatment; only provide
-  scroll behavior and padding so the sidebar scrolls correctly when embedded
-  inside the centered `max-w-6xl` container. */
+/* The owner sidebar now owns a full-height workspace rail. Its navigation is
+  the only scrolling region; the logo and collapse action remain pinned. */
 .owner-sidebar-container { font-size: 0.875rem; }
-.owner-sidebar-container .sidebar-scroll { padding-bottom: var(--admin-footer-height); overflow-y: auto; max-height: calc(100vh - 4rem - var(--admin-footer-height)); }
+.owner-sidebar-container .sidebar-scroll { min-height: 0; overflow-y: auto; max-height: none; padding-bottom: 0.5rem; }
 .owner-sidebar-container a, .owner-sidebar-container button { color: inherit !important; }
 
 /* Hide decorative pseudo-elements inside the sidebar */

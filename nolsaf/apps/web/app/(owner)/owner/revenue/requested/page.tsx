@@ -138,7 +138,7 @@ export default function Requested() {
   }
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+    <div className="w-full max-w-none space-y-5 px-3 pb-12 sm:px-5 lg:px-6 xl:px-8">
 
       {/* ─── Hero Header ─────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100/70">
@@ -210,28 +210,28 @@ export default function Requested() {
       </div>
 
       {/* ─── Stats Row ────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 sm:gap-4">
         {/* Count card */}
-        <div className="relative rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-5 flex items-center gap-4">
-          <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-xl bg-slate-100 border border-slate-200">
-            <Hash className="h-5 w-5 text-slate-600" aria-hidden />
+        <div className="relative flex items-center gap-3 rounded-2xl bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.055)] transition-shadow duration-200 hover:shadow-md">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
+            <Hash className="h-4 w-4 text-slate-600" aria-hidden />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Invoices</p>
-            <p className="mt-0.5 text-3xl font-black text-slate-900 tabular-nums leading-none">{stats.totalCount.toLocaleString()}</p>
-            <p className="mt-1 text-xs text-slate-400">Awaiting processing</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Invoices</p>
+            <p className="mt-1 text-2xl font-semibold leading-none tabular-nums text-slate-900">{stats.totalCount.toLocaleString()}</p>
+            <p className="mt-1 text-xs text-slate-400">Awaiting review</p>
           </div>
         </div>
 
         {/* Amount card — dark */}
-        <div className="relative rounded-2xl bg-slate-900 border border-slate-800 shadow-sm hover:shadow-lg hover:shadow-slate-900/20 transition-shadow duration-200 p-5 flex items-center gap-4">
+        <div className="relative flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.14)] transition-shadow duration-200 hover:shadow-lg hover:shadow-slate-900/20">
           <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-          <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-xl bg-white/10 border border-white/10">
-            <TrendingUp className="h-5 w-5 text-white/80" aria-hidden />
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/10">
+            <TrendingUp className="h-4 w-4 text-white/80" aria-hidden />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Total amount</p>
-            <p className="mt-0.5 text-3xl font-black text-white tabular-nums leading-none truncate">{formatCurrency(stats.totalAmount)}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Total amount</p>
+            <p className="mt-1 truncate text-2xl font-semibold leading-none tabular-nums text-white">{formatCurrency(stats.totalAmount)}</p>
             <p className="mt-1 text-xs text-slate-500">Value under review</p>
           </div>
         </div>
@@ -245,21 +245,21 @@ export default function Requested() {
       ) : null}
 
       {/* ─── Invoices Table ───────────────────────────────────── */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_8px_28px_rgba(15,23,42,0.055)]">
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-5 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="sticky top-0 z-10 flex flex-col gap-3 bg-white/95 px-4 py-3.5 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0 flex items-center gap-3">
-            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-amber-50 border border-amber-100">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
               <FileText className="h-4 w-4 text-amber-600" aria-hidden />
             </div>
             <div>
-              <div className="text-sm font-bold text-slate-900 leading-none">Invoices</div>
+              <div className="text-sm font-semibold leading-none text-slate-900">Invoices</div>
               <div className="text-xs text-slate-400 mt-0.5">{filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'} showing</div>
             </div>
           </div>
 
-          <div className="flex gap-2 items-center">
-            <div className="relative">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
                 <Search className="h-3.5 w-3.5 text-slate-400" aria-hidden />
               </div>
@@ -267,7 +267,8 @@ export default function Requested() {
                 <button
                   type="button"
                   onClick={() => setSearch("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full inline-flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                  className="absolute right-2.5 top-1/2 z-10 inline-flex !min-h-0 h-5 w-5 -translate-y-1/2 appearance-none items-center justify-center rounded-full !border-0 !bg-transparent text-slate-400 transition hover:!bg-slate-100 hover:text-slate-600"
+                  style={{ border: 'none', boxShadow: 'none' }}
                   aria-label="Clear search"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden />
@@ -277,7 +278,8 @@ export default function Requested() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search invoice, property…"
-                className="h-8 w-full sm:w-48 pl-8 pr-8 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 focus:bg-white transition-all duration-200"
+                className="h-9 w-full appearance-none rounded-xl !border-0 bg-slate-100 pl-9 pr-8 text-sm text-slate-900 !outline-none !ring-0 placeholder:text-slate-400 transition-all duration-200 focus:bg-white focus:!outline-none focus:!ring-2 focus:!ring-amber-500/20 sm:w-56"
+                style={{ border: 'none', boxShadow: 'none' }}
                 aria-label="Search requested invoices"
               />
             </div>
@@ -285,7 +287,8 @@ export default function Requested() {
               type="button"
               onClick={() => load({ silent: true })}
               disabled={refreshing}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-500 transition-all active:scale-95 disabled:opacity-50"
+              className="inline-flex !min-h-0 h-9 w-9 flex-shrink-0 appearance-none items-center justify-center rounded-xl !border-0 !bg-slate-100 text-slate-500 transition-all hover:!bg-slate-200 active:scale-95 disabled:opacity-50"
+              style={{ border: 'none', boxShadow: 'none' }}
               aria-label="Refresh list"
               title="Refresh"
             >
@@ -295,13 +298,13 @@ export default function Requested() {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="py-16 px-6 text-center">
-            <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-amber-50 border border-amber-200 mb-5">
-              <Clock className="h-8 w-8 text-amber-400" aria-hidden />
+          <div className="px-6 py-10 text-center">
+            <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50">
+              <Clock className="h-5 w-5 text-amber-500" aria-hidden />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-1.5">No pending invoices</h2>
+            <h2 className="mb-1 text-base font-semibold text-slate-900">No pending invoices</h2>
             <p className="text-sm text-slate-500">Nothing is waiting for approval right now.</p>
-            <div className="mt-6 flex justify-center">
+            <div className="mt-4 flex justify-center">
               <Link
                 href="/owner/revenue/paid"
                 className="no-underline inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold transition active:scale-[0.98] shadow-sm"
@@ -314,15 +317,23 @@ export default function Requested() {
         ) : (
           <>
           <div className="w-full overflow-x-auto">
-            <table className="min-w-[760px] w-full text-sm border-collapse">
+            <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
+              <colgroup>
+                <col className="w-[18%]" />
+                <col className="w-[22%]" />
+                <col className="w-[13%]" />
+                <col className="w-[14%]" />
+                <col className="w-[15%]" />
+                <col className="w-[18%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Invoice</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Property</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Issued</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Status</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Action</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Invoice</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Property</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Issued</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">Status</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -339,26 +350,26 @@ export default function Requested() {
                   const viewHref = isOwnerSubmittedInvoice ? `/owner/invoices/${invoice.id}` : `/owner/revenue/invoices/${invoice.id}`;
                   return (
                     <TableRow key={invoice.id} className="group hover:bg-amber-50/40 transition-colors duration-150">
-                      <td className="px-5 sm:px-6 py-3.5">
-                        <div className="flex items-center gap-2.5">
+                      <td className="overflow-hidden px-4 py-3.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
                           <div className="flex-shrink-0 h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
                             <FileText className="h-3.5 w-3.5 text-slate-500" aria-hidden />
                           </div>
-                          <span className="font-semibold text-slate-900">{invoice.invoiceNumber}</span>
+                          <span className="truncate whitespace-nowrap font-semibold text-slate-900" title={invoice.invoiceNumber}>{invoice.invoiceNumber}</span>
                         </div>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-slate-600 truncate max-w-[200px]">{propertyTitle}</td>
-                      <td className="px-5 sm:px-6 py-3.5 text-slate-500 whitespace-nowrap tabular-nums text-xs">{formatDate(invoice.issuedAt)}</td>
-                      <td className="px-5 sm:px-6 py-3.5">
+                      <td className="truncate whitespace-nowrap px-4 py-3.5 text-slate-600" title={propertyTitle}>{propertyTitle}</td>
+                      <td className="whitespace-nowrap px-4 py-3.5 text-xs tabular-nums text-slate-500">{formatDate(invoice.issuedAt)}</td>
+                      <td className="overflow-hidden px-4 py-3.5">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
                           <Clock className="h-3 w-3" aria-hidden />
                           REQUESTED
                         </span>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right">
-                        <span className="font-bold text-emerald-700 tabular-nums">{formatCurrency(payout)}</span>
+                      <td className="overflow-hidden px-4 py-3.5 text-right">
+                        <span className="whitespace-nowrap font-semibold tabular-nums text-emerald-700">{formatCurrency(payout)}</span>
                       </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right">
+                      <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Link
                             href={viewHref}

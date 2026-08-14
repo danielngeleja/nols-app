@@ -156,7 +156,7 @@ export default function AdminNrmsDirectoryPage() {
   }
 
   return (
-    <div id="nrms-directory" className="mx-auto min-w-0 max-w-7xl space-y-5 px-4 py-6">
+    <div id="nrms-directory" className="mx-auto w-full min-w-0 max-w-7xl space-y-5 px-4 py-6 2xl:max-w-[1720px]">
       {/* Preflight is disabled in this project; without border-box, w-full controls (e.g. the property search box) overflow their container */}
       <style>{`#nrms-directory, #nrms-directory * { box-sizing: border-box; }`}</style>
       <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
@@ -184,7 +184,7 @@ export default function AdminNrmsDirectoryPage() {
 
       {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard icon={Building2} label="Properties" value={String(stats.properties)} detail={`${stats.active} active`} tone="emerald" />
         <SummaryCard icon={ShieldCheck} label="Active" value={String(stats.active)} detail="Billing in force" tone="emerald" />
         <SummaryCard icon={Hotel} label="On trial" value={String(stats.trial)} detail="Free usage window" tone="blue" />

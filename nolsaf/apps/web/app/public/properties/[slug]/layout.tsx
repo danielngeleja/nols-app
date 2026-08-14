@@ -179,10 +179,14 @@ export default async function PropertySlugLayout({ params, children }: Props) {
 
   return (
     <>
+      {/* suppressHydrationWarning below because browsers blank the nonce
+          attribute after parsing, by design, so the client reads "" where the
+          server sent a real value. Same reason as the root layout's JSON-LD. */}
       {jsonLd && (
         <script
           type="application/ld+json"
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
         />
       )}

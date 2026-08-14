@@ -102,7 +102,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const db = prisma as any;
     const dateWindow = { gte: rangeStart, lt: rangeEnd };
 
-    const [reservations, payments, charges, orders, events, roomTypes, allocations, blocks, expenses, outletStaff] = await Promise.all([
+    const [reservations, payments, masterPayments, masterRefunds, masterFolios, charges, orders, events, roomTypes, allocations, blocks, expenses, outletStaff] = await Promise.all([
       db.reservation.findMany({
         where: {
           propertyId,
@@ -128,6 +128,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           totalAmount: true,
           chargesTotal: true,
           amountPaid: true,
+          masterFolioItems: { where: { voidedAt: null }, select: { amount: true } },
           depositAmount: true,
           guestProfile: { select: { fullName: true, phone: true } },
           allocations: {
@@ -170,6 +171,38 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           },
         },
         orderBy: { createdAt: "desc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
+      }),
+      db.nrmsMasterFolioPayment.findMany({
+        where: { masterFolio: { propertyId }, OR: [{ createdAt: dateWindow }, { voidedAt: dateWindow }] },
+        select: {
+          id: true, amount: true, currency: true, method: true, reference: true, receiptNumber: true,
+          note: true, createdAt: true, voidedAt: true, voidReason: true,
+          recordedBy: { select: { fullName: true, name: true, email: true } },
+          masterFolio: { select: { reference: true, billToName: true, block: { select: { checkIn: true, checkOut: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
+      }),
+      db.nrmsMasterFolioRefund.findMany({
+        where: { masterFolio: { propertyId }, OR: [{ createdAt: dateWindow }, { voidedAt: dateWindow }] },
+        select: {
+          id: true, amount: true, currency: true, method: true, reference: true, refundNumber: true,
+          reason: true, createdAt: true, voidedAt: true, voidReason: true,
+          recordedBy: { select: { fullName: true, name: true, email: true } },
+          masterFolio: { select: { reference: true, billToName: true, block: { select: { checkIn: true, checkOut: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: MAX_REPORT_ROWS_PER_DATASET + 1,
+      }),
+      db.nrmsMasterFolio.findMany({
+        where: { propertyId, block: { checkIn: { lt: rangeEnd }, checkOut: { gt: rangeStart } } },
+        select: {
+          id: true, reference: true, billToName: true, currency: true, status: true,
+          items: { where: { voidedAt: null }, select: { amount: true } },
+          payments: { where: { voidedAt: null }, select: { amount: true } },
+          refunds: { where: { voidedAt: null }, select: { amount: true } },
+        },
         take: MAX_REPORT_ROWS_PER_DATASET + 1,
       }),
       db.reservationCharge.findMany({
@@ -310,6 +343,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const oversizedDataset = [
       ["reservations", reservations],
       ["payments", payments],
+      ["agency payments", masterPayments],
+      ["agency refunds", masterRefunds],
+      ["master folios", masterFolios],
       ["charges", charges],
       ["outlet orders", orders],
       ["audit events", events],
@@ -328,6 +364,8 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const balanceReservations = reservations.filter((reservation: any) => ACTIVE_REVENUE_STATUSES.includes(reservation.status));
     const activeCharges = charges.filter((charge: any) => !charge.voidedAt && inRange(charge.createdAt, rangeStart, rangeEnd));
     const activePayments = payments.filter((payment: any) => !payment.voidedAt && inRange(payment.createdAt, rangeStart, rangeEnd));
+    const activeMasterPayments = masterPayments.filter((payment: any) => !payment.voidedAt && inRange(payment.createdAt, rangeStart, rangeEnd));
+    const activeMasterRefunds = masterRefunds.filter((refund: any) => !refund.voidedAt && inRange(refund.createdAt, rangeStart, rangeEnd));
     const settledOutletOrders = orders.filter((order: any) => order.status === "SETTLED" && order.settlementMode === "OUTLET_PAYMENT" && !order.voidedAt && inRange(order.settledAt, rangeStart, rangeEnd));
     const activeExpenses = expenses.filter((expense: any) => !expense.voidedAt && inRange(expense.incurredAt, rangeStart, rangeEnd));
     // Staff performance is scoped to whoever actually settled the order, on
@@ -354,6 +392,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     for (const reservation of stayRevenueReservations) currencies.add(reservation.currency || "TZS");
     for (const charge of activeCharges) currencies.add(charge.currency || "TZS");
     for (const payment of activePayments) currencies.add(payment.currency || "TZS");
+    for (const payment of activeMasterPayments) currencies.add(payment.currency || "TZS");
+    for (const refund of activeMasterRefunds) currencies.add(refund.currency || "TZS");
+    for (const folio of masterFolios) currencies.add(folio.currency || "TZS");
     for (const order of settledOutletOrders) currencies.add(order.currency || "TZS");
     for (const expense of activeExpenses) currencies.add(expense.currency || "TZS");
     if (!currencies.size) currencies.add(roomTypes[0]?.currency || "TZS");
@@ -362,8 +403,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const room = decimal(reservation.totalAmount);
       const extras = decimal(reservation.chargesTotal);
       const folioPaid = decimal(reservation.amountPaid);
+      const transferredToMaster = (reservation.masterFolioItems ?? []).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
       const outletPaid = reservation.outletOrders.reduce((sum: number, order: any) => sum + decimal(order.total), 0);
-      const due = Math.max(0, room + extras - folioPaid);
+      const due = Math.max(0, room + extras - folioPaid - transferredToMaster);
       const settlementStatus = due <= 0.005 ? "PAID" : folioPaid > 0 ? "PARTIAL" : "UNPAID";
       return {
         reservationId: reservation.id,
@@ -380,6 +422,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         outletPaid: round(outletPaid),
         totalSpend: round(room + extras + outletPaid),
         folioPaid: round(folioPaid),
+        transferredToMaster: round(transferredToMaster),
         totalCollected: round(folioPaid + outletPaid),
         amountDue: round(due),
         settlementStatus,
@@ -395,7 +438,27 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const outletPaidRevenue = currencyOutlet.reduce((sum: number, item: any) => sum + decimal(item.total), 0);
       const currencyPayments = activePayments.filter((item: any) => (item.currency || "TZS") === currency);
       const folioPayments = currencyPayments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
-      const amountDue = guestBalances.filter((item: any) => item.currency === currency).reduce((sum: number, item: any) => sum + item.amountDue, 0);
+      const currencyMasterPayments = activeMasterPayments.filter((item: any) => (item.currency || "TZS") === currency);
+      const currencyMasterRefunds = activeMasterRefunds.filter((item: any) => (item.currency || "TZS") === currency);
+      const agencyRefunds = currencyMasterRefunds.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const agencyPayments = currencyMasterPayments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0) - agencyRefunds;
+      const agencyAmountDue = masterFolios
+        .filter((item: any) => (item.currency || "TZS") === currency)
+        .reduce((sum: number, item: any) => {
+          const billed = item.items.reduce((itemSum: number, row: any) => itemSum + decimal(row.amount), 0);
+          const paid = item.payments.reduce((paymentSum: number, row: any) => paymentSum + decimal(row.amount), 0)
+            - item.refunds.reduce((refundSum: number, row: any) => refundSum + decimal(row.amount), 0);
+          return sum + Math.max(0, billed - paid);
+        }, 0);
+      const agencyFoliosDue = masterFolios.filter((item: any) => {
+        if ((item.currency || "TZS") !== currency) return false;
+        const billed = item.items.reduce((sum: number, row: any) => sum + decimal(row.amount), 0);
+        const paid = item.payments.reduce((sum: number, row: any) => sum + decimal(row.amount), 0)
+          - item.refunds.reduce((sum: number, row: any) => sum + decimal(row.amount), 0);
+        return billed - paid > 0.005;
+      }).length;
+      const guestAmountDue = guestBalances.filter((item: any) => item.currency === currency).reduce((sum: number, item: any) => sum + item.amountDue, 0);
+      const amountDue = guestAmountDue + agencyAmountDue;
       const currentStayCollections = currencyPayments
         .filter((item: any) => inRange(item.reservation?.checkIn, rangeStart, rangeEnd))
         .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
@@ -405,11 +468,23 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const advanceDeposits = currencyPayments
         .filter((item: any) => item.reservation?.checkIn && new Date(item.reservation.checkIn).getTime() >= rangeEnd.getTime())
         .reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
-      const classifiedFolioPayments = currentStayCollections + priorStayCollections + advanceDeposits;
-      const unclassifiedCollections = Math.max(0, folioPayments - classifiedFolioPayments);
-      const currentPeriodCollections = currentStayCollections + outletPaidRevenue;
+      const currentGroupCollections = currencyMasterPayments
+        .filter((item: any) => inRange(item.masterFolio?.block?.checkIn, rangeStart, rangeEnd))
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => inRange(item.masterFolio?.block?.checkIn, rangeStart, rangeEnd)).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const priorGroupCollections = currencyMasterPayments
+        .filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() < rangeStart.getTime())
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() < rangeStart.getTime()).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const advanceGroupDeposits = currencyMasterPayments
+        .filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() >= rangeEnd.getTime())
+        .reduce((sum: number, item: any) => sum + decimal(item.amount), 0)
+        - currencyMasterRefunds.filter((item: any) => item.masterFolio?.block?.checkIn && new Date(item.masterFolio.block.checkIn).getTime() >= rangeEnd.getTime()).reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+      const classifiedFolioPayments = currentStayCollections + priorStayCollections + advanceDeposits + currentGroupCollections + priorGroupCollections + advanceGroupDeposits;
+      const unclassifiedCollections = Math.max(0, folioPayments + agencyPayments - classifiedFolioPayments);
+      const currentPeriodCollections = currentStayCollections + currentGroupCollections + outletPaidRevenue;
       const totalRevenue = roomRevenue + folioExtras + outletPaidRevenue;
-      const totalCollected = folioPayments + outletPaidRevenue;
+      const totalCollected = folioPayments + agencyPayments + outletPaidRevenue;
 
       const departmentMap = new Map<string, { department: string; transactions: number; amount: number }>();
       const addDepartment = (department: string, amount: number) => {
@@ -430,6 +505,8 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         paymentMethodMap.set(method, row);
       };
       for (const payment of currencyPayments) addMethod(payment.method, decimal(payment.amount));
+      for (const payment of currencyMasterPayments) addMethod(payment.method, decimal(payment.amount));
+      for (const refund of currencyMasterRefunds) addMethod(`REFUND_${refund.method}`, -decimal(refund.amount));
       for (const order of currencyOutlet) addMethod(order.settlementMethod || "UNCLASSIFIED_OUTLET_PAYMENT", decimal(order.total));
 
       return {
@@ -440,16 +517,24 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           outletPaidRevenue: round(outletPaidRevenue),
           totalRevenue: round(totalRevenue),
           folioPayments: round(folioPayments),
+          agencyPayments: round(agencyPayments),
+          agencyRefunds: round(agencyRefunds),
           outletPayments: round(outletPaidRevenue),
           totalCollected: round(totalCollected),
           amountDue: round(amountDue),
+          guestAmountDue: round(guestAmountDue),
+          agencyAmountDue: round(agencyAmountDue),
+          agencyFoliosDue,
         },
         collectionTiming: {
           currentStayCollections: round(currentStayCollections),
+          currentGroupCollections: round(currentGroupCollections),
           currentOutletCollections: round(outletPaidRevenue),
           currentPeriodCollections: round(currentPeriodCollections),
           priorStayCollections: round(priorStayCollections),
+          priorGroupCollections: round(priorGroupCollections),
           advanceDeposits: round(advanceDeposits),
+          advanceGroupDeposits: round(advanceGroupDeposits),
           unclassifiedCollections: round(unclassifiedCollections),
           totalCollected: round(totalCollected),
           revenueToCollectionDifference: round(totalCollected - totalRevenue),
@@ -584,6 +669,38 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         voidedAt: payment.voidedAt,
         voidReason: payment.voidReason,
       })),
+      ...masterPayments.map((payment: any) => ({
+        id: `master-payment-${payment.id}`,
+        type: "MASTER_FOLIO_PAYMENT",
+        occurredAt: payment.createdAt,
+        reservationId: null,
+        referenceNumber: payment.receiptNumber,
+        guest: payment.masterFolio.billToName,
+        room: "Agency master folio",
+        method: payment.method,
+        reference: payment.reference || payment.masterFolio.reference,
+        currency: payment.currency,
+        amount: round(decimal(payment.amount)),
+        recordedBy: userLabel(payment.recordedBy),
+        voidedAt: payment.voidedAt,
+        voidReason: payment.voidReason,
+      })),
+      ...masterRefunds.map((refund: any) => ({
+        id: `master-refund-${refund.id}`,
+        type: "MASTER_FOLIO_REFUND",
+        occurredAt: refund.createdAt,
+        reservationId: null,
+        referenceNumber: refund.refundNumber,
+        guest: refund.masterFolio.billToName,
+        room: "Agency master folio",
+        method: `REFUND_${refund.method}`,
+        reference: refund.reference || refund.masterFolio.reference,
+        currency: refund.currency,
+        amount: round(-decimal(refund.amount)),
+        recordedBy: userLabel(refund.recordedBy),
+        voidedAt: refund.voidedAt,
+        voidReason: refund.voidReason,
+      })),
       ...settledOutletOrders.map((order: any) => ({
         id: `order-${order.id}`,
         type: "OUTLET_PAYMENT",
@@ -656,12 +773,15 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         report.summary.roomRevenue + report.summary.folioExtras + report.summary.outletPaidRevenue
       ));
       const collectionDifference = round(report.summary.totalCollected - (
-        report.summary.folioPayments + report.summary.outletPayments
+        report.summary.folioPayments + report.summary.agencyPayments + report.summary.outletPayments
       ));
-      const timingDifference = round(report.summary.folioPayments - (
+      const timingDifference = round((report.summary.folioPayments + report.summary.agencyPayments) - (
         report.collectionTiming.currentStayCollections
+        + report.collectionTiming.currentGroupCollections
         + report.collectionTiming.priorStayCollections
+        + report.collectionTiming.priorGroupCollections
         + report.collectionTiming.advanceDeposits
+        + report.collectionTiming.advanceGroupDeposits
         + report.collectionTiming.unclassifiedCollections
       ));
       return [
@@ -678,6 +798,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     if (unassignedStays) warnings.push({ key: "UNASSIGNED_STAY", label: "Revenue-bearing stays without an active room allocation", count: unassignedStays });
     const missingVoidReasons = [
       ...payments.filter((item: any) => item.voidedAt && !String(item.voidReason || "").trim()),
+      ...masterPayments.filter((item: any) => item.voidedAt && !String(item.voidReason || "").trim()),
       ...charges.filter((item: any) => item.voidedAt && !String(item.voidReason || "").trim()),
       ...orders.filter((item: any) => item.voidedAt && !String(item.voidReason || "").trim()),
     ].length;
@@ -685,6 +806,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const unclassifiedCollectionCurrencies = currencyReports.filter((report: any) => report.collectionTiming.unclassifiedCollections > 0.01).length;
     if (unclassifiedCollectionCurrencies) warnings.push({ key: "UNCLASSIFIED_COLLECTION_TIMING", label: "Currencies containing collections without a stay-timing classification", count: unclassifiedCollectionCurrencies });
     if (payments.length >= 1000) warnings.push({ key: "PAYMENT_ROW_LIMIT", label: "Payment register reached the 1,000-row report limit", count: payments.length });
+    if (masterPayments.length >= 1000) warnings.push({ key: "MASTER_PAYMENT_ROW_LIMIT", label: "Agency payment register reached the 1,000-row report limit", count: masterPayments.length });
     if (charges.length >= 1000) warnings.push({ key: "CHARGE_ROW_LIMIT", label: "Folio charge register reached the 1,000-row report limit", count: charges.length });
     if (orders.length >= 1000) warnings.push({ key: "OUTLET_ROW_LIMIT", label: "Outlet order register reached the 1,000-row report limit", count: orders.length });
     if (events.length >= 1000) warnings.push({ key: "AUDIT_ROW_LIMIT", label: "Audit register reached the 1,000-row report limit", count: events.length });
@@ -728,6 +850,8 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           stayRevenueReservations: stayRevenueReservations.length,
           folioCharges: activeCharges.length,
           payments: activePayments.length,
+          agencyPayments: activeMasterPayments.length,
+          agencyRefunds: activeMasterRefunds.length,
           outletOrders: outletRows.length,
           auditEvents: auditRows.length,
           expenses: activeExpenses.length,

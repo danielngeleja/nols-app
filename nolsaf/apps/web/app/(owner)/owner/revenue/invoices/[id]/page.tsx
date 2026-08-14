@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FileText, Download, Loader2, User, Building2, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, FileText, Download, Loader2, User, Building2, Phone, Mail, MapPin } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -231,9 +231,12 @@ export default function OwnerRevenueInvoiceView() {
               </div>
               <span className="text-[10px] font-bold uppercase tracking-widest text-[#02665e]/60">To</span>
             </div>
-            <div className="font-bold text-slate-900 text-base leading-snug">NoLSAF</div>
-            <div className="text-[13px] text-slate-500 mt-1.5 flex items-center gap-1.5"><Phone className="h-3 w-3 text-slate-400 flex-shrink-0" aria-hidden />+255</div>
-            <div className="text-[13px] text-slate-500 mt-1 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-slate-400 flex-shrink-0" aria-hidden />Dar es Salaam, Tanzania</div>
+            <div className="font-bold text-slate-900 text-base leading-snug">{inv?.receiverName || "NoLS Africa Co LTD"}</div>
+            <a href={`mailto:${inv?.receiverEmail || "payments@nolsaf.com"}`} className="no-underline text-[13px] text-slate-500 hover:text-[#02665e] mt-1.5 flex items-center gap-1.5">
+              <Mail className="h-3 w-3 text-slate-400 flex-shrink-0" aria-hidden />
+              {inv?.receiverEmail || "payments@nolsaf.com"}
+            </a>
+            <div className="text-[13px] text-slate-500 mt-1 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-slate-400 flex-shrink-0" aria-hidden />{inv?.receiverAddress || "Dar es Salaam, Tanzania"}</div>
           </div>
         </div>
 

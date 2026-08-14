@@ -1520,6 +1520,18 @@ router.post("/trips/:id(\\d+)/payout/approve", async (req, res) => {
         err.code = 'ALREADY_PAID';
         throw err;
       }
+      // If the driver already submitted a payout claim (row exists as
+      // PENDING via driver.scheduled.ts), it must go through the same
+      // VERIFIED checkpoint as the Invoices review screen
+      // (/invoices/:id/verify) before this action can approve it — this
+      // endpoint no longer skips that review by upserting straight to
+      // APPROVED. A row that doesn't exist yet has no driver claim to
+      // review, so admin-initiated approval here still works directly.
+      if (existing && String(existing.status ?? '').toUpperCase() === 'PENDING') {
+        const err: any = new Error('This payout has a pending driver claim — verify it first in Driver Payout Invoices before approving.');
+        err.code = 'NOT_VERIFIED';
+        throw err;
+      }
 
       const upserted = await (tx as any).transportPayout.upsert({
         where: { transportBookingId: bookingId },
@@ -1592,172 +1604,19 @@ router.post("/trips/:id(\\d+)/payout/approve", async (req, res) => {
   } catch (error: any) {
     const status =
       error?.code === 'ALREADY_PAID' ? 409 :
+      error?.code === 'NOT_VERIFIED' ? 409 :
       500;
     console.error('POST /admin/drivers/trips/:id/payout/approve error:', error);
     return res.status(status).json({ error: error?.message || 'Failed to approve payout' });
   }
 });
 
-/**
- * POST /admin/drivers/trips/:id/payout/pay
- * Body: { acknowledgeCommission?: boolean, paymentMethod?: string, paymentRef?: string }
- * Marks payout as PAID. Requires explicit acknowledgement.
- */
-router.post("/trips/:id(\\d+)/payout/pay", async (req, res) => {
-  try {
-    const r = req as any;
-    const adminId = Number(r?.user?.id);
-    const bookingId = Number(req.params.id);
-    const acknowledgeCommission = Boolean((req.body as any)?.acknowledgeCommission);
-    const paymentMethod = typeof (req.body as any)?.paymentMethod === 'string' ? String((req.body as any).paymentMethod).trim() : null;
-    const paymentRef = typeof (req.body as any)?.paymentRef === 'string' ? String((req.body as any).paymentRef).trim() : null;
-
-    if (!Number.isFinite(bookingId) || bookingId <= 0) return res.status(400).json({ error: "Invalid id" });
-    if (!(prisma as any).transportBooking) return res.status(404).json({ error: "Not found" });
-    if (!(prisma as any).transportPayout) return res.status(409).json({ error: "Transport payout model not available" });
-
-    const booking = await (prisma as any).transportBooking.findUnique({
-      where: { id: bookingId },
-      select: { id: true, status: true, driverId: true, amount: true, currency: true },
-    });
-    if (!booking) return res.status(404).json({ error: "Not found" });
-
-    const status = String(booking.status ?? "").toUpperCase();
-    if (!['COMPLETED', 'FINISHED'].includes(status)) return res.status(409).json({ error: "Trip is not completed" });
-    if (!booking.driverId) return res.status(409).json({ error: "Trip has no driver assigned" });
-
-    const grossAmount = Number(booking.amount ?? 0);
-    if (!Number.isFinite(grossAmount) || grossAmount <= 0) return res.status(409).json({ error: "Trip amount is not set" });
-    const currency = booking.currency ?? 'TZS';
-
-    const commissionPercent = await getDriverCommissionPercent();
-    const commissionAmount = roundMoney((grossAmount * commissionPercent) / 100);
-    const netPaid = roundMoney(grossAmount - commissionAmount);
-
-    if (!acknowledgeCommission) {
-      return res.status(409).json({
-        error: "commission_ack_required",
-        message: "Commission acknowledgement required before paying payout",
-        currency,
-        grossAmount,
-        commissionPercent,
-        commissionAmount,
-        netPaid,
-      });
-    }
-
-    const payout = await prisma.$transaction(async (tx) => {
-      const existing = await (tx as any).transportPayout.findUnique({ where: { transportBookingId: bookingId } });
-      if (existing && String(existing.status ?? '').toUpperCase() === 'PAID') {
-        const err: any = new Error('Payout already paid');
-        err.code = 'ALREADY_PAID';
-        throw err;
-      }
-
-      const now = new Date();
-      const upserted = await (tx as any).transportPayout.upsert({
-        where: { transportBookingId: bookingId },
-        create: {
-          transportBookingId: bookingId,
-          driverId: Number(booking.driverId),
-          currency,
-          grossAmount: grossAmount as any,
-          commissionPercent: commissionPercent as any,
-          commissionAmount: commissionAmount as any,
-          netPaid: netPaid as any,
-          status: 'PAID',
-          approvedAt: now,
-          approvedBy: Number.isFinite(adminId) ? adminId : null,
-          paidAt: now,
-          paidBy: Number.isFinite(adminId) ? adminId : null,
-          paymentMethod: paymentMethod || null,
-          paymentRef: paymentRef || null,
-        },
-        update: {
-          driverId: Number(booking.driverId),
-          currency,
-          grossAmount: grossAmount as any,
-          commissionPercent: commissionPercent as any,
-          commissionAmount: commissionAmount as any,
-          netPaid: netPaid as any,
-          status: 'PAID',
-          approvedAt: existing?.approvedAt ?? now,
-          approvedBy: existing?.approvedBy ?? (Number.isFinite(adminId) ? adminId : null),
-          paidAt: now,
-          paidBy: Number.isFinite(adminId) ? adminId : null,
-          paymentMethod: paymentMethod || (existing?.paymentMethod ?? null),
-          paymentRef: paymentRef || (existing?.paymentRef ?? null),
-        },
-      });
-
-      try {
-        await (tx as any).auditLog?.create?.({
-          data: {
-            actorId: Number.isFinite(adminId) ? adminId : null,
-            actorRole: 'ADMIN',
-            action: 'TRANSPORT_PAYOUT_PAID',
-            entity: 'TRANSPORT_BOOKING',
-            entityId: bookingId,
-            beforeJson: existing ? { payoutStatus: existing.status } : null,
-            afterJson: {
-              payoutStatus: 'PAID',
-              currency,
-              grossAmount,
-              commissionPercent,
-              commissionAmount,
-              netPaid,
-              paymentMethod: paymentMethod || null,
-              paymentRef: paymentRef || null,
-            },
-            ip: (req.headers["x-forwarded-for"] as string) || (req.socket as any)?.remoteAddress || null,
-            ua: String(req.headers["user-agent"] || ""),
-          },
-        });
-      } catch {
-        // ignore
-      }
-
-      return upserted;
-    });
-
-    try {
-      const io = (req as any).app?.get?.("io") || (global as any).io;
-      if (io) {
-        io.to(`driver:${payout.driverId}`).emit("driver-payout-invoice-paid", {
-          invoiceId: payout.id,
-          tripId: bookingId,
-          amount: Number(payout.netPaid ?? 0),
-          paidAt: payout.paidAt ? new Date(payout.paidAt).toISOString() : null,
-        });
-      }
-    } catch (emitErr: any) {
-      console.warn("Failed to emit driver payout invoice paid notification:", emitErr?.message ?? emitErr);
-    }
-
-    return res.json({
-      ok: true,
-      payout: {
-        id: payout.id,
-        status: payout.status,
-        currency: payout.currency,
-        grossAmount: Number(payout.grossAmount),
-        commissionPercent: Number(payout.commissionPercent),
-        commissionAmount: Number(payout.commissionAmount),
-        netPaid: Number(payout.netPaid),
-        approvedAt: payout.approvedAt ? new Date(payout.approvedAt).toISOString() : null,
-        paidAt: payout.paidAt ? new Date(payout.paidAt).toISOString() : null,
-        paymentMethod: payout.paymentMethod ?? null,
-        paymentRef: payout.paymentRef ?? null,
-      },
-    });
-  } catch (error: any) {
-    const status =
-      error?.code === 'ALREADY_PAID' ? 409 :
-      500;
-    console.error('POST /admin/drivers/trips/:id/payout/pay error:', error);
-    return res.status(status).json({ error: error?.message || 'Failed to pay payout' });
-  }
-});
+// POST /trips/:id/payout/pay (manual "mark paid") was retired — driver
+// trip payouts are now paid exclusively through the AzamPay Disbursement
+// ledger (services/payouts/ledger.ts), reached once /payout/approve above
+// has moved the TransportPayout to APPROVED. See admin.disbursements.ts.
+// The write-back in ledger.ts sets TransportPayout.status = "PAID" once
+// AzamPay confirms.
 
 /**
  * GET /admin/drivers/trips/scheduled

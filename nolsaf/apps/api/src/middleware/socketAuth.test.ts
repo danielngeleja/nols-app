@@ -62,6 +62,44 @@ describe("Socket.IO role TTL enforcement", () => {
     await expect(verifyToken("revoked-device-token")).resolves.toBeNull();
   });
 
+  it("rejects an administrator socket token without the MFA claim", async () => {
+    sessionFindFirst.mockResolvedValue({
+      id: "session-42",
+      user: {
+        id: 42,
+        role: "ADMIN",
+        email: "admin@example.com",
+        suspendedAt: null,
+        isDisabled: false,
+        tokensValidAfter: null,
+      },
+    });
+    const { verifyToken } = await import("./socketAuth.js");
+    await expect(verifyToken("password-only-admin-token")).resolves.toBeNull();
+  });
+
+  it("accepts an administrator socket token after passkey verification", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    jwtVerify.mockReturnValue({ sub: "42", sid: "session-42", amr: "passkey", iat: nowSec, exp: nowSec + 3600 });
+    sessionFindFirst.mockResolvedValue({
+      id: "session-42",
+      user: {
+        id: 42,
+        role: "ADMIN",
+        email: "admin@example.com",
+        suspendedAt: null,
+        isDisabled: false,
+        tokensValidAfter: null,
+      },
+    });
+    const { verifyToken } = await import("./socketAuth.js");
+    await expect(verifyToken("passkey-admin-token")).resolves.toMatchObject({
+      id: 42,
+      role: "ADMIN",
+      adminMfa: "passkey",
+    });
+  });
+
   it("disconnects already-connected sockets that exceed a reduced policy", async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     getRoleSessionMaxMinutes.mockResolvedValue(30);

@@ -63,7 +63,12 @@ async function getSessionSettings() {
  */
 export async function signUserJwt(
   user: { id: number; role?: string | null; email?: string | null },
-  options: { impersonated?: boolean; expiresInSeconds?: number } = {},
+  options: {
+    impersonated?: boolean;
+    expiresInSeconds?: number;
+    /** Required authentication method for a usable ADMIN session. */
+    adminMfa?: "passkey" | "totp";
+  } = {},
 ): Promise<string> {
   let sessionId: string | null = null;
   try {
@@ -99,6 +104,7 @@ export async function signUserJwt(
         role: user.role ? String(user.role).toUpperCase() : undefined,
         sid: session.id,
         ...(options.impersonated ? { imp: true } : {}),
+        ...(options.adminMfa ? { amr: options.adminMfa } : {}),
         iat: Math.floor(Date.now() / 1000), // Issued at time
       },
       JWT_SECRET,

@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -91,7 +91,8 @@ function buildExpectedManifest(apiManifest, rootManifest) {
       dependencies[name] = override;
     }
   }
-  const { devDependencies: _devDependencies, ...runtimeManifest } = apiManifest;
+  const runtimeManifest = { ...apiManifest };
+  delete runtimeManifest.devDependencies;
   return {
     ...runtimeManifest,
     dependencies,
@@ -212,14 +213,14 @@ function buildSeedLock(rootLock, deployManifest) {
 
   for (const [lockPath, entry] of Object.entries(rootLock.packages || {})) {
     if (!lockPath.startsWith("node_modules/") || entry?.link) continue;
-    packages[lockPath] = structuredClone(entry);
+    packages[lockPath] = globalThis.structuredClone(entry);
   }
 
   for (const name of Object.keys(deployManifest.dependencies || {})) {
     if (name in vendoredDependencies) continue;
     const workspaceEntry = rootLock.packages?.[`apps/api/node_modules/${name}`];
     if (workspaceEntry) {
-      packages[`node_modules/${name}`] = structuredClone(workspaceEntry);
+      packages[`node_modules/${name}`] = globalThis.structuredClone(workspaceEntry);
     }
   }
 
@@ -234,7 +235,7 @@ function buildSeedLock(rootLock, deployManifest) {
       resolved: targetPath,
       link: true,
     };
-    packages[targetPath] = structuredClone(sourceEntry);
+    packages[targetPath] = globalThis.structuredClone(sourceEntry);
   }
 
   return {

@@ -16,10 +16,14 @@ import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
+import { startIcalCalendarSyncWorker } from "../lib/channels/icalSync.js";
 import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
+import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
+import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -96,7 +100,25 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startNrmsGuestAutomationWorker();
     startSalesCommissionLifecycleWorker();
     startAuditRetentionWorker();
+    // Fallback for missed/delayed AzamPay disbursement callbacks: polls
+    // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
+    // applies the result through the same idempotent ledger path a callback
+    // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
+    startDisbursementReconciliationWorker();
+    // The same fallback for money coming IN. A SUCCESS callback writes its
+    // PaymentEvent before settlement runs, so a crash in between leaves a paid
+    // customer with an unconfirmed booking. This re-runs the idempotent
+    // settlement path and escalates anything that will not settle.
+    startUnsettledPaymentReconciliationWorker();
+    // Submits authorized batches to AzamPay. Authorization is the human
+    // decision; this is what actually moves the money, so that an HTTP
+    // timeout can never strand a released batch half-submitted.
+    startDisbursementBatchWorker();
     startChannelOperationsWorker();
+    // Calendar feeds need no credentials and no provider partnership, so this
+    // one runs unconditionally: with no feeds attached it is a single indexed
+    // query per tick.
+    startIcalCalendarSyncWorker();
     if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
       startBookingComReservationSyncWorker();
       startBookingComOutboundDeliveryWorker();

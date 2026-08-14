@@ -1449,13 +1449,21 @@ router.get("/availability", (async (req, res) => {
     ids.map(async (id) => {
       try {
         const result = await calculateAvailability(id, startDate, endDate, null, roomType);
+        // Sellable, not physically free: an owner who closed these dates in
+        // NRMS must read as unavailable here, or a guest is walked all the way
+        // to payment before anything objects.
+        const closed = result.restrictions[0] ?? null;
         return {
           id,
-          roomsAvailable: result.summary.totalAvailableRooms,
+          roomsAvailable: result.summary.totalSellableRooms,
           totalRooms: result.summary.totalRooms,
+          // Kept separate so the owner-facing calendar can still see real capacity behind a closure.
+          roomsPhysicallyFree: result.summary.totalAvailableRooms,
+          closed: !!closed,
+          closedReason: closed ? closed.message : null,
         };
       } catch {
-        return { id, roomsAvailable: null, totalRooms: null };
+        return { id, roomsAvailable: null, totalRooms: null, roomsPhysicallyFree: null, closed: false, closedReason: null };
       }
     })
   );

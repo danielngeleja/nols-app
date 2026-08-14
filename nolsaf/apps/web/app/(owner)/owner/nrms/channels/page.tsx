@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleHelp, Link2, Loader2, LockKeyhole, Plus, Plug, RefreshCw, Save, ShieldCheck, Trash2, Unplug } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
+import CalendarFeeds from "./CalendarFeeds";
 
-type ProviderCode = "EXPEDIA" | "BOOKING_COM";
+type ProviderCode = "EXPEDIA" | "BOOKING_COM" | "AIRBNB";
 type RoomType = { id: number; name: string; units?: Array<{ id: number; code: string; status: string }> };
 type DateOverride = { from: string; to: string; price?: number | null; closed?: boolean | null; minimumStay?: number | null; maximumStay?: number | null; closedOnArrival?: boolean | null; closedOnDeparture?: boolean | null };
 type AriPolicy = { pricingMode?: "BASE" | "FIXED" | "OFFSET" | "MULTIPLIER" | null; pricingValue?: number | null; dateOverrides?: DateOverride[] | null; minimumStay?: number | null; maximumStay?: number | null; closedOnArrival?: boolean | null; closedOnDeparture?: boolean | null };
@@ -35,7 +36,15 @@ type DateOverrideDraft = { id: string; from: string; to: string; price: string; 
 const PROVIDERS: Record<ProviderCode, { name: string; slug: string; subtitle: string; propertyLabel: string; roomLabel: string; rateLabel: string; color: string }> = {
   EXPEDIA: { name: "Expedia Group", slug: "expedia", subtitle: "Reservations, rates and inventory", propertyLabel: "Expedia property ID", roomLabel: "Expedia room type ID", rateLabel: "Expedia rate plan ID", color: "bg-[#172f5f]" },
   BOOKING_COM: { name: "Booking.com", slug: "booking-com", subtitle: "Connection retained for reopening", propertyLabel: "Booking.com hotel ID", roomLabel: "Booking.com room ID", rateLabel: "Booking.com rate plan ID", color: "bg-[#003b95]" },
+  AIRBNB: { name: "Airbnb", slug: "ical", subtitle: "Calendar sync, availability only", propertyLabel: "Airbnb listing ID", roomLabel: "Airbnb listing ID", rateLabel: "Not applicable", color: "bg-[#ff385c]" },
 };
+
+/**
+ * Providers connected by calendar link rather than by API credentials. They
+ * have no mappings, no rate push and no command centre, so the page hands the
+ * whole panel over to the calendar component instead.
+ */
+const CALENDAR_PROVIDERS = new Set<ProviderCode>(["AIRBNB"]);
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not yet";
@@ -72,6 +81,7 @@ export default function NrmsChannelsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const config = PROVIDERS[providerCode];
+  const isCalendarProvider = CALENDAR_PROVIDERS.has(providerCode);
   const channel = channels.find((item) => item.provider?.code === providerCode) ?? null;
   const connected = channel?.status === "ACTIVE" || channel?.status === "PILOT";
   const held = providerCode === "BOOKING_COM" && bookingPaused && !channel;
@@ -105,14 +115,18 @@ export default function NrmsChannelsPage() {
       const [channelResponse, roomResponse, commandResponse] = await Promise.all([
         apiClient.get<any>(`/api/owner/nrms/channels/${selectedPropertyId}`),
         apiClient.get<any>(`/api/owner/nrms/rooms/${selectedPropertyId}`),
-        apiClient.get<any>(`/api/owner/nrms/channels/${selectedPropertyId}/${provider.slug}/command-center`),
+        // A calendar connection has no command centre to read, and asking for
+        // one would fail the whole load.
+        CALENDAR_PROVIDERS.has(providerCode)
+          ? Promise.resolve(null)
+          : apiClient.get<any>(`/api/owner/nrms/channels/${selectedPropertyId}/${provider.slug}/command-center`),
       ]);
       const nextChannels = (channelResponse.data?.channels ?? []) as Channel[];
       const nextRooms = (roomResponse.data?.roomTypes ?? []) as RoomType[];
       setChannels(nextChannels);
       setRoomTypes(nextRooms);
       setBookingPaused(channelResponse.data?.bookingCom?.onboardingPaused !== false);
-      setCommandCenter(commandResponse.data?.summary ? commandResponse.data as CommandCenter : null);
+      setCommandCenter(commandResponse?.data?.summary ? commandResponse.data as CommandCenter : null);
       applyProviderState(nextChannels, nextRooms, providerCode);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "Failed to load OTA channel settings");
@@ -174,13 +188,13 @@ export default function NrmsChannelsPage() {
           </div>
           <div className="flex items-center gap-2.5">
             <div className="flex gap-1" aria-hidden="true">
-              {[0, 1].map((slot) => <span key={slot} className={`h-1.5 w-6 rounded-full transition-colors ${slot < connectedChannelCount ? "bg-emerald-500" : "bg-neutral-200"}`} />)}
+              {[0, 1, 2].map((slot) => <span key={slot} className={`h-1.5 w-6 rounded-full transition-colors ${slot < connectedChannelCount ? "bg-emerald-500" : "bg-neutral-200"}`} />)}
             </div>
-            <p className="m-0 text-xs font-semibold text-neutral-500"><span className="text-neutral-900">{connectedChannelCount}</span> of 2 connected</p>
+            <p className="m-0 text-xs font-semibold text-neutral-500"><span className="text-neutral-900">{connectedChannelCount}</span> of 3 connected</p>
           </div>
         </div>
-        <nav className="grid gap-3 border-t border-neutral-200 bg-neutral-50/60 p-4 sm:grid-cols-2 sm:p-5" aria-label="OTA providers" role="tablist">
-          {(["EXPEDIA", "BOOKING_COM"] as ProviderCode[]).map((code) => {
+        <nav className="grid gap-3 border-t border-neutral-200 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-3 sm:p-5" aria-label="OTA providers" role="tablist">
+          {(["EXPEDIA", "BOOKING_COM", "AIRBNB"] as ProviderCode[]).map((code) => {
             const provider = PROVIDERS[code];
             const connection = channels.find((item) => item.provider?.code === code);
             const providerHeld = code === "BOOKING_COM" && bookingPaused && !connection;
@@ -189,10 +203,10 @@ export default function NrmsChannelsPage() {
             const metaLine = providerHeld
               ? "Retained for reopening"
               : connection?.status === "ERROR"
-                ? "Delivery needs attention"
+                ? CALENDAR_PROVIDERS.has(code) ? "Calendar needs attention" : "Delivery needs attention"
                 : connection && connection.lastSuccessAt
                   ? `Synced ${formatDate(connection.lastSuccessAt)}`
-                  : "Not linked yet";
+                  : CALENDAR_PROVIDERS.has(code) ? "Connect by calendar link" : "Not linked yet";
             return <button
               key={code}
               type="button"
@@ -229,7 +243,7 @@ export default function NrmsChannelsPage() {
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${meta.className}`}>{loading ? "Loading…" : meta.label}</span>
         </div>
 
-        {!connected ? <div className="p-5 sm:p-6">
+        {isCalendarProvider ? <CalendarFeeds propertyId={selectedPropertyId} providerCode={providerCode} providerName={config.name} onConnectionChange={load} /> : !connected ? <div className="p-5 sm:p-6">
           {held && <div className="mb-5 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><div><p className="m-0 text-sm font-bold text-amber-950">New Booking.com connections are paused</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-900/80">The setup remains visible and locked so NRMS can resume from this point when provider intake reopens.</p></div></div>}
           {providerCode === "EXPEDIA" && <div className="mb-5 flex flex-wrap items-start gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" /><p className="m-0 min-w-0 flex-1 text-xs leading-5 text-neutral-600"><span className="font-bold text-neutral-800">Defined scope:</span> Lodging Supply GraphQL reservations and webhooks, XML Availability and Rates, and Property Status verification. Expedia Rapid is not used.</p><span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Pilot access required</span></div>}
           <fieldset disabled={held} className="m-0 border-0 p-0">
@@ -252,7 +266,7 @@ export default function NrmsChannelsPage() {
         </div>}
       </section>
 
-      {connected && <>
+      {connected && !isCalendarProvider && <>
         <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="m-0 text-base font-bold text-neutral-950">Room mapping</h2><p className="mb-0 mt-1 text-sm text-neutral-500">Match every NRMS room type to the exact provider unit ID.</p></div><span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-bold text-neutral-600">{mappedRoomCount}/{roomTypes.length} mapped</span></div><div className="mt-5 divide-y divide-neutral-100 border-y border-neutral-100">{roomTypes.map((room) => <div key={room.id} className="grid gap-3 py-4 sm:grid-cols-[1fr_1fr_auto] sm:items-center"><div><p className="m-0 text-sm font-bold text-neutral-900">{room.name}</p><p className="mb-0 mt-0.5 text-xs text-neutral-500">{room.units?.length ?? 0} NRMS units</p></div><input value={roomExternalIds[room.id] ?? ""} onChange={(event) => setRoomExternalIds((current) => ({ ...current, [room.id]: event.target.value }))} placeholder={config.roomLabel} className="min-h-10 rounded-md border border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" /><span className={`text-xs font-bold ${roomExternalIds[room.id]?.trim() ? "text-emerald-700" : "text-amber-700"}`}>{roomExternalIds[room.id]?.trim() ? "Ready" : "Needs ID"}</span></div>)}</div><div className="mt-4 flex justify-end"><button type="button" onClick={() => void saveRooms()} disabled={action !== null || !roomTypes.length} className="inline-flex min-h-10 items-center gap-2 rounded-md bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{action === "rooms" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save room mappings</button></div></section>
 
         <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
@@ -299,7 +313,7 @@ export default function NrmsChannelsPage() {
         </section>
       </>}
 
-      {connected && commandCenter && <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm sm:p-6"><div><p className="mb-1 text-[11px] font-bold uppercase tracking-[.14em] text-indigo-700">Operations</p><h2 className="m-0 text-lg font-bold text-neutral-950">Sync command center</h2><p className="mb-0 mt-1 text-sm text-neutral-500">Provider-specific queues, reconciliation evidence, and safe recovery controls.</p></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Inbound failed", commandCenter.summary.inbound.FAILED ?? 0, "text-red-700"], ["Outbound pending", (commandCenter.summary.outbound.PENDING ?? 0) + (commandCenter.summary.outbound.SENDING ?? 0), "text-amber-700"], ["Dead letters", commandCenter.summary.outbound.DEAD_LETTER ?? 0, "text-red-700"], ["Open issues", commandCenter.summary.openIssues, "text-indigo-700"]].map(([label, value, color]) => <div key={String(label)} className="border border-neutral-100 bg-neutral-50 p-3"><p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p><p className={`mb-0 mt-1 text-xl font-bold ${color}`}>{value}</p></div>)}</div><div className="mt-5 grid gap-5 lg:grid-cols-2"><div><h3 className="m-0 text-sm font-bold">Recent sync runs</h3><div className="mt-2 divide-y divide-neutral-100 border border-neutral-100">{commandCenter.runs.length ? commandCenter.runs.slice(0, 6).map((runItem) => <div key={runItem.id} className="flex items-center justify-between gap-3 p-3"><div><p className="m-0 text-xs font-bold">{runItem.kind.replaceAll("_", " ")}</p><p className="mb-0 mt-1 text-[11px] text-neutral-500">{formatDate(runItem.startedAt)} · {runItem.successCount} passed · {runItem.failureCount} failed</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${runItem.status === "SUCCEEDED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{runItem.status}</span></div>) : <p className="m-0 p-4 text-xs text-neutral-500">No sync runs yet.</p>}</div></div><div><h3 className="m-0 text-sm font-bold">Open issues</h3><div className="mt-2 divide-y divide-neutral-100 border border-neutral-100">{commandCenter.issues.length ? commandCenter.issues.slice(0, 6).map((issue) => <div key={issue.id} className="flex items-center justify-between gap-3 p-3"><div className="min-w-0"><p className="m-0 truncate text-xs font-bold">{issue.kind.replaceAll("_", " ")}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{issue.externalRef ?? issue.internalRef ?? "No reference"} · {formatDate(issue.lastSeenAt)}</p></div><button type="button" onClick={() => void run("resolve", async () => { await apiClient.post(`${baseUrl}/command-center/issues/${issue.id}/resolve`); setNotice("Issue marked resolved."); })} disabled={action !== null} className="rounded-md border border-neutral-200 px-2.5 py-1.5 text-[10px] font-bold">Resolve</button></div>) : <p className="m-0 p-4 text-xs text-emerald-700">No open issues.</p>}</div></div></div>{commandCenter.deliveries.filter((delivery) => ["FAILED", "DEAD_LETTER"].includes(delivery.status)).map((delivery) => <div key={delivery.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-red-100 bg-red-50/50 p-3"><div><p className="m-0 text-xs font-bold">{delivery.eventType.replaceAll("_", " ")} · attempt {delivery.attemptCount}</p><p className="mb-0 mt-1 text-[11px] text-red-700">{delivery.lastError ?? "Delivery failed"}</p></div><button type="button" onClick={() => void run("retry", async () => { await apiClient.post(`${baseUrl}/command-center/deliveries/${delivery.id}/retry`); setNotice("Delivery returned to the retry queue."); })} className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-[10px] font-bold text-amber-800"><RefreshCw className="h-3.5 w-3.5" /> Retry</button></div>)}</section>}
+      {connected && !isCalendarProvider && commandCenter && <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm sm:p-6"><div><p className="mb-1 text-[11px] font-bold uppercase tracking-[.14em] text-indigo-700">Operations</p><h2 className="m-0 text-lg font-bold text-neutral-950">Sync command center</h2><p className="mb-0 mt-1 text-sm text-neutral-500">Provider-specific queues, reconciliation evidence, and safe recovery controls.</p></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Inbound failed", commandCenter.summary.inbound.FAILED ?? 0, "text-red-700"], ["Outbound pending", (commandCenter.summary.outbound.PENDING ?? 0) + (commandCenter.summary.outbound.SENDING ?? 0), "text-amber-700"], ["Dead letters", commandCenter.summary.outbound.DEAD_LETTER ?? 0, "text-red-700"], ["Open issues", commandCenter.summary.openIssues, "text-indigo-700"]].map(([label, value, color]) => <div key={String(label)} className="border border-neutral-100 bg-neutral-50 p-3"><p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p><p className={`mb-0 mt-1 text-xl font-bold ${color}`}>{value}</p></div>)}</div><div className="mt-5 grid gap-5 lg:grid-cols-2"><div><h3 className="m-0 text-sm font-bold">Recent sync runs</h3><div className="mt-2 divide-y divide-neutral-100 border border-neutral-100">{commandCenter.runs.length ? commandCenter.runs.slice(0, 6).map((runItem) => <div key={runItem.id} className="flex items-center justify-between gap-3 p-3"><div><p className="m-0 text-xs font-bold">{runItem.kind.replaceAll("_", " ")}</p><p className="mb-0 mt-1 text-[11px] text-neutral-500">{formatDate(runItem.startedAt)} · {runItem.successCount} passed · {runItem.failureCount} failed</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${runItem.status === "SUCCEEDED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{runItem.status}</span></div>) : <p className="m-0 p-4 text-xs text-neutral-500">No sync runs yet.</p>}</div></div><div><h3 className="m-0 text-sm font-bold">Open issues</h3><div className="mt-2 divide-y divide-neutral-100 border border-neutral-100">{commandCenter.issues.length ? commandCenter.issues.slice(0, 6).map((issue) => <div key={issue.id} className="flex items-center justify-between gap-3 p-3"><div className="min-w-0"><p className="m-0 truncate text-xs font-bold">{issue.kind.replaceAll("_", " ")}</p><p className="mb-0 mt-1 truncate text-[11px] text-neutral-500">{issue.externalRef ?? issue.internalRef ?? "No reference"} · {formatDate(issue.lastSeenAt)}</p></div><button type="button" onClick={() => void run("resolve", async () => { await apiClient.post(`${baseUrl}/command-center/issues/${issue.id}/resolve`); setNotice("Issue marked resolved."); })} disabled={action !== null} className="rounded-md border border-neutral-200 px-2.5 py-1.5 text-[10px] font-bold">Resolve</button></div>) : <p className="m-0 p-4 text-xs text-emerald-700">No open issues.</p>}</div></div></div>{commandCenter.deliveries.filter((delivery) => ["FAILED", "DEAD_LETTER"].includes(delivery.status)).map((delivery) => <div key={delivery.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-red-100 bg-red-50/50 p-3"><div><p className="m-0 text-xs font-bold">{delivery.eventType.replaceAll("_", " ")} · attempt {delivery.attemptCount}</p><p className="mb-0 mt-1 text-[11px] text-red-700">{delivery.lastError ?? "Delivery failed"}</p></div><button type="button" onClick={() => void run("retry", async () => { await apiClient.post(`${baseUrl}/command-center/deliveries/${delivery.id}/retry`); setNotice("Delivery returned to the retry queue."); })} className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-[10px] font-bold text-amber-800"><RefreshCw className="h-3.5 w-3.5" /> Retry</button></div>)}</section>}
 
       {providerCode === "EXPEDIA" && !connected && <section className="flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 p-5 text-sm text-sky-900"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" /><div><p className="m-0 font-bold">Expedia is being activated</p><p className="mb-0 mt-1 text-sky-800">Your setup is ready, but bookings will not sync until we finish activating Expedia for this property. We will let you know the moment it goes live. No action is needed from you right now.</p></div></section>}
       {!connected && !loading && <p className="m-0 text-xs text-neutral-400">Property: {selectedProperty?.title ?? "NRMS property"}</p>}

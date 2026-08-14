@@ -103,6 +103,22 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Sales partner payout awaiting review",
           body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
         },
+        payment_amount_mismatch: {
+          title: "Payment amount mismatch held for review",
+          body: `${data.target || "A payment"} expected ${Number(data.expected || 0).toLocaleString("en-US")} TZS but the provider reported ${Number(data.received || 0).toLocaleString("en-US")} TZS. It was NOT settled. Reconcile it in Payments.`
+        },
+        payment_shortfall_absorbed: {
+          title: "Payment settled with a shortfall",
+          body: `${data.target || "A payment"} settled for ${Number(data.received || 0).toLocaleString("en-US")} TZS against ${Number(data.expected || 0).toLocaleString("en-US")} TZS expected, a shortfall of ${Number(data.shortfall || 0).toLocaleString("en-US")} TZS inside the accepted tolerance.`
+        },
+        payment_stuck_unsettled: {
+          title: "Paid but not settled, needs a human",
+          body: `${data.target || "A payment"} received ${Number(data.amount || 0).toLocaleString("en-US")} TZS but has stayed unsettled for ${data.stuckMinutes || 0} minutes. The customer has paid. Settle or refund it manually.`
+        },
+        payment_unmatched: {
+          title: "Payment received but not matched",
+          body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
+        },
     };
 
     const templateData = notificationTemplates[template] || {
@@ -119,12 +135,12 @@ export async function notifyAdmins(template: string, data: any) {
           title: templateData.title,
           body: templateData.body,
           unread: true,
-          meta: data,
+          meta: { ...data, notificationKind: template },
           type: template.startsWith("transport")
             ? "ride"
             : template.startsWith("careers")
               ? "careers"
-            : template.startsWith("owner_payout")
+            : template.startsWith("owner_payout") || template.startsWith("payment_")
               ? "invoice"
             : template.startsWith("cancellation")
               ? "cancellation"

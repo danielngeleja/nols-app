@@ -2,31 +2,40 @@ import { prisma } from "@nolsaf/prisma";
 import { Request } from "express";
 import { auditRetentionFields } from "./auditRetention.js";
 
-export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
+type AuditClient = Pick<typeof prisma, "auditLog">;
+
+function auditCreateArgs(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
   const actorId = (req as any).user?.id as number | undefined;
   let actorRole = (req as any).user?.role as string | undefined;
-  // Actions taken through an admin impersonation token are attributed to the
-  // impersonated user id, so tag the role to keep them distinguishable.
   if (actorRole && (req as any).user?.imp) actorRole = `${actorRole}:IMP`;
   const ip = req.headers["x-forwarded-for"]?.toString()?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
   const ua = req.headers["user-agent"] || "";
+  const createdAt = new Date();
+  return {
+    data: {
+      actorId: actorId ?? null,
+      actorRole: actorRole ?? null,
+      action,
+      entity: resource || "SYSTEM",
+      entityId: Number.isInteger(entityId as number) ? (entityId as number) : null,
+      ip: ip || null,
+      ua: ua || null,
+      beforeJson: beforeJson ?? null,
+      afterJson: afterJson ?? null,
+      createdAt,
+      ...auditRetentionFields(action, resource || "SYSTEM", createdAt),
+    },
+  };
+}
+
+/** Strict variant for security-sensitive mutations. Any failure reaches the caller. */
+export async function auditOrThrow(client: AuditClient, req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
+  await client.auditLog.create(auditCreateArgs(req, action, resource, beforeJson, afterJson, entityId));
+}
+
+export async function audit(req: Request, action: string, resource?: string, beforeJson?: any, afterJson?: any, entityId?: number | null) {
   try {
-    const createdAt = new Date();
-    await prisma.auditLog.create({
-      data: { 
-        actorId: actorId ?? null, 
-        actorRole: actorRole ?? null, 
-        action, 
-        entity: resource || "SYSTEM",
-        entityId: Number.isInteger(entityId as number) ? (entityId as number) : null,
-        ip: ip || null, 
-        ua: ua || null, 
-        beforeJson: beforeJson ?? null, 
-        afterJson: afterJson ?? null,
-        createdAt,
-        ...auditRetentionFields(action, resource || "SYSTEM", createdAt),
-      },
-    });
+    await auditOrThrow(prisma, req, action, resource, beforeJson, afterJson, entityId);
   } catch {
     // swallow
   }

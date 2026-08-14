@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -93,10 +93,12 @@ function Item({
       className={dark
         ? `group relative no-underline hover:no-underline flex min-h-9 items-center gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition
           ${active
-            ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+            ? isSubItem
+              ? "border-transparent bg-white/10 text-white"
+              : "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
             : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
           focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
-          ${isSubItem ? "ml-3 pl-3" : ""}`
+          ${isSubItem ? "min-h-8 font-medium" : ""}`
         : `group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
           transition-colors duration-200 border bg-white/90 shadow-sm
           ${active
@@ -107,7 +109,7 @@ function Item({
     >
       {dark ? (
         <>
-          {Icon ? (
+          {Icon && !isSubItem ? (
             <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
@@ -136,7 +138,6 @@ function Item({
 
 const adminDetails: Item[] = [
   { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/admin/finance", label: "All Revenue", Icon: TrendingUp },
   { href: "/admin/owners", label: "Owners", Icon: Building2 },
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
@@ -229,6 +230,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/trust-partners", label: "Trust Partners", Icon: Award },
   { href: "/admin/management/nolscope", label: "NoLScope Rates", Icon: Calculator },
   { href: "/admin/management/currency", label: "Currency Rates", Icon: Coins },
+  { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },
   { href: "/admin/management/settings", label: "Settings", Icon: Settings },
   { href: "/admin/management/updates", label: "Updates", Icon: Megaphone },
   { href: "/admin/management/users", label: "Users", Icon: Users },
@@ -465,6 +467,55 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     );
   };
 
+  // Expanded children of a collapsible section. Dark variant renders them
+  // Cloudflare-style: no repeated section header, children indented under a
+  // single vertical guide-line rail, animated open/close. Light variant keeps
+  // its existing header + spaced tiles so other surfaces are unaffected.
+  const NestedGroup = ({
+    open,
+    title,
+    active,
+    items,
+  }: {
+    open: boolean;
+    title: string;
+    active: boolean;
+    items: Item[];
+  }) => {
+    if (collapsed) return null;
+
+    if (!dark) {
+      if (!open) return null;
+      return (
+        <div className="mt-2">
+          <SectionHeader title={title} active={active} />
+          <div className="mt-2 space-y-2">
+            {items.map(({ href, label, Icon }) => (
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        aria-hidden={!open}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          open ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="ml-[1.35rem] mt-0.5 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2.5">
+            {items.map(({ href, label, Icon }) => (
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className={
@@ -482,8 +533,16 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {/* Home */}
         <Item href="/admin/home" label="Home" Icon={Home} collapsed={collapsed} path={path} variant={variant} />
 
+        {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
+        <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} collapsed={collapsed} path={path} variant={variant} />
+
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Cross-flow AzamPay payout queue (owner/tour/driver/sales). Self-contained
+            workspace (own sidebar, own chrome) — this is just the entry point,
+            same pattern as the owner-side NRMS Workspace link. */}
+        <Item href="/admin/disbursements" label="Disbursements" Icon={Send} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Admin/Owners */}
         {collapsed ? (
@@ -498,16 +557,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Owners"}
             />
-            {adminOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Owners" active={activeSection === "Owners"} />
-                <div className="mt-2 space-y-2">
-                  {adminDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={adminOpen} title="Owners" active={activeSection === "Owners"} items={adminDetails} />
           </div>
         )}
 
@@ -524,16 +574,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Drivers"}
             />
-            {driverOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Drivers" active={activeSection === "Drivers"} />
-                <div className="mt-2 space-y-2">
-                  {driverDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={driverOpen} title="Drivers" active={activeSection === "Drivers"} items={driverDetails} />
           </div>
         )}
 
@@ -550,16 +591,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Users"}
             />
-            {usersOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Users" active={activeSection === "Users"} />
-                <div className="mt-2 space-y-2">
-                  {userDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={usersOpen} title="Users" active={activeSection === "Users"} items={userDetails} />
           </div>
         )}
 
@@ -578,16 +610,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Group Stay"}
             />
-            {groupStayOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Group Stay" active={activeSection === "Group Stay"} />
-                <div className="mt-2 space-y-2">
-                  {groupStayDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={groupStayOpen} title="Group Stay" active={activeSection === "Group Stay"} items={groupStayDetails} />
           </div>
         )}
 
@@ -604,16 +627,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "No4P Agents"}
             />
-            {agentsOpen && (
-              <div className="mt-2">
-                <SectionHeader title="No4P Agents" active={activeSection === "No4P Agents"} />
-                <div className="mt-2 space-y-2">
-                  {agentsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={agentsOpen} title="No4P Agents" active={activeSection === "No4P Agents"} items={agentsDetails} />
           </div>
         )}
 
@@ -630,25 +644,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "NRMS"}
             />
-            <div
-              aria-hidden={!nrmsOpen}
-              className={`grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-300 ease-out ${
-                nrmsOpen
-                  ? "grid-rows-[1fr] translate-y-0 opacity-100"
-                  : "pointer-events-none grid-rows-[0fr] -translate-y-1 opacity-0"
-              }`}
-            >
-              <div className="min-h-0 overflow-hidden">
-                <div className="mt-2">
-                  <SectionHeader title="NRMS" active={activeSection === "NRMS"} />
-                  <div className="mt-2 space-y-2">
-                    {nrmsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                      <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <NestedGroup open={nrmsOpen} title="NRMS" active={activeSection === "NRMS"} items={nrmsDetails} />
           </div>
         )}
 
@@ -665,16 +661,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Sales"}
             />
-            {salesOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Sales partners" active={activeSection === "Sales"} />
-                <div className="mt-2 space-y-2">
-                  {salesDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={salesOpen} title="Sales partners" active={activeSection === "Sales"} items={salesDetails} />
           </div>
         )}
 
@@ -693,16 +680,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Cancellations"}
             />
-            {cancellationsOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Cancellations" active={activeSection === "Cancellations"} />
-                <div className="mt-2 space-y-2">
-                  {cancellationsDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={cancellationsOpen} title="Cancellations" active={activeSection === "Cancellations"} items={cancellationsDetails} />
           </div>
         )}
 
@@ -719,16 +697,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "Management"}
             />
-            {managementOpen && (
-              <div className="mt-2">
-                <SectionHeader title="Management" active={activeSection === "Management"} />
-                <div className="mt-2 space-y-2">
-                  {managementDetails.map(({ href: dHref, label: dLabel, Icon: DIcon }) => (
-                    <Item key={dHref} href={dHref} label={dLabel} Icon={DIcon} isSubItem collapsed={collapsed} path={path} variant={variant} />
-                  ))}
-                </div>
-              </div>
-            )}
+            <NestedGroup open={managementOpen} title="Management" active={activeSection === "Management"} items={managementDetails} />
           </div>
         )}
 

@@ -1,6 +1,31 @@
+import { routeChargeToMasterFolio } from "./nrmsMasterFolio.js";
+import { assertNrmsBusinessDayWritable } from "./nrmsShifts.js";
+
 function amount(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+type OrderStay = { id: number; currency: string | null } | null;
+
+/**
+ * Keeps guest attribution separate from payment handling. A room-QR order can
+ * belong to an in-house guest while still being paid directly at the outlet;
+ * only ROOM_FOLIO orders become reservation charges.
+ */
+export function nrmsOrderPlacementSettlement(input: {
+  chargeToRoom: boolean;
+  paymentMethod: string | null;
+  stay: OrderStay;
+  outletCurrency: string;
+}) {
+  if (input.chargeToRoom && !input.stay) throw new Error("NRMS_ROOM_CHARGE_UNAVAILABLE");
+  return {
+    reservationId: input.stay?.id ?? null,
+    settlementMode: input.chargeToRoom ? "ROOM_FOLIO" as const : "OUTLET_PAYMENT" as const,
+    guestPaymentMethod: input.chargeToRoom ? null : input.paymentMethod,
+    currency: input.chargeToRoom ? (input.stay?.currency ?? input.outletCurrency) : input.outletCurrency,
+  };
 }
 
 export function nrmsOrderChargeCategory(outletType: string): "RESTAURANT" | "BAR" | "OTHER" {
@@ -42,8 +67,14 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
     return { status: "SERVING", folioChargeId: null };
   }
   if (order.status !== "SERVING") throw new Error("NRMS_ORDER_INVALID_TRANSITION");
-  // Walk-in orders (no reservation) have no in-house requirement.
-  if (order.reservationId != null && order.reservation?.status !== "CHECKED_IN") throw new Error("NRMS_ORDER_GUEST_NOT_IN_HOUSE");
+  // Only folio posting requires an active in-house stay. Outlet-paid orders
+  // may retain the reservation link for guest attribution and reporting, but
+  // that link must never turn a cash/card sale into a folio dependency.
+  if (order.settlementMode === "ROOM_FOLIO" && order.reservationId != null && order.reservation?.status !== "CHECKED_IN") {
+    throw new Error("NRMS_ORDER_GUEST_NOT_IN_HOUSE");
+  }
+
+  await assertNrmsBusinessDayWritable(tx, order.propertyId);
 
   const now = new Date();
   if (order.settlementMode === "OUTLET_PAYMENT") {
@@ -78,9 +109,10 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
         },
       },
     },
-    include: { folioCharge: { select: { id: true } } },
+    include: { folioCharge: { select: { id: true, reservationId: true, category: true, description: true, amount: true, currency: true } } },
   });
   const chargeId = posted.folioCharge!.id;
+  await routeChargeToMasterFolio(tx, posted.folioCharge!);
   // Aggregate after the charge exists so the new posting is included.
   const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
   await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });

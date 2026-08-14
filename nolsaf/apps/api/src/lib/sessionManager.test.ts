@@ -39,4 +39,16 @@ describe("signUserJwt", () => {
     expect(payload.sid).toBe("session-uuid-1");
     expect(payload.role).toBe("OWNER");
   });
+
+  it("records the verified method in an administrator JWT", async () => {
+    const { signUserJwt } = await import("./sessionManager.js");
+    const token = await signUserJwt(
+      { id: 7, role: "ADMIN", email: "admin@example.com" },
+      { adminMfa: "passkey" },
+    );
+    const payload = jwt.verify(token, "session-test-secret") as jwt.JwtPayload;
+
+    expect(payload.role).toBe("ADMIN");
+    expect(payload.amr).toBe("passkey");
+  });
 });

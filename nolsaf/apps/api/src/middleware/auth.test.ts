@@ -139,6 +139,80 @@ describe("requireAuth schema compatibility", () => {
     expect(res.status).toHaveBeenLastCalledWith(403);
   });
 
+  it("rejects an ADMIN session that was issued without completing MFA", async () => {
+    sessionFindFirst.mockResolvedValue({
+      id: "session-42",
+      lastSeenAt: new Date(),
+      user: {
+        id: 42,
+        role: "ADMIN",
+        email: "admin@example.com",
+        nrmsFinanceRole: "NONE",
+        suspendedAt: null,
+        isDisabled: false,
+        tokensValidAfter: null,
+      },
+    });
+    jwtVerify.mockReturnValue({
+      sub: "42",
+      sid: "session-42",
+      role: "ADMIN",
+      iat: Math.floor(Date.now() / 1000),
+    });
+
+    const { requireAuth } = await import("./auth.js");
+    const req: any = { headers: { cookie: "nolsaf_token=password-only-admin" } };
+    const res: any = {
+      set: vi.fn(),
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      clearCookie: vi.fn(),
+    };
+    const next = vi.fn();
+
+    await requireAuth(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      error: "Administrator verification required",
+      code: "ADMIN_MFA_REQUIRED",
+    });
+  });
+
+  it.each(["passkey", "totp"])("accepts an ADMIN session carrying the verified %s method", async (amr) => {
+    sessionFindFirst.mockResolvedValue({
+      id: "session-42",
+      lastSeenAt: new Date(),
+      user: {
+        id: 42,
+        role: "ADMIN",
+        email: "admin@example.com",
+        nrmsFinanceRole: "NONE",
+        suspendedAt: null,
+        isDisabled: false,
+        tokensValidAfter: null,
+      },
+    });
+    jwtVerify.mockReturnValue({
+      sub: "42",
+      sid: "session-42",
+      role: "ADMIN",
+      amr,
+      iat: Math.floor(Date.now() / 1000),
+    });
+
+    const { requireAuth } = await import("./auth.js");
+    const req: any = { headers: { cookie: "nolsaf_token=mfa-admin" } };
+    const res: any = { set: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() };
+    const next = vi.fn();
+
+    await requireAuth(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.user).toMatchObject({ id: 42, role: "ADMIN" });
+  });
+
   it("does not let any identity shortcut bypass a reduced role TTL", async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     jwtVerify.mockReturnValue({

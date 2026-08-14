@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { RequestHandler, Response } from "express";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
@@ -11,18 +12,19 @@ import { validatePasswordWithSettings } from "../lib/securitySettings.js";
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
-import { limitContactChangeOtp } from "../middleware/rateLimit.js";
+import { limitContactChangeOtp, limitContactChangeConfirm } from "../middleware/rateLimit.js";
 import { sendSms } from "../lib/sms.js";
 import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
 import { getVerificationCodeEmail } from "../lib/authEmailTemplates.js";
 import {
   generateOtp as generateContactChangeOtp,
-  storeContactChangeOtp,
-  getContactChangeOtpEntry,
-  deleteContactChangeOtp,
-  verifyContactChangeOtp,
+  storeContactChangeChallenge,
+  consumeContactChangeCode,
+  deleteContactChangeChallenge,
+  codeHash as hashContactChangeCode,
+  type ContactField,
 } from "../lib/contactChangeOtp.js";
-import { isAllowedDocumentTypeForRole, isTrustedUserDocumentUrl } from "../lib/userDocumentSecurity.js";
+import { isAllowedDocumentTypeForRole, isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { getRedis } from "../lib/redis.js";
 import { invalidateAuthSessionCacheForUser } from "../lib/authSessionCache.js";
 import { getWebAuthnRp } from "../lib/webauthnRp.js";
@@ -32,6 +34,8 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
+import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
+import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -69,6 +73,16 @@ const payoutUpdateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   limit: 5, // Max 5 payout updates per hour
   message: { error: "Too many payout updates. Please wait before making changes. This helps protect your account information." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Name lookups are separate from confirmed destination changes. Keeping a
+// dedicated limit avoids charging a successful two-step verification twice.
+const payoutLookupLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  message: { error: "Too many payout verification attempts. Please wait before trying again." },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -136,22 +150,156 @@ const updateProfileSchema = z.object({
 const requestContactChangeSchema = z.object({
   field: z.enum(["phone", "email"]),
   value: z.string().min(1).max(190),
+  currentPassword: z.string().min(1).max(200).optional(),
+  totpCode: z.string().trim().regex(/^\d{6}$/).optional(),
+}).strict();
+
+const authorizeContactChangeSchema = z.object({
+  field: z.enum(["phone", "email"]),
+  otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
 const confirmContactChangeSchema = z.object({
   field: z.enum(["phone", "email"]),
-  otp: z.string().min(4).max(8),
+  otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
-const updatePayoutsSchema = z.object({
-  bankAccountName: z.string().max(200).optional(),
-  bankName: z.string().max(100).optional(),
-  bankAccountNumber: z.string().max(50).optional(),
-  bankBranch: z.string().max(100).optional(),
-  mobileMoneyProvider: z.string().max(50).optional(),
-  mobileMoneyNumber: z.string().max(20).optional(),
-  payoutPreferred: z.enum(['BANK', 'MOBILE_MONEY']).optional(),
+const payoutBankSchema = z.preprocess(
+  (value) => {
+    const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+    const match = ["CRDB", "NBC", "NMB"].find((bank) => normalized === bank || normalized === `${bank}BANK`);
+    return match ?? value;
+  },
+  z.enum(["CRDB", "NBC", "NMB"], { message: "Select CRDB, NBC, or NMB" })
+);
+
+const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
+  z
+    .object({
+      payoutPreferred: z.literal("BANK"),
+      bankAccountName: z.string().trim().min(2).max(160),
+      bankName: payoutBankSchema,
+      bankAccountNumber: z.string().trim().regex(/^[A-Za-z0-9]{4,40}$/, "Enter a valid bank account number"),
+      bankBranch: z.string().trim().max(100).optional().default(""),
+    })
+    .strict(),
+  z
+    .object({
+      payoutPreferred: z.literal("MOBILE_MONEY"),
+      mobileMoneyProvider: z.enum(["azampesa", "airtel", "tigo"]),
+      mobileMoneyNumber: z.string().trim().regex(/^\d{9,15}$/, "Enter a valid mobile wallet number"),
+    })
+    .strict(),
+]);
+
+const confirmPayoutSchema = z.object({
+  challengeToken: z.string().trim().min(32).max(256),
 }).strict();
+
+type PayoutDestinationInput = z.infer<typeof updatePayoutsSchema>;
+type PayoutVerificationChallenge = {
+  userId: number;
+  destination: PayoutDestinationInput;
+  accountName: string;
+  contactSecurityVersion: string;
+  issuedAt: number;
+  expiresAt: number;
+};
+
+const PAYOUT_VERIFICATION_TTL_SEC = 5 * 60;
+const PAYOUT_VERIFICATION_PREFIX = "account:payout:verification:";
+const payoutVerificationFallback = new Map<string, { encryptedPayload: string; expiresAt: number }>();
+
+function payoutChallengeDigest(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+function contactSecurityVersion(user: { emailChangedAt?: Date | null; phoneChangedAt?: Date | null }): string {
+  return `${user.emailChangedAt?.toISOString() ?? "never"}|${user.phoneChangedAt?.toISOString() ?? "never"}`;
+}
+
+function recentContactChange(user: { emailChangedAt?: Date | null; phoneChangedAt?: Date | null }): Date | null {
+  const values = [user.emailChangedAt, user.phoneChangedAt].filter((value): value is Date => value instanceof Date);
+  if (values.length === 0) return null;
+  const latest = values.reduce((current, value) => value.getTime() > current.getTime() ? value : current);
+  return latest.getTime() > Date.now() - CONTACT_SECURITY_COOLDOWN_MS ? latest : null;
+}
+
+async function createPayoutVerificationChallenge(challenge: Omit<PayoutVerificationChallenge, "issuedAt" | "expiresAt">) {
+  const token = randomBytes(32).toString("base64url");
+  const digest = payoutChallengeDigest(token);
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + PAYOUT_VERIFICATION_TTL_SEC * 1000;
+  const encryptedPayload = encrypt(JSON.stringify({ ...challenge, issuedAt, expiresAt }));
+
+  let storedInRedis = false;
+  try {
+    const redis = getRedis();
+    if (redis) {
+      await redis.set(`${PAYOUT_VERIFICATION_PREFIX}${digest}`, encryptedPayload, "EX", PAYOUT_VERIFICATION_TTL_SEC);
+      storedInRedis = true;
+    }
+  } catch {
+    // The encrypted fallback below keeps single-instance development usable.
+  }
+
+  if (!storedInRedis) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Secure payout verification storage is unavailable");
+    }
+    // Never duplicate a Redis-backed token locally: doing so could permit a
+    // consumed token to reappear after a temporary Redis outage. The fallback
+    // is intentionally limited to single-instance development and tests.
+    for (const [key, entry] of payoutVerificationFallback) {
+      if (entry.expiresAt <= issuedAt) payoutVerificationFallback.delete(key);
+    }
+    payoutVerificationFallback.set(digest, { encryptedPayload, expiresAt });
+  }
+
+  return { token, expiresAt };
+}
+
+async function consumePayoutVerificationChallenge(token: string, userId: number): Promise<PayoutVerificationChallenge | null> {
+  const digest = payoutChallengeDigest(token);
+  let encryptedPayload: string | null = null;
+  let redisWasAuthoritative = false;
+
+  try {
+    const redis = getRedis();
+    if (redis) {
+      redisWasAuthoritative = true;
+      encryptedPayload = await redis.eval(
+        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+        1,
+        `${PAYOUT_VERIFICATION_PREFIX}${digest}`
+      ) as string | null;
+      payoutVerificationFallback.delete(digest);
+    }
+  } catch {
+    redisWasAuthoritative = false;
+  }
+
+  if (!redisWasAuthoritative) {
+    const fallback = payoutVerificationFallback.get(digest);
+    payoutVerificationFallback.delete(digest);
+    if (fallback && fallback.expiresAt > Date.now()) encryptedPayload = fallback.encryptedPayload;
+  }
+  if (!encryptedPayload) return null;
+
+  try {
+    const challenge = JSON.parse(decrypt(encryptedPayload, { log: false })) as PayoutVerificationChallenge;
+    if (challenge.userId !== userId || challenge.expiresAt <= Date.now()) return null;
+    return challenge;
+  } catch {
+    return null;
+  }
+}
+
+function maskSensitiveDestination(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "****";
+  return `${"*".repeat(Math.max(4, Math.min(8, raw.length - 4)))}${raw.slice(-4)}`;
+}
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -526,38 +674,48 @@ const getMe: RequestHandler = async (req, res) => {
       }
     }
 
-    // Best-effort: attach driver document URLs from UserDocument
+    // Attach the authenticated account's document records. Previously this
+    // was restricted to DRIVER, which meant owner uploads existed for admin
+    // review but appeared as "Not uploaded" on the owner's own profile.
     try {
-      if (String((user as any).role || "").toUpperCase() === "DRIVER" && (prisma as any).userDocument) {
+      const documentRole = String((user as any).role || "").toUpperCase();
+      if (["DRIVER", "OWNER", "AGENT"].includes(documentRole) && (prisma as any).userDocument) {
         const docs = await prisma.userDocument.findMany({
           where: { userId },
           orderBy: { id: 'desc' },
           take: 50,
-          select: { id: true, type: true, url: true, status: true, metadata: true, createdAt: true } as any,
+          select: { id: true, type: true, url: true, status: true, reason: true, metadata: true, createdAt: true } as any,
         });
-        const latestByType = new Map<string, any>();
-        for (const d of docs) {
-          const t = String((d as any).type ?? '').toUpperCase();
-          if (!t) continue;
-          if (!latestByType.has(t)) latestByType.set(t, d);
+        const safeDocs = (docs as any[]).map((doc) => sanitizeUserDocument(doc, documentRole));
+        (user as any).documents = safeDocs;
+        (user as any).documentsUnavailable = false;
+
+        if (documentRole === "DRIVER") {
+          const latestByType = new Map<string, any>();
+          for (const d of safeDocs) {
+            const t = String((d as any).type ?? '').toUpperCase();
+            if (!t) continue;
+            if (!latestByType.has(t)) latestByType.set(t, d);
+          }
+          const lic = latestByType.get('DRIVER_LICENSE') || latestByType.get('DRIVING_LICENSE') || latestByType.get('LICENSE');
+          const nid = latestByType.get('NATIONAL_ID') || latestByType.get('ID') || latestByType.get('PASSPORT');
+          const latra = latestByType.get('LATRA') || latestByType.get('VEHICLE_REGISTRATION') || latestByType.get('VEHICLE_REG');
+          const ins = latestByType.get('INSURANCE');
+          (user as any).drivingLicenseUrl = lic?.url ?? null;
+          (user as any).licenseFileUrl = lic?.url ?? null;
+          (user as any).nationalIdUrl = nid?.url ?? null;
+          (user as any).idFileUrl = nid?.url ?? null;
+          (user as any).latraUrl = latra?.url ?? null;
+          (user as any).vehicleRegistrationUrl = latra?.url ?? null; // backward compat alias
+          (user as any).vehicleRegFileUrl = latra?.url ?? null;
+          (user as any).insuranceUrl = ins?.url ?? null;
+          (user as any).insuranceFileUrl = ins?.url ?? null;
         }
-        const lic = latestByType.get('DRIVER_LICENSE') || latestByType.get('DRIVING_LICENSE') || latestByType.get('LICENSE');
-        const nid = latestByType.get('NATIONAL_ID') || latestByType.get('ID') || latestByType.get('PASSPORT');
-        const latra = latestByType.get('LATRA') || latestByType.get('VEHICLE_REGISTRATION') || latestByType.get('VEHICLE_REG');
-        const ins = latestByType.get('INSURANCE');
-        (user as any).drivingLicenseUrl = lic?.url ?? null;
-        (user as any).licenseFileUrl = lic?.url ?? null;
-        (user as any).nationalIdUrl = nid?.url ?? null;
-        (user as any).idFileUrl = nid?.url ?? null;
-        (user as any).latraUrl = latra?.url ?? null;
-        (user as any).vehicleRegistrationUrl = latra?.url ?? null; // backward compat alias
-        (user as any).vehicleRegFileUrl = latra?.url ?? null;
-        (user as any).insuranceUrl = ins?.url ?? null;
-        (user as any).insuranceFileUrl = ins?.url ?? null;
-        (user as any).documents = docs;
       }
     } catch (e) {
-      // ignore
+      console.warn("[account/me] Failed to attach user documents", e);
+      (user as any).documents = null;
+      (user as any).documentsUnavailable = true;
     }
 
     // Best-effort: decrypt sensitive payout fields and attach extra profile fields
@@ -893,10 +1051,111 @@ const FIELD_LABEL: Record<"phone" | "email", string> = {
   email: "email address",
 };
 
+const CONTACT_SECURITY_COOLDOWN_MS = 72 * 60 * 60 * 1000;
+
+function contactIsMature(changedAt: Date | null | undefined): boolean {
+  return !changedAt || changedAt.getTime() <= Date.now() - CONTACT_SECURITY_COOLDOWN_MS;
+}
+
+function maskContact(field: ContactField, value: string | null | undefined): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "unavailable";
+  if (field === "email") {
+    const [local, domain] = raw.split("@");
+    if (!domain) return "***";
+    return `${local.slice(0, 2)}***@${domain}`;
+  }
+  return `${"*".repeat(Math.max(5, raw.length - 4))}${raw.slice(-4)}`;
+}
+
+function escapeContactHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] || character);
+}
+
+async function deliverContactCode(field: ContactField, destination: string, code: string, purpose: "authorize" | "verify"): Promise<void> {
+  const action = purpose === "authorize" ? "authorize a contact change" : `confirm your new ${FIELD_LABEL[field]}`;
+  if (field === "phone") {
+    const result = await sendSms(destination, `Your NoLSAF code to ${action} is ${code}. It expires in 5 minutes. Do not share it.`);
+    if (!result?.success) throw new Error("SMS delivery failed");
+    return;
+  }
+  const { subject, html } = getVerificationCodeEmail(code, { purpose: "contact", expiryMinutes: 5 });
+  await sendMail(destination, subject, html, undefined, {
+    bypassEligibilityCheck: true,
+    from: SECURITY_EMAIL_FROM,
+    replyTo: "support@nolsaf.com",
+  });
+}
+
+async function sendContactChangedAlerts(
+  before: { email: string | null; phone: string | null },
+  field: ContactField,
+  newValue: string,
+): Promise<void> {
+  const label = FIELD_LABEL[field];
+  const maskedNewValue = maskContact(field, newValue);
+  const tasks: Array<Promise<unknown>> = [];
+  if (before.email) {
+    tasks.push(sendMail(
+      before.email,
+      `Security alert: your NoLSAF ${label} changed`,
+      `<p>Your NoLSAF ${escapeContactHtml(label)} was changed to <strong>${escapeContactHtml(maskedNewValue)}</strong>.</p><p>If you did not make this change, contact <a href="mailto:support@nolsaf.com">support@nolsaf.com</a> immediately.</p>`,
+      undefined,
+      { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
+    ));
+  }
+  if (before.phone) {
+    tasks.push(sendSms(before.phone, `NoLSAF security alert: your ${label} was changed to ${maskedNewValue}. If this was not you, contact support immediately.`));
+  }
+  await Promise.allSettled(tasks);
+}
+
+async function sendPayoutDestinationChangedAlerts(
+  user: { email: string | null; phone: string | null },
+  provider: string,
+  accountNumber: string,
+): Promise<void> {
+  const maskedDestination = maskSensitiveDestination(accountNumber);
+  const tasks: Array<Promise<unknown>> = [];
+  if (user.email) {
+    tasks.push(sendMail(
+      user.email,
+      "Security alert: payout destination changed",
+      `<p>Your NoLSAF payout destination was changed to <strong>${escapeContactHtml(provider)}</strong> ending in <strong>${escapeContactHtml(maskedDestination.slice(-4))}</strong>.</p><p>If you did not make this change, contact <a href="mailto:support@nolsaf.com">support@nolsaf.com</a> immediately.</p>`,
+      undefined,
+      { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
+    ));
+  }
+  if (user.phone) {
+    tasks.push(sendSms(user.phone, `NoLSAF security alert: your payout destination changed to ${provider} ending ${maskedDestination.slice(-4)}. If this was not you, contact support immediately.`));
+  }
+  await Promise.allSettled(tasks);
+}
+
+function contactCodeError(res: Response, result: string, attempts = 0) {
+  if (result === "LOCKED") {
+    return res.status(429).json({ code: "CONTACT_CHANGE_LOCKED", error: "Too many incorrect codes. Start the contact change again." });
+  }
+  if (result === "INVALID") {
+    return res.status(400).json({
+      code: "CONTACT_CHANGE_CODE_INVALID",
+      error: "Invalid verification code.",
+      attemptsRemaining: Math.max(0, 5 - attempts),
+    });
+  }
+  return res.status(400).json({ code: "CONTACT_CHANGE_EXPIRED", error: "No pending change was found, or the code expired. Start again." });
+}
+
 /**
  * POST /account/contact/request-change
- * Sends a one-time code to the NEW phone/email so the authenticated user can prove
- * they own it before it replaces their current verified contact destination.
+ * Starts a protected contact change. An existing mature security channel must
+ * authorize an actual replacement before the new destination receives a code.
  */
 const requestContactChange: RequestHandler = async (req, res) => {
   try {
@@ -905,7 +1164,7 @@ const requestContactChange: RequestHandler = async (req, res) => {
     if (!validationResult.success) {
       return sendError(res, 400, "Invalid input", validationResult.error.issues);
     }
-    const { field } = validationResult.data;
+    const { field, currentPassword, totpCode } = validationResult.data;
     const value = field === "email" ? validationResult.data.value.trim().toLowerCase() : validationResult.data.value.trim();
 
     if (!FIELD_REGEX[field].test(value)) {
@@ -914,12 +1173,24 @@ const requestContactChange: RequestHandler = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, phone: true, email: true, phoneVerifiedAt: true, emailVerifiedAt: true },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        phoneVerifiedAt: true,
+        emailVerifiedAt: true,
+        phoneChangedAt: true,
+        emailChangedAt: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorMethod: true,
+        totpSecretEnc: true,
+      },
     });
     if (!user) return sendError(res, 404, "User not found");
 
     const current = field === "email" ? (user as any).email : (user as any).phone;
-    const currentVerifiedAt = field === "email" ? (user as any).emailVerifiedAt : (user as any).phoneVerifiedAt;
+    const currentVerifiedAt = field === "email" ? user.emailVerifiedAt : user.phoneVerifiedAt;
     const isReverifyingCurrent = typeof current === "string" && current.toLowerCase() === value.toLowerCase();
     if (isReverifyingCurrent && currentVerifiedAt) {
       return sendError(res, 400, `This is already your current ${FIELD_LABEL[field]} and it's verified.`);
@@ -934,25 +1205,67 @@ const requestContactChange: RequestHandler = async (req, res) => {
       return sendError(res, 409, `This ${FIELD_LABEL[field]} is already associated with another account.`);
     }
 
-    const otp = generateContactChangeOtp();
-    await storeContactChangeOtp(userId, field, value, otp);
+    await deleteContactChangeChallenge(userId, field === "email" ? "phone" : "email");
 
-    if (field === "phone") {
-      const smsResult = await sendSms(value, `Your NoLSAF code to confirm your new phone number is ${otp}. It expires in 5 minutes. Do not share it.`);
-      if (!smsResult?.success) {
-        return sendError(res, 502, "Failed to send the verification code. Please try again.");
+    let stage: "AUTHORIZE_EXISTING" | "VERIFY_NEW" = "VERIFY_NEW";
+    let deliveryField: ContactField = field;
+    let deliveryDestination = value;
+    let authorizationField: ContactField | undefined;
+    let authorizationDestination: string | undefined;
+
+    if (!isReverifyingCurrent) {
+      const candidates: Array<{ field: ContactField; value: string | null; verifiedAt: Date | null; changedAt: Date | null }> = field === "email"
+        ? [
+            { field: "phone", value: user.phone, verifiedAt: user.phoneVerifiedAt, changedAt: user.phoneChangedAt },
+            { field: "email", value: user.email, verifiedAt: user.emailVerifiedAt, changedAt: user.emailChangedAt },
+          ]
+        : [
+            { field: "email", value: user.email, verifiedAt: user.emailVerifiedAt, changedAt: user.emailChangedAt },
+            { field: "phone", value: user.phone, verifiedAt: user.phoneVerifiedAt, changedAt: user.phoneChangedAt },
+          ];
+      const trusted = candidates.find((candidate) => candidate.value && candidate.verifiedAt && contactIsMature(candidate.changedAt));
+      if (trusted?.value) {
+        stage = "AUTHORIZE_EXISTING";
+        deliveryField = trusted.field;
+        deliveryDestination = trusted.value;
+        authorizationField = trusted.field;
+        authorizationDestination = trusted.value;
+      } else {
+        const totpRequired = Boolean(user.twoFactorEnabled && user.twoFactorMethod === "TOTP" && user.totpSecretEnc);
+        let stepUpValid = false;
+        if (totpRequired && totpCode) {
+          stepUpValid = authenticator.verify({ token: totpCode, secret: decrypt(user.totpSecretEnc) });
+        } else if (!totpRequired && user.passwordHash && currentPassword) {
+          stepUpValid = await verifyPassword(user.passwordHash, currentPassword);
+        }
+        if (!stepUpValid) {
+          return res.status(403).json({
+            code: "CONTACT_CHANGE_STEP_UP_REQUIRED",
+            error: "No mature verified contact is available. Confirm your current password or authenticator code.",
+            methods: {
+              password: !totpRequired && Boolean(user.passwordHash),
+              totp: totpRequired,
+            },
+          });
+        }
       }
-    } else {
-      try {
-        const { subject, html } = getVerificationCodeEmail(otp, { purpose: "contact", expiryMinutes: 5 });
-        await sendMail(value, subject, html, undefined, {
-          bypassEligibilityCheck: true,
-          from: SECURITY_EMAIL_FROM,
-          replyTo: "support@nolsaf.com",
-        });
-      } catch {
-        return sendError(res, 502, "Failed to send the verification code. Please try again.");
-      }
+    }
+
+    const otp = generateContactChangeOtp();
+    await storeContactChangeChallenge(userId, {
+      field,
+      value,
+      oldValue: current ?? null,
+      stage,
+      codeHash: hashContactChangeCode(otp),
+      authorizationField,
+      authorizationDestination,
+    });
+    try {
+      await deliverContactCode(deliveryField, deliveryDestination, otp, stage === "AUTHORIZE_EXISTING" ? "authorize" : "verify");
+    } catch {
+      await deleteContactChangeChallenge(userId, field);
+      return sendError(res, 502, "Failed to send the security code. No contact details were changed.");
     }
 
     try {
@@ -961,13 +1274,64 @@ const requestContactChange: RequestHandler = async (req, res) => {
       // best-effort audit
     }
 
-    return res.json({ ok: true, message: "Verification code sent" });
+    return sendSuccess(res, {
+      stage,
+      sentTo: maskContact(deliveryField, deliveryDestination),
+      authorizationField: stage === "AUTHORIZE_EXISTING" ? deliveryField : null,
+    }, stage === "AUTHORIZE_EXISTING" ? "Authorize this change using your existing trusted contact." : "Confirm the new contact destination.");
   } catch (error) {
     console.error("account.contact.requestChange failed", error);
     sendError(res, 500, "Failed to send verification code");
   }
 };
 router.post("/contact/request-change", blockImpersonated as unknown as RequestHandler, limitContactChangeOtp as unknown as RequestHandler, requestContactChange as unknown as RequestHandler);
+
+/** Verifies the existing trusted contact, then sends a fresh code to the new destination. */
+const authorizeContactChange: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const parsed = authorizeContactChangeSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 400, "Invalid input", parsed.error.issues);
+
+    const consumed = await consumeContactChangeCode(userId, parsed.data.field, "AUTHORIZE_EXISTING", parsed.data.otp);
+    if (consumed.result !== "VALID" || !consumed.entry) {
+      return contactCodeError(res, consumed.result, consumed.entry?.attempts ?? 0);
+    }
+
+    const nextCode = generateContactChangeOtp();
+    await storeContactChangeChallenge(userId, {
+      field: consumed.entry.field,
+      value: consumed.entry.value,
+      oldValue: consumed.entry.oldValue,
+      stage: "VERIFY_NEW",
+      codeHash: hashContactChangeCode(nextCode),
+      authorizationField: consumed.entry.authorizationField,
+      authorizationDestination: consumed.entry.authorizationDestination,
+    });
+    try {
+      await deliverContactCode(consumed.entry.field, consumed.entry.value, nextCode, "verify");
+    } catch {
+      await deleteContactChangeChallenge(userId, consumed.entry.field);
+      return sendError(res, 502, "The new contact verification code could not be delivered. Start again.");
+    }
+    try {
+      await audit(req as AuthedRequest, "CONTACT_CHANGE_AUTHORIZED", `user:${userId}`, null, {
+        field: consumed.entry.field,
+        authorizationField: consumed.entry.authorizationField,
+      });
+    } catch {
+      // best-effort audit
+    }
+    return sendSuccess(res, {
+      stage: "VERIFY_NEW",
+      sentTo: maskContact(consumed.entry.field, consumed.entry.value),
+    }, "Existing contact authorized. Verify the new destination.");
+  } catch (error) {
+    console.error("account.contact.authorizeChange failed", error);
+    return sendError(res, 500, "Failed to authorize contact change");
+  }
+};
+router.post("/contact/authorize-change", blockImpersonated as unknown as RequestHandler, limitContactChangeConfirm as unknown as RequestHandler, authorizeContactChange as unknown as RequestHandler);
 
 /**
  * POST /account/contact/confirm-change
@@ -983,14 +1347,11 @@ const confirmContactChange: RequestHandler = async (req, res) => {
     }
     const { field, otp } = validationResult.data;
 
-    const entry = await getContactChangeOtpEntry(userId, field);
-    if (!entry) {
-      return sendError(res, 400, "No pending change found, or the code has expired. Please request a new code.");
+    const consumed = await consumeContactChangeCode(userId, field, "VERIFY_NEW", otp);
+    if (consumed.result !== "VALID" || !consumed.entry) {
+      return contactCodeError(res, consumed.result, consumed.entry?.attempts ?? 0);
     }
-
-    if (!verifyContactChangeOtp(otp, entry.codeHash)) {
-      return sendError(res, 400, "Invalid verification code.");
-    }
+    const entry = consumed.entry;
 
     // Re-check uniqueness in case another account claimed this destination meanwhile.
     const existing = await prisma.user.findFirst({
@@ -998,202 +1359,300 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       select: { id: true },
     });
     if (existing) {
-      await deleteContactChangeOtp(userId, field);
       return sendError(res, 409, `This ${FIELD_LABEL[field]} is already associated with another account.`);
     }
 
     const before = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true, email: true } });
+    if (!before) return sendError(res, 404, "User not found");
     const verifiedAtField = field === "email" ? "emailVerifiedAt" : "phoneVerifiedAt";
+    const changedAtField = field === "email" ? "emailChangedAt" : "phoneChangedAt";
+    const oldValue = field === "email" ? before.email : before.phone;
+    const actualChange = String(oldValue ?? "").toLowerCase() !== entry.value.toLowerCase();
+    const changedAt = actualChange ? new Date() : null;
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { [field]: entry.value, [verifiedAtField]: new Date() } as any,
-      select: { id: true, phone: true, email: true, phoneVerifiedAt: true, emailVerifiedAt: true },
+      data: {
+        [field]: entry.value,
+        [verifiedAtField]: new Date(),
+        ...(actualChange ? { [changedAtField]: changedAt } : {}),
+      } as any,
+      select: { id: true, phone: true, email: true, phoneVerifiedAt: true, emailVerifiedAt: true, phoneChangedAt: true, emailChangedAt: true },
     });
 
-    await deleteContactChangeOtp(userId, field);
+    await deleteContactChangeChallenge(userId, field === "email" ? "phone" : "email");
+
+    if (actualChange) {
+      const currentSessionId = (req as AuthedRequest).sessionId;
+      await prisma.session.updateMany({
+        where: { userId, revokedAt: null, ...(currentSessionId ? { NOT: { id: currentSessionId } } : {}) },
+        data: { revokedAt: new Date() },
+      });
+      await invalidateAuthSessionCacheForUser(userId).catch(() => {});
+      await sendContactChangedAlerts(before, field, entry.value);
+    }
 
     try {
-      await audit(req as AuthedRequest, "CONTACT_CHANGED", `user:${userId}`, before, { field, value: entry.value });
+      await audit(req as AuthedRequest, "CONTACT_CHANGED", `user:${userId}`, before, {
+        field,
+        value: entry.value,
+        actualChange,
+        changedAt: changedAt?.toISOString() ?? null,
+        otherSessionsRevoked: actualChange,
+      });
     } catch {
       // best-effort audit
     }
 
-    sendSuccess(res, { user: updated }, `Your ${FIELD_LABEL[field]} has been updated.`);
+    sendSuccess(res, {
+      user: updated,
+      securityCooldownUntil: actualChange ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
+    }, `Your ${FIELD_LABEL[field]} has been updated securely.`);
   } catch (error) {
     console.error("account.contact.confirmChange failed", error);
     sendError(res, 500, "Failed to confirm change");
   }
 };
-router.post("/contact/confirm-change", blockImpersonated as unknown as RequestHandler, confirmContactChange as unknown as RequestHandler);
+router.post("/contact/confirm-change", blockImpersonated as unknown as RequestHandler, limitContactChangeConfirm as unknown as RequestHandler, confirmContactChange as unknown as RequestHandler);
 
-/** PUT /account/payouts (Owner only fields) */
-const updatePayouts: RequestHandler = async (req, res) => {
+/** Shared provider failure classification for the no-write lookup endpoint. */
+function sendPayoutProviderError(res: Response, error: unknown): boolean {
+  if (error instanceof AzamPayDisburseConfigurationError) {
+    console.error("account.payouts.configuration_unavailable", {
+      operation: error.operation,
+      missingKeys: error.missingKeys,
+    });
+    res.status(503).json({
+      code: "PAYOUT_PROVIDER_NOT_CONFIGURED",
+      error: "Payout verification is temporarily unavailable. No payout details were changed.",
+      retryable: false,
+    });
+    return true;
+  }
+  if (error instanceof AzamPayDisburseError) {
+    res.status(502).json({
+      code: "PAYOUT_PROVIDER_UNAVAILABLE",
+      error: error.providerMessage ?? "AzamPay verification is unavailable. No payout details were changed.",
+      retryClass: error.retryClass,
+    });
+    return true;
+  }
+  return false;
+}
+
+/** Resolves the account holder through AzamPay without changing stored payout details. */
+const verifyPayoutDestination: RequestHandler = async (req, res) => {
   try {
     const userId = getUserId(req as AuthedRequest);
-    
-    // Validate input
     const validationResult = updatePayoutsSchema.safeParse(req.body);
     if (!validationResult.success) {
-      return sendError(res, 400, "Invalid input", validationResult.error.issues);
+      return sendError(res, 400, "Invalid payout destination", validationResult.error.issues);
     }
 
     const data = validationResult.data;
-    
-    // Get current payout data (stored as JSON)
-    const currentUser = await prisma.user.findUnique({ 
-      where: { id: userId }, 
-      select: { payout: true } 
-    });
-    
-    const before = currentUser?.payout || null;
-    
-    // Merge new fields into payout JSON
-    // Decrypt existing sensitive fields if they exist
-    const payoutData: Record<string, any> = {};
-    const currentDecrypted: Record<string, any> = {};
-    if (typeof before === 'object' && before !== null) {
-      // Decrypt sensitive fields from existing data
-      if (before.bankAccountNumber && typeof before.bankAccountNumber === 'string') {
-        try {
-            currentDecrypted.bankAccountNumber = decrypt(before.bankAccountNumber, { log: false });
-          payoutData.bankAccountNumber = currentDecrypted.bankAccountNumber;
-        } catch (e) {
-          // If decryption fails, might be plain text (migration scenario)
-          currentDecrypted.bankAccountNumber = before.bankAccountNumber;
-          payoutData.bankAccountNumber = before.bankAccountNumber;
-        }
-      }
-      if (before.mobileMoneyNumber && typeof before.mobileMoneyNumber === 'string') {
-        try {
-            currentDecrypted.mobileMoneyNumber = decrypt(before.mobileMoneyNumber, { log: false });
-          payoutData.mobileMoneyNumber = currentDecrypted.mobileMoneyNumber;
-        } catch (e) {
-          currentDecrypted.mobileMoneyNumber = before.mobileMoneyNumber;
-          payoutData.mobileMoneyNumber = before.mobileMoneyNumber;
-        }
-      }
-      // Copy non-sensitive fields as-is
-      if (before.bankAccountName) {
-        payoutData.bankAccountName = before.bankAccountName;
-        currentDecrypted.bankAccountName = before.bankAccountName;
-      }
-      if (before.bankName) {
-        payoutData.bankName = before.bankName;
-        currentDecrypted.bankName = before.bankName;
-      }
-      if (before.bankBranch) {
-        payoutData.bankBranch = before.bankBranch;
-        currentDecrypted.bankBranch = before.bankBranch;
-      }
-      if (before.mobileMoneyProvider) {
-        payoutData.mobileMoneyProvider = before.mobileMoneyProvider;
-        currentDecrypted.mobileMoneyProvider = before.mobileMoneyProvider;
-      }
-      if (before.payoutPreferred) {
-        payoutData.payoutPreferred = before.payoutPreferred;
-        currentDecrypted.payoutPreferred = before.payoutPreferred;
-      }
-    }
-    
-    // Validation: Check if any value actually changed (prevent unnecessary edits)
-    const changedFields: string[] = [];
-    const normalizeValue = (val: any): string => {
-      if (val === null || val === undefined) return '';
-      return String(val).trim().toLowerCase();
-    };
-    
-    // Prepare audit data (mask sensitive fields before encryption)
-    const auditPayoutData: Record<string, any> = {};
-    
-    // Only add/update fields that are provided and actually changed
-    if (data.bankAccountName !== undefined) {
-      const newVal = normalizeValue(data.bankAccountName);
-      const oldVal = normalizeValue(currentDecrypted.bankAccountName);
-      if (newVal !== oldVal) {
-        payoutData.bankAccountName = data.bankAccountName;
-        auditPayoutData.bankAccountName = data.bankAccountName;
-        changedFields.push('bankAccountName');
-      }
-    }
-    if (data.bankName !== undefined) {
-      const newVal = normalizeValue(data.bankName);
-      const oldVal = normalizeValue(currentDecrypted.bankName);
-      if (newVal !== oldVal) {
-        payoutData.bankName = data.bankName;
-        auditPayoutData.bankName = data.bankName;
-        changedFields.push('bankName');
-      }
-    }
-    if (data.bankAccountNumber !== undefined) {
-      const newVal = normalizeValue(data.bankAccountNumber);
-      const oldVal = normalizeValue(currentDecrypted.bankAccountNumber);
-      if (newVal !== oldVal) {
-        // Encrypt sensitive bank account number for storage
-        payoutData.bankAccountNumber = encrypt(data.bankAccountNumber);
-        // Mask for audit log
-        const masked = String(data.bankAccountNumber);
-        auditPayoutData.bankAccountNumber = masked.length > 4 
-          ? `${masked.slice(0, 2)}****${masked.slice(-2)}` 
-          : '****';
-        changedFields.push('bankAccountNumber');
-      }
-    }
-    if (data.bankBranch !== undefined) {
-      const newVal = normalizeValue(data.bankBranch);
-      const oldVal = normalizeValue(currentDecrypted.bankBranch);
-      if (newVal !== oldVal) {
-        payoutData.bankBranch = data.bankBranch;
-        auditPayoutData.bankBranch = data.bankBranch;
-        changedFields.push('bankBranch');
-      }
-    }
-    if (data.mobileMoneyProvider !== undefined) {
-      const newVal = normalizeValue(data.mobileMoneyProvider);
-      const oldVal = normalizeValue(currentDecrypted.mobileMoneyProvider);
-      if (newVal !== oldVal) {
-        payoutData.mobileMoneyProvider = data.mobileMoneyProvider;
-        auditPayoutData.mobileMoneyProvider = data.mobileMoneyProvider;
-        changedFields.push('mobileMoneyProvider');
-      }
-    }
-    if (data.mobileMoneyNumber !== undefined) {
-      const newVal = normalizeValue(data.mobileMoneyNumber);
-      const oldVal = normalizeValue(currentDecrypted.mobileMoneyNumber);
-      if (newVal !== oldVal) {
-        // Encrypt sensitive mobile money number for storage
-        payoutData.mobileMoneyNumber = encrypt(data.mobileMoneyNumber);
-        // Mask for audit log
-        const masked = String(data.mobileMoneyNumber);
-        auditPayoutData.mobileMoneyNumber = masked.length > 4 
-          ? `${masked.slice(0, 2)}****${masked.slice(-2)}` 
-          : '****';
-        changedFields.push('mobileMoneyNumber');
-      }
-    }
-    if (data.payoutPreferred !== undefined) {
-      const newVal = normalizeValue(data.payoutPreferred);
-      const oldVal = normalizeValue(currentDecrypted.payoutPreferred);
-      if (newVal !== oldVal) {
-        payoutData.payoutPreferred = data.payoutPreferred;
-        auditPayoutData.payoutPreferred = data.payoutPreferred;
-        changedFields.push('payoutPreferred');
-      }
-    }
-    
-    // If no fields actually changed, return early
-    if (changedFields.length === 0) {
-      return sendSuccess(res, null, "No payout changes detected");
-    }
-    
-    const updated = await prisma.user.update({
+    const isBank = data.payoutPreferred === "BANK";
+    const provider = isBank ? data.bankName : data.mobileMoneyProvider;
+    const accountNumber = isBank ? data.bankAccountNumber : data.mobileMoneyNumber;
+    const canonicalNumber = accountNumber.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    const currentUser = await prisma.user.findUnique({
       where: { id: userId },
-      data: { payout: payoutData },
+      select: { id: true, emailChangedAt: true, phoneChangedAt: true },
     });
-    
-    await audit(req as AuthedRequest, "USER_PAYOUT_UPDATE", `user:${updated.id}`, before, auditPayoutData);
-    sendSuccess(res, null, "Payout information updated successfully");
-  } catch (error: any) {
-    console.error('account.payouts.update failed', error);
+    if (!currentUser) return sendError(res, 404, "User not found");
+    const contactChangedAt = recentContactChange(currentUser);
+    if (contactChangedAt) {
+      const cooldownUntil = new Date(contactChangedAt.getTime() + CONTACT_SECURITY_COOLDOWN_MS);
+      return res.status(409).json({
+        code: "PAYOUT_CONTACT_COOLDOWN",
+        error: "Payout destination changes are temporarily locked after a security contact change.",
+        cooldownUntil: cooldownUntil.toISOString(),
+        retryable: false,
+      });
+    }
+
+    const lookup = await azamPayNameLookup({ bankName: provider, accountNumber });
+    const resolvedName = String(lookup.name || "").trim();
+    const returnedNumber = String(lookup.accountNumber || accountNumber).replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    if (!lookup.status || !resolvedName) {
+      return sendError(res, 409, "AzamPay could not verify the payout account holder");
+    }
+    if (returnedNumber !== canonicalNumber) {
+      await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
+        provider,
+        requested: maskSensitiveDestination(accountNumber),
+        returned: maskSensitiveDestination(lookup.accountNumber),
+      });
+      return sendError(res, 409, "AzamPay returned a different account number. No payout details were changed.");
+    }
+
+    const challenge = await createPayoutVerificationChallenge({
+      userId,
+      destination: data,
+      accountName: resolvedName,
+      contactSecurityVersion: contactSecurityVersion(currentUser),
+    });
+    await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_LOOKED_UP", `user:${userId}`, null, {
+      payoutPreferred: data.payoutPreferred,
+      provider,
+      accountName: resolvedName,
+      accountNumber: maskSensitiveDestination(accountNumber),
+      expiresAt: new Date(challenge.expiresAt).toISOString(),
+    });
+
+    return sendSuccess(
+      res,
+      {
+        challengeToken: challenge.token,
+        expiresAt: new Date(challenge.expiresAt).toISOString(),
+        destination: {
+          type: data.payoutPreferred,
+          provider,
+          accountName: resolvedName,
+          accountNumber: maskSensitiveDestination(accountNumber),
+          currency: "TZS",
+        },
+      },
+      "Payout destination verified. Confirm the account holder to save it."
+    );
+  } catch (error: unknown) {
+    if (sendPayoutProviderError(res, error)) return;
+    console.error("account.payouts.verify failed", error);
+    sendError(res, 500, "Failed to verify payout information");
+  }
+};
+router.post(
+  "/payouts/verify",
+  blockImpersonated as unknown as RequestHandler,
+  payoutLookupLimit,
+  verifyPayoutDestination as unknown as RequestHandler
+);
+
+const updatePayouts: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const validationResult = confirmPayoutSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return sendError(res, 400, "A valid payout verification confirmation is required", validationResult.error.issues);
+    }
+
+    const challenge = await consumePayoutVerificationChallenge(validationResult.data.challengeToken, userId);
+    if (!challenge) {
+      return res.status(410).json({
+        code: "PAYOUT_VERIFICATION_EXPIRED",
+        error: "Payout verification expired or was already used. Verify the destination again.",
+        retryable: false,
+      });
+    }
+
+    const data = challenge.destination;
+    const resolvedName = challenge.accountName;
+    const isBank = data.payoutPreferred === "BANK";
+    const provider = isBank ? data.bankName : data.mobileMoneyProvider;
+    const accountNumber = isBank ? data.bankAccountNumber : data.mobileMoneyNumber;
+
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { payout: true, email: true, phone: true, emailChangedAt: true, phoneChangedAt: true },
+    });
+    if (!currentUser) return sendError(res, 404, "User not found");
+    if (challenge.contactSecurityVersion !== contactSecurityVersion(currentUser) || recentContactChange(currentUser)) {
+      return res.status(409).json({
+        code: "PAYOUT_CONTACT_SECURITY_CHANGED",
+        error: "Your security contacts changed during payout verification. Wait for the cooling period, then verify again.",
+        retryable: false,
+      });
+    }
+    const before = currentUser.payout || null;
+
+    const now = new Date();
+    const payoutData = isBank
+      ? {
+          payoutPreferred: "BANK",
+          bankName: data.bankName,
+          bankAccountName: resolvedName,
+          bankAccountNumber: encrypt(data.bankAccountNumber),
+          bankBranch: data.bankBranch || "",
+        }
+      : {
+          payoutPreferred: "MOBILE_MONEY",
+          mobileMoneyProvider: data.mobileMoneyProvider,
+          mobileMoneyNumber: encrypt(data.mobileMoneyNumber),
+          mobileMoneyAccountName: resolvedName,
+        };
+
+    const account = await prisma.$transaction(async (tx) => {
+      const existing = await tx.payoutAccount.findUnique({
+        where: { userId_provider_accountNumber: { userId, provider, accountNumber } },
+      });
+      const verified = existing
+        ? await tx.payoutAccount.update({
+            where: { id: existing.id },
+            data: {
+              type: isBank ? "BANK" : "MOBILE_MONEY",
+              accountName: resolvedName,
+              isVerified: true,
+              verifiedAt: existing.verifiedAt ?? now,
+              lastVerifiedAt: now,
+              destinationChangedAt: now,
+              isDefault: true,
+              isActive: true,
+            },
+          })
+        : await tx.payoutAccount.create({
+            data: {
+              userId,
+              type: isBank ? "BANK" : "MOBILE_MONEY",
+              provider,
+              accountNumber,
+              accountName: resolvedName,
+              currency: "TZS",
+              isVerified: true,
+              verifiedAt: now,
+              lastVerifiedAt: now,
+              destinationChangedAt: now,
+              isDefault: true,
+              isActive: true,
+            },
+          });
+
+      // Exactly one active/default destination is selectable for new payouts.
+      // Existing disbursements keep their immutable account relation and will
+      // still pass the approval-fingerprint check before any money moves.
+      await tx.payoutAccount.updateMany({
+        where: { userId, id: { not: verified.id } },
+        data: { isDefault: false, isActive: false },
+      });
+      await tx.user.update({ where: { id: userId }, data: { payout: payoutData } });
+      return verified;
+    });
+
+    await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, before, {
+      payoutPreferred: data.payoutPreferred,
+      provider,
+      accountName: resolvedName,
+      accountNumber: maskSensitiveDestination(accountNumber),
+      payoutAccountId: account.id,
+      destinationChangedAt: account.destinationChangedAt,
+    });
+    await sendPayoutDestinationChangedAlerts(currentUser, provider, accountNumber);
+
+    sendSuccess(
+      res,
+      {
+        payoutAccount: {
+          id: account.id,
+          type: account.type,
+          provider: account.provider,
+          accountName: account.accountName,
+          accountNumber: maskSensitiveDestination(account.accountNumber),
+          isVerified: account.isVerified,
+          verifiedAt: account.verifiedAt,
+          lastVerifiedAt: account.lastVerifiedAt,
+        },
+      },
+      "Payout destination verified and secured"
+    );
+  } catch (error: unknown) {
+    console.error("account.payouts.update failed", error);
     sendError(res, 500, "Failed to update payout information");
   }
 };
@@ -2484,25 +2943,18 @@ const deleteAccount: RequestHandler = async (req, res) => {
     const driverName: string = before?.name ?? 'Deleted Driver';
 
     // ── 5. Soft-delete with PII anonymisation ────────────────────────────
-    const meta = (prisma as any).user?._meta ?? {};
-    if (Object.prototype.hasOwnProperty.call(meta, 'deletedAt')) {
-      await (prisma.user.update as any)({
-        where: { id: userId },
-        data: {
-          deletedAt: new Date(),
-          name: 'Deleted Driver',
-          email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
-          phone: null,
-        },
-      });
-    } else {
-      try {
-        await (prisma.user.delete as any)({ where: { id: userId } });
-      } catch (e: any) {
-        console.error('Failed to delete user', e);
-        return sendError(res, 500, "Failed to delete account");
-      }
-    }
+    // deletedAt is part of the canonical Prisma schema. Do not infer schema
+    // support from the private delegate _meta property: it is not guaranteed
+    // at runtime and previously made this endpoint fall back to a hard delete.
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletedAt: new Date(),
+        name: 'Deleted Driver',
+        email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
+        phone: null,
+      },
+    });
 
     // ── 6. Alert admins in real-time if any trips returned to pool ───────
     try {

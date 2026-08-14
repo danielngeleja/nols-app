@@ -8,6 +8,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { canonicalGuestPhone, loadGuestSmsEligibility, noPhoneEligibility } from "../lib/guestSmsCampaigns.js";
+import { computeGuestBalance } from "../lib/nrmsFolio.js";
 
 export const router = Router();
 
@@ -98,13 +99,17 @@ router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) =
           orderBy: { checkIn: "desc" },
           select: {
             id: true,
+            bookingId: true,
             status: true,
             source: true,
             checkIn: true,
             checkOut: true,
             totalAmount: true,
             amountPaid: true,
+            chargesTotal: true,
+            masterFolioItems: { where: { voidedAt: null }, select: { amount: true } },
             currency: true,
+            booking: { select: { totalAmount: true } },
           },
         },
       },
@@ -125,11 +130,23 @@ router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) =
         notes: guest.notes,
         createdAt: guest.createdAt,
         smsOutreach: smsEligibility,
-        reservations: guest.reservations.map((r) => ({
-          ...r,
-          totalAmount: r.totalAmount != null ? Number(r.totalAmount) : null,
-          amountPaid: r.amountPaid != null ? Number(r.amountPaid) : null,
-        })),
+        reservations: guest.reservations.map((r) => {
+          const totalAmount = r.booking?.totalAmount != null ? Number(r.booking.totalAmount) : r.totalAmount != null ? Number(r.totalAmount) : null;
+          const amountPaid = r.bookingId != null ? null : r.amountPaid != null ? Number(r.amountPaid) : null;
+          const chargesTotal = Number(r.chargesTotal ?? 0);
+          const transferredToMaster = r.masterFolioItems.reduce((sum, item) => sum + Number(item.amount), 0);
+          return {
+            ...r,
+            booking: undefined,
+            masterFolioItems: undefined,
+            commercialManaged: r.bookingId != null,
+            totalAmount,
+            amountPaid,
+            chargesTotal,
+            transferredToMaster,
+            balance: r.bookingId != null ? null : computeGuestBalance(totalAmount, chargesTotal, Number(amountPaid ?? 0) + transferredToMaster),
+          };
+        }),
       },
     });
   } catch (err) {

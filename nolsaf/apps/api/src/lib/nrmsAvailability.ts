@@ -59,7 +59,7 @@ export async function getNrmsCapacityConsumers(
   propertyId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<NrmsCapacityConsumer[]> {
   const rows = await db.reservationRoomAllocation.findMany({
     where: {
@@ -104,7 +104,7 @@ export async function getRoomTypeAvailability(
   roomTypeId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<{ capacity: number; consumed: number; available: number }> {
   const result = await getRoomTypesAvailability(
     db,
@@ -128,12 +128,12 @@ export async function getRoomTypesAvailability(
   roomTypeIds: number[],
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number },
+  opts?: { excludeReservationId?: number; excludeGroupBlockId?: number; excludeBlockId?: number },
 ): Promise<Map<number, { capacity: number; consumed: number; available: number }>> {
   const uniqueIds = [...new Set(roomTypeIds.filter((id) => Number.isInteger(id) && id > 0))];
   if (!uniqueIds.length) return new Map();
 
-  const [roomTypes, consumers, bookings, blocks] = await Promise.all([
+  const [roomTypes, consumers, bookings, blocks, groupBlocks] = await Promise.all([
     db.roomType.findMany({
       where: { id: { in: uniqueIds }, propertyId },
       select: { id: true, name: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
@@ -151,9 +151,25 @@ export async function getRoomTypesAvailability(
       where: {
         propertyId,
         migratedReservationId: null,
+        ...(opts?.excludeBlockId ? { id: { not: opts.excludeBlockId } } : {}),
         ...overlapWhere(start, end, "startDate", "endDate"),
       },
       select: { roomCode: true, roomUnitId: true, bedsBlocked: true, roomUnit: { select: { roomTypeId: true } } },
+    }),
+    // Group blocks hold rooms before any guest name exists. Only the rooms not
+    // yet picked up count here: a picked-up room is already consumed by the
+    // reservation it became, and counting both would double-block it. Past
+    // cutOffAt the block stops holding anything, the same lazy expiry a HELD
+    // reservation gets from holdExpiresAt, so no worker has to run.
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        ...(opts?.excludeGroupBlockId ? { id: { not: opts.excludeGroupBlockId } } : {}),
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(start, end, "checkIn", "checkOut"),
+      },
+      select: { rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } } },
     }),
   ]);
 
@@ -171,8 +187,11 @@ export async function getRoomTypesAvailability(
     const blockCount = blocks
       .filter((row: any) => row.roomUnit?.roomTypeId === roomType.id || matchesType(row.roomCode))
       .reduce((sum: number, row: any) => sum + Math.max(1, Number(row.bedsBlocked ?? 1)), 0);
+    const groupBlockCount = groupBlocks.reduce((sum: number, block: any) => sum + block.rooms
+      .filter((room: any) => room.roomTypeId === roomType.id)
+      .reduce((held: number, room: any) => held + Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0)), 0), 0);
     const capacity = roomType._count.units;
-    const consumed = nrmsCount + bookingCount + blockCount;
+    const consumed = nrmsCount + bookingCount + blockCount + groupBlockCount;
     result.set(roomType.id, {
       capacity,
       consumed,
@@ -182,13 +201,114 @@ export async function getRoomTypesAvailability(
   return result;
 }
 
+export type DailyAvailability = { day: Date; capacity: number; consumed: number; available: number };
+
+/**
+ * Availability for one room type, night by night.
+ *
+ * getRoomTypesAvailability answers "can this range be sold as a whole", which
+ * collapses a twelve-month window into a single sold-out verdict the moment one
+ * night is taken. A calendar export needs the opposite: which individual nights
+ * are gone. Same four inventory consumers, kept dated instead of counted.
+ */
+export async function getRoomTypeDailyAvailability(
+  db: DbLike,
+  propertyId: number,
+  roomTypeId: number,
+  start: Date,
+  end: Date,
+): Promise<DailyAvailability[]> {
+  const dayMs = 86_400_000;
+  const utcDay = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  const from = utcDay(start);
+  const to = utcDay(end);
+  if (to.getTime() <= from.getTime()) return [];
+
+  const [roomType, consumers, bookings, blocks, groupBlocks] = await Promise.all([
+    db.roomType.findUnique({
+      where: { id: roomTypeId },
+      select: { id: true, name: true, propertyId: true, _count: { select: { units: { where: { status: "ACTIVE" } } } } },
+    }),
+    getNrmsCapacityConsumers(db, propertyId, from, to),
+    db.booking.findMany({
+      where: {
+        propertyId,
+        status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
+        ...overlapWhere(from, to, "checkIn", "checkOut"),
+      },
+      select: { roomCode: true, roomsQty: true, checkIn: true, checkOut: true },
+    }),
+    db.propertyAvailabilityBlock.findMany({
+      where: {
+        propertyId,
+        migratedReservationId: null,
+        ...overlapWhere(from, to, "startDate", "endDate"),
+      },
+      select: { roomCode: true, bedsBlocked: true, startDate: true, endDate: true, roomUnit: { select: { roomTypeId: true } } },
+    }),
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(from, to, "checkIn", "checkOut"),
+      },
+      select: { checkIn: true, checkOut: true, rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } } },
+    }),
+  ]);
+  if (!roomType || roomType.propertyId !== propertyId) return [];
+
+  const name = roomType.name.trim().toLowerCase();
+  const matchesType = (code: string | null | undefined) => {
+    const value = String(code ?? "").trim().toLowerCase();
+    return value === name || value.startsWith(`${name}-`);
+  };
+
+  // One pass over each consumer, adding its weight to every night it covers,
+  // rather than one query per night.
+  const nights = Math.round((to.getTime() - from.getTime()) / dayMs);
+  const consumedPerDay = new Array<number>(nights).fill(0);
+  const addSpan = (spanStart: Date, spanEnd: Date, weight: number) => {
+    if (weight <= 0) return;
+    const first = Math.max(0, Math.floor((utcDay(spanStart).getTime() - from.getTime()) / dayMs));
+    const last = Math.min(nights, Math.ceil((utcDay(spanEnd).getTime() - from.getTime()) / dayMs));
+    for (let index = first; index < last; index += 1) consumedPerDay[index] += weight;
+  };
+
+  for (const consumer of consumers) {
+    if (consumer.roomTypeId === roomTypeId) addSpan(consumer.startDate, consumer.endDate, 1);
+  }
+  for (const booking of bookings as any[]) {
+    if (matchesType(booking.roomCode)) addSpan(booking.checkIn, booking.checkOut, Math.max(1, Number(booking.roomsQty ?? 1)));
+  }
+  for (const block of blocks as any[]) {
+    if (block.roomUnit?.roomTypeId === roomTypeId || matchesType(block.roomCode)) {
+      addSpan(block.startDate, block.endDate, Math.max(1, Number(block.bedsBlocked ?? 1)));
+    }
+  }
+  for (const group of groupBlocks as any[]) {
+    const held = group.rooms
+      .filter((room: any) => room.roomTypeId === roomTypeId)
+      .reduce((sum: number, room: any) => sum + Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0)), 0);
+    addSpan(group.checkIn, group.checkOut, held);
+  }
+
+  const capacity = roomType._count.units;
+  return consumedPerDay.map((consumed, index) => ({
+    day: new Date(from.getTime() + index * dayMs),
+    capacity,
+    consumed,
+    available: Math.max(0, capacity - consumed),
+  }));
+}
+
 /**
  * Normalized calendar feed (doc 10.3). The frontend must not need to know
  * which migration stage a property has reached: legacy blocks, migrated
  * reservations, and marketplace bookings come back in one shape.
  */
 export async function getCalendarEntries(propertyId: number, start: Date, end: Date): Promise<CalendarEntry[]> {
-  const [bookings, reservations, blocks] = await Promise.all([
+  const [bookings, reservations, blocks, roomTypes] = await Promise.all([
     prisma.booking.findMany({
       where: {
         propertyId,
@@ -257,12 +377,36 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
         notes: true,
       },
     }),
+    prisma.roomType.findMany({
+      where: { propertyId },
+      select: {
+        id: true,
+        name: true,
+        sourceSpecKey: true,
+        units: { select: { id: true, code: true } },
+      },
+    }),
   ]);
 
   const entries: CalendarEntry[] = [];
 
+  const resolveLegacyBookingRoom = (roomCode: string | null) => {
+    const value = String(roomCode ?? "").trim();
+    if (!value) return { roomTypeId: null, roomUnitId: null };
+    for (const type of roomTypes) {
+      const unit = type.units.find((candidate) => candidate.code.toLowerCase() === value.toLowerCase());
+      if (unit) return { roomTypeId: type.id, roomUnitId: unit.id };
+    }
+    const key = value.replace(/-\d+$/, "").toLowerCase();
+    const type = roomTypes.find((candidate) =>
+      candidate.name.toLowerCase() === key || String(candidate.sourceSpecKey ?? "").toLowerCase() === key,
+    );
+    return { roomTypeId: type?.id ?? null, roomUnitId: null };
+  };
+
   for (const b of bookings) {
     const allocation = b.nrmsReservation?.allocations?.[0] ?? null;
+    const legacyRoom = allocation ? null : resolveLegacyBookingRoom(b.roomCode ?? null);
     entries.push({
       kind: "BOOKING",
       id: b.id,
@@ -270,8 +414,8 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
       endDate: b.checkOut,
       status: b.status,
       source: "NOLSAF",
-      roomTypeId: allocation?.roomTypeId ?? null,
-      roomUnitId: allocation?.roomUnitId ?? null,
+      roomTypeId: allocation?.roomTypeId ?? legacyRoom?.roomTypeId ?? null,
+      roomUnitId: allocation?.roomUnitId ?? legacyRoom?.roomUnitId ?? null,
       roomCode: b.roomCode ?? null,
       quantity: b.roomsQty ?? 1,
       guestName: b.guestName ?? null,
@@ -337,6 +481,51 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
     });
   }
 
+  // Group blocks: rooms held for a party whose names are not in yet. These
+  // consume capacity in getRoomTypesAvailability, so without an entry here the
+  // calendar would show rooms free while the desk was refused a walk-in, with
+  // nothing on screen explaining why. One entry per room type still held.
+  const groupBlocks = await prisma.nrmsGroupBlock.findMany({
+    where: {
+      propertyId,
+      status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+      cutOffAt: { gt: new Date() },
+      ...overlapWhere(start, end, "checkIn", "checkOut"),
+    },
+    select: {
+      id: true,
+      name: true,
+      reference: true,
+      agencyName: true,
+      checkIn: true,
+      checkOut: true,
+      rooms: { select: { roomTypeId: true, quantity: true, pickedUp: true } },
+    },
+  });
+  for (const groupBlock of groupBlocks) {
+    for (const room of groupBlock.rooms) {
+      const held = Math.max(0, room.quantity - room.pickedUp);
+      if (held < 1) continue;
+      entries.push({
+        kind: "BLOCK",
+        id: groupBlock.id,
+        startDate: groupBlock.checkIn,
+        endDate: groupBlock.checkOut,
+        status: "GROUP_BLOCK",
+        source: groupBlock.agencyName ?? null,
+        roomTypeId: room.roomTypeId,
+        roomUnitId: null,
+        roomCode: null,
+        quantity: held,
+        guestName: null,
+        // Names are exactly what a block does not have yet, so the label says
+        // whose rooms these are and how many are still waiting on a name.
+        label: `${groupBlock.name} · ${held} awaiting names`,
+        billable: false,
+      });
+    }
+  }
+
   return entries.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 }
 
@@ -357,7 +546,7 @@ export async function findUnitConflicts(
   roomUnitId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; db?: DbLike },
+  opts?: { excludeReservationId?: number; excludeBookingId?: number; db?: DbLike },
 ): Promise<UnitConflict[]> {
   const db = opts?.db ?? prisma;
   const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { propertyId: true, code: true } });
@@ -388,6 +577,7 @@ export async function findUnitConflicts(
     }),
     db.booking.findMany({
       where: {
+        ...(opts?.excludeBookingId ? { id: { not: opts.excludeBookingId } } : {}),
         propertyId: unit.propertyId,
         roomCode: unit.code,
         status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },

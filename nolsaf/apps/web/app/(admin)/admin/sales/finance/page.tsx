@@ -11,7 +11,6 @@ import {
   Clock3,
   FileText,
   Loader2,
-  Play,
   RefreshCw,
   RotateCcw,
   Search,
@@ -124,7 +123,6 @@ export default function AdminSalesFinancePage() {
   const [query, setQuery] = useState("");
   const [reason, setReason] = useState<Record<string, string>>({});
   const [deduction, setDeduction] = useState<Record<number, string>>({});
-  const [paymentReference, setPaymentReference] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -201,7 +199,10 @@ export default function AdminSalesFinancePage() {
     }
   };
 
-  const payoutAction = async (item: Payout, action: "approve" | "reject" | "processing" | "paid") => {
+  // "processing" and "paid" were retired here — a payout is paid exclusively
+  // through the AzamPay Disbursement queue once it reaches APPROVED (see the
+  // "Send via AzamPay instead" link shown below for APPROVED payouts).
+  const payoutAction = async (item: Payout, action: "approve" | "reject") => {
     const note = requireReason(`payout-${item.id}`);
     if (!note) return;
     const payload: Record<string, unknown> = { reason: note };
@@ -210,17 +211,12 @@ export default function AdminSalesFinancePage() {
       if (!Number.isFinite(value) || value < 0) return setError("Deduction must be zero or a positive amount.");
       payload.deductionAmount = value;
     }
-    if (action === "paid") {
-      const reference = (paymentReference[item.id] || "").trim();
-      if (reference.length < 3) return setError("Enter the external payment reference.");
-      payload.paymentReference = reference;
-    }
     setBusy(`payout-${action}-${item.id}`);
     setError("");
     setNotice("");
     try {
       await apiClient.post(`/api/admin/sales/payouts/${item.id}/${action}`, payload);
-      setNotice(`Payout ${item.referenceNumber} moved to ${action === "processing" ? "PROCESSING" : action.toUpperCase()}.`);
+      setNotice(`Payout ${item.referenceNumber} moved to ${action.toUpperCase()}.`);
       await load();
     } catch (cause: any) {
       setError(errorMessage(cause, `Payout ${action} failed.`));
@@ -371,15 +367,20 @@ export default function AdminSalesFinancePage() {
                   <div className="space-y-2">
                     <input className={fieldClass} value={reason[`payout-${item.id}`] || ""} onChange={(e) => setReason({ ...reason, [`payout-${item.id}`]: e.target.value })} placeholder="Required audit reason" />
                     {["REQUESTED", "UNDER_REVIEW"].includes(item.status) && <input className={fieldClass} type="number" min="0" value={deduction[item.id] || ""} onChange={(e) => setDeduction({ ...deduction, [item.id]: e.target.value })} placeholder="Deduction (0 if none)" />}
-                    {item.status === "PROCESSING" && <input className={fieldClass} value={paymentReference[item.id] || ""} onChange={(e) => setPaymentReference({ ...paymentReference, [item.id]: e.target.value })} placeholder="External payment reference" />}
                     <div className="flex flex-wrap gap-2">
                       {["REQUESTED", "UNDER_REVIEW"].includes(item.status) && <>
                         <button type="button" disabled={!!busy} onClick={() => void payoutAction(item, "approve")} className={actionClass}><BadgeCheck className="h-4 w-4" />Approve</button>
                         <button type="button" disabled={!!busy} onClick={() => void payoutAction(item, "reject")} className={actionClass}><Ban className="h-4 w-4" />Reject</button>
                       </>}
-                      {item.status === "APPROVED" && <button type="button" disabled={!!busy} onClick={() => void payoutAction(item, "processing")} className={actionClass}><Play className="h-4 w-4" />Start processing</button>}
-                      {item.status === "PROCESSING" && <button type="button" disabled={!!busy} onClick={() => void payoutAction(item, "paid")} className={actionClass}><CheckCircle2 className="h-4 w-4" />Mark paid</button>}
                     </div>
+                    {item.status === "APPROVED" && (
+                      <Link
+                        href={`/admin/disbursements?sourceType=SALES_PAYOUT&sourceId=${item.id}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 underline underline-offset-2"
+                      >
+                        <Send className="h-3 w-3" /> Send via AzamPay instead
+                      </Link>
+                    )}
                   </div>
                 </article>
               ))}

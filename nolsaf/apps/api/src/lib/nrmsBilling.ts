@@ -3,6 +3,7 @@ import { getCheckoutSettlement } from "./nrmsFolio.js";
 import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
+import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -34,12 +35,17 @@ function billedKey(allocationId: number, day: Date): string {
 export function buildNrmsUsageRows(input: {
   accountId: number; propertyId: number; reservationId: number; policyId: number;
   trialEndsAt: Date; currency: string; roomNightPrice: number; source: string;
+  bookingId?: number | null;
   allocations: Array<{ id: number; startDate: Date; endDate: Date }>;
   postThroughDate?: Date;
   alreadyBilled?: Set<string>;
 }) {
   const trialEnd = utcDay(input.trialEndsAt);
-  const commissionOnly = input.source.trim().toUpperCase() === "NOLSAF";
+  // A linked Booking is the authoritative marketplace signal: NoLSAF already
+  // earned commission on that stay, so the PAYG room-night fee must not apply
+  // on top. The source string is only a fallback, because the FK is what every
+  // other marketplace code path keys on and the two must never disagree.
+  const commissionOnly = input.bookingId != null || input.source.trim().toUpperCase() === "NOLSAF";
   const cutoff = input.postThroughDate ? utcDay(input.postThroughDate) : null;
   const rows: any[] = [];
   for (const allocation of input.allocations) {
@@ -109,11 +115,37 @@ export async function applyNrmsUsageRows(tx: any, account: any, rows: any[]) {
   return { usageEvents: rows.length, billableAmount: billable, paygStatus: status, unpaidBalance: newBalance };
 }
 
+export async function completeMarketplaceBookingCheckout(tx: any, reservation: any) {
+  if (reservation.bookingId == null) return { linked: false, alreadyCheckedOut: false };
+
+  const bookingChanged = await tx.booking.updateMany({
+    where: {
+      id: reservation.bookingId,
+      propertyId: reservation.propertyId,
+      status: "CHECKED_IN",
+    },
+    data: { status: "CHECKED_OUT" },
+  });
+  if (bookingChanged.count === 1) return { linked: true, alreadyCheckedOut: false };
+
+  const linkedBooking = await tx.booking.findUnique({
+    where: { id: reservation.bookingId },
+    select: { propertyId: true, status: true },
+  });
+  const linkedStatus = linkedBooking?.propertyId === reservation.propertyId
+    ? String(linkedBooking.status || "UNKNOWN").toUpperCase()
+    : "MISSING";
+  if (linkedStatus !== "CHECKED_OUT") {
+    throw new Error(`NRMS_MARKETPLACE_STATUS_CONFLICT:${linkedStatus}`);
+  }
+  return { linked: true, alreadyCheckedOut: true };
+}
+
 export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: number, verifiedChargeIds: number[] = []) {
-  const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount] = await Promise.all([
+  const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount, transferredToMaster] = await Promise.all([
     tx.reservation.findUnique({
       where: { id: reservation.id },
-      select: { status: true, totalAmount: true },
+      select: { status: true, totalAmount: true, groupId: true },
     }),
     tx.externalPaymentRecord.aggregate({
       where: { reservationId: reservation.id, voidedAt: null },
@@ -142,13 +174,14 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
         voidedAt: null,
       },
     }),
+    transferredToMasterForReservation(tx, reservation.id),
   ]);
   if (!currentFolio || currentFolio.status !== "CHECKED_IN") throw new Error("NRMS_INVALID_TRANSITION_RACE");
   if (openOutletOrderCount > 0) throw new Error(`NRMS_OPEN_OUTLET_ORDERS:${openOutletOrderCount}`);
   if (unclassifiedOutletPaymentCount > 0) throw new Error(`NRMS_UNCLASSIFIED_OUTLET_PAYMENTS:${unclassifiedOutletPaymentCount}`);
   const amountPaid = paymentAggregate._sum.amount ?? 0;
   const chargesTotal = chargeAggregate._sum.amount ?? 0;
-  const settlement = getCheckoutSettlement(currentFolio.totalAmount, chargesTotal, amountPaid);
+  const settlement = getCheckoutSettlement(currentFolio.totalAmount, chargesTotal, Number(amountPaid) + transferredToMaster);
   if (!settlement.settled) throw new Error(`NRMS_${settlement.code}:${settlement.balance}`);
   const verified = new Set(verifiedChargeIds);
   const missingChargeIds = activeCharges
@@ -157,6 +190,11 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
     .filter((id: number) => !verified.has(id));
   if (missingChargeIds.length > 0) throw new Error(`NRMS_CHARGES_NOT_VERIFIED:${missingChargeIds.join(",")}`);
 
+  const masterBlocker = currentFolio.groupId || transferredToMaster > 0
+    ? await getMasterCheckoutBlocker(tx, currentFolio.groupId, { reservationId: reservation.id })
+    : null;
+  if (masterBlocker) throw new Error(`NRMS_${masterBlocker.code}:${masterBlocker.balance}`);
+
   const account = await tx.ownerPaygAccount.findUnique({ where: { propertyId: reservation.propertyId }, include: { policy: true } });
   if (!account) throw new Error("NRMS_PAYG_ACCOUNT_MISSING");
   const changed = await tx.reservation.updateMany({
@@ -164,6 +202,11 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
     data: { status: "CHECKED_OUT", checkedOutAt: new Date(), amountPaid, chargesTotal },
   });
   if (changed.count !== 1) throw new Error("NRMS_INVALID_TRANSITION_RACE");
+
+  // A marketplace stay has two deliberately different records: Reservation
+  // owns operations and Booking owns commerce. Checkout must advance both in
+  // this same transaction so neither workspace can observe a split state.
+  await completeMarketplaceBookingCheckout(tx, reservation);
 
   const allocations = await tx.reservationRoomAllocation.findMany({ where: { reservationId: reservation.id, status: "ACTIVE" } });
   await markRoomsDirtyOnCheckout(tx, {
@@ -178,7 +221,7 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   const rows = buildNrmsUsageRows({
     accountId: account.id, propertyId: reservation.propertyId, reservationId: reservation.id, policyId: account.policyId,
     trialEndsAt: account.trialEndsAt, currency: account.policy.currency, roomNightPrice: Number(account.policy.roomNightPrice),
-    source: reservation.source, allocations, alreadyBilled,
+    source: reservation.source, bookingId: reservation.bookingId ?? null, allocations, alreadyBilled,
   });
   const result = await applyNrmsUsageRows(tx, account, rows);
   await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CHECKED_OUT", actorId: ownerId, data: { usageEvents: result.usageEvents, billableAmount: result.billableAmount } } });

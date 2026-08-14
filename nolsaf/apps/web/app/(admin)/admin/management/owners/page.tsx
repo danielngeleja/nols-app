@@ -83,7 +83,6 @@ export default function OwnersPage() {
   const [selected, setSelected] = useState<Owner | null>(null);
   const [, setPreview] = useState<PayoutPreview | null>(null);
   const [, setPreviewLoading] = useState(false);
-  const [, setGranting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -186,29 +185,11 @@ export default function OwnersPage() {
     }
   };
 
-  const _handleGrant = async (ownerId: number) => {
-    if (!confirm('Grant payout to owner? This will be recorded in audit logs.')) return;
-    setGranting(true);
-    try {
-      const base = typeof window === 'undefined'
-        ? (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000")
-        : '';
-      const res = await fetch(`${base.replace(/\/$/, '')}/api/admin/owners/${ownerId}/payouts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-      if (!res.ok) throw new Error(`${res.status}`);
-      // optimistic UI: close drawer and refresh owners
-      closeOwner();
-      // refresh owners list
-      setLoading(true);
-      const r2 = await fetch(`${base.replace(/\/$/, '')}/api/admin/owners?page=1&limit=50`);
-      const json2 = await r2.json();
-      setOwners(json2.items ?? json2);
-    } catch (err: any) {
-      setError(err?.message ?? String(err));
-    } finally {
-      setGranting(false);
-      setLoading(false);
-    }
-  };
+  // Manual "grant payout" (POST /api/admin/owners/:id/payouts) was retired —
+  // owner invoices are now paid exclusively through the AzamPay Disbursement
+  // ledger at /admin/disbursements. This dead handler was never wired to a
+  // button in this page; removed rather than left pointing at a route that
+  // no longer exists.
 
   const rows = useMemo(() => owners ?? [], [owners]);
 

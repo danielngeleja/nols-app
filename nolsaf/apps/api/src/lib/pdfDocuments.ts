@@ -41,6 +41,23 @@ function fmtDate(d: Date | string | null | undefined): string {
   });
 }
 
+function fmtDateTime(d: Date | string | null | undefined, timeZone = "Africa/Dar_es_Salaam"): string {
+  if (!d) return "—";
+  const dateTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(d));
+
+  return `${dateTime} EAT`;
+}
+
 function fmtMoney(amount: number | string | null | undefined, currency = "TZS"): string {
   const n = Number(amount ?? 0);
   return `${currency} ${n.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -481,7 +498,11 @@ export interface OwnerDisbursementData {
   netPayable: number | string;
   paymentMethod?: string | null;
   paymentRef?: string | null;
+  nolsafReference?: string | null;
+  maskedDestination?: string | null;
   paidAt: Date | string | null;
+  timeZone?: string;
+  disclaimer?: string;
   currency?: string;
   /** QR code PNG bytes */
   qrPng?: Buffer | null;
@@ -531,7 +552,7 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
     y += 34;
     if (data.paidAt) {
       doc.font("Helvetica").fontSize(9).fillColor(RCPT_LABEL)
-        .text(fmtDate(data.paidAt), innerX, y, { width: innerW, align: "center" });
+        .text(fmtDateTime(data.paidAt, data.timeZone), innerX, y, { width: innerW, align: "center" });
       y += 16;
     }
 
@@ -554,8 +575,10 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
     ));
     const paymentRows: RcptRow[] = [
       ["Method", (data.paymentMethod || "—").replace(/_/g, " ")],
-      ["Date", fmtDate(data.paidAt)],
-      ...(data.paymentRef ? ([["Reference", data.paymentRef]] as RcptRow[]) : []),
+      ["Settled", fmtDateTime(data.paidAt, data.timeZone)],
+      ...(data.paymentRef ? ([["Provider ref", data.paymentRef]] as RcptRow[]) : []),
+      ...(data.nolsafReference ? ([["NoLSAF ref", data.nolsafReference]] as RcptRow[]) : []),
+      ...(data.maskedDestination ? ([["Destination", data.maskedDestination]] as RcptRow[]) : []),
     ];
     const bookingRows: RcptRow[] = [
       ["Booking", `#${data.bookingId}`, { accent: true }],
@@ -612,7 +635,7 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
       .text("NoLSAF  ·  CERTIFIED RECEIPT", innerX + 12, y + 12, { characterSpacing: 0.5, lineBreak: false });
     doc.font("Helvetica").fontSize(8).fillColor(RCPT_SUB)
       .text(
-        "This document confirms your payout has been disbursed to your registered payment method. Please retain it for your records.",
+        data.disclaimer || "This document confirms your payout has been disbursed to your registered payment method. Please retain it for your records.",
         innerX + 12, y + 26, { width: textW },
       );
     if (hasQr) {
@@ -665,7 +688,8 @@ export interface NrmsInvoiceData {
   }>;
   chargesTotal: number | string;
   amountPaid: number | string;
-  /** roomTotal + chargesTotal - amountPaid */
+  transferredToMaster?: number | string;
+  /** roomTotal + chargesTotal - amountPaid - transferredToMaster */
   balanceDue: number;
 }
 
@@ -686,6 +710,8 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
   const folioTotal = Number(data.roomTotal) + Number(data.chargesTotal);
   const totalGuestSpend = folioTotal + outletPaidTotal;
   const totalCollected = Number(data.amountPaid) + outletPaidTotal;
+  const transferredToMaster = Number(data.transferredToMaster || 0);
+  const totalSettled = totalCollected + transferredToMaster;
   const folioPaymentTotals = data.payments.reduce<Record<string, number>>((totals, payment) => {
     const method = payment.method || "OTHER";
     totals[method] = (totals[method] ?? 0) + Number(payment.amount || 0);
@@ -698,7 +724,8 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       return `${label} ${fmtMoney(amount, cur)}`;
     })
     .join(" · ");
-  const settled = data.balanceDue <= 0 && totalCollected > 0;
+  const settled = data.balanceDue <= 0 && totalSettled > 0;
+  const clearedByMaster = settled && transferredToMaster > 0;
   const docTitle = settled ? "RECEIPT" : "INVOICE";
   const CONTENT_LIMIT = A5_H - 96; // keep clear of the signature/footer zone
 
@@ -911,7 +938,7 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
     const folioBreakdownHeight = folioPaymentBreakdown
       ? Math.min(16, doc.heightOfString(folioPaymentBreakdown, { width: totalsW, lineGap: 0.5 }))
       : 0;
-    const totalsRequiredHeight = 155 + (folioBreakdownHeight ? folioBreakdownHeight + 3 : 0);
+    const totalsRequiredHeight = 155 + (transferredToMaster > 0 ? 14 : 0) + (folioBreakdownHeight ? folioBreakdownHeight + 3 : 0);
     if (y + totalsRequiredHeight > CONTENT_LIMIT) {
       doc.addPage({ size: "A5", margin: M });
       drawWatermark();
@@ -932,14 +959,15 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       y += folioBreakdownHeight + 3;
     }
     totalsLine("Outlet payments", fmtMoney(outletPaidTotal, cur));
-    totalsLine("Total collected", fmtMoney(totalCollected, cur), true, TEAL);
+    if (transferredToMaster > 0) totalsLine("Transferred to master", fmtMoney(transferredToMaster, cur));
+    totalsLine("Total settled", fmtMoney(totalSettled, cur), true, TEAL);
     doc.strokeColor(BORDER).lineWidth(0.5).moveTo(totalsX, y + 2).lineTo(M + W, y + 2).stroke();
     y += 5;
     const dueBoxH = 22;
     doc.roundedRect(totalsX, y, totalsW, dueBoxH, 3).fill(settled ? "#dcfce7" : "#fef3c7");
     doc.font(fonts.bold).fontSize(9).fillColor(settled ? "#166534" : AMBER);
     if (settled) {
-      doc.text("PAID IN FULL", totalsX + 8, y + 7, { width: totalsW - 16, align: "center", lineBreak: false });
+      doc.text(clearedByMaster ? "CLEARED TO MASTER FOLIO" : "PAID IN FULL", totalsX + 8, y + 7, { width: totalsW - 16, align: "center", lineBreak: false });
     } else {
       doc.text("FOLIO BALANCE DUE", totalsX + 8, y + 7, { width: totalsLabelW - 8, lineBreak: false });
       doc.font(fonts.bold).fontSize(9).fillColor(AMBER)
@@ -967,4 +995,396 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       .text("Powered by NoLSAF | nolsaf.com", M, footerY, { width: W, align: "center" });
     doc.page.margins.bottom = M;
   }, { size: "A5", margin: M });
+}
+
+// ─── NRMS breakfast list ──────────────────────────────────────
+
+export interface NrmsProFormaPdfData {
+  number: string;
+  revision: number;
+  issuedAt: Date | string;
+  dueAt: Date | string;
+  validUntil: Date | string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  propertyTin?: string | null;
+  propertyEmail?: string | null;
+  propertyPhone?: string | null;
+  billToName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string | null;
+  groupName: string;
+  groupReference: string;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  currency: string;
+  items: Array<{ description: string; detail?: string | null; quantity: number; nights?: number | null; unitRate: number; amount: number }>;
+  payments: Array<{ date: Date | string; method: string; reference?: string | null; receiptNumber: string; amount: number }>;
+  quotedTotal: number;
+  paidAtIssue: number;
+  balanceDue: number;
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankBranch?: string | null;
+  bankSource: string;
+  bankCurrency?: string | null;
+  bankAddress?: string | null;
+  bankSwiftCode?: string | null;
+  bankIban?: string | null;
+  bankRoutingCode?: string | null;
+  bankInstructions?: string | null;
+  paymentReference: string;
+  notes?: string | null;
+  verificationUrl: string;
+  qrPng: Buffer;
+}
+
+/** A4 direct-to-property agency payment request with a secure verification QR. */
+export async function generateNrmsProFormaPdf(data: NrmsProFormaPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const addPage = () => {
+      doc.addPage({ size: "A4", margin: MARGIN });
+      y = MARGIN;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.number} · Revision ${data.revision}`, left, y, { width, align: "right" });
+      y += 22;
+    };
+    const ensure = (height: number) => { if (y + height > pageHeight - 72) addPage(); };
+    const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "—", x, rowY + 11, { width: rowW, ellipsis: true });
+    };
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(21).fillColor(TEAL).text("PRO FORMA INVOICE", left, y, { width, align: "right" });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.number, left, y + 29, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text(`Revision ${data.revision}`, left, y + 42, { width, align: "right" });
+    y += 66;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 16;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("BILL TO", left + 12, y + 11, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.billToName, left + 12, y + 27, { width: cardW - 24, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text(data.contactName, left + 12, y + 47, { width: cardW - 24, ellipsis: true })
+      .text(data.contactEmail, left + 12, y + 61, { width: cardW - 24, ellipsis: true });
+    if (data.contactPhone) doc.text(data.contactPhone, left + 12, y + 75, { width: cardW - 24 });
+    const rightX = left + cardW + cardGap + 12;
+    keyValue("Issue date", dateOnly(data.issuedAt), rightX, y + 11, 105);
+    keyValue("Due date", dateOnly(data.dueAt), rightX + 112, y + 11, 105);
+    keyValue("Valid until", dateOnly(data.validUntil), rightX, y + 52, 105);
+    keyValue("Group reference", data.groupReference, rightX + 112, y + 52, 105);
+    y += 114;
+
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("GROUP DETAILS", left, y, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN).text(data.groupName, left, y + 14, { width: width * 0.55, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(`${dateOnly(data.checkIn)} to ${dateOnly(data.checkOut)}`, left, y + 30, { width: width * 0.55 });
+    if (data.propertyTin) doc.text(`TIN: ${data.propertyTin}`, left, y + 44, { width: width * 0.55 });
+    const propertyContact = [data.propertyEmail, data.propertyPhone].filter(Boolean).join(" · ");
+    if (propertyContact) doc.text(propertyContact, left, y + 58, { width: width * 0.75 });
+    y += 78;
+
+    const cols = { description: 250, qty: 48, rate: 90, amount: width - 388 };
+    const tableHeader = () => {
+      doc.rect(left, y, width, 22).fill(TEAL);
+      doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+        .text("DESCRIPTION", left + 8, y + 7, { width: cols.description - 8 })
+        .text("QTY", left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text("RATE", left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text("AMOUNT", left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      y += 22;
+    };
+    tableHeader();
+    for (const item of data.items) {
+      ensure(42);
+      const detail = item.detail || (item.nights ? `${item.nights} night${item.nights === 1 ? "" : "s"}` : "");
+      const rowH = detail ? 34 : 25;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN).text(item.description, left + 8, y + 6, { width: cols.description - 16, ellipsis: true });
+      if (detail) doc.font(fonts.regular).fontSize(6.8).fillColor(TEXT_MUTED).text(detail, left + 8, y + 19, { width: cols.description - 16, ellipsis: true });
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+        .text(String(item.quantity), left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text(fmtMoney(item.unitRate, cur), left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text(fmtMoney(item.amount, cur), left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(left, y + rowH).lineTo(left + width, y + rowH).stroke();
+      y += rowH;
+    }
+
+    ensure(112 + data.payments.length * 28);
+    y += 13;
+    if (data.payments.length) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("PAYMENTS ALREADY RECEIVED", left, y, { characterSpacing: 1 });
+      y += 16;
+      for (const payment of data.payments) {
+        doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+          .text(dateOnly(payment.date), left, y, { width: 72 })
+          .text(payment.method.replace(/_/g, " "), left + 76, y, { width: 80 })
+          .text(payment.reference || payment.receiptNumber, left + 160, y, { width: 190, ellipsis: true })
+          .text(fmtMoney(payment.amount, cur), left + 355, y, { width: width - 355, align: "right" });
+        y += 18;
+      }
+      y += 6;
+    }
+
+    const totalsX = left + width - 230;
+    const totalLine = (label: string, value: number, bold = false, color = TEXT_MAIN) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text(label, totalsX, y, { width: 120 });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(9).fillColor(color).text(fmtMoney(value, cur), totalsX + 120, y, { width: 110, align: "right" });
+      y += 17;
+    };
+    totalLine("Pro Forma total", data.quotedTotal);
+    totalLine("Payments received", data.paidAtIssue);
+    doc.strokeColor(BORDER).lineWidth(0.8).moveTo(totalsX, y).lineTo(left + width, y).stroke();
+    y += 8;
+    totalLine("AMOUNT REQUESTED", data.balanceDue, true, data.balanceDue > 0 ? AMBER : TEAL);
+    y += 12;
+
+    const hasExtendedBankDetails = Boolean(data.bankSwiftCode || data.bankIban || data.bankRoutingCode || data.bankAddress);
+    const bankCardH = hasExtendedBankDetails ? 146 : 112;
+    ensure(bankCardH + 64);
+    doc.roundedRect(left, y, width, bankCardH, 8).fillAndStroke(LIGHT_TEAL, BORDER);
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text("PAY DIRECTLY TO THE PROPERTY", left + 14, y + 12, { characterSpacing: 0.8 });
+    doc.font(fonts.bold).fontSize(6).fillColor(TEAL)
+      .text("BANK TRANSFER DETAILS", left + 285, y + 13, { width: width - 390, align: "right", characterSpacing: 0.45 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN).text(data.bankName, left + 14, y + 31, { width: 200 });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+      .text(`Account name: ${data.bankAccountName}`, left + 14, y + 48, { width: 285 })
+      .text(`Account number: ${data.bankAccountNumber}`, left + 14, y + 64, { width: 285 })
+      .text(`Payment reference: ${data.paymentReference}`, left + 14, y + 80, { width: 285 });
+    if (data.bankCurrency) doc.text(`Account currency: ${data.bankCurrency}`, left + 300, y + 32, { width: 120 });
+    if (data.bankBranch) doc.text(`Branch: ${data.bankBranch}`, left + 300, y + 48, { width: 120, ellipsis: true });
+    if (data.bankSwiftCode) doc.text(`SWIFT/BIC: ${data.bankSwiftCode}`, left + 300, y + 64, { width: 120, ellipsis: true });
+    if (data.bankRoutingCode) doc.text(`Routing code: ${data.bankRoutingCode}`, left + 300, y + 80, { width: 120, ellipsis: true });
+    if (data.bankIban) doc.text(`IBAN: ${data.bankIban}`, left + 14, y + 98, { width: 405, ellipsis: true });
+    if (data.bankAddress) doc.text(`Bank address: ${data.bankAddress}`, left + 14, y + 114, { width: 405, ellipsis: true });
+    doc.image(data.qrPng, left + width - 88, y + 9, { fit: [76, 76], align: "center", valign: "center" });
+    doc.font(fonts.bold).fontSize(5.8).fillColor(TEXT_MUTED).text("SCAN TO VIEW", left + width - 93, y + 86, { width: 86, align: "center" });
+    y += bankCardH + 14;
+    if (data.bankInstructions) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("TRANSFER INSTRUCTIONS", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.bankInstructions, left, y + 12, { width });
+      y += Math.min(42, doc.heightOfString(data.bankInstructions, { width })) + 18;
+    }
+    if (data.notes) {
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("NOTES", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.notes, left, y + 12, { width });
+      y += Math.min(50, doc.heightOfString(data.notes, { width })) + 18;
+    }
+    ensure(32);
+    y += 4;
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`${data.number} · REV ${data.revision}`, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
+  }, { size: "A4", margin: MARGIN });
+}
+
+export type BreakfastListPdfRow = {
+  sn: number;
+  fullName: string;
+  roomType: string;
+  roomNo: string;
+  adults: number;
+  children: number;
+  mealPlanLabel: string;
+  entitled: boolean;
+  remark: string;
+};
+
+export type BreakfastListPdfData = {
+  propertyName: string;
+  propertyLocation?: string | null;
+  serviceDate: Date | string;
+  nightOf: Date | string;
+  documentNumber: string;
+  generatedAt: Date;
+  preparedBy?: string | null;
+  rows: BreakfastListPdfRow[];
+  totals: { rooms: number; parties: number; adults: number; children: number; covers: number; entitledRooms: number; entitledCovers: number; unverified: number };
+};
+
+/**
+ * The sheet that goes to the restaurant before service. A4 portrait, one line
+ * per occupied room, ruled REMARK column left empty for the floor to write in.
+ *
+ * The header repeats property, service date and the night it covers on every
+ * page, because this page gets separated from its stack the moment service
+ * starts. The totals block is what the kitchen preps against, so it is printed
+ * once at the end where it cannot be mistaken for a page subtotal.
+ */
+export async function generateNrmsBreakfastListPdf(data: BreakfastListPdfData): Promise<Buffer> {
+  const M = 36;
+  const W = PAGE_W - M * 2;
+  const PAGE_H = 841.89; // A4 pt height
+  const FOOTER_ZONE = 104;
+
+  // SN | FULL NAME | ROOM TYPE | ROOM NO | PAX | MEAL PLAN | REMARK
+  const COL_SN = 26;
+  const COL_NAME = 150;
+  const COL_TYPE = 96;
+  const COL_ROOM = 52;
+  const COL_PAX = 38;
+  const COL_PLAN = 78;
+  const COL_REMARK = W - COL_SN - COL_NAME - COL_TYPE - COL_ROOM - COL_PAX - COL_PLAN;
+  const ROW_H = 24;
+
+  const dayLabel = (value: Date | string) =>
+    new Date(value).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = M;
+
+    const header = (includeSummary: boolean) => {
+      const headerH = 62;
+      doc.roundedRect(M, y, W, headerH, 9).fillAndStroke("#ffffff", BORDER);
+      doc.roundedRect(M, y, 6, headerH, 3).fill(TEAL);
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+        .text("FRONT OFFICE  >  RESTAURANT", M + 18, y + 11, { characterSpacing: 1.1, lineBreak: false });
+      doc.font(fonts.bold).fontSize(17).fillColor(DARK)
+        .text("Breakfast service list", M + 18, y + 23, { width: W - 245, lineBreak: false, ellipsis: true });
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(`${data.propertyName}${data.propertyLocation ? `  ·  ${data.propertyLocation}` : ""}  ·  ${data.documentNumber}`, M + 18, y + 47, { width: W - 245, lineBreak: false, ellipsis: true });
+
+      doc.font(fonts.regular).fontSize(6).fillColor(TEXT_MUTED)
+        .text("SERVICE MORNING", M + W - 210, y + 11, { width: 194, align: "right", characterSpacing: 0.8, lineBreak: false });
+      doc.font(fonts.bold).fontSize(10).fillColor(RCPT_HEAD)
+        .text(dayLabel(data.serviceDate), M + W - 230, y + 23, { width: 214, align: "right", lineBreak: false });
+      doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+        .text(`Night covered: ${dayLabel(data.nightOf)}`, M + W - 230, y + 42, { width: 214, align: "right", lineBreak: false });
+      y += headerH + 10;
+
+      if (includeSummary) {
+        const summaryH = 50;
+        const stats: Array<[string, string]> = [
+          ["Rooms", String(data.totals.rooms)],
+          ["Parties", String(data.totals.parties)],
+          ["Adults", String(data.totals.adults)],
+          ["Children", String(data.totals.children)],
+          ["Total covers", String(data.totals.covers)],
+          ["Entitled", String(data.totals.entitledCovers)],
+        ];
+        doc.roundedRect(M, y, W, summaryH, 8).fillAndStroke(LIGHT_TEAL, RCPT_BORDER);
+        const statW = W / stats.length;
+        stats.forEach(([label, value], index) => {
+          const sx = M + statW * index;
+          if (index > 0) {
+            doc.strokeColor(RCPT_BORDER).lineWidth(0.5).moveTo(sx, y + 10).lineTo(sx, y + summaryH - 10).stroke();
+          }
+          doc.font(fonts.regular).fontSize(6).fillColor(TEXT_MUTED)
+            .text(label.toUpperCase(), sx + 7, y + 9, { width: statW - 14, align: "center", characterSpacing: 0.5, lineBreak: false });
+          doc.font(fonts.bold).fontSize(15).fillColor(index >= 4 ? TEAL : RCPT_HEAD)
+            .text(value, sx + 7, y + 23, { width: statW - 14, align: "center", lineBreak: false });
+        });
+        y += summaryH + 10;
+      }
+
+      doc.rect(M, y, W, 20).fill("#edf7f6");
+      doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(M, y + 20).lineTo(M + W, y + 20).stroke();
+      doc.font(fonts.bold).fontSize(6.3).fillColor(RCPT_HEAD);
+      let x = M;
+      const head = (label: string, width: number, align: "left" | "center" = "left") => {
+        doc.text(label, x + 5, y + 7, { width: width - 8, align, characterSpacing: 0.35, lineBreak: false });
+        x += width;
+      };
+      head("NO.", COL_SN);
+      head("GUEST", COL_NAME);
+      head("ROOM TYPE", COL_TYPE);
+      head("ROOM", COL_ROOM, "center");
+      head("PAX", COL_PAX, "center");
+      head("MEAL PLAN", COL_PLAN);
+      head("SERVICE NOTES", COL_REMARK);
+      y += 20;
+    };
+
+    header(true);
+
+    for (const row of data.rows) {
+      if (y + ROW_H > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        y = M;
+        header(false);
+      }
+
+      if (row.sn % 2 === 0) doc.rect(M, y, W, ROW_H).fill("#fafcfb");
+      doc.strokeColor(BORDER).lineWidth(0.4).moveTo(M, y + ROW_H).lineTo(M + W, y + ROW_H).stroke();
+
+      let x = M;
+      const cell = (text: string, width: number, options: { align?: "left" | "center"; bold?: boolean; muted?: boolean } = {}) => {
+        doc.font(options.bold ? fonts.bold : fonts.regular).fontSize(7.5)
+          .fillColor(options.muted ? TEXT_MUTED : TEXT_MAIN)
+          .text(text, x + 5, y + 8, { width: width - 8, align: options.align ?? "left", lineBreak: false, ellipsis: true });
+        x += width;
+      };
+
+      cell(String(row.sn).padStart(2, "0"), COL_SN, { muted: true });
+      cell(row.fullName, COL_NAME, { bold: true });
+      cell(row.roomType, COL_TYPE);
+      cell(row.roomNo || "not set", COL_ROOM, { align: "center", bold: true, muted: !row.roomNo });
+      cell(`${row.adults}+${row.children}`, COL_PAX, { align: "center" });
+      // Meal-plan state is treated as a compact badge so it scans quickly at
+      // the restaurant pass without adding colour noise to every other cell.
+      const planColor = row.entitled ? TEAL : row.mealPlanLabel === "Verify" ? AMBER : TEXT_MUTED;
+      const planBg = row.entitled ? "#eaf8f3" : row.mealPlanLabel === "Verify" ? "#fff7e8" : "#f1f3f3";
+      doc.font(fonts.bold).fontSize(6.7);
+      const planW = Math.min(COL_PLAN - 10, Math.max(36, doc.widthOfString(row.mealPlanLabel) + 13));
+      doc.roundedRect(x + 5, y + 5, planW, 14, 6).fill(planBg);
+      doc.fillColor(planColor)
+        .text(row.mealPlanLabel, x + 11, y + 9, { width: planW - 12, lineBreak: false, ellipsis: true });
+      x += COL_PLAN;
+      doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+        .text(row.remark || "—", x + 6, y + 8, { width: COL_REMARK - 10, lineBreak: false, ellipsis: true });
+
+      // Keep the notes area visibly separate and writable without turning the
+      // whole register into a heavy spreadsheet grid.
+      const notesRule = M + COL_SN + COL_NAME + COL_TYPE + COL_ROOM + COL_PAX + COL_PLAN;
+      doc.strokeColor(BORDER).lineWidth(0.45).moveTo(notesRule, y).lineTo(notesRule, y + ROW_H).stroke();
+      y += ROW_H;
+    }
+
+    if (data.rows.length === 0) {
+      doc.font(fonts.regular).fontSize(9).fillColor(TEXT_MUTED)
+        .text("No occupied rooms for this service date.", M, y + 18, { width: W, align: "center" });
+      y += 44;
+    }
+
+    if (data.totals.unverified > 0) {
+      y += 10;
+      doc.font(fonts.bold).fontSize(7).fillColor(AMBER)
+        .text(`${data.totals.unverified} room(s) have no meal plan on file and print as Verify. Confirm at reception before serving.`, M, y + 7, { width: W, lineBreak: false });
+      y += 18;
+    }
+
+    // Signature pair: what makes this a controlled handover, not a printout.
+    doc.page.margins.bottom = 0;
+    const signY = PAGE_H - 74;
+    doc.strokeColor(TEXT_MUTED).lineWidth(0.5).moveTo(M, signY + 12).lineTo(M + 170, signY + 12).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Prepared by (front office)", M, signY + 16, { lineBreak: false });
+    doc.strokeColor(TEXT_MUTED).lineWidth(0.5).moveTo(M + W - 170, signY + 12).lineTo(M + W, signY + 12).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Received by (restaurant)", M + W - 170, signY + 16, { lineBreak: false });
+    if (data.preparedBy) {
+      doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MAIN)
+        .text(data.preparedBy, M, signY, { width: 170, lineBreak: false });
+    }
+
+    const footerY = PAGE_H - 34;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, footerY - 6).lineTo(M + W, footerY - 6).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(`${data.documentNumber} | generated ${fmtDateTime(data.generatedAt)} | Powered by NoLSAF`, M, footerY, { width: W, align: "center" });
+    doc.page.margins.bottom = M;
+  }, { size: "A4", margin: M });
 }

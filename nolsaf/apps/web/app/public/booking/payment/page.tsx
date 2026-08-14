@@ -28,9 +28,9 @@ const CARD_VERIFICATION_FAILED_MESSAGE =
   "Card verification failed. No payment was taken. Please try again or choose another payment method.";
 
 type PaymentMethod = {
-  id: "Airtel" | "Tigo" | "Mpesa" | "Halopesa";
+  id: "Airtel" | "Tigo" | "Mpesa" | "Halopesa" | "Azampesa";
   name: string;
-  icon: string;
+  icon: string | null;
   description: string;
 };
 
@@ -58,6 +58,12 @@ const PAYMENT_METHODS: PaymentMethod[] = [
     name: "HaloPesa",
     icon: "/assets/halopesa.png",
     description: "Pay with HaloPesa",
+  },
+  {
+    id: "Azampesa",
+    name: "AzamPesa",
+    icon: "/assets/azam-pesa-logo-png.png",
+    description: "Pay with AzamPesa",
   },
 ];
 
@@ -232,6 +238,37 @@ export default function PaymentPage() {
   const [error, setError] = useState<string | null>(null);
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
 
+  // Admin-controlled payment method availability (provider -> { isEnabled, reason }).
+  // Missing entries default to enabled, matching the API's opt-out gate.
+  const [paymentGates, setPaymentGates] = useState<Record<string, { isEnabled: boolean; reason: string | null }> | null>(null);
+  const [paymentGateLoadFailed, setPaymentGateLoadFailed] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/public/service-availability/payment-methods`, { cache: "no-store" });
+        if (!res.ok) throw new Error("payment_gate_unavailable");
+        const list = await res.json();
+        if (!Array.isArray(list)) throw new Error("invalid_payment_gate_response");
+        if (mounted) {
+          const map: Record<string, { isEnabled: boolean; reason: string | null }> = {};
+          for (const pm of list) map[pm.provider] = { isEnabled: !!pm.isEnabled, reason: pm.reason ?? null };
+          setPaymentGates(map);
+          setPaymentGateLoadFailed(false);
+        }
+      } catch {
+        if (mounted) setPaymentGateLoadFailed(true);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  const isProviderEnabled = (provider: string) => paymentGates !== null && (paymentGates[provider]?.isEnabled ?? true);
+  const providerDisabledReason = (provider: string) =>
+    paymentGates?.[provider]?.reason ||
+    (paymentGateLoadFailed ? "Availability could not be verified. Refresh and try again." : "Checking availability…");
+
   // MNO state
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -244,6 +281,13 @@ export default function PaymentPage() {
 
   // Payment channel accordion (null = all collapsed)
   const [paymentChannel, setPaymentChannel] = useState<"MNO" | "BANK" | "CARD" | null>(null);
+
+  useEffect(() => {
+    if (!paymentGates) return;
+    if (selectedMethod && !isProviderEnabled(selectedMethod.id)) setSelectedMethod(null);
+    if (selectedBankCode && !isProviderEnabled(`BANK_${selectedBankCode}`)) setSelectedBankCode("");
+    if (paymentChannel === "CARD" && !isProviderEnabled("CARD")) setPaymentChannel(null);
+  }, [paymentGates, paymentChannel, selectedBankCode, selectedMethod]);
 
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "pending" | "success" | "failed" | "timeout">("idle");
   const [authRequired, setAuthRequired] = useState(false);
@@ -478,6 +522,10 @@ export default function PaymentPage() {
       setError("Please select a mobile network and enter your phone number");
       return;
     }
+    if (!isProviderEnabled(selectedMethod.id)) {
+      setError(providerDisabledReason(selectedMethod.id));
+      return;
+    }
 
     const phoneRegex = /^(\+255|255|0)?[0-9]{9}$/;
     const cleanedPhone = phoneNumber.replace(/\s+/g, "");
@@ -555,6 +603,10 @@ export default function PaymentPage() {
       setError("Please select a bank");
       return;
     }
+    if (!isProviderEnabled(`BANK_${selectedBankCode}`)) {
+      setError(providerDisabledReason(`BANK_${selectedBankCode}`));
+      return;
+    }
     const cleanedBankMobile = bankMobileNumber.replace(/\s+/g, "");
     const phoneRegex = /^(\+255|255|0)?[0-9]{9}$/;
     if (!bankAccountNumber.trim()) {
@@ -616,6 +668,10 @@ export default function PaymentPage() {
 
   async function handleCardPayment() {
     if (!invoice) return;
+    if (!isProviderEnabled("CARD")) {
+      setError(providerDisabledReason("CARD"));
+      return;
+    }
 
     setError(null);
     setAuthRequired(false);
@@ -1036,11 +1092,16 @@ export default function PaymentPage() {
                   {(!paymentChannel || paymentChannel === "CARD") && (
                     <button
                       type="button"
-                      onClick={() => toggleChannel("CARD")}
+                      disabled={!isProviderEnabled("CARD")}
+                      aria-disabled={!isProviderEnabled("CARD")}
+                      title={isProviderEnabled("CARD") ? undefined : providerDisabledReason("CARD")}
+                      onClick={() => isProviderEnabled("CARD") && toggleChannel("CARD")}
                       className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 text-left transition-all duration-200 ${
-                        paymentChannel === "CARD"
-                          ? "border-violet-300 bg-violet-50 shadow-lg shadow-violet-100"
-                          : "border-slate-100 bg-white shadow-sm hover:border-slate-200 hover:shadow-md"
+                        !isProviderEnabled("CARD")
+                          ? "border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed grayscale"
+                          : paymentChannel === "CARD"
+                            ? "border-violet-300 bg-violet-50 shadow-lg shadow-violet-100"
+                            : "border-slate-100 bg-white shadow-sm hover:border-slate-200 hover:shadow-md"
                       }`}
                     >
                       <div className={`p-2.5 rounded-xl flex-shrink-0 transition-colors ${
@@ -1052,7 +1113,9 @@ export default function PaymentPage() {
                         <div className={`font-bold text-[15px] transition-colors ${paymentChannel === "CARD" ? "text-violet-900" : "text-slate-900"}`}>
                           Debit / Credit Card
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5 font-medium">Visa · Mastercard · Secure checkout</div>
+                        <div className="text-xs text-slate-400 mt-0.5 font-medium">
+                          {isProviderEnabled("CARD") ? "Visa · Mastercard · Secure checkout" : providerDisabledReason("CARD")}
+                        </div>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
                         paymentChannel === "CARD" ? "border-violet-600 bg-violet-600" : "border-slate-300"
@@ -1073,39 +1136,61 @@ export default function PaymentPage() {
                       {paymentChannel === "MNO" && (
                         <>
                           <div className="grid grid-cols-2 gap-3 lg:gap-4">
-                            {PAYMENT_METHODS.map((method) => (
-                              <button
-                                key={method.id}
-                                type="button"
-                                onClick={() => setSelectedMethod(method)}
-                                className={`group relative p-3.5 lg:p-4 rounded-lg border-2 transition-all duration-300 ${
-                                  selectedMethod?.id === method.id
-                                    ? "border-[#02665e] bg-gradient-to-br from-[#02665e]/10 to-blue-50/50 shadow-md ring-2 ring-[#02665e]/20"
-                                    : "border-slate-200 hover:border-[#02665e]/50 hover:shadow-md bg-white"
-                                }`}
-                              >
-                                <div className="flex flex-col items-center text-center gap-2">
-                                  <div className="relative h-16 w-24 flex-shrink-0">
-                                    <Image src={method.icon} alt={method.name} fill sizes="96px" className="object-contain" />
-                                  </div>
-                                  <div className="w-full">
-                                    <div className={`font-bold text-sm lg:text-base mb-0.5 ${
-                                      selectedMethod?.id === method.id ? "text-[#02665e]" : "text-slate-900"
-                                    }`}>
-                                      {method.name}
+                            {PAYMENT_METHODS.map((method) => {
+                              const enabled = isProviderEnabled(method.id);
+                              return (
+                                <button
+                                  key={method.id}
+                                  type="button"
+                                  disabled={!enabled}
+                                  aria-disabled={!enabled}
+                                  onClick={() => enabled && setSelectedMethod(method)}
+                                  title={enabled ? undefined : providerDisabledReason(method.id)}
+                                  className={`group relative p-3.5 lg:p-4 rounded-lg border-2 transition-all duration-300 ${
+                                    !enabled
+                                      ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed grayscale"
+                                      : selectedMethod?.id === method.id
+                                        ? "border-[#02665e] bg-gradient-to-br from-[#02665e]/10 to-blue-50/50 shadow-md ring-2 ring-[#02665e]/20"
+                                        : "border-slate-200 hover:border-[#02665e]/50 hover:shadow-md bg-white"
+                                  }`}
+                                >
+                                  <div className="flex flex-col items-center text-center gap-2">
+                                    <div className="relative h-16 w-24 flex-shrink-0">
+                                      {method.icon ? (
+                                        <Image
+                                          src={method.icon}
+                                          alt={method.name}
+                                          fill
+                                          sizes="96px"
+                                          className={`object-contain ${method.id === "Azampesa" ? "mix-blend-multiply drop-shadow-none" : ""}`}
+                                        />
+                                      ) : (
+                                        <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-[#02665e]/10 text-sm font-bold text-[#02665e]">
+                                          AzamPesa
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="text-xs text-slate-600">{method.description}</div>
-                                  </div>
-                                  {selectedMethod?.id === method.id && (
-                                    <div className="absolute top-1.5 right-1.5">
-                                      <div className="w-5 h-5 rounded-full bg-[#02665e] flex items-center justify-center shadow-md">
-                                        <CheckCircle2 className="w-3 h-3 text-white" />
+                                    <div className="w-full">
+                                      <div className={`font-bold text-sm lg:text-base mb-0.5 ${
+                                        selectedMethod?.id === method.id ? "text-[#02665e]" : "text-slate-900"
+                                      }`}>
+                                        {method.name}
+                                      </div>
+                                      <div className="text-xs text-slate-600">
+                                        {enabled ? method.description : providerDisabledReason(method.id)}
                                       </div>
                                     </div>
-                                  )}
-                                </div>
-                              </button>
-                            ))}
+                                    {selectedMethod?.id === method.id && enabled && (
+                                      <div className="absolute top-1.5 right-1.5">
+                                        <div className="w-5 h-5 rounded-full bg-[#02665e] flex items-center justify-center shadow-md">
+                                          <CheckCircle2 className="w-3 h-3 text-white" />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
                           </div>
 
                           <div className="min-w-0">
@@ -1130,7 +1215,7 @@ export default function PaymentPage() {
                           <button
                             type="button"
                             onClick={handleMnoPayment}
-                            disabled={isDisabled || !selectedMethod || !phoneNumber.trim()}
+                            disabled={isDisabled || !selectedMethod || !phoneNumber.trim() || !isProviderEnabled(selectedMethod.id)}
                             className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#02665e] to-[#014e47] text-white font-semibold hover:from-[#014e47] hover:to-[#02665e] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
                           >
                             {submitting ? (
@@ -1184,15 +1269,21 @@ export default function PaymentPage() {
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               {BANK_PROVIDERS.map((bank) => {
                                 const active = selectedBankCode === bank.code;
+                                const enabled = isProviderEnabled(`BANK_${bank.code}`);
                                 return (
                                   <button
                                     key={bank.code}
                                     type="button"
-                                    onClick={() => setSelectedBankCode(bank.code)}
+                                    disabled={!enabled}
+                                    aria-disabled={!enabled}
+                                    title={enabled ? undefined : providerDisabledReason(`BANK_${bank.code}`)}
+                                    onClick={() => enabled && setSelectedBankCode(bank.code)}
                                     className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                                      active
-                                        ? bank.activeClass
-                                        : "border-slate-200 bg-white text-slate-800 hover:border-emerald-200 hover:bg-emerald-50/40"
+                                      !enabled
+                                        ? "border-slate-200 bg-slate-50 opacity-50 cursor-not-allowed grayscale"
+                                        : active
+                                          ? bank.activeClass
+                                          : "border-slate-200 bg-white text-slate-800 hover:border-emerald-200 hover:bg-emerald-50/40"
                                     }`}
                                   >
                                     <span className="relative flex h-11 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg">
@@ -1200,9 +1291,11 @@ export default function PaymentPage() {
                                     </span>
                                     <span className="min-w-0 flex-1">
                                       <span className="block text-sm font-bold">{bank.name}</span>
-                                      <span className="mt-0.5 block text-xs text-slate-500">{bank.code} SIM banking OTP</span>
+                                      <span className="mt-0.5 block text-xs text-slate-500">
+                                        {enabled ? `${bank.code} SIM banking OTP` : providerDisabledReason(`BANK_${bank.code}`)}
+                                      </span>
                                     </span>
-                                    <span className={`h-4 w-4 rounded-full border-2 ${active ? bank.dotClass : "border-slate-300"}`} />
+                                    <span className={`h-4 w-4 rounded-full border-2 ${active && enabled ? bank.dotClass : "border-slate-300"}`} />
                                   </button>
                                 );
                               })}
@@ -1276,7 +1369,7 @@ export default function PaymentPage() {
                           <button
                             type="button"
                             onClick={handleBankPayment}
-                            disabled={isDisabled || !bankReady}
+                            disabled={isDisabled || !bankReady || !isProviderEnabled(`BANK_${selectedBankCode}`)}
                             className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#02665e] to-[#014e47] text-white font-semibold hover:from-[#014e47] hover:to-[#02665e] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
                           >
                             {submitting ? (
@@ -1318,7 +1411,7 @@ export default function PaymentPage() {
                           <button
                             type="button"
                             onClick={handleCardPayment}
-                            disabled={isDisabled}
+                            disabled={isDisabled || !isProviderEnabled("CARD")}
                             className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-violet-600 to-violet-700 text-white font-semibold hover:from-violet-700 hover:to-violet-800 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
                           >
                             {submitting ? (

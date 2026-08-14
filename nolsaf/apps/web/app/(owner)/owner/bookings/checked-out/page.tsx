@@ -179,7 +179,7 @@ export default function OwnerCheckedOutPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+    <div className="w-full max-w-none space-y-6 px-3 pb-10 sm:px-5 lg:px-6 xl:px-8">
       {/* Audit modal */}
       {auditOpen && auditTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]">
@@ -188,9 +188,6 @@ export default function OwnerCheckedOutPage() {
               <div className="min-w-0">
                 <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Audit History</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 truncate">{auditTarget.property?.title ?? "—"}</div>
-                <div className="text-xs text-slate-600 mt-1">
-                  Booking <span className="font-semibold text-slate-900">#{auditTarget.id}</span>
-                </div>
               </div>
               <button
                 type="button"
@@ -290,7 +287,7 @@ export default function OwnerCheckedOutPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* Total */}
         <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total checked-out</div>
@@ -362,7 +359,18 @@ export default function OwnerCheckedOutPage() {
           </div>
 
           <div className={`overflow-x-auto ${refreshing ? "opacity-60" : ""} transition-opacity duration-200`}>
-            <table className="min-w-[1250px] w-full text-sm">
+            <table className="w-full min-w-[1400px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[15%]" />
+                <col className="w-[7%]" />
+                <col className="w-[15%]" />
+                <col className="w-[10%]" />
+                <col className="w-[12%]" />
+                <col className="w-[12%]" />
+                <col className="w-[13%]" />
+                <col className="w-[10%]" />
+                <col className="w-[6%]" />
+              </colgroup>
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
                   <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Property</th>
@@ -371,9 +379,9 @@ export default function OwnerCheckedOutPage() {
                   <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Phone</th>
                   <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Check-in</th>
                   <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Check-out</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Overdue</th>
-                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
-                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500">Actions</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Overdue</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Amount</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -381,30 +389,28 @@ export default function OwnerCheckedOutPage() {
                   <TableRow key={b.id} className="align-middle">
                     <td className="px-5 py-3.5">
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate text-sm">{b.property?.title ?? "—"}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">Booking #{b.id}</div>
+                        <div className="truncate whitespace-nowrap text-sm font-semibold text-slate-900" title={b.property?.title ?? "—"}>{b.property?.title ?? "—"}</div>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 whitespace-nowrap">
+                    <td className="overflow-hidden px-4 py-3.5 whitespace-nowrap">
                       <span className="font-mono font-bold text-slate-900 tracking-widest text-xs">{b.codeVisible ?? "—"}</span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <div className="font-bold text-slate-900 text-sm">{b.guestName ?? "—"}</div>
+                      <div className="truncate whitespace-nowrap text-sm font-semibold text-slate-900" title={b.guestName ?? "—"}>{b.guestName ?? "—"}</div>
                       <div className="text-xs text-slate-400 mt-0.5">{b.roomType ?? b.roomCode ?? ""}</div>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-slate-600 text-xs">{b.guestPhone ?? "—"}</td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-slate-600 text-xs">{formatDateTime(b.checkIn)}</td>
                     <td className="px-5 py-3.5 whitespace-nowrap text-slate-600 text-xs">{formatDateTime(b.checkOut)}</td>
-                    <td className="px-5 py-3.5 whitespace-nowrap">
+                    <td className="overflow-hidden px-4 py-3.5 whitespace-nowrap">
                       {String(b.checkoutTiming ?? "UNKNOWN").toUpperCase() === "OVERDUE" ? (
                         <span
-                          className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700"
+                          className="inline-flex max-w-full items-center whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700"
                           title={b.checkoutConfirmedAt ? `Confirmed: ${formatDateTime(b.checkoutConfirmedAt)}` : "Overdue"}
                         >
-                          OVERDUE
                           {typeof b.overdueDays === "number" || typeof b.overdueHours === "number"
-                            ? ` (${typeof b.overdueDays === "number" ? `${b.overdueDays}d` : ""}${typeof b.overdueDays === "number" && typeof b.overdueHours === "number" ? ", " : ""}${typeof b.overdueHours === "number" ? `${b.overdueHours}h` : ""})`
-                            : ""}
+                            ? `${typeof b.overdueDays === "number" ? `${b.overdueDays}d` : ""}${typeof b.overdueDays === "number" && typeof b.overdueHours === "number" ? " " : ""}${typeof b.overdueHours === "number" ? `${b.overdueHours}h` : ""} overdue`
+                            : "OVERDUE"}
                         </span>
                       ) : String(b.checkoutTiming ?? "UNKNOWN").toUpperCase() === "NORMAL" ? (
                         <span
@@ -422,8 +428,8 @@ export default function OwnerCheckedOutPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 whitespace-nowrap font-black text-slate-900">{formatCurrencyTZS(b.ownerBaseAmount ?? Math.max(0, Number(b.totalAmount ?? 0) - Number(b.transportFare ?? 0)))}</td>
-                    <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                    <td className="overflow-hidden px-3 py-3.5 whitespace-nowrap text-[13px] font-semibold tabular-nums text-slate-900">{formatCurrencyTZS(b.ownerBaseAmount ?? Math.max(0, Number(b.totalAmount ?? 0) - Number(b.transportFare ?? 0)))}</td>
+                    <td className="px-3 py-3.5 whitespace-nowrap text-right">
                       <button
                         type="button"
                         onClick={() => openAudit(b)}

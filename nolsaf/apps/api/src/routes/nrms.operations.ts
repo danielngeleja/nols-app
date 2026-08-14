@@ -7,9 +7,10 @@ import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
-import { ensureBusinessDay, expectedCashForShift, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
+import { voidRoutedCharge } from "../lib/nrmsMasterFolio.js";
 import {
   HOUSEKEEPING_STATUSES,
   HOUSEKEEPING_TASK_PRIORITIES,
@@ -28,6 +29,8 @@ import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "../lib/restrictionCa
 import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
+import { buildBreakfastList } from "../lib/nrmsBreakfastList.js";
+import { generateNrmsBreakfastListPdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
 import {
   generateOrderPointToken,
@@ -82,6 +85,25 @@ const outletSchema = z.object({
   type: z.enum(OUTLET_TYPES),
   currency: z.string().trim().length(3).optional(),
 });
+
+const RESTAURANT_MENU_CATEGORIES = new Set([
+  "Breakfast", "Starters", "Soups", "Salads", "Local specialities", "Main courses",
+  "Grills and barbecue", "Seafood", "Chicken dishes", "Meat dishes", "Vegetarian and vegan",
+  "Rice dishes", "Pasta and noodles", "Pizza", "Burgers and sandwiches", "Sides", "Kids menu",
+  "Desserts", "Tea and coffee", "Fresh juices", "Soft drinks", "Water",
+]);
+
+const BAR_MENU_CATEGORIES = new Set([
+  "Beer", "Cider", "Red wine", "White wine", "Rosé wine", "Sparkling wine", "Whisky", "Gin",
+  "Vodka", "Rum", "Tequila", "Brandy and cognac", "Liqueurs", "Cocktails", "Mocktails",
+  "Soft drinks and mixers", "Energy drinks", "Water", "Bar snacks",
+]);
+
+export function menuCategoryAllowed(outletType: string, category: string): boolean {
+  if (outletType === "RESTAURANT") return RESTAURANT_MENU_CATEGORIES.has(category);
+  if (outletType === "BAR") return BAR_MENU_CATEGORIES.has(category);
+  return RESTAURANT_MENU_CATEGORIES.has(category) || BAR_MENU_CATEGORIES.has(category);
+}
 
 const menuItemSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -251,10 +273,11 @@ function formatOrder(order: any) {
   // guest's whole stay is settled, not per outlet ticket. Once that reservation
   // balance is at zero, "no tip recorded" is a finished fact, not an open task
   // for staff to keep chasing on this specific order.
+  const transferredToMaster = (order.reservation?.masterFolioItems ?? []).reduce((sum: number, item: any) => sum + number(item.amount), 0);
   const reservationSettled = order.settlementMode === "ROOM_FOLIO" && order.reservation
-    ? computeOutstanding(order.reservation.totalAmount, order.reservation.chargesTotal, order.reservation.amountPaid) <= 0
+    ? computeOutstanding(order.reservation.totalAmount, order.reservation.chargesTotal, number(order.reservation.amountPaid) + transferredToMaster) <= 0
     : false;
-  const { totalAmount: _totalAmount, chargesTotal: _chargesTotal, amountPaid: _amountPaid, ...reservationPublic } = order.reservation ?? {};
+  const { totalAmount: _totalAmount, chargesTotal: _chargesTotal, amountPaid: _amountPaid, masterFolioItems: _masterFolioItems, ...reservationPublic } = order.reservation ?? {};
   return {
     ...order,
     subtotal: number(order.subtotal),
@@ -278,6 +301,7 @@ const orderInclude = {
       totalAmount: true,
       chargesTotal: true,
       amountPaid: true,
+      masterFolioItems: { where: { voidedAt: null }, select: { amount: true } },
       guestProfile: { select: { fullName: true } },
       allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } },
     },
@@ -316,6 +340,105 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
   }
   const properties = [...byProperty.values()];
   res.json({ viewer: { firstName }, entitled: properties.length > 0, workspaceMode: properties.length > 0 ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties });
+}) as RequestHandler);
+
+/**
+ * Breakfast list, the sheet the restaurant serves the morning from.
+ *
+ * Lives on the operations router rather than the owner one because it is a
+ * handover between two desks: front office prepares it, the restaurant works
+ * from it, and both need to be able to open and print it.
+ *
+ * Two routes over one builder, so the list reviewed on screen and the PDF
+ * carried to the pass can never disagree. Defaults to tomorrow's service,
+ * because the sheet is produced at night audit for the morning ahead, while
+ * the kitchen still has time to act on the numbers.
+ */
+const BREAKFAST_LIST_ROLES: AccessRole[] = ["OWNER", "MANAGER", "FRONT_DESK", "RESTAURANT"];
+
+const breakfastListQuery = z.object({
+  date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  entitledOnly: z.union([z.literal("1"), z.literal("true")]).optional(),
+});
+
+/** Tomorrow as a business date in the operating timezone. */
+function defaultBreakfastServiceDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Dar_es_Salaam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.now() + 86400000));
+}
+
+async function loadBreakfastList(req: AuthedRequest, res: Response) {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return null;
+  if (!BREAKFAST_LIST_ROLES.includes(access.role)) {
+    res.status(403).json({ error: "Your role cannot open the breakfast list" });
+    return null;
+  }
+  const query = breakfastListQuery.parse(req.query);
+  const serviceDate = query.date ?? defaultBreakfastServiceDate();
+  const list = await buildBreakfastList({
+    propertyId: access.property.id,
+    propertyTitle: access.property.title,
+    serviceDate,
+    entitledOnly: !!query.entitledOnly,
+  });
+  return { access, list, serviceDate };
+}
+
+function breakfastPdfFilename(propertyName: string, serviceDate: string): string {
+  const safeProperty = propertyName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 &()_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "HOTEL";
+  return `${safeProperty}_BREAKFAST_${serviceDate.replace(/-/g, "")}.pdf`;
+}
+
+router.get("/property/:propertyId/breakfast-list", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadBreakfastList(req, res);
+    if (!loaded) return;
+    res.json({ ok: true, ...loaded.list });
+  } catch (err) {
+    console.error("[nrms.operations] breakfast list failed", err);
+    res.status(500).json({ error: "Failed to build the breakfast list" });
+  }
+}) as RequestHandler);
+
+router.get("/property/:propertyId/breakfast-list.pdf", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadBreakfastList(req, res);
+    if (!loaded) return;
+    const { list, serviceDate } = loaded;
+
+    // Every print gets its own number on purpose: two copies on the pass with
+    // different counts must be tellable apart at a glance.
+    const documentNumber = `BFL-${loaded.access.property.id}-${serviceDate.replace(/-/g, "")}-${generateNrmsRandomCode()}`;
+    const pdf = await generateNrmsBreakfastListPdf({
+      propertyName: loaded.access.property.title,
+      serviceDate,
+      nightOf: list.nightOf,
+      documentNumber,
+      generatedAt: list.generatedAt,
+      preparedBy: req.user?.name ?? null,
+      rows: list.rows,
+      totals: list.totals,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${breakfastPdfFilename(loaded.access.property.title, serviceDate)}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(pdf);
+  } catch (err) {
+    console.error("[nrms.operations] breakfast list pdf failed", err);
+    res.status(500).json({ error: "Failed to generate the breakfast list" });
+  }
 }) as RequestHandler);
 
 router.get("/property/:propertyId/context", (async (req: AuthedRequest, res: Response) => {
@@ -709,13 +832,18 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
   }
   const parsed = menuItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid menu item", details: parsed.error.flatten() });
+  const category = parsed.data.category?.trim();
+  if (!category) return res.status(400).json({ error: "Choose a menu category" });
+  if (!menuCategoryAllowed(resolved.outlet.type, category)) {
+    return res.status(400).json({ error: `Choose a category available for this ${resolved.outlet.type === "BAR" ? "bar" : resolved.outlet.type === "RESTAURANT" ? "restaurant" : "outlet"}` });
+  }
   const menuQuota = await checkNrmsQuota(db, resolved.outlet.propertyId, "menuItems");
   if (!menuQuota.allowed) return res.status(409).json({ error: "NRMS menu item quota reached", quota: menuQuota });
   const item = await db.nrmsMenuItem.create({
     data: {
       outletId: resolved.outlet.id,
       name: sanitizeText(parsed.data.name),
-      category: parsed.data.category ? sanitizeText(parsed.data.category) : null,
+      category: sanitizeText(category),
       sku: parsed.data.sku ? sanitizeText(parsed.data.sku).toUpperCase() : null,
       price: parsed.data.price,
       description: parsed.data.description ? sanitizeText(parsed.data.description) : null,
@@ -744,9 +872,16 @@ router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Respons
   const parsed = menuItemUpdateSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid menu item update", details: parsed.error.flatten() });
   const input = parsed.data;
+  if (input.category !== undefined) {
+    const category = input.category?.trim();
+    if (!category) return res.status(400).json({ error: "Choose a menu category" });
+    if (!menuCategoryAllowed(resolved.outlet.type, category)) {
+      return res.status(400).json({ error: `Choose a category available for this ${resolved.outlet.type === "BAR" ? "bar" : resolved.outlet.type === "RESTAURANT" ? "restaurant" : "outlet"}` });
+    }
+  }
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) data.name = sanitizeText(input.name);
-  if (input.category !== undefined) data.category = input.category ? sanitizeText(input.category) : null;
+  if (input.category !== undefined) data.category = sanitizeText(input.category!);
   if (input.sku !== undefined) data.sku = input.sku ? sanitizeText(input.sku).toUpperCase() : null;
   if (input.price !== undefined) data.price = input.price;
   if (input.description !== undefined) data.description = input.description ? sanitizeText(input.description) : null;
@@ -1205,6 +1340,7 @@ router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Respons
       return res.status(409).json({ error: "This order cannot move to the next stage from its current status." });
     }
     if (code === "NRMS_ORDER_TENDER_REQUIRED") return res.status(400).json({ error: "Select how the outlet payment was received before settling this order." });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed. The order cannot be settled or posted now.", code });
     console.error("Failed to advance NRMS outlet order", error);
     return res.status(500).json({ error: "Unable to advance the order" });
   }
@@ -1256,19 +1392,28 @@ router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) =
     if (!roleCanCorrect(access) && recipientId !== req.user!.id) return res.status(403).json({ error: "Only a manager or outlet supervisor can assign a tip to another team member." });
   }
 
-  const updated = await db.nrmsOutletOrder.update({
-    where: { id: orderId },
-    data: {
-      paymentAmountReceived: amountReceived,
-      tipAmount: tipAmount > 0 ? tipAmount : null,
-      tipRecipientId: tipAmount > 0 ? parsed.data.tipRecipientId : null,
-      tipMethod: tipAmount > 0 ? parsed.data.tipMethod : null,
-      tipConfirmedById: tipAmount > 0 ? req.user!.id : null,
-      tipConfirmedAt: tipAmount > 0 ? new Date() : null,
-    },
-    include: orderInclude,
-  });
-  res.json({ order: formatOrder(updated) });
+  try {
+    const updated = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, seed.propertyId);
+      await assertNrmsBusinessDayWritable(tx, seed.propertyId);
+      return tx.nrmsOutletOrder.update({
+        where: { id: orderId },
+        data: {
+          paymentAmountReceived: amountReceived,
+          tipAmount: tipAmount > 0 ? tipAmount : null,
+          tipRecipientId: tipAmount > 0 ? parsed.data.tipRecipientId : null,
+          tipMethod: tipAmount > 0 ? parsed.data.tipMethod : null,
+          tipConfirmedById: tipAmount > 0 ? req.user!.id : null,
+          tipConfirmedAt: tipAmount > 0 ? new Date() : null,
+        },
+        include: orderInclude,
+      });
+    }, ORDER_TX_OPTIONS);
+    res.json({ order: formatOrder(updated) });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed. The tip cannot be changed now.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response) => {
@@ -1311,11 +1456,13 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
   try {
     await db.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, seed.propertyId);
+      await assertNrmsBusinessDayWritable(tx, seed.propertyId);
       const order = await tx.nrmsOutletOrder.findUnique({ where: { id: seed.id } });
       if (!order) throw new Error("NRMS_ORDER_NOT_VOIDABLE");
       const now = new Date();
       if (order.status === "POSTED_TO_FOLIO" && order.folioChargeId) {
         await tx.reservationCharge.update({ where: { id: order.folioChargeId }, data: { voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
+        await voidRoutedCharge(tx, order.folioChargeId, sanitizeText(parsed.data.reason));
         const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
         await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });
         await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
@@ -1330,6 +1477,7 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
       }
     }, ORDER_TX_OPTIONS);
   } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed. Post a controlled correction on an open date.", code: NRMS_BUSINESS_DAY_LOCKED });
     if (error instanceof Error && error.message === "NRMS_ORDER_NOT_VOIDABLE") {
       return res.status(409).json({ error: "Only a posted folio charge or a settled outlet-paid sale can be voided" });
     }
@@ -1633,16 +1781,58 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
     // hand out, so it never appears mixed into this admin list.
     db.nrmsOrderPoint.findMany({
       where: { propertyId: access.property.id, type: { not: "PREVIEW" } },
-      include: { roomUnit: { select: { id: true, code: true, floor: true, status: true } } },
+      include: {
+        roomUnit: {
+          select: {
+            id: true,
+            code: true,
+            floor: true,
+            status: true,
+            allocations: {
+              where: { status: "ACTIVE", reservation: { status: "CHECKED_IN" } },
+              select: {
+                reservation: {
+                  select: {
+                    id: true,
+                    checkIn: true,
+                    checkOut: true,
+                    checkedInAt: true,
+                    guestProfile: { select: { fullName: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: [{ type: "asc" }, { label: "asc" }],
     }),
     db.property.findUnique({ where: { id: access.property.id }, select: { nrmsGuestPayInstructions: true } }),
   ]);
   res.json({
-    orderPoints: points.map((p: any) => ({
-      ...p,
-      menuUrl: p.active ? buildMenuUrl(p.token) : null,
-    })),
+    orderPoints: points.map((p: any) => {
+      const activeStay = [...(p.roomUnit?.allocations ?? [])]
+        .sort((left: any, right: any) => {
+          const leftTime = left.reservation.checkedInAt ? new Date(left.reservation.checkedInAt).getTime() : 0;
+          const rightTime = right.reservation.checkedInAt ? new Date(right.reservation.checkedInAt).getTime() : 0;
+          return rightTime - leftTime;
+        })[0]?.reservation ?? null;
+      return {
+        ...p,
+        roomUnit: p.roomUnit
+          ? { id: p.roomUnit.id, code: p.roomUnit.code, floor: p.roomUnit.floor, status: p.roomUnit.status }
+          : null,
+        currentStay: activeStay
+          ? {
+              reservationId: activeStay.id,
+              guestName: activeStay.guestProfile?.fullName ?? null,
+              checkIn: activeStay.checkIn,
+              checkOut: activeStay.checkOut,
+            }
+          : null,
+        menuUrl: p.active ? buildMenuUrl(p.token) : null,
+      };
+    }),
     guestPayInstructions: Array.isArray(propertyRow?.nrmsGuestPayInstructions) ? propertyRow.nrmsGuestPayInstructions : [],
   });
 }) as RequestHandler);

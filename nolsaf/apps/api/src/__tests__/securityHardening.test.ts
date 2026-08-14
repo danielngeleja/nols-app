@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { validateSecrets } from "../lib/validateSecrets";
-import { isCloudinaryFileTypeAllowed } from "../routes/uploads.cloudinary";
+import { isCloudinaryFileTypeAllowed, maxCloudinaryUploadBytesForFolder } from "../routes/uploads.cloudinary";
 import { isCareerResumeFileTypeAllowed } from "../routes/public.careers.apply";
 import { bankInitiateSchema } from "../routes/payments.azampay.bank";
+import { BANK_PROVIDER_CATALOG } from "../lib/azampay.helpers";
 import { isWebhookIpAllowed } from "../routes/webhooks.payments";
+import { menuCategoryAllowed } from "../routes/nrms.operations";
 
 const originalEnv = { ...process.env };
 
@@ -70,6 +72,21 @@ describe("security hardening", () => {
     expect(isCloudinaryFileTypeAllowed("application/javascript")).toBe(false);
   });
 
+  it("caps NRMS menu photos at 2MB, including nested menu folders", () => {
+    expect(maxCloudinaryUploadBytesForFolder("nrms-menu")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("nrms-menu/property-1")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("properties")).toBeNull();
+  });
+
+  it("keeps restaurant and bar menu categories separated", () => {
+    expect(menuCategoryAllowed("RESTAURANT", "Breakfast")).toBe(true);
+    expect(menuCategoryAllowed("RESTAURANT", "Whisky")).toBe(false);
+    expect(menuCategoryAllowed("BAR", "Whisky")).toBe(true);
+    expect(menuCategoryAllowed("BAR", "Breakfast")).toBe(false);
+    expect(menuCategoryAllowed("OTHER", "Breakfast")).toBe(true);
+    expect(menuCategoryAllowed("OTHER", "Whisky")).toBe(true);
+  });
+
   it("keeps public career resume uploads restricted to document MIME types", () => {
     expect(isCareerResumeFileTypeAllowed("application/pdf")).toBe(true);
     expect(isCareerResumeFileTypeAllowed("application/msword")).toBe(true);
@@ -120,11 +137,11 @@ describe("AzamPay bank checkout schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts all 15 supported bank codes", () => {
-    const supported = ["CRDB","NMB","NBC","STANBIC","EQUITY","IM","ABSA","TCB","BOA","DTB","UBA","AZANIA","KCB","NCBA","YETU"] as const;
-    for (const bankCode of supported) {
-      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode, ...validBankFields });
-      expect(result.success, `Expected ${bankCode} to be accepted`).toBe(true);
+  it("catalogues all 15 provider banks but accepts only deliberately published checkout banks", () => {
+    expect(BANK_PROVIDER_CATALOG).toHaveLength(15);
+    for (const bank of BANK_PROVIDER_CATALOG) {
+      const result = bankInitiateSchema.safeParse({ invoiceId: 1, bankCode: bank.code, ...validBankFields });
+      expect(result.success, `Unexpected checkout policy for ${bank.code}`).toBe(bank.checkoutEnabled);
     }
   });
 

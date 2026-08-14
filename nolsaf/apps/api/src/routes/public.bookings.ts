@@ -16,6 +16,7 @@ import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js"
 import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlocks.js";
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
+import { getTransportAvailability } from "../lib/serviceAvailability.js";
 
 /** Sign a short-lived token proving the caller created this booking. */
 function signBookingAccessToken(bookingId: number): string {
@@ -456,6 +457,9 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         roomsSpec: true,
         latitude: true,
         longitude: true,
+        regionName: true,
+        district: true,
+        ward: true,
         owner: {
           select: {
             id: true,
@@ -477,6 +481,19 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         reason: `Property status is ${property.status}`,
         requestId,
       });
+    }
+
+    // Never trust the client's disabled-toggle state — re-check the transport
+    // gate for this property's region/district/ward server-side.
+    if (data.includeTransport) {
+      const transportGate = await getTransportAvailability(property);
+      if (!transportGate.enabled) {
+        return res.status(400).json({
+          error: "transport_unavailable",
+          message: transportGate.reason,
+          requestId,
+        });
+      }
     }
 
     // Check guest capacity

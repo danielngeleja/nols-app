@@ -1,6 +1,5 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '@nolsaf/prisma';
-import { Prisma } from '@prisma/client';
 import { requireAuth, requireRole, blockImpersonated } from '../middleware/auth.js';
 import { hasFinanceGrant, hasNrmsFinanceRole } from '../middleware/financeGrant.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -954,11 +953,13 @@ router.patch('/:id', async (req, res) => {
     }
     res.json({ data: user });
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      // P2022: Column does not exist in the current database.
-      if (err.code === 'P2022') {
-        return res.status(400).json({ error: 'disable not supported - add isDisabled column via migration' });
-      }
+    const errorCode =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String(err.code)
+        : '';
+    // P2022: Column does not exist in the current database.
+    if (errorCode === 'P2022') {
+      return res.status(400).json({ error: 'disable not supported - add isDisabled column via migration' });
     }
     console.error('PATCH /admin/users/:id error:', err);
     res.status(500).json({ error: 'failed' });

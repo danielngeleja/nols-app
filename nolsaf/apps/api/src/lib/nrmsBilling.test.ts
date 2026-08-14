@@ -24,6 +24,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
         findMany: vi.fn().mockResolvedValue([{ id: 41 }, { id: 42 }]),
       },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
     await expect(
@@ -48,6 +49,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
     await expect(
@@ -72,6 +74,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValue(2) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
     await expect(
@@ -99,6 +102,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
     await expect(
@@ -123,12 +127,42 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
         findMany: vi.fn().mockResolvedValue([{ id: 41 }, { id: 42 }]),
       },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
     await expect(
       finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN" }, 10, [42]),
     ).rejects.toThrow("NRMS_CHARGES_NOT_VERIFIED:41");
 
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("clears the guest with a routed room but blocks the final departure on the unpaid agency bill", async () => {
+    const updateMany = vi.fn();
+    const tx = {
+      reservation: {
+        findUnique: vi.fn().mockResolvedValue({ status: "CHECKED_IN", totalAmount: 80_000, groupId: 22 }),
+        updateMany,
+      },
+      externalPaymentRecord: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
+      reservationCharge: {
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsGroupBlock: {
+        findUnique: vi.fn().mockResolvedValue({ billingMode: "SPLIT", masterFolio: { id: 8, settlementPolicy: "PAY_BEFORE_DEPARTURE" } }),
+      },
+      nrmsMasterFolioItem: {
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 80_000 } }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      nrmsMasterFolioPayment: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
+    };
+
+    await expect(
+      finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN" }, 10),
+    ).rejects.toThrow("NRMS_MASTER_BALANCE_DUE:80000");
     expect(updateMany).not.toHaveBeenCalled();
   });
 });

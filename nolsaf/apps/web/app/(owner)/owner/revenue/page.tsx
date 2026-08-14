@@ -325,8 +325,12 @@ export default function OwnerRevenuePage() {
     );
   }
 
+  const disbursedRate = stats.totalRevenue > 0
+    ? Math.min(100, Math.round((stats.paidRevenue / stats.totalRevenue) * 100))
+    : 0;
+
   return (
-    <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+    <div className="w-full max-w-none space-y-5 px-3 pb-12 sm:px-5 lg:px-6 xl:px-8">
 
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100/70">
@@ -357,70 +361,79 @@ export default function OwnerRevenuePage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 sm:gap-4">
         {/* Total Payout — white */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
               <TrendingUp className="h-4 w-4 text-slate-600" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Total payout</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Total payout</span>
           </div>
-          <div className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.totalRevenue)}</div>
-          <div className="text-xs text-slate-400 font-medium">{stats.totalInvoices} invoices</div>
+          <div className="text-xl font-semibold leading-none tracking-tight text-slate-900 sm:text-2xl">{formatCurrency(stats.totalRevenue)}</div>
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-slate-400">{stats.totalInvoices} payout record{stats.totalInvoices === 1 ? '' : 's'}</span>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">{disbursedRate}% disbursed</span>
+          </div>
         </div>
 
         {/* Paid Payout — dark emerald */}
-        <div className="bg-emerald-950 rounded-2xl shadow-sm p-5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-2xl bg-gradient-to-br from-emerald-950 to-[#03483a] p-4 shadow-[0_10px_28px_rgba(2,44,34,0.16)]">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-emerald-900/60 border border-emerald-800/40 flex items-center justify-center flex-shrink-0">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-900/60">
               <CheckCircle className="h-4 w-4 text-emerald-400" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-widest text-emerald-400/80">Disbursed payout</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-300/90">Disbursed payout</span>
           </div>
-          <div className="text-2xl font-black text-white leading-none">{formatCurrency(stats.paidRevenue)}</div>
-          <div className="text-xs text-emerald-400/60 font-medium">{stats.paidInvoices} disbursed</div>
+          <div className="text-xl font-semibold leading-none tracking-tight text-white sm:text-2xl">{formatCurrency(stats.paidRevenue)}</div>
+          <div className="text-xs text-emerald-300/70">{stats.paidInvoices} completed payout{stats.paidInvoices === 1 ? '' : 's'}</div>
         </div>
 
         {/* Pending Payout — dark slate */}
-        <div className="bg-slate-900 rounded-2xl shadow-sm p-5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.14)]">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-slate-800/60 border border-slate-700/40 flex items-center justify-center flex-shrink-0">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-slate-800/80">
               <Clock className="h-4 w-4 text-amber-400" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-widest text-amber-400/80">Pending payout</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-300/90">Pending payout</span>
           </div>
-          <div className="text-2xl font-black text-white leading-none">{formatCurrency(stats.pendingRevenue)}</div>
-          <div className="text-xs text-amber-400/60 font-medium">{stats.pendingInvoices} pending</div>
+          <div className="text-xl font-semibold leading-none tracking-tight text-white sm:text-2xl">{formatCurrency(stats.pendingRevenue)}</div>
+          <div className="text-xs text-amber-300/70">
+            {stats.pendingInvoices > 0
+              ? `${stats.pendingInvoices} awaiting payout`
+              : 'No payouts waiting'}
+          </div>
         </div>
       </div>
 
       {/* Invoices List */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_8px_28px_rgba(15,23,42,0.055)]">
+        <div className="flex flex-col items-stretch gap-3 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="flex items-center gap-2">
-            <div className="text-sm font-bold text-slate-900 tracking-tight">Invoices</div>
+            <div className="text-sm font-semibold tracking-tight text-slate-900">Invoices</div>
             <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
               {filteredSorted.length}
             </span>
           </div>
 
           {/* Search + Filter */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100 focus-within:bg-white transition-all duration-200">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl bg-slate-100 px-3 transition-all duration-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/20 sm:flex-none">
               <Search className="h-3.5 w-3.5 text-slate-400 pointer-events-none flex-shrink-0" aria-hidden />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search…"
-                className="w-28 sm:w-44 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                className="min-w-0 flex-1 appearance-none !border-0 bg-transparent p-0 text-sm text-slate-900 !outline-none !ring-0 placeholder:text-slate-400 focus:!border-0 focus:!outline-none focus:!ring-0 sm:w-48"
+                style={{ border: 'none', boxShadow: 'none' }}
                 aria-label="Search invoices"
               />
               {search ? (
                 <button
                   type="button"
                   onClick={() => setSearch("")}
-                  className="flex-shrink-0 inline-flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-700 transition"
+                  className="inline-flex !min-h-0 h-5 w-5 flex-shrink-0 appearance-none items-center justify-center rounded !border-0 !bg-transparent text-slate-400 transition hover:text-slate-700"
+                  style={{ border: 'none', boxShadow: 'none' }}
                   aria-label="Clear search"
                 >
                   <X className="h-3 w-3" aria-hidden />
@@ -433,7 +446,8 @@ export default function OwnerRevenuePage() {
               <button
                 type="button"
                 onClick={() => setFiltersOpen((v) => !v)}
-                className={`relative h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-all duration-150 focus:outline-none active:scale-[0.97] ${filtersOpen ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700"}`}
+                className={`relative inline-flex !min-h-0 h-9 w-9 appearance-none items-center justify-center rounded-xl !border-0 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 active:scale-[0.97] ${filtersOpen ? "!bg-emerald-100 text-emerald-700" : "!bg-slate-100 text-slate-500 hover:!bg-slate-200 hover:text-slate-700"}`}
+                style={{ border: 'none', boxShadow: 'none' }}
                 aria-label="Open filters"
                 aria-expanded={filtersOpen}
                 title="Filters"

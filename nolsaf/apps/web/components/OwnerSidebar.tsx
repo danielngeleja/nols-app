@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
-  ChevronDown, ChevronRight, Users, HandHeart, CalendarDays,
+  ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
   CheckCircle2, Building2, BadgeCheck, TrendingUp, LogIn, LogOut, BarChart3, BedDouble,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -252,19 +252,30 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
   if (collapsed) {
     return (
       <div
-        className="flex flex-col items-center gap-1.5 p-2 rounded-2xl"
+        className="flex h-full min-h-0 flex-col items-center gap-1.5 rounded-2xl p-2"
         style={{
           background: "linear-gradient(180deg,#022a26 0%,#024d47 60%,#02584f 100%)",
           boxShadow: "0 4px 24px rgba(2,60,54,0.40)",
         }}
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
-        <CollapseBtn href="/owner/nrms" label="NRMS Workspace" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
+        <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/properties/approved" label="My Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/bookings" label="Bookings" Icon={Calendar} active={sectionActive.bookings} count={checkedInCount + checkoutDueCount || undefined} />
         <CollapseBtn href="/owner/group-stays" label="Group Stays" Icon={Users} active={sectionActive.groupStays} />
         <CollapseBtn href="/owner/revenue/requested" label="My Revenue" Icon={Wallet} active={sectionActive.revenue} />
+        <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
+            className="flex min-h-9 w-full appearance-none items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+            aria-label="Expand owner sidebar"
+            title="Expand sidebar"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     );
   }
@@ -272,14 +283,14 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
   /*  EXPANDED  */
   return (
     <div
-      className="rounded-3xl overflow-hidden select-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl select-none"
       style={{
         background: "linear-gradient(175deg,#021e1b 0%,#023530 30%,#024d47 65%,#025248 100%)",
         boxShadow: "0 8px 40px rgba(2,40,36,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
       }}
     >
       {/* Logo strip */}
-      <div className="px-4 pt-4 pb-3.5 flex items-center gap-2.5 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+      <div className="flex shrink-0 items-center gap-2.5 border-0 border-b border-solid px-4 pb-3.5 pt-4" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="w-7 h-7 rounded-xl object-contain flex-shrink-0" />
         <div className="min-w-0">
@@ -289,10 +300,10 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       </div>
 
       {/* Nav */}
-      <div className="px-2.5 py-2.5 space-y-0.5">
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2.5">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
-        <TopItem href="/owner/nrms" label="NRMS Workspace" Icon={BedDouble} />
+        <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
         <Divider />
 
         <Section label="My Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>
@@ -324,8 +335,17 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
 
       </div>
 
-      {/* Bottom shimmer */}
-      <div className="h-[3px]" style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)" }} />
+      <div className="shrink-0 border-0 border-t border-solid border-white/10 bg-black/5 p-2.5">
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
+          className="flex min-h-8 w-full appearance-none items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.05] px-2.5 text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+          aria-label="Collapse owner sidebar"
+        >
+          Collapse sidebar
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }

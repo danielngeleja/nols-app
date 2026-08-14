@@ -11,7 +11,9 @@ import { Router, type Request, type RequestHandler, type Response } from "expres
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
+import { nrmsOrderPlacementSettlement } from "../lib/nrmsOrders.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
+import { readStayOrderingToken } from "../lib/nrmsStayToken.js";
 import {
   limitPublicQrMenu,
   limitPublicQrOrderCreate,
@@ -58,13 +60,28 @@ const publicOrderFeedbackSchema = z.object({
  * The checked-in stay occupying the point's room, if any. Used both to
  * advertise "charge to my room" on the menu and to verify it at order time.
  */
-async function findStayForPoint(point: { type: string; roomUnitId: number | null; propertyId: number }) {
+async function findStayForPoint(point: {
+  type: string;
+  roomUnitId: number | null;
+  propertyId: number;
+  /**
+   * Set only when the guest arrived on a per-stay token (m7). The printed room
+   * QR resolves to whoever occupies the room right now, which is what a code on
+   * the wall should do. A stay link instead names the reservation it was issued
+   * for, so it can never reach the folio of a later guest in the same room.
+   */
+  boundReservationId?: number | null;
+}) {
   if (point.type !== "ROOM" || point.roomUnitId == null) return null;
   const allocation = await db.reservationRoomAllocation.findFirst({
     where: {
       roomUnitId: point.roomUnitId,
       status: "ACTIVE",
-      reservation: { propertyId: point.propertyId, status: "CHECKED_IN" },
+      reservation: {
+        propertyId: point.propertyId,
+        status: "CHECKED_IN",
+        ...(point.boundReservationId ? { id: point.boundReservationId } : {}),
+      },
     },
     select: {
       reservation: {
@@ -85,6 +102,52 @@ function pointCustomerLabel(point: { type: string; label: string }): string {
   return `${kind} ${point.label} (QR)`.slice(0, 120);
 }
 
+/**
+ * Resolves a per-stay token (m7) to the room order point it belongs to, bound
+ * to its own reservation. Returns null when the value is not a stay token, so
+ * the caller falls through to the printed order-point lookup.
+ *
+ * A stay token stops working the moment its reservation leaves CHECKED_IN.
+ * That is what lets the printed QR stay permanent: the link we put in an SMS,
+ * which lives in the guest's phone forever, is not the same capability as the
+ * code on the wall.
+ */
+async function loadPointForStayToken(reservationId: number) {
+  const reservation = await db.reservation.findFirst({
+    where: { id: reservationId, status: "CHECKED_IN" },
+    select: {
+      id: true,
+      propertyId: true,
+      allocations: {
+        where: { status: "ACTIVE", roomUnitId: { not: null } },
+        select: { roomUnitId: true },
+        orderBy: { id: "asc" },
+      },
+    },
+  });
+  if (!reservation) return null;
+
+  const roomUnitIds = reservation.allocations
+    .map((allocation: { roomUnitId: number | null }) => allocation.roomUnitId)
+    .filter((id: number | null): id is number => id != null);
+  if (!roomUnitIds.length) return null;
+
+  const point = await db.nrmsOrderPoint.findFirst({
+    where: {
+      propertyId: reservation.propertyId,
+      type: "ROOM",
+      roomUnitId: { in: roomUnitIds },
+      active: true,
+      orderingEnabled: true,
+    },
+    include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
+    orderBy: { id: "asc" },
+  });
+  if (!point) return null;
+
+  return { ...point, boundReservationId: reservation.id };
+}
+
 /** Resolves an active order point + NRMS-active property, or replies and returns null. */
 async function loadActivePoint(req: Request, res: Response) {
   const token = String(req.params.token || "");
@@ -97,10 +160,27 @@ async function loadActivePoint(req: Request, res: Response) {
     res.status(503).json({ error: "Online ordering is temporarily unavailable. Please order with a staff member." });
     return null;
   }
-  const point = await db.nrmsOrderPoint.findUnique({
-    where: { token },
-    include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
-  });
+
+  // Only a cryptographically valid stay token owns the stay-token namespace.
+  // Printed point tokens are random and may coincidentally look like
+  // `s<digits>_<suffix>`; an invalid HMAC must still fall through to their
+  // normal database lookup instead of shadowing a permanent room QR.
+  const stayReservationId = readStayOrderingToken(token);
+  const stayPoint = stayReservationId ? await loadPointForStayToken(stayReservationId) : null;
+  if (stayReservationId && !stayPoint) {
+    res.status(404).json({
+      error: "This ordering link has ended because the stay is closed. Scan the QR code in the room to order.",
+      code: "STAY_LINK_CLOSED",
+    });
+    return null;
+  }
+
+  const point =
+    stayPoint ??
+    (await db.nrmsOrderPoint.findUnique({
+      where: { token },
+      include: { property: { select: { id: true, title: true, nrmsActivatedAt: true, nrmsQrOrderingFrozenAt: true } } },
+    }));
   if (!point || !point.active || !point.property?.nrmsActivatedAt) {
     res.status(404).json({ error: "This QR code is no longer active. Please ask a staff member for help." });
     return null;
@@ -261,7 +341,10 @@ router.get("/menu/:token", limitPublicQrMenu as RequestHandler, (async (req: Req
     // and failing at checkout.
     orderingEnabled: Boolean(point.orderingEnabled),
     // Only the capability is advertised; the guest's identity never leaves the server.
-    roomChargeAvailable: Boolean(stay),
+    // A permanent QR can be photographed and reused by somebody who no longer
+    // occupies the room. Only the signed per-stay link is allowed to expose
+    // room charging; the printed QR remains available for pay-now orders.
+    roomChargeAvailable: Boolean(stay && point.boundReservationId),
     outlets: outlets.map((outlet: any) => ({
       ...outlet,
       autoAcceptQrOrders: undefined,
@@ -284,27 +367,35 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
   if (!parsed.data.chargeToRoom && !parsed.data.paymentMethod) {
     return res.status(400).json({ error: "Choose how you intend to pay before sending the order.", code: "PAYMENT_METHOD_REQUIRED" });
   }
+  if (parsed.data.chargeToRoom && !point.boundReservationId) {
+    return res.status(403).json({
+      error: "To add this order to a room bill, open the private stay link issued for the current guest. The permanent room QR supports pay-now orders only.",
+      code: "ROOM_CHARGE_REQUIRES_STAY_LINK",
+    });
+  }
 
   const outlet = await db.nrmsOutlet.findFirst({
     where: { id: parsed.data.outletId, propertyId: point.propertyId, status: "ACTIVE" },
   });
   if (!outlet) return res.status(400).json({ error: "This outlet is not taking orders right now" });
 
-  // m5: "charge to my room" needs a checked-in stay on this exact room. The
-  // point->stay link is the capability (room QR + an active CHECKED_IN
-  // allocation on it); no guest-typed name is required. Failure falls back
-  // to pay-at-counter client-side.
-  let stay: { id: number; currency: string | null } | null = null;
-  if (parsed.data.chargeToRoom) {
-    const found = await findStayForPoint(point);
-    if (!found) {
-      return res.status(409).json({
-        error: "Adding to the room bill is not available for this room right now. You can pay now instead.",
-        code: "ROOM_CHARGE_UNAVAILABLE",
-      });
-    }
-    stay = { id: found.id, currency: found.currency };
+  // Resolve the room occupant for both payment paths. Pay-at-outlet orders
+  // retain this link for guest/room attribution but do not become folio
+  // charges. Charging the room still requires an active checked-in stay.
+  const found = await findStayForPoint(point);
+  const stay = found ? { id: found.id, currency: found.currency } : null;
+  if (parsed.data.chargeToRoom && !stay) {
+    return res.status(409).json({
+      error: "Adding to the room bill is not available for this room right now. You can pay now instead.",
+      code: "ROOM_CHARGE_UNAVAILABLE",
+    });
   }
+  const settlement = nrmsOrderPlacementSettlement({
+    chargeToRoom: Boolean(parsed.data.chargeToRoom),
+    paymentMethod: parsed.data.paymentMethod ?? null,
+    stay,
+    outletCurrency: outlet.currency,
+  });
 
   // Abuse cap: a point can only hold a handful of unfinished orders at once.
   const openOrders = await db.nrmsOutletOrder.count({
@@ -349,15 +440,15 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
         data: {
           propertyId: point.propertyId,
           outletId: outlet.id,
-          reservationId: stay?.id ?? null,
+          reservationId: settlement.reservationId,
           customerLabel: pointCustomerLabel(point),
           orderPointId: point.id,
           publicCode,
           orderNumber,
           status: autoAccept ? "CONFIRMED" : "PLACED",
-          settlementMode: stay ? "ROOM_FOLIO" : "OUTLET_PAYMENT",
-          guestPaymentMethod: stay ? null : parsed.data.paymentMethod,
-          currency: stay?.currency ?? outlet.currency,
+          settlementMode: settlement.settlementMode,
+          guestPaymentMethod: settlement.guestPaymentMethod,
+          currency: settlement.currency,
           subtotal: total,
           total,
           note: parsed.data.note ? sanitizeText(parsed.data.note) : null,

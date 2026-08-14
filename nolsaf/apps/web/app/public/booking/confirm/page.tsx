@@ -97,6 +97,7 @@ export default function BookingConfirmPage() {
   
   // Transportation
   const [includeTransport, setIncludeTransport] = useState(false);
+  const [transportGate, setTransportGate] = useState<{ enabled: boolean; reason: string | null } | null>(null);
   const [transportVehicleType, setTransportVehicleType] = useState<TransportVehicleType>("CAR");
   const [pickupMode, setPickupMode] = useState<"current" | "arrival" | "manual">("current");
   const [pickupMethodChosen, setPickupMethodChosen] = useState(false);
@@ -223,6 +224,33 @@ export default function BookingConfirmPage() {
     };
   }, []);
 
+  // Admin-controlled transport coverage gate for this property's area.
+  useEffect(() => {
+    if (!property?.id) return;
+    let mounted = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/public/service-availability/transport?propertyId=${property.id}`, { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          if (mounted) setTransportGate({ enabled: !!json.enabled, reason: json.reason ?? null });
+        }
+      } catch {
+        // Fail closed: leave transportGate null, which the toggle treats as locked.
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [property?.id]);
+
+  const transportLocked = transportGate === null || !transportGate.enabled;
+
+  useEffect(() => {
+    if (transportLocked) setIncludeTransport(false);
+  }, [transportLocked]);
+
   useEffect(() => {
     // Get booking data from URL params
     const propertyId = searchParams?.get("property");
@@ -334,6 +362,10 @@ export default function BookingConfirmPage() {
         const available = !!payload?.available;
         if (available) {
           setAvailabilityState({ status: "available" });
+        } else if (payload?.closed?.message) {
+          // The property closed these dates. Say that, rather than implying the
+          // rooms are taken when they are not.
+          setAvailabilityState({ status: "unavailable", message: payload.closed.message });
         } else {
           const summary = payload?.summary;
           const msg =
@@ -710,6 +742,19 @@ export default function BookingConfirmPage() {
       })();
 
       if (!invoiceResponse.ok) {
+        // The room being unavailable is an ordinary outcome, not a failure to
+        // report as one: the dates were taken, or the property closed them.
+        // Surface the plain message the API already wrote for the guest,
+        // without the HTTP noise appended below.
+        if ((invoiceResult as any)?.code === "DRAFT_ROOM_UNAVAILABLE") {
+          const availability = (invoiceResult as any)?.availability;
+          throw new Error(
+            (availability?.message as string)
+              || (invoiceResult as any)?.message
+              || "These dates are no longer available. Please choose different dates."
+          );
+        }
+
         // Show detailed error message if available
         let errorMessage = (invoiceResult as any)?.error || "Failed to create invoice";
         
@@ -1829,7 +1874,10 @@ export default function BookingConfirmPage() {
                 {/* Transportation Option */}
                 <div className="pt-6 border-t border-slate-200/60">
                   {/* Transport card header */}
-                  <div className="relative overflow-hidden rounded-2xl mb-4" style={{ background: "linear-gradient(135deg, #02665e 0%, #028570 100%)" }}>
+                  <div
+                    className={`relative overflow-hidden rounded-2xl mb-4 ${transportLocked ? "opacity-60" : ""}`}
+                    style={{ background: transportLocked ? "linear-gradient(135deg, #64748b 0%, #94a3b8 100%)" : "linear-gradient(135deg, #02665e 0%, #028570 100%)" }}
+                  >
                     <div className="pointer-events-none absolute inset-0 opacity-[0.05]"
                       style={{ backgroundImage: "repeating-linear-gradient(-55deg, rgba(255,255,255,1) 0px, rgba(255,255,255,1) 1.5px, transparent 1.5px, transparent 24px)" }} />
 
@@ -1843,7 +1891,9 @@ export default function BookingConfirmPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-[15px] font-bold text-white leading-snug">Include Transportation</p>
                         <p className="text-[12px] text-white/65 leading-snug mt-0.5">
-                          Add transportation to your booking. We pick you up as you plan.
+                          {transportLocked
+                            ? (transportGate?.reason || "We don't have drivers in this area yet. Continue with the stay booking only.")
+                            : "Add transportation to your booking. We pick you up as you plan."}
                         </p>
                       </div>
 
@@ -1852,11 +1902,14 @@ export default function BookingConfirmPage() {
                         type="button"
                         role="switch"
                         aria-checked={includeTransport}
+                        aria-disabled={transportLocked}
+                        disabled={transportLocked}
                         onClick={() => {
+                          if (transportLocked) return;
                           setError(null);
                           setIncludeTransport((value) => !value);
                         }}
-                        className="flex-shrink-0 focus:outline-none active:scale-95 transition-transform duration-150"
+                        className={`flex-shrink-0 focus:outline-none transition-transform duration-150 ${transportLocked ? "cursor-not-allowed" : "active:scale-95"}`}
                       >
                         <div className={`relative w-14 h-7 rounded-full transition-colors duration-200 ${includeTransport ? "bg-white/90" : "bg-black/30"}`}>
                           <div
@@ -1869,7 +1922,7 @@ export default function BookingConfirmPage() {
                     </div>
                   </div>
 
-                  {includeTransport && (
+                  {includeTransport && !transportLocked && (
                     <div className="space-y-5 mt-4 p-5 bg-white rounded-2xl border border-slate-200/80 shadow-md animate-in fade-in slide-in-from-top-2 duration-300">
                       {/* Vehicle Type */}
                       <div className="space-y-3">

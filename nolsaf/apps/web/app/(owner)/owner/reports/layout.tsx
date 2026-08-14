@@ -16,7 +16,7 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
   ];
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+    <div className="box-border min-w-0 max-w-full space-y-5 px-3 pb-10">
 
       {/* ── Hero ── */}
       <div className="relative overflow-hidden rounded-2xl shadow-lg shadow-[#02665e]/10">

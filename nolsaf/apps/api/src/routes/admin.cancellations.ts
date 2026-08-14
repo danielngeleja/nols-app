@@ -13,6 +13,7 @@ import {
   type AccommodationCancellationStatus,
 } from "../lib/accommodationCancellationWorkflow.js";
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
+import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -385,10 +386,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       if (shouldVoidAndCancel && current.booking) {
         // Cancel the booking so it no longer appears as active.
         if (current.booking.status !== "CANCELED") {
-          await tx.booking.update({
-            where: { id: current.booking.id },
-            data: { status: "CANCELED" },
-          });
+          await updateNoLsafBookingStatus(tx, current.booking.id, "CANCELED");
         }
         // Void the check-in code so the owner cannot use it.
         if (current.booking.code && current.booking.code.status === "ACTIVE") {

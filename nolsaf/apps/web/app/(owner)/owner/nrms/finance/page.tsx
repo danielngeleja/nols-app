@@ -47,7 +47,8 @@ const EXPENSE_CATEGORIES: Array<{ value: string; label: string }> = [
 ];
 function expenseCategoryLabel(value: string): string { return EXPENSE_CATEGORIES.find((item) => item.value === value)?.label ?? value; }
 
-function localDay() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+function localDay(date = new Date()) { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); }
+function lastCompletedDay() { return localDay(new Date(Date.now() - 86_400_000)); }
 function cash(value: number, currency: string) { return `${currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
 function time(value?: string | null) { return value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " EAT" : "Not recorded"; }
 function tenderAmount(shift: Shift, method: string): number { return shift.closeSummary?.mySales.byMethod.find((row) => row.method === method)?.amount ?? 0; }
@@ -75,8 +76,8 @@ function Metric({ label, value, note, tone = "neutral" }: { label: string; value
 export default function FinanceControlPage() {
   const { selectedPropertyId } = useNrms();
   const [tab, setTab] = useState<Tab>("audit");
-  const [businessDate, setBusinessDate] = useState(localDay());
-  const [month, setMonth] = useState(localDay().slice(0, 7));
+  const [businessDate, setBusinessDate] = useState(lastCompletedDay());
+  const [month, setMonth] = useState(lastCompletedDay().slice(0, 7));
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
   const [counted, setCounted] = useState<Record<number, string>>({}); const [notes, setNotes] = useState<Record<number, string>>({});
@@ -86,6 +87,7 @@ export default function FinanceControlPage() {
   const [expenseForm, setExpenseForm] = useState({ category: "OTHER", description: "", amount: "", incurredAt: localDay(), paymentMethod: "" });
   const [expenseVoidReason, setExpenseVoidReason] = useState<Record<number, string>>({});
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
+  const [confirmNightAudit, setConfirmNightAudit] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
@@ -115,6 +117,7 @@ export default function FinanceControlPage() {
     finally { setExpensesLoading(false); }
   }, [month, selectedPropertyId]);
   useEffect(() => { if (tab === "expenses") void loadExpenses(); }, [tab, loadExpenses]);
+  useEffect(() => { setConfirmNightAudit(false); }, [businessDate, selectedPropertyId]);
 
   const createExpense = async () => {
     if (!selectedPropertyId) return;
@@ -151,16 +154,23 @@ export default function FinanceControlPage() {
 
   const action = async (request: () => Promise<unknown>, success: string) => {
     setBusy(true); setError(null); setMessage(null);
-    try { await request(); setMessage(success); await load(); }
-    catch (cause: any) { setError(cause?.response?.data?.error || "The control action could not be completed"); }
+    try { await request(); setMessage(success); await load(); return true; }
+    catch (cause: any) { setError(cause?.response?.data?.error || "The control action could not be completed"); return false; }
     finally { setBusy(false); }
   };
   const propertyCurrency = data?.property.currency || "Currency not set";
+  const isCompletedBusinessDate = businessDate < localDay();
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
   const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
-  const closeAudit = () => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, { businessDate }), "Night Audit completed. The business date and its balanced ledger are locked.");
+  const closeAudit = async () => {
+    const closed = await action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, { businessDate }), "Night Audit completed. This date is locked, the next business day is open, and operations can continue.");
+    if (closed) setConfirmNightAudit(false);
+  };
   const classifyTender = (orderId: number) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/outlet-orders/${orderId}/classify`, { method: tenderCorrections[orderId] }), "Outlet payment method classified for reconciliation.");
   const canManage = data?.accessRole === "OWNER" || data?.accessRole === "MANAGER";
+  useEffect(() => {
+    if (tab !== "audit" || !canManage || !isCompletedBusinessDate || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED") setConfirmNightAudit(false);
+  }, [canManage, data?.blockers.length, data?.businessDay.status, isCompletedBusinessDate, tab]);
   const profitAndLoss = useMemo(() => {
     const byCurrency = new Map<string, { revenue: number; expense: number }>();
     for (const account of data?.ledger.accounts ?? []) {
@@ -191,7 +201,80 @@ export default function FinanceControlPage() {
     {(error || message) && <div className={`rounded-xl border px-4 py-3 text-xs font-semibold ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
     <nav className="grid grid-cols-2 gap-1 rounded-2xl border border-neutral-200 bg-white p-1 shadow-sm sm:grid-cols-5">{tabs.filter((item) => data?.accessRole !== "FRONT_DESK" || ["audit", "cashiers"].includes(item.id)).map((item) => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-0 px-2 text-[11px] font-bold ${tab === item.id ? "bg-[#073c35] text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
 
-    {tab === "audit" && <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h3 className="m-0 text-base font-bold">Night Audit checklist</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Every blocking item must be cleared. There is no override or bypass.</p></div><CalendarCheck2 className="h-6 w-6 text-emerald-700" /></div><div className="mt-4 space-y-2">{data?.blockers.length ? data.blockers.map((blocker) => <div key={blocker.code} className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><div><p className="m-0 text-xs font-bold text-red-800">{blocker.message}</p><p className="mb-0 mt-1 text-[10px] text-red-600">Resolve this in the related operational workspace, then refresh this control.</p></div></div>) : <div className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><CheckCircle2 className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-xs font-bold text-emerald-800">All closing controls passed</p><p className="mb-0 mt-1 text-[10px] text-emerald-700">NRMS is ready to post balanced entries and lock this business date.</p></div></div>}</div><button type="button" onClick={closeAudit} disabled={!canManage || busy || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED"} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400"><LockKeyhole className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "Business date closed" : !canManage ? "Manager approval required to close" : "Post ledger and close business date"}</button></section><section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"><h3 className="m-0 text-sm font-bold">Audit history</h3><div className="mt-3 space-y-2">{data?.businessDay.audits.map((audit) => <div key={audit.id} className="rounded-xl border border-neutral-200 p-3"><div className="flex items-center justify-between gap-3"><strong className="text-xs">{audit.reportNumber}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{audit.status}</span></div><p className="mb-0 mt-1 text-[10px] text-neutral-500">{time(audit.completedAt || audit.startedAt)}</p></div>)}{!data?.businessDay.audits.length && <p className="text-xs text-neutral-400">No Night Audit has been attempted for this date.</p>}</div></section></div>}
+    {tab === "audit" && (
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="m-0 text-base font-bold">Night Audit checklist</h3>
+              <p className="mb-0 mt-1 text-xs text-neutral-500">Every blocking item must be cleared. There is no override or bypass.</p>
+            </div>
+            <CalendarCheck2 className="h-6 w-6 text-emerald-700" />
+          </div>
+          <div className="mt-4 space-y-2">
+            {data?.businessDay.status === "CLOSED" ? (
+              <div className="flex gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-700 shadow-sm ring-1 ring-neutral-200"><LockKeyhole className="h-4 w-4" /></span>
+                <div>
+                  <p className="m-0 text-xs font-bold text-neutral-900">This business date is already closed</p>
+                  <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-600">The ledger and Night Audit are locked for this date. Operations continue on the next open business date; any later correction must be recorded there with its audit reason.</p>
+                  {data.businessDay.closedAt && <p className="mb-0 mt-1.5 text-[9px] font-semibold text-neutral-400">Closed {time(data.businessDay.closedAt)}</p>}
+                </div>
+              </div>
+            ) : !isCompletedBusinessDate ? (
+              <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                <div><p className="m-0 text-xs font-bold text-amber-900">This business date is still operating</p><p className="mb-0 mt-1 text-[10px] text-amber-700">Choose yesterday or an earlier open date. Today cannot be locked while guests and outlets are still operating.</p></div>
+              </div>
+            ) : data?.blockers.length ? (
+              data.blockers.map((blocker) => <div key={blocker.code} className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><div><p className="m-0 text-xs font-bold text-red-800">{blocker.message}</p><p className="mb-0 mt-1 text-[10px] text-red-600">Resolve this in the related operational workspace, then refresh this control.</p></div></div>)
+            ) : (
+              <div className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><CheckCircle2 className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-xs font-bold text-emerald-800">All closing controls passed</p><p className="mb-0 mt-1 text-[10px] text-emerald-700">NRMS is ready to post balanced entries and lock this completed business date.</p></div></div>
+            )}
+          </div>
+
+          {confirmNightAudit && canManage && isCompletedBusinessDate && !data?.blockers.length && data?.businessDay.status !== "CLOSED" && (
+            <div className="mt-4 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4" role="region" aria-live="polite" aria-labelledby="night-audit-confirmation-title">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm ring-1 ring-amber-200"><LockKeyhole className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p id="night-audit-confirmation-title" className="m-0 text-sm font-bold text-amber-950">Close business date {businessDate}?</p>
+                  <p className="mb-0 mt-1 text-xs leading-5 text-amber-900">Review the impact before confirming. This is a controlled financial close, not a temporary status change.</p>
+                  <ul className="mb-0 mt-3 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900">
+                    <li>Balanced operational entries will be posted to the accounting ledger and the Night Audit report will be stored.</li>
+                    <li>This completed business date will be locked. Any later correction must be recorded on an open business date with its audit reason.</li>
+                    <li>The next business date will open immediately so check-ins, checkouts, payments and outlet operations can continue.</li>
+                  </ul>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button type="button" onClick={() => void closeAudit()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
+                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />} Yes, post ledger and close
+                    </button>
+                    <button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 cursor-pointer rounded-lg border border-solid border-amber-300 bg-white px-4 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50">Not yet</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setConfirmNightAudit(true)}
+            disabled={!canManage || busy || !isCompletedBusinessDate || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED" || confirmNightAudit}
+            className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400"
+          >
+            <LockKeyhole className="h-4 w-4" />
+            {data?.businessDay.status === "CLOSED" ? "Business date closed" : !isCompletedBusinessDate ? "Choose a completed business date" : !canManage ? "Manager approval required to close" : confirmNightAudit ? "Review the impact above" : "Review closing impact"}
+          </button>
+        </section>
+        <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <h3 className="m-0 text-sm font-bold">Audit history</h3>
+          <div className="mt-3 space-y-2">
+            {data?.businessDay.audits.map((audit) => <div key={audit.id} className="rounded-xl border border-neutral-200 p-3"><div className="flex items-center justify-between gap-3"><strong className="text-xs">{audit.reportNumber}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{audit.status}</span></div><p className="mb-0 mt-1 text-[10px] text-neutral-500">{time(audit.completedAt || audit.startedAt)}</p></div>)}
+            {!data?.businessDay.audits.length && <p className="text-xs text-neutral-400">No Night Audit has been attempted for this date.</p>}
+          </div>
+        </section>
+      </div>
+    )}
 
     {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-3"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Classify outlet payments</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">These older settled orders have no recorded tender. Select the actual method received before Night Audit.</p></div><span className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[9px] font-bold text-amber-800">{data?.unclassifiedTenders?.length} required</span></div>

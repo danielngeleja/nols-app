@@ -26,7 +26,7 @@ import QRCode from "@/components/QRCode";
 const api = apiClient;
 
 type RevenueStatus = "DRAFT" | "NEW" | "CLAIMED" | "VERIFIED" | "APPROVED" | "DISBURSED" | "REJECTED";
-type RevenueAction = "verify" | "approve" | "disburse" | "reject";
+type RevenueAction = "verify" | "approve" | "reject";
 
 type RevenueAuditTrailItem = {
   action: "VERIFY" | "APPROVE" | "DISBURSE" | "REJECT";
@@ -115,12 +115,13 @@ const statusConfig: Record<RevenueStatus, { label: string; color: string; bgColo
   REJECTED: { label: "Rejected", color: "text-rose-700", bgColor: "bg-rose-50 border-rose-200", icon: XCircle },
 };
 
-// Disbursement pipeline: NEW → CLAIMED (by operator) → VERIFIED → APPROVED → DISBURSED
-// Verify is only unlocked once the operator has submitted a claim (CLAIMED).
+// Pipeline: NEW → CLAIMED (by operator) → VERIFIED → APPROVED, then paid
+// exclusively through the AzamPay Disbursement queue (see the banner shown
+// once a record is APPROVED, below). Verify only unlocks after a claim
+// (CLAIMED).
 function isActionAllowed(status: RevenueStatus, action: RevenueAction): boolean {
   if (action === "verify") return status === "CLAIMED";
   if (action === "approve") return status === "VERIFIED";
-  if (action === "disburse") return status === "APPROVED";
   if (action === "reject") return status !== "DRAFT" && status !== "DISBURSED" && status !== "REJECTED";
   return false;
 }
@@ -133,7 +134,6 @@ export default function AdminTourRevenueDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [revenue, setRevenue] = useState<RevenueDetail | null>(null);
   const [actionType, setActionType] = useState<RevenueAction | "">("");
-  const [paymentRef, setPaymentRef] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [verifyReason, setVerifyReason] = useState("");
   const [approveReason, setApproveReason] = useState("");
@@ -184,11 +184,6 @@ export default function AdminTourRevenueDetailPage() {
       return;
     }
 
-    if (actionType === "disburse" && !String(paymentRef || "").trim()) {
-      alert("Payment reference is required before disburse.");
-      return;
-    }
-
     if (actionType === "reject" && !String(rejectionReason || "").trim()) {
       alert("Rejection reason is required.");
       return;
@@ -199,13 +194,11 @@ export default function AdminTourRevenueDetailPage() {
       const payload: Record<string, any> = { revenueId: revenue.id, action: actionType };
       if (actionType === "verify" && verifyReason) payload.reason = verifyReason.trim();
       if (actionType === "approve" && approveReason) payload.reason = approveReason.trim();
-      if (actionType === "disburse" && paymentRef) payload.paymentRef = paymentRef.trim();
       if (actionType === "reject" && rejectionReason) payload.reason = rejectionReason.trim();
 
       const res = await api.post("/api/admin/tour-revenue/action", payload);
       if (res.data.ok) {
         setActionType("");
-        setPaymentRef("");
         setVerifyReason("");
         setApproveReason("");
         setRejectionReason("");
@@ -223,7 +216,6 @@ export default function AdminTourRevenueDetailPage() {
     const ordered: Array<{ value: RevenueAction; label: string }> = [
       { value: "verify", label: "Verify" },
       { value: "approve", label: "Approve" },
-      { value: "disburse", label: "Disburse" },
       { value: "reject", label: "Reject" },
     ];
     return ordered.map((item) => ({
@@ -318,7 +310,6 @@ export default function AdminTourRevenueDetailPage() {
     !actionLoading &&
     (actionType !== "verify" || !!String(verifyReason || "").trim()) &&
     (actionType !== "approve" || !!String(approveReason || "").trim()) &&
-    (actionType !== "disburse" || !!String(paymentRef || "").trim()) &&
     (actionType !== "reject" || !!String(rejectionReason || "").trim());
 
   const isDisbursed =
@@ -679,6 +670,19 @@ export default function AdminTourRevenueDetailPage() {
                 </select>
               </div>
 
+              {revenue.status === "APPROVED" && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                  Ready to pay through AzamPay instead of a manual reference?{" "}
+                  <Link
+                    href={`/admin/disbursements?sourceType=TOUR_BOOKING&sourceId=${revenue.id}`}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    Send via AzamPay disbursement
+                  </Link>
+                  .
+                </div>
+              )}
+
               {actionType === "verify" && (
                 <div className="min-w-0">
                   <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Verification Reason</label>
@@ -699,19 +703,6 @@ export default function AdminTourRevenueDetailPage() {
                     placeholder="Explain why this revenue is approved"
                     value={approveReason}
                     onChange={(e) => setApproveReason(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {actionType === "disburse" && (
-                <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Disbursement Reference</label>
-                  <input
-                    type="text"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-all text-sm sm:text-base box-border"
-                    placeholder="Enter disbursement reference"
-                    value={paymentRef}
-                    onChange={(e) => setPaymentRef(e.target.value)}
                   />
                 </div>
               )}
