@@ -93,6 +93,7 @@ function rotateItems<T>(items: T[], startIndex: number) {
 }
 
 export function OnboardingScreen({ navigation }: Props) {
+  console.log("[NOLSAF-BOOT] OnboardingScreen render");
   const { status, token } = useAuth();
   const isAuthed = status === "authenticated";
   const { width: windowWidth } = useWindowDimensions();

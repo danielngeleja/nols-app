@@ -14,9 +14,32 @@ import { colors } from "./src/theme";
 
 const MIN_SPLASH_MS = 2000;
 
+// --- Temporary boot diagnostics --------------------------------------------
+// Release Hermes builds swallow startup errors, so surface them explicitly to
+// logcat (tag ReactNativeJS, prefix [NOLSAF-BOOT]). Remove once boot is stable.
+const bootLog = (...args: unknown[]) => {
+  console.log("[NOLSAF-BOOT]", ...args);
+};
+{
+  const g = globalThis as unknown as {
+    ErrorUtils?: {
+      getGlobalHandler?: () => ((e: unknown, isFatal?: boolean) => void) | undefined;
+      setGlobalHandler?: (handler: (e: unknown, isFatal?: boolean) => void) => void;
+    };
+  };
+  const previous = g.ErrorUtils?.getGlobalHandler?.();
+  g.ErrorUtils?.setGlobalHandler?.((error: unknown, isFatal?: boolean) => {
+    const err = error as { message?: string; stack?: string } | undefined;
+    bootLog("GLOBAL_ERROR", { isFatal, message: err?.message, stack: err?.stack });
+    previous?.(error, isFatal);
+  });
+}
+bootLog("module eval start");
+
 // Shared native features such as passkeys use @nolsaf/native-ui's API client.
 // Configure it before any screen or authentication provider can invoke them.
 configureApiClient({ apiUrl: apiBaseUrl() });
+bootLog("api client configured");
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The splash may already be hidden during fast refresh.
@@ -94,6 +117,7 @@ function BrandedBootScreen() {
 
 function AppContent() {
   const { status } = useAuth();
+  bootLog("AppContent render, auth status =", status);
   if (status === "loading") return <BrandedBootScreen />;
   return <AppNavigator />;
 }
@@ -121,14 +145,20 @@ export default function App() {
 
   useEffect(() => {
     // Boot is gated only on the minimum splash time, never on fonts (see above).
-    if (minimumSplashElapsed) setAppReady(true);
+    if (minimumSplashElapsed) {
+      bootLog("minimum splash elapsed -> appReady = true");
+      setAppReady(true);
+    }
   }, [minimumSplashElapsed]);
 
   const hideSplashAfterLayout = useCallback(() => {
     if (!appReady || splashHiddenRef.current) return;
     splashHiddenRef.current = true;
-    void SplashScreen.hideAsync().catch(() => undefined);
+    bootLog("hiding native splash");
+    void SplashScreen.hideAsync().catch((e) => bootLog("hideAsync failed", String(e)));
   }, [appReady]);
+
+  bootLog("App render", { appReady, minimumSplashElapsed });
 
   return (
     <SafeAreaProvider style={styles.appRoot} onLayout={hideSplashAfterLayout}>
