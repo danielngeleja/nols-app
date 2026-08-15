@@ -102,7 +102,11 @@ export default function App() {
   const [minimumSplashElapsed, setMinimumSplashElapsed] = useState(false);
   const [appReady, setAppReady] = useState(false);
   const splashHiddenRef = useRef(false);
-  const [fontsLoaded] = useFonts({
+  // Load brand fonts in the background. Font loading is best-effort and must not
+  // gate boot: in release + New Architecture builds the load can stall without ever
+  // resolving or erroring, which would trap the app on the splash screen forever.
+  // Fonts swap in automatically once ready; until then text uses the system font.
+  useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -116,8 +120,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded && minimumSplashElapsed) setAppReady(true);
-  }, [fontsLoaded, minimumSplashElapsed]);
+    // Boot is gated only on the minimum splash time, never on fonts (see above).
+    if (minimumSplashElapsed) setAppReady(true);
+  }, [minimumSplashElapsed]);
 
   const hideSplashAfterLayout = useCallback(() => {
     if (!appReady || splashHiddenRef.current) return;
