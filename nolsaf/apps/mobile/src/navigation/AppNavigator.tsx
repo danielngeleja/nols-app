@@ -92,7 +92,6 @@ const navigationTheme = {
 
 export function AppNavigator() {
   const { status } = useAuth();
-  console.log("[NOLSAF-BOOT] AppNavigator render, status =", status);
 
   return (
     <NavigationContainer theme={navigationTheme} linking={linking}>
