@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 10,
+      "versionCode": 20,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
