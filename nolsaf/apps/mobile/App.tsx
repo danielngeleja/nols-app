@@ -1,7 +1,7 @@
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from "@expo-google-fonts/inter";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { configureApiClient } from "@nolsaf/native-ui";
@@ -151,17 +151,22 @@ export default function App() {
     }
   }, [minimumSplashElapsed]);
 
-  const hideSplashAfterLayout = useCallback(() => {
-    if (!appReady || splashHiddenRef.current) return;
-    splashHiddenRef.current = true;
-    bootLog("hiding native splash");
-    void SplashScreen.hideAsync().catch((e) => bootLog("hideAsync failed", String(e)));
+  useEffect(() => {
+    // Dismiss the native splash from an effect tied to appReady. Do NOT rely on
+    // SafeAreaProvider's onLayout: onLayout fires once on mount while appReady is
+    // still false (so it no-ops), and does not fire again when appReady flips to
+    // true, which left the native splash covering the live app forever.
+    if (appReady && !splashHiddenRef.current) {
+      splashHiddenRef.current = true;
+      bootLog("hiding native splash");
+      void SplashScreen.hideAsync().catch((e) => bootLog("hideAsync failed", String(e)));
+    }
   }, [appReady]);
 
   bootLog("App render", { appReady, minimumSplashElapsed });
 
   return (
-    <SafeAreaProvider style={styles.appRoot} onLayout={hideSplashAfterLayout}>
+    <SafeAreaProvider style={styles.appRoot}>
       <StatusBar style="dark" />
       {appReady ? (
         <AuthProvider>
