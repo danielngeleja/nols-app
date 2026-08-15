@@ -40,6 +40,7 @@ import {
 } from "../components";
 import { ApiError } from "../lib/apiClient";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
+import { fetchTransportAvailability } from "../lib/serviceAvailability";
 import { RootStackParamList } from "../navigation/types";
 import { fetchAvailabilityRange, fetchPropertyDetail, normalizeRoom, type PublicPropertyDetail } from "../properties";
 import { colors, radius, spacing } from "../theme";
@@ -182,6 +183,22 @@ export function BookingReviewScreen({ navigation, route }: Props) {
 
   const onTransportChange = useCallback((sel: TransportSelection) => setTransport(sel), []);
 
+  // Ride add-on is gated per property area by the same admin control the web uses.
+  const [rideGate, setRideGate] = useState<{ enabled: boolean; reason: string | null }>({ enabled: true, reason: null });
+  useEffect(() => {
+    let alive = true;
+    fetchTransportAvailability(propertyId)
+      .then((gate) => {
+        if (alive) setRideGate({ enabled: gate.enabled, reason: gate.reason });
+      })
+      .catch(() => {
+        // Fail open: offer the ride add-on if we cannot reach the gate endpoint.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [propertyId]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -288,6 +305,15 @@ export function BookingReviewScreen({ navigation, route }: Props) {
       return;
     }
     const emailForApi = guestEmail.trim().replace(/\s+/g, "");
+
+    if (!nationality.trim()) {
+      setError("Please enter your nationality.");
+      return;
+    }
+    if (!sex) {
+      setError("Please select your sex.");
+      return;
+    }
 
     if (transport.include && !transport.ready) {
       setError("Please complete the ride details, or turn off the ride add on.");
@@ -607,7 +633,8 @@ export function BookingReviewScreen({ navigation, route }: Props) {
               />
             )}
             <AppInput
-              label="Nationality (optional)"
+              label="Nationality"
+              required
               value={nationality}
               onChangeText={(t) => setNationality(t.replace(/\d+/g, ""))}
               placeholder="Tanzanian"
@@ -615,7 +642,10 @@ export function BookingReviewScreen({ navigation, route }: Props) {
             />
             <View>
               <AppText variant="label" weight="semiBold" tone="muted" style={styles.sexLabel}>
-                Sex (optional)
+                Sex
+                <AppText variant="label" weight="bold" tone="danger">
+                  {" *"}
+                </AppText>
               </AppText>
               <View style={styles.segment}>
                 {SEX_OPTIONS.map((opt) => {
@@ -647,6 +677,8 @@ export function BookingReviewScreen({ navigation, route }: Props) {
           }
           currency={currency}
           defaultArrivalDate={checkIn || undefined}
+          available={rideGate.enabled}
+          unavailableReason={rideGate.reason}
           onChange={onTransportChange}
         />
 

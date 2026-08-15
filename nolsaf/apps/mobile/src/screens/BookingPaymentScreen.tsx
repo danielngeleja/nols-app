@@ -32,7 +32,10 @@ import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
 
+import { fetchPaymentMethodAvailability, toAvailabilityMap } from "../lib/serviceAvailability";
+
 import airtelLogo from "../../assets/payments/airtel.png";
+import azampesaLogo from "../../assets/payments/azampesa.png";
 import crdbLogo from "../../assets/payments/crdb.png";
 import visaLogo from "../../assets/payments/visa.png";
 import halopesaLogo from "../../assets/payments/halopesa.png";
@@ -54,7 +57,8 @@ const PROVIDERS: Array<{ id: MnoProvider; name: string; logo: ImageSourcePropTyp
   { id: "Mpesa", name: "Mpesa", logo: mpesaLogo },
   { id: "Tigo", name: "Mixx by Yas", logo: mixxLogo },
   { id: "Airtel", name: "Airtel Money", logo: airtelLogo },
-  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo }
+  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo },
+  { id: "Azampesa", name: "AzamPesa", logo: azampesaLogo }
 ];
 
 // AzamPay Bank Checkout only settles CRDB and NMB. Listing more would let a
@@ -89,6 +93,30 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
+
+  // Admin-controlled availability, fetched live so nothing is hardcoded. Fails
+  // open (empty map = everything enabled) so a network hiccup never blocks paying.
+  const [payAvailability, setPayAvailability] = useState<Map<string, { isEnabled: boolean; reason: string | null }>>(
+    new Map()
+  );
+  const methodGate = useCallback(
+    (key: string) => payAvailability.get(key) ?? { isEnabled: true, reason: null },
+    [payAvailability]
+  );
+
+  useEffect(() => {
+    let alive = true;
+    fetchPaymentMethodAvailability()
+      .then((rows) => {
+        if (alive) setPayAvailability(toAvailabilityMap(rows));
+      })
+      .catch(() => {
+        // Fail open: leave every method enabled if we cannot reach the endpoint.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -497,20 +525,37 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
               <>
                 <View style={styles.providerGrid}>
                   {PROVIDERS.map((p) => {
+                    const gate = methodGate(p.id);
+                    const disabled = !gate.isEnabled;
                     const active = provider === p.id;
                     return (
                       <Pressable
                         key={p.id}
+                        disabled={disabled}
                         accessibilityRole="button"
                         accessibilityLabel={p.name}
+                        accessibilityState={{ disabled, selected: active }}
                         onPress={() => setProvider(p.id)}
-                        style={[styles.providerTile, active && styles.providerTileOn]}
+                        style={[styles.providerTile, active && styles.providerTileOn, disabled && styles.methodTileOff]}
                       >
-                        <Image source={p.logo} style={styles.providerLogo} resizeMode="contain" />
-                        <AppText variant="caption" weight="semiBold" tone={active ? "primary" : "muted"} numberOfLines={1}>
+                        <Image
+                          source={p.logo}
+                          style={[styles.providerLogo, disabled && styles.methodLogoOff]}
+                          resizeMode="contain"
+                        />
+                        <AppText
+                          variant="caption"
+                          weight="semiBold"
+                          tone={disabled ? "soft" : active ? "primary" : "muted"}
+                          numberOfLines={1}
+                        >
                           {p.name}
                         </AppText>
-                        {active ? (
+                        {disabled ? (
+                          <AppText variant="caption" weight="semiBold" numberOfLines={1} style={styles.methodOffLabel}>
+                            {gate.reason || "Unavailable"}
+                          </AppText>
+                        ) : active ? (
                           <View style={styles.providerCheck}>
                             <CheckCircle2 color={colors.primary} size={16} />
                           </View>
@@ -540,16 +585,24 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                 </AppText>
                 <View style={styles.bankList}>
                   {BANKS.map((b) => {
+                    const gate = methodGate(`BANK_${b.code}`);
+                    const disabled = !gate.isEnabled;
                     const active = bankCode === b.code;
                     return (
                       <Pressable
                         key={b.code}
+                        disabled={disabled}
                         accessibilityRole="button"
+                        accessibilityState={{ disabled, selected: active }}
                         onPress={() => setBankCode(b.code)}
-                        style={[styles.bankTile, active && styles.bankTileOn]}
+                        style={[styles.bankTile, active && styles.bankTileOn, disabled && styles.methodTileOff]}
                       >
                         {b.logo ? (
-                          <Image source={b.logo} style={styles.bankLogo} resizeMode="contain" />
+                          <Image
+                            source={b.logo}
+                            style={[styles.bankLogo, disabled && styles.methodLogoOff]}
+                            resizeMode="contain"
+                          />
                         ) : (
                           <View style={[styles.bankBadge, { backgroundColor: b.color }]}>
                             <AppText variant="caption" weight="extraBold" tone="inverse">
@@ -561,13 +614,25 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                           <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
                             {b.name}
                           </AppText>
-                          <AppText variant="caption" tone="soft" numberOfLines={1}>
-                            {b.tagline}
+                          <AppText
+                            variant="caption"
+                            tone={disabled ? "muted" : "soft"}
+                            numberOfLines={1}
+                          >
+                            {disabled ? gate.reason || "Currently unavailable" : b.tagline}
                           </AppText>
                         </View>
-                        <View style={[styles.bankRadio, active && styles.bankRadioOn]}>
-                          {active ? <CheckCircle2 color={colors.white} size={14} /> : null}
-                        </View>
+                        {disabled ? (
+                          <View style={styles.unavailablePill}>
+                            <AppText variant="caption" weight="semiBold" style={styles.unavailablePillText}>
+                              Unavailable
+                            </AppText>
+                          </View>
+                        ) : (
+                          <View style={[styles.bankRadio, active && styles.bankRadioOn]}>
+                            {active ? <CheckCircle2 color={colors.white} size={14} /> : null}
+                          </View>
+                        )}
                       </Pressable>
                     );
                   })}
@@ -624,13 +689,21 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                     <View style={[styles.mcDot, styles.mcYellow]} />
                   </View>
                 </View>
-                <View style={styles.cardNote}>
-                  <ShieldCheck color={colors.primary} size={16} />
-                  <AppText variant="caption" tone="muted" style={styles.flex}>
-                    You will be taken to a secure hosted checkout page to enter your card details, then brought back here. We
-                    never see your card number.
-                  </AppText>
-                </View>
+                {methodGate("CARD").isEnabled ? (
+                  <View style={styles.cardNote}>
+                    <ShieldCheck color={colors.primary} size={16} />
+                    <AppText variant="caption" tone="muted" style={styles.flex}>
+                      You will be taken to a secure hosted checkout page to enter your card details, then brought back here.
+                      We never see your card number.
+                    </AppText>
+                  </View>
+                ) : (
+                  <View style={styles.methodOffNote}>
+                    <AppText variant="caption" weight="semiBold" style={styles.methodOffNoteText}>
+                      {methodGate("CARD").reason || "Card payments are temporarily unavailable. Please use mobile money or bank."}
+                    </AppText>
+                  </View>
+                )}
               </>
             )}
               </AppStack>
@@ -673,7 +746,13 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
             )
           }
           onPress={channel === "BANK" ? handleBankPay : channel === "CARD" ? handleCardPay : handlePay}
-          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim()}
+          disabled={
+            channel === "BANK"
+              ? !bankReady || !methodGate(`BANK_${bankCode}`).isEnabled
+              : channel === "CARD"
+                ? !methodGate("CARD").isEnabled
+                : !provider || !phone.trim() || !methodGate(provider).isEnabled
+          }
         />
       </BottomActionBar>
     </View>
@@ -816,6 +895,27 @@ const styles = StyleSheet.create({
   providerTileOn: { borderColor: colors.primary, backgroundColor: colors.brand[50] },
   providerLogo: { width: 64, height: 28 },
   providerCheck: { position: "absolute", top: 6, right: 6 },
+  // "Unavailable" treatment for admin-disabled methods: the reason stays legible
+  // and an amber pill flags the state (not an alarming red, not a faded-out row).
+  methodTileOff: { backgroundColor: colors.surface, borderColor: colors.border },
+  methodLogoOff: { opacity: 0.5 },
+  methodOffLabel: { marginTop: 2, color: colors.warningText },
+  methodOffNote: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.warningSurface,
+    backgroundColor: colors.warningSurface,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3]
+  },
+  methodOffNoteText: { color: colors.warningText },
+  unavailablePill: {
+    backgroundColor: colors.warningSurface,
+    paddingHorizontal: spacing[2],
+    paddingVertical: 4,
+    borderRadius: 999
+  },
+  unavailablePillText: { color: colors.warningText },
   errorBox: {
     borderRadius: radius.md,
     borderWidth: 1,

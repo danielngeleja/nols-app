@@ -80,6 +80,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     response = await fetch(`${baseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
+      // This app authenticates purely with the Bearer token. Never send cookies:
+      // React Native's fetch otherwise stores the server's Set-Cookie and re-sends
+      // it, which makes the API treat requests as cookie-authenticated and blocks
+      // mutations with a CSRF error.
+      credentials: "omit",
       body: options.body != null ? JSON.stringify(options.body) : undefined
     });
   } catch (error) {
@@ -141,6 +146,7 @@ export async function apiUploadFile<T>(
     response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers,
+      credentials: "omit",
       body: form
     });
   } catch (error) {

@@ -189,7 +189,7 @@ export type InvoiceData = {
 };
 
 /** AzamPay mobile money provider ids, matching the API's enum. */
-export type MnoProvider = "Airtel" | "Mpesa" | "Tigo" | "Halopesa";
+export type MnoProvider = "Airtel" | "Mpesa" | "Tigo" | "Halopesa" | "Azampesa";
 
 export type PaymentInitiateResult = {
   paymentRef?: string;

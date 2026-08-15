@@ -24,6 +24,8 @@ export const colors = {
   success: "#16a34a",
   danger: "#dc2626",
   warning: "#b45309",
+  warningText: "#854f0b",
+  warningSurface: "#faeeda",
   white: "#ffffff",
   black: "#000000"
 } as const;

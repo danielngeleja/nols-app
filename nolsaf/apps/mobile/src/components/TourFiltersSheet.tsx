@@ -1,6 +1,6 @@
-import { ArrowUpDown, Check, MapPin, Tag, X } from "lucide-react-native";
-import { ReactNode, useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ArrowUpDown, Check, MapPin, Search, Tag, X } from "lucide-react-native";
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { TourismSite, TourSortKey } from "../tours";
@@ -31,7 +31,7 @@ export function countTourFilters(f: TourFilterValue): number {
   return (f.category !== "All" ? 1 : 0) + (f.site !== "All" ? 1 : 0) + (f.sort !== "recommended" ? 1 : 0);
 }
 
-/** Group sites by country so each country shows as its own separated lane. Tanzania
+/** Group sites by country so each country reads as its own labelled group. Tanzania
  *  leads, then the rest alphabetically. */
 function groupSitesByCountry(sites: TourismSite[]): Array<{ country: string; sites: TourismSite[] }> {
   const map = new Map<string, TourismSite[]>();
@@ -57,18 +57,27 @@ type TourFiltersSheetProps = {
   onClose: () => void;
 };
 
-/** Bottom sheet of advanced tour filters, classified into Category, Parks and sites,
- *  and Sort, each with its own iconed header and a horizontal row of chips. Edits a
- *  draft and applies on Apply, the same calm pattern the Verified Stays filters use. */
+/** Bottom sheet of tour filters: Category, Parks and sites (searchable), and Sort.
+ *  Chips wrap so nothing is clipped, and a search narrows the long places list. */
 export function TourFiltersSheet({ visible, value, categories, sites, getCount, onApply, onClose }: TourFiltersSheetProps) {
   const [draft, setDraft] = useState<TourFilterValue>(value);
+  const [siteQuery, setSiteQuery] = useState("");
 
   useEffect(() => {
-    if (visible) setDraft(value);
+    if (visible) {
+      setDraft(value);
+      setSiteQuery("");
+    }
   }, [visible, value]);
 
   const count = getCount ? getCount(draft) : null;
-  const siteGroups = groupSitesByCountry(sites);
+
+  const siteGroups = useMemo(() => {
+    const q = siteQuery.trim().toLowerCase();
+    return groupSitesByCountry(sites)
+      .map((g) => ({ ...g, sites: q ? g.sites.filter((s) => s.name.toLowerCase().includes(q)) : g.sites }))
+      .filter((g) => g.sites.length > 0);
+  }, [sites, siteQuery]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -92,53 +101,92 @@ export function TourFiltersSheet({ visible, value, categories, sites, getCount, 
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-            <Section Icon={Tag} label="Category">
-              <Chip label="All" active={draft.category === "All"} onPress={() => setDraft((c) => ({ ...c, category: "All" }))} />
-              {categories.map((cat) => (
-                <Chip key={cat} label={cat} active={draft.category === cat} onPress={() => setDraft((c) => ({ ...c, category: cat }))} />
-              ))}
-            </Section>
-
             <View style={styles.section}>
-              <View style={styles.sectionHead}>
-                <View style={styles.sectionIcon}>
-                  <MapPin color={colors.primary} size={14} />
-                </View>
-                <AppText variant="bodySmall" weight="bold">
-                  Parks and sites
-                </AppText>
-              </View>
-
-              {siteGroups.map((group) => (
-                <View key={group.country} style={styles.countryGroup}>
-                  <View style={styles.countryHead}>
-                    <AppText variant="caption" weight="bold" tone="muted" style={styles.countryLabel}>
-                      {group.country.toUpperCase()}
-                    </AppText>
-                    <View style={styles.countryLine} />
-                    <AppText variant="caption" tone="soft">
-                      {group.sites.length}
-                    </AppText>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
-                    {group.sites.map((s) => (
-                      <Chip
-                        key={String(s.id ?? s.name)}
-                        label={s.name}
-                        active={draft.site === s.name}
-                        onPress={() => setDraft((c) => ({ ...c, site: c.site === s.name ? "All" : s.name }))}
-                      />
-                    ))}
-                  </ScrollView>
-                </View>
-              ))}
+              <SectionHead Icon={Tag} label="Category" />
+              <ChipRows
+                items={[
+                  <Chip
+                    key="All"
+                    label="All"
+                    active={draft.category === "All"}
+                    onPress={() => setDraft((c) => ({ ...c, category: "All" }))}
+                  />,
+                  ...categories.map((cat) => (
+                    <Chip
+                      key={cat}
+                      label={cat}
+                      active={draft.category === cat}
+                      onPress={() => setDraft((c) => ({ ...c, category: cat }))}
+                    />
+                  ))
+                ]}
+              />
             </View>
 
-            <Section Icon={ArrowUpDown} label="Sort by">
-              {TOUR_SORT_OPTIONS.map((o) => (
-                <Chip key={o.value} label={o.label} active={draft.sort === o.value} onPress={() => setDraft((c) => ({ ...c, sort: o.value }))} />
-              ))}
-            </Section>
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <SectionHead Icon={MapPin} label="Parks and sites" />
+              <View style={styles.search}>
+                <Search color={colors.softText} size={16} />
+                <TextInput
+                  value={siteQuery}
+                  onChangeText={setSiteQuery}
+                  placeholder="Search parks, beaches, cities"
+                  placeholderTextColor={colors.softText}
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {siteQuery ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => setSiteQuery("")}>
+                    <X color={colors.softText} size={16} />
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {siteGroups.length === 0 ? (
+                <AppText variant="caption" tone="muted" style={styles.noMatch}>
+                  No places match that search.
+                </AppText>
+              ) : (
+                siteGroups.map((group) => (
+                  <View key={group.country} style={styles.countryGroup}>
+                    <AppText variant="caption" weight="semiBold" tone="muted" style={styles.countryLabel}>
+                      {group.country.toUpperCase()}
+                    </AppText>
+                    <ChipRows
+                      items={group.sites.map((s) => (
+                        <Chip
+                          key={String(s.id ?? s.name)}
+                          label={s.name}
+                          active={draft.site === s.name}
+                          onPress={() => setDraft((c) => ({ ...c, site: c.site === s.name ? "All" : s.name }))}
+                        />
+                      ))}
+                    />
+                  </View>
+                ))
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <SectionHead Icon={ArrowUpDown} label="Sort by" />
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipRowsContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.chipRowLine}>
+                  {TOUR_SORT_OPTIONS.map((o) => (
+                    <Chip key={o.value} label={o.label} active={draft.sort === o.value} onPress={() => setDraft((c) => ({ ...c, sort: o.value }))} />
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
           </ScrollView>
 
           <View style={styles.footer}>
@@ -158,20 +206,15 @@ export function TourFiltersSheet({ visible, value, categories, sites, getCount, 
   );
 }
 
-function Section({ Icon, label, children }: { Icon: typeof Tag; label: string; children: ReactNode }) {
+function SectionHead({ Icon, label }: { Icon: typeof Tag; label: string }) {
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHead}>
-        <View style={styles.sectionIcon}>
-          <Icon color={colors.primary} size={14} />
-        </View>
-        <AppText variant="bodySmall" weight="bold">
-          {label}
-        </AppText>
+    <View style={styles.sectionHead}>
+      <View style={styles.sectionIcon}>
+        <Icon color={colors.primary} size={14} />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
-        {children}
-      </ScrollView>
+      <AppText variant="bodySmall" weight="bold">
+        {label}
+      </AppText>
     </View>
   );
 }
@@ -180,14 +223,36 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       onPress={onPress}
       style={({ pressed }) => [styles.chip, active && styles.chipActive, pressed && !active && styles.chipPressed]}
     >
       {active ? <Check color={colors.white} size={14} /> : null}
-      <AppText variant="bodySmall" weight="semiBold" tone={active ? "inverse" : "default"}>
+      <AppText variant="bodySmall" weight="semiBold" tone={active ? "inverse" : "default"} numberOfLines={1} style={styles.chipLabel}>
         {label}
       </AppText>
     </Pressable>
+  );
+}
+
+/** Two fixed rows that slide horizontally — a compact, systematic chip carousel
+ *  instead of a tall free-wrap. Items alternate top/bottom so both rows stay even. */
+function ChipRows({ items }: { items: ReactNode[] }) {
+  const top: ReactNode[] = [];
+  const bottom: ReactNode[] = [];
+  items.forEach((node, i) => (i % 2 === 0 ? top : bottom).push(node));
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipRowsContent}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.chipRows}>
+        <View style={styles.chipRowLine}>{top}</View>
+        <View style={styles.chipRowLine}>{bottom}</View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -209,6 +274,7 @@ const styles = StyleSheet.create({
   close: { width: 36, height: 36, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
   body: { paddingBottom: spacing[4], gap: spacing[5] },
   section: { gap: spacing[3] },
+  divider: { height: 1, backgroundColor: colors.border },
   sectionHead: { flexDirection: "row", alignItems: "center", gap: spacing[2] },
   sectionIcon: {
     width: 26,
@@ -220,25 +286,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.brand[100]
   },
+  search: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing[3]
+  },
+  searchInput: { flex: 1, fontSize: 14, color: colors.ink, paddingVertical: 0 },
+  noMatch: { marginTop: spacing[1] },
   countryGroup: { gap: spacing[2] },
-  countryHead: { flexDirection: "row", alignItems: "center", gap: spacing[2] },
-  countryLabel: { letterSpacing: 1.2 },
-  countryLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  chipRow: { gap: spacing[2], paddingRight: spacing[2], paddingVertical: 2 },
+  countryLabel: { letterSpacing: 0.6, marginTop: spacing[2] },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing[2] },
+  chipRowsContent: { paddingRight: spacing[2], paddingVertical: 2 },
+  chipRows: { gap: spacing[2] },
+  chipRowLine: { flexDirection: "row", gap: spacing[2] },
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[1],
-    borderRadius: radius.full,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    minHeight: 42,
+    paddingHorizontal: spacing[3],
+    minHeight: 36,
+    maxWidth: "100%",
     justifyContent: "center"
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary, ...shadows.card },
+  chipLabel: { flexShrink: 1 },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipPressed: { backgroundColor: colors.brand[50], borderColor: colors.brand[100] },
   footer: { flexDirection: "row", gap: spacing[3], paddingTop: spacing[4], marginTop: spacing[2], borderTopWidth: 1, borderTopColor: colors.border },
   flex: { flex: 1, minWidth: 0 },

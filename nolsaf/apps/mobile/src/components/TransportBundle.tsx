@@ -56,6 +56,10 @@ type Props = {
   currency: string;
   /** Booking check-in (YYYY-MM-DD), used as the default arrival date. */
   defaultArrivalDate?: string;
+  /** Admin/area gate: when false, the ride add-on is not offered here. */
+  available?: boolean;
+  /** Why the ride add-on is unavailable, shown softly to the guest. */
+  unavailableReason?: string | null;
   onChange: (selection: TransportSelection) => void;
 };
 
@@ -121,8 +125,20 @@ function FareSkeleton() {
   );
 }
 
-export function TransportBundle({ destination, currency, defaultArrivalDate, onChange }: Props) {
+export function TransportBundle({
+  destination,
+  currency,
+  defaultArrivalDate,
+  available = true,
+  unavailableReason,
+  onChange
+}: Props) {
   const [include, setInclude] = useState(false);
+
+  // If the area gate closes (or loads after mount), never keep the ride selected.
+  useEffect(() => {
+    if (!available && include) setInclude(false);
+  }, [available, include]);
   const [mode, setMode] = useState<Mode>("instant");
   const [vehicleType, setVehicleType] = useState<TransportVehicleType>("CAR");
   const [pickupId, setPickupId] = useState<string | null>(null);
@@ -360,30 +376,41 @@ export function TransportBundle({ destination, currency, defaultArrivalDate, onC
         {/* Header / toggle */}
         <Pressable
           accessibilityRole="switch"
-          accessibilityState={{ checked: include }}
+          accessibilityState={{ checked: include, disabled: !available }}
+          disabled={!available}
           onPress={() => setInclude((v) => !v)}
           style={styles.headerRow}
         >
-          <View style={styles.headerIcon}>
+          <View style={[styles.headerIcon, !available && styles.headerIconOff]}>
             <Car color={colors.primary} size={18} />
           </View>
           <View style={styles.flex}>
             <AppText variant="caption" weight="bold" tone="primary" style={styles.eyebrow}>
               ONE TRIP · ONE TAP
             </AppText>
-            <AppText variant="bodySmall" weight="bold">
+            <AppText variant="bodySmall" weight="bold" tone={available ? "default" : "muted"}>
               Add a ride to your stay
             </AppText>
-            <AppText variant="caption" tone="soft">
-              Door to door pickup, straight to this booked stay.
+            <AppText variant="caption" tone={available ? "soft" : "muted"}>
+              {available
+                ? "Door to door pickup, straight to this booked stay."
+                : unavailableReason || "Rides are not available in this area yet."}
             </AppText>
           </View>
-          <View style={[styles.switch, include && styles.switchOn]}>
-            <View style={[styles.knob, include && styles.knobOn]} />
-          </View>
+          {available ? (
+            <View style={[styles.switch, include && styles.switchOn]}>
+              <View style={[styles.knob, include && styles.knobOn]} />
+            </View>
+          ) : (
+            <View style={styles.unavailablePill}>
+              <AppText variant="caption" weight="semiBold" style={styles.unavailablePillText}>
+                Unavailable
+              </AppText>
+            </View>
+          )}
         </Pressable>
 
-        {include ? (
+        {available && include ? (
           <View style={styles.panel}>
             <AppStack gap={4}>
             {/* Mode */}
@@ -641,6 +668,14 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   eyebrow: { letterSpacing: 1, marginBottom: 1 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
+  headerIconOff: { opacity: 0.5 },
+  unavailablePill: {
+    backgroundColor: colors.warningSurface,
+    paddingHorizontal: spacing[2],
+    paddingVertical: 4,
+    borderRadius: 999
+  },
+  unavailablePillText: { color: colors.warningText },
   panel: {
     borderRadius: radius.md,
     borderWidth: 1,
