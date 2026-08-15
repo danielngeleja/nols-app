@@ -187,7 +187,10 @@ export function middleware(req: NextRequest) {
 
   // Customer account pages should require auth (like Group Stays).
   // Allow auth routes under /account/* to remain public.
-  if (path.startsWith("/account")) {
+  // Match the /account section only (exact or /account/...), never a bare
+  // "account" prefix — otherwise the public, legally-required /account-deletion
+  // page gets caught and bounced to login, breaking Play Store compliance.
+  if (path === "/account" || path.startsWith("/account/")) {
     const isAccountAuthRoute =
       path === "/account/login" ||
       path === "/account/register" ||
