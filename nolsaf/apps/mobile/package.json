@@ -4,6 +4,7 @@
   "private": true,
   "main": "index.js",
   "scripts": {
+    "eas-build-pre-install": "npm install -g npm@11.6.1",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
