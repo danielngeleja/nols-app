@@ -1,6 +1,7 @@
 import { ArrowLeft, ShieldCheck } from "lucide-react-native";
-import { PropsWithChildren, ReactNode } from "react";
+import { PropsWithChildren, ReactNode, useEffect, useRef } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -29,6 +30,19 @@ type AuthScreenProps = PropsWithChildren<{
 }>;
 
 export function AuthScreen({ children, title, subtitle, onBack, icon, footer, progress }: AuthScreenProps) {
+  const scrollRef = useRef<ScrollView>(null);
+
+  // When the keyboard opens, scroll the form up so the focused input (which sits
+  // near the bottom of these auth screens) rises above the keyboard instead of
+  // being hidden behind it. KeyboardAvoidingView is a no-op on Android, so this
+  // is what actually keeps the field visible there.
+  useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <View style={styles.root}>
       <View pointerEvents="none" style={styles.heroBackground}>
@@ -62,8 +76,10 @@ export function AuthScreen({ children, title, subtitle, onBack, icon, footer, pr
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.keyboard}>
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.hero}>

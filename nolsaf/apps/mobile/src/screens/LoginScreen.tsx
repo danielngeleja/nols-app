@@ -115,7 +115,14 @@ export function LoginScreen({ navigation }: Props) {
       }
       await completeOtpSignIn(res.token, res.user);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed. Please try again.");
+      // Map the backend's technical messages to friendly, actionable copy.
+      const raw = e instanceof Error ? e.message : "";
+      const friendly = /no otp found|expired|not found/i.test(raw)
+        ? "That code has expired or was not found. Tap Resend code to get a new one."
+        : /incorrect|invalid|wrong|mismatch/i.test(raw)
+          ? "That code is not correct. Check it and try again, or resend a new one."
+          : "We could not verify that code. Please try again or resend a new one.";
+      setError(friendly);
       setLoading(false);
     }
   }
@@ -296,9 +303,9 @@ export function LoginScreen({ navigation }: Props) {
 
 function MethodPill({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && styles.pressed]}>
-      <Icon color={active ? colors.primary : colors.mutedText} size={15} />
-      <AppText variant="caption" weight="semiBold" tone={active ? "default" : "muted"} numberOfLines={1}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && styles.pressed]}>
+      <Icon color={active ? colors.white : colors.mutedText} size={15} />
+      <AppText variant="caption" weight={active ? "bold" : "semiBold"} tone={active ? "inverse" : "muted"} numberOfLines={1}>
         {label}
       </AppText>
     </Pressable>
@@ -334,7 +341,9 @@ const styles = StyleSheet.create({
     gap: spacing[1],
     padding: spacing[1],
     borderRadius: radius.lg,
-    backgroundColor: colors.brand[50]
+    backgroundColor: colors.brand[100],
+    borderWidth: 1,
+    borderColor: colors.brand[200]
   },
   methodPill: {
     flex: 1,
@@ -349,8 +358,13 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent"
   },
   methodPillActive: {
-    backgroundColor: colors.white,
-    borderColor: colors.border
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2
   },
   // When the passkey button holds the brand color, the form submit steps back
   // to neutral ink so the screen keeps a single accent action.

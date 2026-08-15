@@ -1,5 +1,6 @@
-import { ReactNode } from "react";
-import { TextInput, TextInputProps, StyleSheet, View } from "react-native";
+import { ReactNode, useState } from "react";
+import { Pressable, TextInput, TextInputProps, StyleSheet, View } from "react-native";
+import { Eye, EyeOff } from "lucide-react-native";
 
 import { colors, fonts, radius, spacing } from "../theme";
 import { AppText } from "./AppText";
@@ -14,6 +15,28 @@ type AppInputProps = TextInputProps & {
 };
 
 export function AppInput({ label, error, required, hint, style, ...props }: AppInputProps) {
+  // On Android, a custom fontFamily on a secureTextEntry input breaks masking and
+  // renders the password in plain text. Use the system font for secure fields so
+  // the characters are always masked.
+  const secure = Boolean(props.secureTextEntry);
+  const [revealed, setRevealed] = useState(false);
+
+  const field = (
+    <TextInput
+      placeholderTextColor={colors.softText}
+      style={[
+        styles.input,
+        secure ? styles.secureInput : styles.brandInput,
+        secure && styles.inputWithAdornment,
+        error && styles.errorInput,
+        style
+      ]}
+      {...props}
+      // Secure fields render an eye toggle; honor the reveal state.
+      secureTextEntry={secure && !revealed}
+    />
+  );
+
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
@@ -27,11 +50,26 @@ export function AppInput({ label, error, required, hint, style, ...props }: AppI
         </AppText>
         {hint ?? null}
       </View>
-      <TextInput
-        placeholderTextColor={colors.softText}
-        style={[styles.input, error && styles.errorInput, style]}
-        {...props}
-      />
+      {secure ? (
+        <View style={styles.secureWrap}>
+          {field}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={revealed ? "Hide password" : "Show password"}
+            hitSlop={8}
+            onPress={() => setRevealed((current) => !current)}
+            style={styles.eyeButton}
+          >
+            {revealed ? (
+              <EyeOff color={colors.mutedText} size={20} />
+            ) : (
+              <Eye color={colors.mutedText} size={20} />
+            )}
+          </Pressable>
+        </View>
+      ) : (
+        field
+      )}
       {error ? (
         <AppText variant="caption" tone="danger">
           {error}
@@ -61,8 +99,30 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     paddingHorizontal: spacing[4],
     color: colors.ink,
-    fontFamily: fonts.regular,
     fontSize: 16
+  },
+  // Brand font for normal fields.
+  brandInput: {
+    fontFamily: fonts.regular
+  },
+  // Secure fields deliberately omit the custom fontFamily so Android masks them.
+  secureInput: {},
+  // Leaves room for the eye toggle so the text never sits under it.
+  inputWithAdornment: {
+    paddingRight: 48
+  },
+  secureWrap: {
+    position: "relative",
+    justifyContent: "center"
+  },
+  eyeButton: {
+    position: "absolute",
+    right: spacing[3],
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing[1]
   },
   errorInput: {
     borderColor: colors.danger
