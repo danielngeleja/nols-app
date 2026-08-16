@@ -7,6 +7,7 @@ import { useAuth } from "../auth";
 import { completeOtpProfile, sendOtp, verifyOtp } from "../auth/authApi";
 import { OtpChannel } from "../auth/types";
 import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
@@ -27,6 +28,7 @@ function maskDestination(channel: OtpChannel, value: string) {
 }
 
 export function RegisterScreen({ navigation, route }: Props) {
+  useSecureScreen();
   const { completeOtpSignIn } = useAuth();
   const referralCode = route.params?.ref;
 

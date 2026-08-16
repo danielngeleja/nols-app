@@ -12,7 +12,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "2",
+      "buildNumber": "3",
       "bundleIdentifier": "com.nolsaf.app",
       "associatedDomains": [
         "webcredentials:nolsaf.com",
@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 20,
+      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -80,6 +80,12 @@
           "backgroundColor": "#ffffff",
           "resizeMode": "contain",
           "imageWidth": 240
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "NoLSAF uses Face ID to unlock the app so only you can open your bookings and payments."
         }
       ],
       "expo-web-browser"

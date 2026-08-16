@@ -29,15 +29,17 @@ import {
 } from "../auth/authApi";
 import { AppButton, AppCard, AppInput, AppStack, AppText, SafeScreen, ScreenHeader } from "../components";
 import { getErrorMessage } from "../lib/apiClient";
+import { useAppLock } from "../lock";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AccountSecurity">;
-type Mode = "password" | "passkeys" | "2fa";
+type Mode = "password" | "passkeys" | "2fa" | "applock";
 
 function titleForMode(mode: Mode) {
   if (mode === "password") return "Password";
   if (mode === "passkeys") return "Passkeys";
+  if (mode === "applock") return "App Lock";
   return "2FA / MFA";
 }
 
@@ -60,6 +62,7 @@ export function AccountSecurityScreen({ route, navigation }: Props) {
         {mode === "password" ? <PasswordPanel /> : null}
         {mode === "passkeys" ? <PasskeysPanel /> : null}
         {mode === "2fa" ? <TwoFactorPanel /> : null}
+        {mode === "applock" ? <AppLockPanel /> : null}
       </AppStack>
     </SafeScreen>
   );
@@ -399,6 +402,93 @@ function TwoFactorPanel() {
             </View>
           ) : null}
           {message ? <AppText variant="bodySmall" tone={message.toLowerCase().includes("success") || message.toLowerCase().includes("enabled") ? "success" : "muted"}>{message}</AppText> : null}
+        </AppStack>
+      </AppCard>
+    </>
+  );
+}
+
+function AppLockPanel() {
+  const { enabled, supported, biometric, ready, enable, disable } = useAppLock();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (enabled) {
+        await disable();
+        setMessage("App Lock turned off.");
+      } else {
+        const ok = await enable();
+        setMessage(ok ? "App Lock turned on." : "Could not confirm. App Lock was not turned on.");
+      }
+    } catch {
+      setMessage("Something went wrong. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const lockLabel = biometric ? "fingerprint or face" : "device passcode";
+
+  return (
+    <>
+      <SecurityHero
+        Icon={ShieldCheck}
+        title="App Lock"
+        text={`Require your ${lockLabel} to open NoLSAF, so your bookings and payments stay private on a shared or lost phone.`}
+      />
+      <AppCard>
+        <AppStack gap={4}>
+          <View style={styles.statusLine}>
+            <View style={[styles.roundIcon, enabled && styles.roundIconSuccess]}>
+              {enabled ? <CheckCircle2 color={colors.success} size={17} /> : <LockKeyhole color={colors.primary} size={17} />}
+            </View>
+            <View style={styles.flex}>
+              <AppText variant="bodySmall" weight="extraBold">
+                {enabled ? "App Lock is on" : "App Lock is off"}
+              </AppText>
+              <AppText variant="caption" tone="muted">
+                {enabled
+                  ? `NoLSAF asks for your ${lockLabel} when you open it or return after a short while.`
+                  : "Anyone holding your unlocked phone can open your NoLSAF account."}
+              </AppText>
+            </View>
+          </View>
+
+          <View style={styles.noteBox}>
+            <ShieldCheck color={colors.warning} size={16} />
+            <AppText variant="caption" tone="muted" style={styles.flex}>
+              NoLSAF never sees or stores your fingerprint or face. Your phone checks it and only tells the app yes or no. This is separate from your account password.
+            </AppText>
+          </View>
+
+          {ready && !supported ? (
+            <View style={styles.noteBox}>
+              <AlertTriangle color={colors.warning} size={16} />
+              <AppText variant="caption" tone="muted" style={styles.flex}>
+                This device has no fingerprint, face, or passcode set up. Add a screen lock in your phone settings to use App Lock.
+              </AppText>
+            </View>
+          ) : null}
+
+          {message ? (
+            <AppText variant="bodySmall" tone={message.toLowerCase().includes("on") ? "success" : "muted"}>
+              {message}
+            </AppText>
+          ) : null}
+
+          <AppButton
+            title={enabled ? "Turn off App Lock" : "Turn on App Lock"}
+            variant={enabled ? "danger" : "primary"}
+            loading={busy}
+            disabled={!ready || (!enabled && !supported)}
+            onPress={toggle}
+            icon={enabled ? undefined : <ShieldCheck color={colors.white} size={16} />}
+          />
         </AppStack>
       </AppCard>
     </>

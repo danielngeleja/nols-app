@@ -17,6 +17,7 @@ import {
   ScreenHeader,
   StateView
 } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
@@ -80,6 +81,7 @@ function prettyDate(value?: string | null) {
 }
 
 export function TourBookingPaymentScreen({ navigation, route }: Props) {
+  useSecureScreen();
   const { bookingId, accessToken } = route.params;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);

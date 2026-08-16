@@ -240,6 +240,7 @@ export function AccountScreen({ navigation }: Props) {
               <SecurityPill Icon={KeyRound} label="Password" onPress={() => navigation.navigate("AccountSecurity", { mode: "password" })} />
               <SecurityPill Icon={Fingerprint} label="Passkeys" onPress={() => navigation.navigate("AccountSecurity", { mode: "passkeys" })} />
               <SecurityPill Icon={LockKeyhole} label="2FA / MFA" onPress={() => navigation.navigate("AccountSecurity", { mode: "2fa" })} />
+              <SecurityPill Icon={ShieldCheck} label="App Lock" onPress={() => navigation.navigate("AccountSecurity", { mode: "applock" })} />
             </View>
           </AppCard>
 

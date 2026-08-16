@@ -26,6 +26,7 @@ import {
   ScreenHeader,
   StateView
 } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
@@ -75,6 +76,7 @@ function formatCountdown(total: number): string {
 }
 
 export function BookingPaymentScreen({ navigation, route }: Props) {
+  useSecureScreen();
   const { token } = useAuth();
   const { invoiceId, accessToken } = route.params;
 

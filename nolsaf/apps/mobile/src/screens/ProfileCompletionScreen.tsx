@@ -21,6 +21,7 @@ import { confirmContactChange, requestContactChange } from "../auth/authApi";
 import { ContactField } from "../auth/types";
 import { useAuth } from "../auth";
 import { AppButton, AppCard, AppInput, AppStack, AppText, PhoneNumberField, SafeScreen, ScreenHeader } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { apiUploadFile, getErrorMessage } from "../lib/apiClient";
 import { DEFAULT_PHONE_COUNTRY_CODE } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
@@ -47,6 +48,7 @@ function roleLabel(role?: string | null) {
 const GENDER_OPTIONS = ["Male", "Female", "Other"] as const;
 
 export function ProfileCompletionScreen({ navigation }: Props) {
+  useSecureScreen();
   const { token, user, updateProfile, refreshProfile } = useAuth();
   const [fullName, setFullName] = useState(user?.fullName || user?.name || "");
   const [address, setAddress] = useState(user?.address || "");

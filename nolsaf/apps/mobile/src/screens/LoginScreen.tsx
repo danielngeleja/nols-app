@@ -8,6 +8,7 @@ import { useAuth } from "../auth";
 import { sendOtp, verifyOtp } from "../auth/authApi";
 import { OtpChannel } from "../auth/types";
 import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
@@ -19,6 +20,7 @@ type IconType = typeof Mail;
 const RESEND_COOLDOWN_SEC = 60;
 
 export function LoginScreen({ navigation }: Props) {
+  useSecureScreen();
   const { signIn, signInWithPasskey, completeOtpSignIn } = useAuth();
   const [method, setMethod] = useState<Method>("password");
 

@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { resetPassword, sendOtp, verifyOtp } from "../auth/authApi";
 import { OtpChannel } from "../auth/types";
 import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { getErrorMessage } from "../lib/apiClient";
 import { formatCooldown, getCooldownUntil } from "../lib/otpCooldown";
 import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
@@ -28,6 +29,7 @@ function maskDestination(channel: OtpChannel, value: string) {
 }
 
 export function ForgotPasswordScreen({ navigation }: Props) {
+  useSecureScreen();
   const [step, setStep] = useState<Step>("contact");
   const [channel, setChannel] = useState<OtpChannel>("PHONE");
   const [countryCode, setCountryCode] = useState(DEFAULT_PHONE_COUNTRY_CODE);

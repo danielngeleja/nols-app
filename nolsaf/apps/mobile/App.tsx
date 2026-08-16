@@ -9,6 +9,8 @@ import { configureApiClient } from "@nolsaf/native-ui";
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { NolsafLogoMark } from "./src/components";
 import { apiBaseUrl } from "./src/lib/apiClient";
+import { initSslPinning } from "./src/lib/sslPinning";
+import { AppLockGate, AppLockProvider } from "./src/lock";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
 
@@ -100,6 +102,7 @@ function AppContent() {
 
 export default function App() {
   const [minimumSplashElapsed, setMinimumSplashElapsed] = useState(false);
+  const [pinningReady, setPinningReady] = useState(false);
   const [appReady, setAppReady] = useState(false);
   const splashHiddenRef = useRef(false);
   // Load brand fonts in the background. Font loading is best-effort and must not
@@ -120,9 +123,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Boot is gated only on the minimum splash time, never on fonts (see above).
-    if (minimumSplashElapsed) setAppReady(true);
-  }, [minimumSplashElapsed]);
+    // Activate TLS certificate pinning before any authenticated screen mounts.
+    // AuthProvider (below) is the first thing to hit the network, and it only
+    // mounts once appReady flips true, so gating appReady on this guarantees no
+    // request is ever made over an unpinned connection. initSslPinning always
+    // resolves (it no-ops on web / dev / Expo Go), so it never traps the splash.
+    let active = true;
+    void initSslPinning().finally(() => {
+      if (active) setPinningReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Boot is gated on the minimum splash time and on pinning being active, never
+    // on fonts (see above).
+    if (minimumSplashElapsed && pinningReady) setAppReady(true);
+  }, [minimumSplashElapsed, pinningReady]);
 
   useEffect(() => {
     // Dismiss the native splash from an effect tied to appReady. Do NOT rely on
@@ -140,7 +159,11 @@ export default function App() {
       <StatusBar style="dark" />
       {appReady ? (
         <AuthProvider>
-          <AppContent />
+          <AppLockProvider>
+            <AppLockGate>
+              <AppContent />
+            </AppLockGate>
+          </AppLockProvider>
         </AuthProvider>
       ) : (
         <BrandedBootScreen />

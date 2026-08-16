@@ -28,7 +28,7 @@ export type RootStackParamList = {
   BusinessAccess: undefined;
   Notifications: undefined;
   SavedProperties: undefined;
-  AccountSecurity: { mode: "password" | "passkeys" | "2fa" };
+  AccountSecurity: { mode: "password" | "passkeys" | "2fa" | "applock" };
   AccountResources: { mode: "policies" | "help" | "support" };
   TravellerGroups: { tourBookingId?: number; tourBookingTitle?: string } | undefined;
   GroupStayRequest: undefined;

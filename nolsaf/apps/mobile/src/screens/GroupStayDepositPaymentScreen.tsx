@@ -18,6 +18,7 @@ import {
   ScreenHeader,
   StateView
 } from "../components";
+import { useSecureScreen } from "../lib/secureScreen";
 import { apiBaseUrl, ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
@@ -88,6 +89,7 @@ function formatDueCountdown(ms: number): string {
 }
 
 export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
+  useSecureScreen();
   const { token } = useAuth();
   const { id } = route.params;
   const [loading, setLoading] = useState(true);

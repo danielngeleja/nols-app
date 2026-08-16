@@ -29,7 +29,9 @@
     "expo-dev-client": "~56.0.24",
     "expo-document-picker": "~56.0.4",
     "expo-font": "~56.0.7",
+    "expo-local-authentication": "~56.0.5",
     "expo-location": "~56.0.23",
+    "expo-screen-capture": "~56.0.4",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.14",
     "expo-status-bar": "~56.0.4",
@@ -42,6 +44,7 @@
     "react-native-passkeys": "^0.4.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-ssl-public-key-pinning": "^1.2.6",
     "react-native-svg": "15.15.5",
     "react-native-web": "^0.21.2",
     "socket.io-client": "^4.8.3"
@@ -52,7 +55,9 @@
   },
   "expo": {
     "install": {
-      "exclude": ["react-native-svg"]
+      "exclude": [
+        "react-native-svg"
+      ]
     }
   }
 }
