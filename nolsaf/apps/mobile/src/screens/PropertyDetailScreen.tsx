@@ -1431,10 +1431,14 @@ function HeroGallery({
     if (reducedMotion || images.length <= 1 || cardWidth <= 0) return;
     const id = setInterval(() => {
       if (pausedRef.current) return;
-      const next = (indexRef.current + 1) % images.length;
+      // Advancing to the next photo animates one step. Looping from the last
+      // photo back to the first resets instantly (animated: false) instead of
+      // rewinding across the whole strip, which otherwise reads as a jump/gap.
+      const isWrap = indexRef.current >= images.length - 1;
+      const next = isWrap ? 0 : indexRef.current + 1;
       indexRef.current = next;
       setIndex(next);
-      listRef.current?.scrollToOffset({ offset: next * cardWidth, animated: true });
+      listRef.current?.scrollToOffset({ offset: next * cardWidth, animated: !isWrap });
     }, HERO_ROTATE_MS);
     return () => clearInterval(id);
   }, [images.length, cardWidth, reducedMotion]);
@@ -1470,12 +1474,30 @@ function HeroGallery({
           data={images}
           keyExtractor={(item, i) => `${i}-${item}`}
           horizontal
-          pagingEnabled
           showsHorizontalScrollIndicator={false}
+          // Snap to the exact photo width (not the viewport, as pagingEnabled does),
+          // so every swipe lands pixel-perfect and never drifts into a sliver/gap.
+          snapToInterval={cardWidth}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          getItemLayout={(_, i) => ({ length: cardWidth, offset: cardWidth * i, index: i })}
+          // Keep neighbouring photos mounted so a swipe never reveals a blank frame
+          // while the next image is still decoding.
+          removeClippedSubviews={false}
+          initialNumToRender={2}
+          maxToRenderPerBatch={3}
+          windowSize={3}
           onMomentumScrollEnd={onScroll}
           onScrollBeginDrag={pause}
           onScrollEndDrag={resumeSoon}
-          renderItem={({ item }) => <Image source={{ uri: item }} style={{ width: cardWidth, height: cardHeight }} resizeMode="cover" />}
+          renderItem={({ item }) => (
+            <Image
+              source={{ uri: item }}
+              style={{ width: cardWidth, height: cardHeight, backgroundColor: colors.brand[100] }}
+              resizeMode="cover"
+            />
+          )}
         />
       ) : (
         <View style={[styles.heroPlaceholder, { width: cardWidth, height: cardHeight }]}>
