@@ -19,7 +19,8 @@
         "applinks:nolsaf.com"
       ],
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "NoLSAF uses your location to set your pickup point so a driver can collect you and bring you to your booked stay."
+        "NSLocationWhenInUseUsageDescription": "NoLSAF uses your location to set your pickup point so a driver can collect you and bring you to your booked stay.",
+        "NSFaceIDUsageDescription": "NoLSAF uses Face ID to unlock the app so only you can open your bookings and payments."
       }
     },
     "android": {
@@ -80,12 +81,6 @@
           "backgroundColor": "#ffffff",
           "resizeMode": "contain",
           "imageWidth": 240
-        }
-      ],
-      [
-        "expo-local-authentication",
-        {
-          "faceIDPermission": "NoLSAF uses Face ID to unlock the app so only you can open your bookings and payments."
         }
       ],
       "expo-web-browser"
