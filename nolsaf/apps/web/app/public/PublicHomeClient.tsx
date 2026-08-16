@@ -757,26 +757,8 @@ export default function Page() {
         accentClass: 'from-sky-100/75 via-white/70 to-emerald-100/55',
         stats: { cities: 12, regions: 31, listings: 1250, payments: ['M-Pesa', 'Airtel Money', 'Halopesa', 'Mixx by Yas', 'Visa'] },
       },
-      {
-        id: 'kenya',
-        name: 'Kenya',
-        flag: '🇰🇪',
-        subtitle: 'Big Five & coast',
-        blurb: 'Explore Maasai Mara, Amboseli, and the coast book verified stays, plan your route, and pay securely in one flow.',
-        href: '/public/countries/kenya',
-        accentClass: 'from-amber-100/65 via-white/70 to-emerald-100/55',
-        stats: { cities: 10, listings: 980, payments: ['M-Pesa', 'Airtel Money', 'T Kash', 'Visa'] },
-      },
-      {
-        id: 'uganda',
-        name: 'Uganda',
-        flag: '🇺🇬',
-        subtitle: 'Gorillas, falls & lakes',
-        blurb: 'From Bwindi to Murchison Falls discover lodges near top sites and coordinate stays + transport with secure booking.',
-        href: '/public/countries/uganda',
-        accentClass: 'from-violet-100/65 via-white/70 to-emerald-100/55',
-        stats: { cities: 7, listings: 430, payments: ['MTN Mobile Money', 'Visa'] },
-      },
+      // Kenya and Uganda removed — Tanzania is our only current coverage.
+      // Re-add here (and in countries/[country]/page.tsx) when we expand.
     ],
     []
   );

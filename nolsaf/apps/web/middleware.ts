@@ -124,6 +124,9 @@ export function middleware(req: NextRequest) {
   }
 
   const isPublicNrmsGuestRoute =
+    // Public NRMS marketing landing (indexable, no login). Exact match only so
+    // deeper /nrms/* app routes stay gated below.
+    path === "/nrms" ||
     path.startsWith("/nrms/book/") ||
     path.startsWith("/nrms/guest/payment/") ||
     path.startsWith("/nrms/guest/review/");

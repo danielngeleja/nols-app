@@ -89,58 +89,10 @@ const COUNTRY_TOURISM: Record<string, CountryTourism> = {
     ],
   },
 
-  kenya: {
-    id: "kenya",
-    name: "Kenya",
-    subtitle: "Big Five safaris, lakes, and coast",
-    hero: {
-      title: "Explore Kenya with confidence",
-      body: "Pick your safari regions or coastal escape — then book stays, plan transport, and keep your trip coordinated from one place.",
-    },
-    highlights: [
-      { src: "/assets/Big Five.jpg", alt: "Big Five" },
-      { src: "/assets/Lion in the Jangle.jpg", alt: "Lion in the jungle" },
-    ],
-    major: [
-      { slug: "maasai-mara", name: "Maasai Mara", note: "World-class safari and seasonal wildebeest migration.", imageSrc: "/assets/Great Migration.jpg", imageAlt: "Great Migration", details: ["Pick lodging that matches your game drive plans."] },
-      { slug: "amboseli-national-park", name: "Amboseli National Park", note: "Elephants with dramatic Mount Kilimanjaro views.", imageSrc: "/assets/Mount Kilimanjaro.jpg", imageAlt: "Mount Kilimanjaro view", details: ["Great for short safaris and photo trips."] },
-      { slug: "tsavo", name: "Tsavo (East & West)", note: "One of Kenya’s largest park systems for classic game drives.", imageSrc: "/assets/Big Five.jpg", imageAlt: "Safari wildlife", details: ["Ideal for road-trip style itineraries."] },
-      { slug: "diani-beach", name: "Diani Beach", note: "Top beach destination with excursions and water activities.", imageSrc: "/assets/Toursite.jpeg", imageAlt: "Coastal travel", details: ["Combine beach stays with day tours."] },
-      { slug: "nairobi-national-park", name: "Nairobi (city + Nairobi National Park)", note: "Gateway hub with a unique park near the city.", imageSrc: "/assets/Lion in the Jangle.jpg", imageAlt: "Wildlife", details: ["Useful for arrivals, departures, and short stays."] },
-    ],
-    minor: [
-      { slug: "lake-nakuru", name: "Lake Nakuru", note: "Rift Valley landscapes and rich birdlife (seasonal).", details: ["Works well as a day trip from nearby towns."] },
-      { slug: "samburu", name: "Samburu", note: "Distinct northern scenery and unique wildlife species.", details: ["Strong for travelers seeking something different."] },
-      { slug: "mount-kenya", name: "Mount Kenya", note: "Hiking, scenic viewpoints, and highland stays.", details: ["Match your stay to your trail plan."] },
-      { slug: "lamu", name: "Lamu", note: "Culture, history, and slow-travel coastal atmosphere.", details: ["Perfect for calm, cultural coastal trips."] },
-      { slug: "hells-gate", name: "Hells Gate", note: "Gorges, cycling routes, and day-trip adventures.", details: ["Easy add-on near Naivasha."] },
-    ],
-  },
-
-  uganda: {
-    id: "uganda",
-    name: "Uganda",
-    subtitle: "Gorillas, waterfalls, lakes, and forests",
-    hero: {
-      title: "Know what youre booking in Uganda",
-      body: "See key tourist sites by country — then choose verified stays nearby and coordinate transport for a smoother, safer trip.",
-    },
-    highlights: [{ src: "/assets/Lion in the Jangle.jpg", alt: "Wildlife" }],
-    major: [
-      { slug: "bwindi-impenetrable", name: "Bwindi Impenetrable (Gorilla trekking)", note: "Bucket-list gorilla experience with nearby lodge options.", details: ["Choose lodging close to your permit/trek point."] },
-      { slug: "queen-elizabeth-national-park", name: "Queen Elizabeth National Park", note: "Classic safari plus the Kazinga Channel.", details: ["Good mix of game drives and boat activities."] },
-      { slug: "murchison-falls-national-park", name: "Murchison Falls National Park", note: "Powerful falls and Nile river safari activities.", details: ["Coordinate river and road plans together."] },
-      { slug: "kibale-forest", name: "Kibale Forest (Chimp trekking)", note: "Renowned primate trekking and forest experiences.", details: ["Pick stays that match trek start times."] },
-      { slug: "jinja", name: "Jinja (Source of the Nile)", note: "Adventure activities and river-side stays.", details: ["Great for add-on adventure days."] },
-    ],
-    minor: [
-      { slug: "rwenzori-mountains", name: "Rwenzori Mountains", note: "Hiking and alpine scenery for multi-day trips.", details: ["Plan gear, guides, and transport in advance."] },
-      { slug: "lake-bunyonyi", name: "Lake Bunyonyi", note: "Relaxed lakeside stays and scenic viewpoints.", details: ["Great rest stop after trekking."] },
-      { slug: "kidepo-valley", name: "Kidepo Valley", note: "Remote wilderness and dramatic landscapes.", details: ["Best for longer itineraries."] },
-      { slug: "lake-mburo", name: "Lake Mburo", note: "Accessible park for shorter itineraries.", details: ["Easy safari add-on close to main routes."] },
-      { slug: "sipi-falls", name: "Sipi Falls", note: "Waterfalls, hikes, and coffee-region visits.", details: ["Good for scenic hikes and day tours."] },
-    ],
-  },
+  // NOTE: Kenya and Uganda intentionally removed — Tanzania is our only
+  // current coverage. Keeping non-covered countries out of this map makes their
+  // URLs (e.g. /public/countries/uganda) fall through to the noindex "not
+  // available" branch below so Google drops them from the index.
 };
 
 export async function generateMetadata({
@@ -151,14 +103,26 @@ export async function generateMetadata({
   const resolvedParams = await params;
   const countryKey = String(resolvedParams?.country || "").toLowerCase().trim();
   const data = COUNTRY_TOURISM[countryKey];
-  const countryName = data?.name || "East Africa";
+
+  // Non-covered country (anything but Tanzania today): keep it out of the index
+  // and point search engines back to the countries hub so stale URLs like
+  // /public/countries/uganda are dropped rather than ranked.
+  if (!data) {
+    return {
+      title: "Explore Tourism by Country",
+      description:
+        "NoLSAF currently covers Tanzania. Explore verified stays, tourism sites, transport and travel planning by destination.",
+      robots: { index: false, follow: true },
+      alternates: { canonical: `${SITE_URL}/public/countries` },
+    };
+  }
+
+  const countryName = data.name;
   const title =
     countryKey === "tanzania"
       ? "Tanzania Tourism Guide: Safaris, Parks, Beaches, Stays & Transport"
       : `${countryName} Tourism Guide: Stays, Tours & Transport`;
-  const description = data
-    ? `${data.name} travel planning with verified stays, tourism sites, transport, tour packages and booking support on NoLSAF. ${data.subtitle}.`
-    : "Explore tourism in Africa and East Africa with verified stays, transport, tour packages and travel planning on NoLSAF.";
+  const description = `${data.name} travel planning with verified stays, tourism sites, transport, tour packages and booking support on NoLSAF. ${data.subtitle}.`;
 
   return {
     title,
@@ -171,11 +135,11 @@ export async function generateMetadata({
       `${countryName} transport`,
       ...seoKeywords,
     ],
-    alternates: { canonical: `${SITE_URL}/public/countries/${countryKey || "tanzania"}` },
+    alternates: { canonical: `${SITE_URL}/public/countries/${countryKey}` },
     openGraph: {
       title: `${title} | NoLSAF`,
       description,
-      url: `${SITE_URL}/public/countries/${countryKey || "tanzania"}`,
+      url: `${SITE_URL}/public/countries/${countryKey}`,
     },
   };
 }
