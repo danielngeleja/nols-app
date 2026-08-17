@@ -66,10 +66,27 @@ export function nativePasskeysSupported(): boolean {
 
 export function formatPasskeyError(error: unknown, fallback = "Passkey failed. Use password or OTP and try again later.") {
   const err = error as { name?: string; message?: string } | null | undefined;
-  if (err?.name === "NotAllowedError") return "Passkey was cancelled or not approved on this device.";
-  if (err?.name === "SecurityError") return "This app is not linked to the NoLSAF passkey domain yet.";
-  if (err?.name === "InvalidStateError") return "A passkey for this account may already exist on this device.";
-  if (typeof err?.message === "string" && err.message.trim()) return err.message;
+  const name = typeof err?.name === "string" ? err.name : "";
+  const message = typeof err?.message === "string" ? err.message : "";
+  // Android's Credential Manager wraps these: the DOMException name lands in the
+  // message (e.g. "DomError: SecurityError - ...") rather than in `name`, so match
+  // both fields.
+  const text = `${name} ${message}`;
+
+  if (/NotAllowedError|cancell?ed|not approved/i.test(text)) {
+    return "Passkey was cancelled or not approved on this device.";
+  }
+  if (/SecurityError|cannot be validated|not\s+(?:linked|associated|allowed)/i.test(text)) {
+    return "This app is not linked to the NoLSAF passkey domain yet. Use password or a one-time code for now.";
+  }
+  if (/InvalidStateError|already exists?/i.test(text)) {
+    return "A passkey for this account may already exist on this device.";
+  }
+  // Only surface the raw message when it reads like human copy, never a technical
+  // DOM/exception string.
+  if (message.trim() && !/Error:|DomError|Exception|androidx|NSError|0x[0-9a-f]/i.test(message)) {
+    return message;
+  }
   return fallback;
 }
 

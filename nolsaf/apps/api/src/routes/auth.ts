@@ -598,13 +598,14 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
   const { channel, destination } = resolved;
   const destinationWhere = channel === 'PHONE' ? { phone: destination } : { email: destination };
   const destinationLabel = channel === 'PHONE' ? 'phone number' : 'email address';
-  const genericOtpResponse = { ok: true, message: 'If this destination can receive a code, one has been sent.', channel };
 
   const normalizedRole = normalizeSignupRole(role);
   let resumeRegistration = false;
 
-  // If no role is provided, treat this as a LOGIN OTP request.
-  // In this flow, the destination must already belong to an existing account.
+  // If no role is provided, treat this as a LOGIN OTP request. The destination
+  // must already belong to an existing account; if it does not, tell the user
+  // clearly (matching the RESET flow below) rather than silently pretending a
+  // code was sent, which left people stuck on a code screen that never resolves.
   if (!normalizedRole) {
     try {
       const existing = await prisma.user.findFirst({
@@ -612,7 +613,11 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
         select: { id: true },
       });
       if (!existing) {
-        return res.json(genericOtpResponse);
+        return res.status(404).json({
+          error: 'account_not_found',
+          message: `No account found for this ${destinationLabel}. Please check the details or register first.`,
+          action: 'register',
+        });
       }
     } catch {
       return res.status(503).json({
