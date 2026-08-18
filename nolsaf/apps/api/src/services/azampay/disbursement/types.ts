@@ -13,7 +13,13 @@ export type AzamPayDisburseBankName = "tigo" | "airtel" | "azampesa";
 export interface AzamPayAccountParty {
   countryCode: string;
   fullName: string;
-  bankName: AzamPayDisburseBankName;
+  /**
+   * Provider token as it goes on the wire. The enabled rail is validated
+   * upstream (config.ts -> AzamPayDisburseBankName), but the wire value is
+   * AzamPay's own casing ("Azampesa", not "azampesa") — see
+   * toAzamPayWireBankName in client.ts — so this is a plain string here.
+   */
+  bankName: string;
   accountNumber: string;
   currency: string;
 }

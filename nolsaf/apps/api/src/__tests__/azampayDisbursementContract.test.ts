@@ -86,6 +86,7 @@ describe("AzamPay disbursement HTTP contract", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
+    // Internal lowercase provider in -> AzamPay's wire casing out ("Airtel").
     await azamPayNameLookup({ bankName: "airtel", accountNumber: "255688000001" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -93,7 +94,7 @@ describe("AzamPay disbursement HTTP contract", () => {
     expect(url).toBe("https://api-disbursement-sandbox.azampay.co.tz/api/v1/azampay/namelookup");
     expect(init.headers.Authorization).toBe("Bearer token-1");
     expect(JSON.parse(init.body)).toEqual({
-      bankName: "airtel",
+      bankName: "Airtel",
       accountNumber: "255688000001",
       checksum: "checksum-value",
     });

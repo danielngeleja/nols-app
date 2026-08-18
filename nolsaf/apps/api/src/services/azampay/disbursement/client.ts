@@ -37,6 +37,29 @@ function disburseHost(): string {
   ).replace(/\/$/, "");
 }
 
+/**
+ * AzamPay's Name Lookup / Disburse samples send the provider token in a
+ * specific casing ("Azampesa"), and provider matching on their side is
+ * case-sensitive. Our internal representation is lowercase
+ * (AzamPayDisburseBankName, and PayoutAccount.provider can be any casing the
+ * profile stored), so translate to AzamPay's wire casing at the egress —
+ * this keeps the payload bankName and the (Name Lookup) checksum input both
+ * on the exact string AzamPay expects. Unknown providers pass through
+ * untouched. Only "Azampesa" is confirmed against an AzamPay sample;
+ * Tigo/Airtel follow the same Title-case convention and should be
+ * reconfirmed if a rail misroutes.
+ */
+const AZAMPAY_WIRE_BANK_NAME: Record<string, string> = {
+  azampesa: "Azampesa",
+  tigo: "Tigo",
+  airtel: "Airtel",
+};
+
+export function toAzamPayWireBankName(value: string): string {
+  const trimmed = String(value || "").trim();
+  return AZAMPAY_WIRE_BANK_NAME[trimmed.toLowerCase()] ?? trimmed;
+}
+
 function requirePublicKey(): string {
   const key = process.env.AZAMPAY_DISBURSE_PUBLIC_KEY;
   if (!key) {
@@ -129,8 +152,20 @@ function invalidProviderResponse(status: number, body: any, detail: string): nev
 export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
+<<<<<<< Updated upstream
   const request: AzamPayNameLookupRequest = {
     ...input,
+=======
+  const publicKey = requirePublicKey();
+
+  // Normalize to AzamPay's wire casing BEFORE building the checksum, so the
+  // hashed bankName and the payload bankName are the same expected string.
+  const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
+  const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
+  const request: AzamPayNameLookupRequest = {
+    ...normalizedInput,
+    checksum: azamPayChecksum(checksumInput, publicKey),
+>>>>>>> Stashed changes
   };
 
   if (String(process.env.AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP || "").trim()) {
@@ -175,9 +210,19 @@ export async function azamPayDisburse(
 ): Promise<AzamPayDisburseResponse> {
   const publicKey = requirePublicKey();
 
-  const checksumInput = buildChecksumInput("DISBURSE", request);
-  const fullRequest: AzamPayDisburseRequest = {
+  // The Disburse checksum does not include bankName, but the payload does and
+  // AzamPay matches the rail case-sensitively — normalize both parties here.
+  const normalizedRequest = {
     ...request,
+    source: { ...request.source, bankName: toAzamPayWireBankName(request.source.bankName) },
+    destination: {
+      ...request.destination,
+      bankName: toAzamPayWireBankName(request.destination.bankName),
+    },
+  };
+  const checksumInput = buildChecksumInput("DISBURSE", normalizedRequest);
+  const fullRequest: AzamPayDisburseRequest = {
+    ...normalizedRequest,
     checksum: azamPayChecksum(checksumInput, publicKey),
   };
 
