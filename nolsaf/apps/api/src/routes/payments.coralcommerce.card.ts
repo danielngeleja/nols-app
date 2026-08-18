@@ -51,6 +51,9 @@ export const coralCardInitiateSchema = z.object({
   invoiceId: z.number().int().positive(),
   idempotencyKey: z.string().min(8).max(128).optional(),
   accessToken: z.string().min(20).max(1024).optional(),
+  // Set to "app" by the native mobile app so the post-payment browser redirect
+  // returns to the app (nolsaf://card-return) instead of the web payment page.
+  client: z.enum(["app"]).optional(),
 });
 
 type PublicInvoiceAccessPayload = {
@@ -207,7 +210,7 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
       });
     }
 
-    const { invoiceId, idempotencyKey, accessToken } = parsed.data;
+    const { invoiceId, idempotencyKey, accessToken, client } = parsed.data;
 
     const cardGate = await getPaymentMethodAvailability("CARD");
     if (!cardGate.enabled) {
@@ -286,10 +289,18 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
     }
 
     const paymentRef = invoice.paymentRef ?? `CORAL-${invoice.id}-${Date.now()}`;
+    // Coral echoes the postback URL's query string back to us, so appending
+    // client=app here is how the /postback handler knows to redirect the browser
+    // back into the native app instead of the web payment page.
+    const postbackExtra: Record<string, string | undefined> = {
+      invoiceId: String(invoice.id),
+      accessToken,
+      ...(client === "app" ? { client: "app" } : {}),
+    };
     const postbackConfig = {
       ...config,
-      successUrl: appendQueryParams(config.successUrl, { invoiceId: String(invoice.id), accessToken }),
-      failureUrl: appendQueryParams(config.failureUrl, { invoiceId: String(invoice.id), accessToken }),
+      successUrl: appendQueryParams(config.successUrl, postbackExtra),
+      failureUrl: appendQueryParams(config.failureUrl, postbackExtra),
     };
     const coralPayload = buildCoralOrder({ invoice, amount, currency, paymentRef, config: postbackConfig });
 
@@ -648,15 +659,20 @@ router.all("/postback", coralFormParser, async (req, res) => {
       }
       const tourBookingId = getCallbackValue(req, "tourBookingId");
       const accessToken = getCallbackValue(req, "accessToken");
+      // Native app payments carry client=app; route them back into the app via
+      // the custom scheme (openAuthSession catches it) instead of the web pages.
+      const fromApp = getCallbackValue(req, "client") === "app";
       const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });
       if (result.message) params.set("message", truncate(result.message, 160));
       if (tourBookingId && accessToken) {
         params.set("tourBookingId", tourBookingId);
         params.set("accessToken", accessToken);
+        if (fromApp) return res.redirect(`nolsaf://tour-card-return?${params.toString()}`);
         return res.redirect(`${webOrigin}/public/booking/tour-payment?${params.toString()}`);
       }
       if (result.invoiceId) params.set("invoiceId", String(result.invoiceId));
       if (accessToken) params.set("accessToken", accessToken);
+      if (fromApp) return res.redirect(`nolsaf://card-return?${params.toString()}`);
       return res.redirect(`${webOrigin}/public/booking/payment?${params.toString()}`);
     }
     return res.json(result);

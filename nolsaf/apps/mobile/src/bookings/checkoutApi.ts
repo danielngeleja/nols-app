@@ -77,7 +77,9 @@ export async function initiateCardPayment(
   return apiRequest<PaymentInitiateResult & { checkoutUrl?: string }>(`/api/payments/coralcommerce/card/initiate`, {
     method: "POST",
     token,
-    body: { invoiceId: params.invoiceId, accessToken: params.accessToken }
+    // client:"app" tells the server to route the post-payment browser redirect
+    // back to the app (nolsaf://card-return) instead of the web payment page.
+    body: { invoiceId: params.invoiceId, accessToken: params.accessToken, client: "app" }
   });
 }
 

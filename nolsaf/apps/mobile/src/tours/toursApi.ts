@@ -662,7 +662,9 @@ export async function initiateTourBankPayment(params: {
 export async function initiateTourCardPayment(params: { bookingId: number; accessToken: string }) {
   return apiRequest<TourPaymentInitiateResult>(`/api/public/tour-bookings/${params.bookingId}/initiate-card-payment`, {
     method: "POST",
-    body: { accessToken: params.accessToken }
+    // client:"app" routes the post-payment browser redirect back to the app
+    // (nolsaf://tour-card-return) instead of the web tour-payment page.
+    body: { accessToken: params.accessToken, client: "app" }
   });
 }
 
