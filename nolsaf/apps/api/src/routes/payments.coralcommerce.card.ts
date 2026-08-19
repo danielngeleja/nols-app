@@ -51,6 +51,9 @@ export const coralCardInitiateSchema = z.object({
   invoiceId: z.number().int().positive(),
   idempotencyKey: z.string().min(8).max(128).optional(),
   accessToken: z.string().min(20).max(1024).optional(),
+  // Set to "app" by the native mobile app so the post-payment browser redirect
+  // returns to the app (nolsaf://card-return) instead of the web payment page.
+  client: z.enum(["app"]).optional(),
 });
 
 type PublicInvoiceAccessPayload = {
@@ -207,7 +210,7 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
       });
     }
 
-    const { invoiceId, idempotencyKey, accessToken } = parsed.data;
+    const { invoiceId, idempotencyKey, accessToken, client } = parsed.data;
 
     const cardGate = await getPaymentMethodAvailability("CARD");
     if (!cardGate.enabled) {
@@ -222,7 +225,11 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
       return res.status(503).json({ error: "payment_unavailable", message: "Card payments are not configured" });
     }
 
-    const idemKey = idempotencyKey ?? `coral-card-${invoiceId}`;
+    // The cached entry holds a Coral checkout URL whose postback URLs were built
+    // for one caller. Web and app need different return destinations, so keep
+    // their caches separate or an app retry can reuse a web checkout (and land
+    // the payer back on the web page).
+    const idemKey = idempotencyKey ?? `coral-card-${invoiceId}${client === "app" ? "-app" : ""}`;
     const cachedCheckout = await idemGet(idemKey);
 
     const invoice = await prisma.invoice.findUnique({
@@ -286,10 +293,18 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
     }
 
     const paymentRef = invoice.paymentRef ?? `CORAL-${invoice.id}-${Date.now()}`;
+    // Coral echoes the postback URL's query string back to us, so appending
+    // client=app here is how the /postback handler knows to redirect the browser
+    // back into the native app instead of the web payment page.
+    const postbackExtra: Record<string, string | undefined> = {
+      invoiceId: String(invoice.id),
+      accessToken,
+      ...(client === "app" ? { client: "app" } : {}),
+    };
     const postbackConfig = {
       ...config,
-      successUrl: appendQueryParams(config.successUrl, { invoiceId: String(invoice.id), accessToken }),
-      failureUrl: appendQueryParams(config.failureUrl, { invoiceId: String(invoice.id), accessToken }),
+      successUrl: appendQueryParams(config.successUrl, postbackExtra),
+      failureUrl: appendQueryParams(config.failureUrl, postbackExtra),
     };
     const coralPayload = buildCoralOrder({ invoice, amount, currency, paymentRef, config: postbackConfig });
 
@@ -360,6 +375,9 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
             code: coralResult.code,
             message: coralResult.message,
             apiUrl: CORAL_UCF_API_URL,
+            // Read back by /postback to send app payers into the app even if
+            // Coral drops the query string we put on the postback URL.
+            client: client === "app" ? "app" : "web",
           },
         },
         create: {
@@ -377,6 +395,9 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
             code: coralResult.code,
             message: coralResult.message,
             apiUrl: CORAL_UCF_API_URL,
+            // Read back by /postback to send app payers into the app even if
+            // Coral drops the query string we put on the postback URL.
+            client: client === "app" ? "app" : "web",
           },
         },
       });
@@ -408,6 +429,30 @@ function getCallbackValue(req: any, name: string): string | null {
   const value = body[name] ?? query[name];
   if (Array.isArray(value)) return value[0] == null ? null : String(value[0]);
   return value == null ? null : String(value);
+}
+
+/**
+ * Did the payer start this checkout from the native app?
+ *
+ * The echoed `client=app` query param is the fast path, but Coral is not
+ * guaranteed to give our postback URL's query string back to us, so we also
+ * read the intent we persisted at initiate time. `Identifier`/`Stamp`
+ * (paymentRef) is the one correlation field Coral always returns, so it is the
+ * only safe key for this lookup. Every Coral initiate path writes a PENDING
+ * PaymentEvent under one of these ids.
+ */
+async function initiatedFromApp(paymentRef: string): Promise<boolean> {
+  try {
+    const event = await prisma.paymentEvent.findFirst({
+      where: {
+        eventId: { in: [`${paymentRef}-INIT`, `CORAL-TOUR-${paymentRef}`, `CORAL-GBDEP-${paymentRef}`] },
+      },
+      select: { payload: true },
+    });
+    return (event?.payload as any)?.client === "app";
+  } catch {
+    return false;
+  }
 }
 
 function normalizeCoralNotification(kind: "callback" | "postback", payload: any) {
@@ -632,11 +677,49 @@ router.all("/postback", coralFormParser, async (req, res) => {
     const cardReturn = result.status === "SUCCESS" ? "success" : result.status === "FAILED" ? "failed" : "pending";
 
     const kind = getCallbackValue(req, "kind");
-    const groupBookingId = getCallbackValue(req, "groupBookingId");
-    if (kind === "group_stay_deposit" && groupBookingId) {
-      const params = new URLSearchParams({ cardReturn, ref: result.paymentRef, groupBookingId });
+    const echoedClient = getCallbackValue(req, "client");
+    // Native app payments are marked at initiate time and, when Coral echoes our
+    // postback query string, also carry client=app. Either signal is enough.
+    const fromApp = echoedClient === "app" || (await initiatedFromApp(result.paymentRef));
+
+    // The echoed query string is the only part of this handler we cannot verify
+    // from our own data, so log what actually arrived. If `echoed` is empty here
+    // while `fromApp` is true, Coral is dropping our query params.
+    console.info("[CoralCommerce/Card] postback routing", JSON.stringify({
+      paymentRef: result.paymentRef,
+      cardReturn,
+      fromApp,
+      echoed: {
+        kind,
+        client: echoedClient,
+        groupBookingId: getCallbackValue(req, "groupBookingId"),
+        tourBookingId: getCallbackValue(req, "tourBookingId"),
+        invoiceId: getCallbackValue(req, "invoiceId"),
+        accessToken: getCallbackValue(req, "accessToken") ? "present" : null,
+      },
+      resolved: {
+        invoiceId: result.invoiceId,
+        tourBookingId: result.tourBookingId,
+        groupBookingId: result.groupBookingId,
+      },
+    }));
+
+    // App payers go back through the custom scheme, which openAuthSession catches.
+    // Route on the ids the decrypted postback resolved to, not on echoed params,
+    // so this holds even when Coral drops the query string.
+    if (fromApp) {
+      const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });
       if (result.message) params.set("message", truncate(result.message, 160));
-      return res.redirect(`nolsaf://group-stay-card-return?${params.toString()}`);
+      if (result.groupBookingId) {
+        params.set("groupBookingId", String(result.groupBookingId));
+        return res.redirect(`nolsaf://group-stay-card-return?${params.toString()}`);
+      }
+      if (result.tourBookingId) {
+        params.set("tourBookingId", String(result.tourBookingId));
+        return res.redirect(`nolsaf://tour-card-return?${params.toString()}`);
+      }
+      if (result.invoiceId) params.set("invoiceId", String(result.invoiceId));
+      return res.redirect(`nolsaf://card-return?${params.toString()}`);
     }
 
     const webOrigin = (process.env.WEB_ORIGIN || "").replace(/\/$/, "");
@@ -646,13 +729,16 @@ router.all("/postback", coralFormParser, async (req, res) => {
         if (result.message) params.set("message", truncate(result.message, 160));
         return res.redirect(`${webOrigin}/owner/nrms/billing?${params.toString()}`);
       }
-      const tourBookingId = getCallbackValue(req, "tourBookingId");
       const accessToken = getCallbackValue(req, "accessToken");
       const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });
       if (result.message) params.set("message", truncate(result.message, 160));
-      if (tourBookingId && accessToken) {
-        params.set("tourBookingId", tourBookingId);
-        params.set("accessToken", accessToken);
+      if (result.groupBookingId) {
+        params.set("groupBookingId", String(result.groupBookingId));
+        return res.redirect(`${webOrigin}/account/group-stays/${result.groupBookingId}/deposit?${params.toString()}`);
+      }
+      if (result.tourBookingId) {
+        params.set("tourBookingId", String(result.tourBookingId));
+        if (accessToken) params.set("accessToken", accessToken);
         return res.redirect(`${webOrigin}/public/booking/tour-payment?${params.toString()}`);
       }
       if (result.invoiceId) params.set("invoiceId", String(result.invoiceId));
