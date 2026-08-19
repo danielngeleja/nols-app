@@ -152,26 +152,18 @@ function invalidProviderResponse(status: number, body: any, detail: string): nev
 export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
-<<<<<<< Updated upstream
-  const request: AzamPayNameLookupRequest = {
-    ...input,
-=======
-  const publicKey = requirePublicKey();
+  let request: AzamPayNameLookupRequest = { ...input };
 
-  // Normalize to AzamPay's wire casing BEFORE building the checksum, so the
-  // hashed bankName and the payload bankName are the same expected string.
-  const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
-  const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
-  const request: AzamPayNameLookupRequest = {
-    ...normalizedInput,
-    checksum: azamPayChecksum(checksumInput, publicKey),
->>>>>>> Stashed changes
-  };
-
+  // The test API accepts name lookups with no checksum (config env unset). When
+  // the checksum field config IS set, AzamPay matches bankName case-sensitively,
+  // so normalize to the wire casing BEFORE hashing — the hashed bankName and the
+  // payload bankName must be the same string. buildChecksumInput throws when the
+  // env is unset, so it must only run inside this branch.
   if (String(process.env.AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP || "").trim()) {
     const publicKey = requirePublicKey();
-    const checksumInput = buildChecksumInput("NAMELOOKUP", input);
-    request.checksum = azamPayChecksum(checksumInput, publicKey);
+    const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
+    const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
+    request = { ...normalizedInput, checksum: azamPayChecksum(checksumInput, publicKey) };
   }
 
   const { status, body } = await withAuthRetry((token) =>

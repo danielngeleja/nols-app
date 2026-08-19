@@ -14,8 +14,8 @@
  */
 import "dotenv/config";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { azamPayNameLookup, azamPayDisburse, azamPayTransactionStatus, toAzamPayWireBankName } from "../src/services/azampay/disbursement/client.ts";
-import { loadAzamPayDisbursementRequestConfig } from "../src/services/azampay/disbursement/config.ts";
+import { azamPayNameLookup, azamPayDisburse, azamPayTransactionStatus, toAzamPayWireBankName } from "../src/services/azampay/disbursement/client.js";
+import { loadAzamPayDisbursementRequestConfig } from "../src/services/azampay/disbursement/config.js";
 
 const [mode, argA, argB] = process.argv.slice(2);
 
