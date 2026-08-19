@@ -87,7 +87,9 @@ export function initiateGroupBookingDepositCard(token: string, id: number) {
   return apiRequest<DepositPaymentInitiateResult>(`/api/customer/group-stays/${id}/deposit/initiate-card`, {
     method: "POST",
     token,
-    body: {}
+    // client:"app" keeps the post-payment redirect on nolsaf://group-stay-card-return
+    // now that the same endpoint also serves the web deposit page.
+    body: { client: "app" }
   });
 }
 
