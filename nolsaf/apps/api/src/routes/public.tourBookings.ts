@@ -768,9 +768,6 @@ router.post(
 
 const initiateCardPaymentSchema = z.object({
   accessToken: z.string().min(20).max(1024),
-  // "app" makes the post-payment browser redirect return to the native app
-  // (nolsaf://tour-card-return) instead of the web tour-payment page.
-  client: z.enum(["app"]).optional(),
 });
 
 router.post(
@@ -785,7 +782,7 @@ router.post(
     if (!parsed.success)
       return res.status(400).json({ ok: false, error: "validation_error", details: parsed.error.flatten() });
 
-    const { accessToken, client } = parsed.data;
+    const { accessToken } = parsed.data;
 
     if (!verifyTourBookingAccessToken(accessToken, id))
       return res.status(403).json({ ok: false, error: "invalid_access_token" });
@@ -818,7 +815,6 @@ router.post(
 
     const paymentRef = booking.paymentRef ?? `TOUR-CARD-${booking.id}-${Date.now()}`;
     const postbackParams = new URLSearchParams({ tourBookingId: String(booking.id), accessToken });
-    if (client === "app") postbackParams.set("client", "app");
     const successUrl = `${coralConfig.successUrl}${coralConfig.successUrl.includes("?") ? "&" : "?"}${postbackParams.toString()}`;
     const failureUrl = `${coralConfig.failureUrl}${coralConfig.failureUrl.includes("?") ? "&" : "?"}${postbackParams.toString()}`;
 
