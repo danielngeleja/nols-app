@@ -5,7 +5,7 @@ import {
 } from '../lib/loginAppRolePolicy.js';
 
 describe('loginAppRolePolicy', () => {
-  it.each(['CUSTOMER', 'OWNER', 'AGENT', 'DRIVER', 'ADMIN'])(
+  it.each(['CUSTOMER', 'OWNER', 'AGENT', 'NRMS_AGENT', 'DRIVER', 'ADMIN'])(
     'allows %s through the unified web gate when no native app context is sent',
     (role) => {
       expect(getLoginAppRoleError(role, undefined)).toBeNull();
@@ -19,6 +19,7 @@ describe('loginAppRolePolicy', () => {
     ['DRIVER_APP', 'DRIVER'],
     ['PARTNERS_APP', 'OWNER'],
     ['PARTNERS_APP', 'AGENT'],
+    ['PARTNERS_APP', 'NRMS_AGENT'],
     ['ADMIN_APP', 'ADMIN'],
   ])('allows explicit %s access for the matching %s role', (loginApp, role) => {
     expect(getLoginAppRoleError(role, loginApp)).toBeNull();

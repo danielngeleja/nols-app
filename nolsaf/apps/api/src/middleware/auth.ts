@@ -6,7 +6,7 @@ import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from '../lib/security
 import { clearAuthCookie } from '../lib/sessionManager.js';
 import { touchActiveUser } from '../lib/activePresence.js';
 
-export type Role = 'ADMIN' | 'OWNER' | 'USER' | 'DRIVER' | 'AGENT';
+export type Role = 'ADMIN' | 'OWNER' | 'USER' | 'DRIVER' | 'AGENT' | 'NRMS_AGENT';
 
 /** Shape of the payload our JWT tokens carry. */
 interface JwtTokenPayload {

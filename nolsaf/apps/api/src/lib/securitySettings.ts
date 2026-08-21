@@ -99,7 +99,7 @@ function normalizeSessionRole(role?: string | null): SessionRole {
   if (r === 'ADMIN') return 'ADMIN';
   if (r === 'OWNER') return 'OWNER';
   if (r === 'DRIVER') return 'DRIVER';
-  if (r === 'AGENT') return 'AGENT';
+  if (r === 'AGENT' || r === 'NRMS_AGENT') return 'AGENT';
   if (r === 'CUSTOMER' || r === 'USER' || r === 'TRAVELLER' || r === 'TRAVELER') return 'CUSTOMER';
   return 'USER';
 }

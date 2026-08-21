@@ -46,6 +46,18 @@ export const limitAgentPortalRead = rateLimit({
   },
 });
 
+export const limitNrmsAgentBookingCreate = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many booking attempts. Please wait before trying again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return userId ? `nrms-agent-book:${userId}` : `nrms-agent-book-ip:${req.ip || "unknown"}`;
+  },
+});
+
 export const limitAgentNotifyAdmin = rateLimit({
   windowMs: 60_000, // 1 minute
   limit: 5, // prevent inbox spam

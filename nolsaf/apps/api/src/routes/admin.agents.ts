@@ -3,7 +3,7 @@ import { Router, Response } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
@@ -16,6 +16,7 @@ import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileAp
 import { signUserJwt } from "../lib/sessionManager.js";
 import crypto from "crypto";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
+import { bridgeApprovedOperatorToAccommodation } from "../lib/nrmsPartnerCapability.js";
 
 // ============================================================
 // Constants
@@ -92,6 +93,19 @@ interface AgentResponse {
     netSum: number;
     commissionPercent: number;
     currency: string;
+  };
+  accommodationCapability?: {
+    workspace: "ACCOMMODATION";
+    status: string | null;
+    grantedAt: Date | null;
+    expiresAt: Date | null;
+    statusReason: string | null;
+    identity: {
+      id: number;
+      status: string;
+      verificationStatus: string;
+    } | null;
+    approvedEvidenceCount: number;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -250,6 +264,10 @@ const updateProfileReviewSchema = z
     reason: z.string().max(2000).optional().nullable(),
   })
   .strict();
+
+const accommodationCapabilitySchema = z.object({
+  reason: z.string().trim().min(3).max(300).optional(),
+});
 
 const syncTourRevenueSchema = z
   .object({
@@ -1305,7 +1323,7 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
     // - Gross/commission/net: from bookings as soon as bookings are made.
     // - Paid invoices: only invoices that are actually paid/disbursed.
     const paidInvoiceStatuses = ["PAID", "DISBURSED"];
-    const [bookingRevenue, paidInvoicesCount] = await Promise.all([
+    const [bookingRevenue, paidInvoicesCount, accommodationAccess, accommodationIdentity, approvedEvidenceCount] = await Promise.all([
       prisma.tourBooking.aggregate({
         where: { operatorAgentId: agent.id },
         _sum: {
@@ -1319,6 +1337,17 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
           ownerId: agent.userId,
           status: { in: paidInvoiceStatuses },
         },
+      }),
+      prisma.userWorkspaceAccess.findUnique({
+        where: { userId_workspace: { userId: agent.userId, workspace: "ACCOMMODATION" } },
+        select: { status: true, grantedAt: true, expiresAt: true, statusReason: true },
+      }),
+      prisma.nrmsAgentAccount.findUnique({
+        where: { primaryUserId: agent.userId },
+        select: { id: true, status: true, verificationStatus: true },
+      }),
+      prisma.userDocument.count({
+        where: { userId: agent.userId, status: "APPROVED", url: { not: null } },
       }),
     ]);
 
@@ -1390,6 +1419,15 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
         netSum: Math.round(netFromBookings * 100) / 100,
         commissionPercent,
         currency: String(systemSettings?.agentCommissionCurrency || "USD"),
+      },
+      accommodationCapability: {
+        workspace: "ACCOMMODATION",
+        status: accommodationAccess?.status ?? null,
+        grantedAt: accommodationAccess?.grantedAt ?? null,
+        expiresAt: accommodationAccess?.expiresAt ?? null,
+        statusReason: accommodationAccess?.statusReason ?? null,
+        identity: accommodationIdentity,
+        approvedEvidenceCount,
       },
     };
 
@@ -1576,6 +1614,34 @@ router.post(
     } catch (err: any) {
       console.error("[POST /admin/agents/:id/notes] Error:", err);
       return sendError(res, 500, "Failed to add agent note");
+    }
+  },
+);
+
+// ============================================================
+// POST /api/admin/agents/:id/accommodation-capability
+// Additive Phase-0 bridge: keep the AGENT role/dashboard, reuse approved KYC,
+// and grant access to the established accommodation partner surface.
+// ============================================================
+router.post(
+  "/:id/accommodation-capability",
+  blockImpersonated as RequestHandler,
+  validate(getAgentParamsSchema, "params"),
+  validate(accommodationCapabilitySchema, "body"),
+  async (req: any, res) => {
+    try {
+      const result = await prisma.$transaction((tx: any) => bridgeApprovedOperatorToAccommodation(tx, {
+        agentId: Number(req.validatedParams.id),
+        adminId: getAdminId(req as AuthedRequest),
+        reason: req.validatedData.reason,
+      }));
+      if (!result.ok) {
+        return sendError(res, result.reason === "NOT_FOUND" ? 404 : 409, result.message, { code: result.reason });
+      }
+      return sendSuccess(res, result, result.createdIdentity ? "Accommodation capability activated using approved operator KYC." : "Accommodation capability activated.", result.createdIdentity ? 201 : 200);
+    } catch (err: any) {
+      console.error("[POST /admin/agents/:id/accommodation-capability] Error:", err);
+      return sendError(res, 500, "Accommodation capability could not be activated");
     }
   },
 );

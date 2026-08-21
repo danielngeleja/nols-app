@@ -1,0 +1,289 @@
+{
+  "host": "https://api-disbursement-test.azampay.co.tz",
+  "generatedAt": "2026-08-17T11:53:02.115Z",
+  "rows": [
+    {
+      "name": "namelookup: Azampesa known",
+      "request": {
+        "bankName": "Azampesa",
+        "accountNumber": "1710446004"
+      },
+      "ok": false,
+      "result": {
+        "type": "AzamPayDisburseError",
+        "httpStatus": 400,
+        "providerMessage": "Request timed out while contacting the provider.",
+        "retryClass": "VALIDATION",
+        "rawBody": {
+          "fName": null,
+          "lName": null,
+          "name": null,
+          "message": "Request timed out while contacting the provider.",
+          "status": false,
+          "statusCode": 400,
+          "accountNumber": "1710446004",
+          "accountType": null,
+          "bankName": "Azampesa",
+          "fspId": null,
+          "fspName": "Azampesa",
+          "disbursementType": "retailer",
+          "idNumber": null,
+          "identity": null,
+          "merchantLookup": null
+        }
+      }
+    },
+    {
+      "name": "namelookup: Azampesa other",
+      "request": {
+        "bankName": "Azampesa",
+        "accountNumber": "1780120104"
+      },
+      "ok": true,
+      "result": {
+        "fName": "Ceasar",
+        "lName": "Gottlieb",
+        "name": "Ceasar Gottlieb",
+        "message": "Mocked successful lookup",
+        "status": true,
+        "statusCode": 200,
+        "accountNumber": "1780120104",
+        "accountType": null,
+        "bankName": "Azampesa",
+        "fspId": null,
+        "fspName": "Azampesa",
+        "disbursementType": "subscriber",
+        "idNumber": null,
+        "identity": null,
+        "merchantLookup": null
+      }
+    },
+    {
+      "name": "namelookup: Azampesa source acct",
+      "request": {
+        "bankName": "Azampesa",
+        "accountNumber": "1000000164"
+      },
+      "ok": false,
+      "result": {
+        "type": "AzamPayDisburseError",
+        "httpStatus": 400,
+        "providerMessage": "Server Responded with Failure. Please try again.",
+        "retryClass": "VALIDATION",
+        "rawBody": {
+          "fName": null,
+          "lName": null,
+          "name": null,
+          "message": "Server Responded with Failure. Please try again.",
+          "status": false,
+          "statusCode": 400,
+          "accountNumber": "1000000164",
+          "accountType": null,
+          "bankName": "Azampesa",
+          "fspId": null,
+          "fspName": "Azampesa",
+          "disbursementType": "retailer",
+          "idNumber": null,
+          "identity": null,
+          "merchantLookup": null
+        }
+      }
+    },
+    {
+      "name": "namelookup: Tigo",
+      "request": {
+        "bankName": "Tigo",
+        "accountNumber": "0714000001"
+      },
+      "ok": true,
+      "result": {
+        "fName": null,
+        "lName": null,
+        "name": "Chester McClure",
+        "message": "Success",
+        "status": true,
+        "statusCode": 200,
+        "accountNumber": "0714000001",
+        "accountType": null,
+        "bankName": "M-pesa",
+        "fspId": "503",
+        "fspName": "M-pesa",
+        "disbursementType": "none",
+        "idNumber": null,
+        "identity": null,
+        "merchantLookup": null
+      }
+    },
+    {
+      "name": "namelookup: Airtel",
+      "request": {
+        "bankName": "Airtel",
+        "accountNumber": "0784000001"
+      },
+      "ok": false,
+      "result": {
+        "type": "AzamPayDisburseError",
+        "httpStatus": 500,
+        "providerMessage": "Server Responded with Failure. Please try again. Error While sending the request",
+        "retryClass": "RECONCILE_FIRST",
+        "rawBody": {
+          "fName": null,
+          "lName": null,
+          "name": null,
+          "message": "Server Responded with Failure. Please try again. Error While sending the request",
+          "status": false,
+          "statusCode": 500,
+          "accountNumber": null,
+          "accountType": null,
+          "bankName": "Airtel",
+          "fspId": null,
+          "fspName": null,
+          "disbursementType": "none",
+          "idNumber": null,
+          "identity": null,
+          "merchantLookup": null
+        }
+      }
+    },
+    {
+      "name": "namelookup: empty account",
+      "request": {
+        "bankName": "Azampesa",
+        "accountNumber": ""
+      },
+      "ok": false,
+      "result": {
+        "type": "AzamPayDisburseError",
+        "httpStatus": 400,
+        "providerMessage": "Invalid Account Number",
+        "retryClass": "VALIDATION",
+        "rawBody": {
+          "fName": null,
+          "lName": null,
+          "name": null,
+          "message": "Invalid Account Number",
+          "status": false,
+          "statusCode": 400,
+          "accountNumber": null,
+          "accountType": null,
+          "bankName": "Azampesa",
+          "fspId": null,
+          "fspName": null,
+          "disbursementType": "none",
+          "idNumber": null,
+          "identity": null,
+          "merchantLookup": null
+        }
+      }
+    },
+    {
+      "name": "namelookup: nonexistent",
+      "request": {
+        "bankName": "Azampesa",
+        "accountNumber": "9999999999"
+      },
+      "ok": true,
+      "result": {
+        "fName": "Trey",
+        "lName": "Wiza",
+        "name": "Trey Wiza",
+        "message": "Mocked successful lookup",
+        "status": true,
+        "statusCode": 200,
+        "accountNumber": "9999999999",
+        "accountType": null,
+        "bankName": "Azampesa",
+        "fspId": null,
+        "fspName": "Azampesa",
+        "disbursementType": "subscriber",
+        "idNumber": null,
+        "identity": null,
+        "merchantLookup": null
+      }
+    },
+    {
+      "name": "disburse: Azampesa 1000 TZS",
+      "request": {
+        "source": {
+          "countryCode": "TZ",
+          "fullName": "NoLS AFRICA COMPANY LIMITED",
+          "bankName": "Azampesa",
+          "accountNumber": "1000000164",
+          "currency": "TZS"
+        },
+        "destination": {
+          "countryCode": "TZ",
+          "fullName": "SMOKE TEST PAYEE",
+          "bankName": "Azampesa",
+          "accountNumber": "1710446004",
+          "currency": "TZS"
+        },
+        "transferDetails": {
+          "type": "FUND",
+          "amount": 1000,
+          "dateInEpoch": 1786967581
+        },
+        "externalReferenceId": "harvest-1786967581685",
+        "remarks": "disbursement harvest"
+      },
+      "ok": true,
+      "result": {
+        "success": true,
+        "pgReferenceId": "01a00f915cd17a9d8d6b3d186e9416cd",
+        "message": "Your transaction is in process",
+        "statusCode": 200,
+        "status": "Pending"
+      }
+    },
+    {
+      "name": "status: poll disburse pgReferenceId",
+      "request": {
+        "pgReferenceId": "01a00f915cd17a9d8d6b3d186e9416cd",
+        "bankName": "Azampesa"
+      },
+      "ok": true,
+      "result": {
+        "transId": "dcedce02036edd477992e840e91db638",
+        "statusCode": 200,
+        "success": true,
+        "message": null,
+        "fspReferenceId": null,
+        "initiatorReferenceId": "harvest-1786967581685",
+        "pgReferenceId": "01a00f915cd17a9d8d6b3d186e9416cd",
+        "amount": "1000",
+        "status": "Pending",
+        "additionalProperties": {},
+        "operator": "azampesa",
+        "signature": null
+      }
+    },
+    {
+      "name": "status: unknown pgReferenceId",
+      "request": {
+        "pgReferenceId": "does-not-exist-000",
+        "bankName": "Azampesa"
+      },
+      "ok": false,
+      "result": {
+        "type": "AzamPayDisburseError",
+        "httpStatus": 404,
+        "providerMessage": "Transaction not found",
+        "retryClass": "RECONCILE_FIRST",
+        "rawBody": {
+          "transId": "59321e935821518c8f39b21456fb3029",
+          "statusCode": 404,
+          "success": false,
+          "message": "Transaction not found",
+          "fspReferenceId": null,
+          "initiatorReferenceId": null,
+          "pgReferenceId": null,
+          "amount": null,
+          "status": "",
+          "additionalProperties": null,
+          "operator": "azampesa",
+          "signature": null
+        }
+      }
+    }
+  ]
+}

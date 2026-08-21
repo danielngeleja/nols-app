@@ -1,12 +1,10 @@
 /**
  * AzamPay Disbursement — Bearer Token Manager
  *
- * Disbursement is a separate AzamPay product from collection (checkout/USSD
- * push), typically issued under its own app registration, so this uses its
- * own client credentials and its own token cache rather than sharing
- * lib/azampay.auth.ts. The caching strategy mirrors that module: Redis
- * first (shared across instances), in-process fallback, single-flight
- * refresh to avoid a thundering herd on expiry.
+ * Disbursement keeps a separate token cache from checkout. AzamPay confirmed
+ * that NoLSAF's live disbursement account reuses the checkout app credentials,
+ * so disbursement-specific env vars remain optional overrides and otherwise
+ * fall back to the established checkout values.
  *
  * SECURITY: env var VALUES are never logged, only key names when missing.
  * The raw AzamPay response body is never forwarded to callers.
@@ -42,14 +40,14 @@ async function fetchFreshToken(): Promise<TokenCache> {
     process.env.AZAMPAY_AUTH_URL ||
     "https://authenticator-sandbox.azampay.co.tz"
   ).replace(/\/$/, "");
-  const appName = process.env.AZAMPAY_DISBURSE_APP_NAME || "NoLSAF";
-  const clientId = process.env.AZAMPAY_DISBURSE_CLIENT_ID || "";
-  const clientSecret = process.env.AZAMPAY_DISBURSE_CLIENT_SECRET || "";
+  const appName = process.env.AZAMPAY_DISBURSE_APP_NAME || process.env.AZAMPAY_APP_NAME || "NoLSAF";
+  const clientId = process.env.AZAMPAY_DISBURSE_CLIENT_ID || process.env.AZAMPAY_CLIENT_ID || "";
+  const clientSecret = process.env.AZAMPAY_DISBURSE_CLIENT_SECRET || process.env.AZAMPAY_CLIENT_SECRET || "";
 
   if (!clientId || !clientSecret) {
     const missing = [
-      !clientId && "AZAMPAY_DISBURSE_CLIENT_ID",
-      !clientSecret && "AZAMPAY_DISBURSE_CLIENT_SECRET",
+      !clientId && "AZAMPAY_DISBURSE_CLIENT_ID or AZAMPAY_CLIENT_ID",
+      !clientSecret && "AZAMPAY_DISBURSE_CLIENT_SECRET or AZAMPAY_CLIENT_SECRET",
     ].filter(Boolean);
     throw new AzamPayDisburseConfigurationError({
       operation: "AUTH",

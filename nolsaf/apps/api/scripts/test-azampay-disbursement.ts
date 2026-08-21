@@ -18,8 +18,9 @@ import {
   azamPayTransactionStatus,
 } from "../src/services/azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../src/services/azampay/disbursement/errors.js";
+import { canonicalAzamPayProvider } from "../src/services/azampay/disbursement/providers.js";
+import type { AzamPayDisburseBankName } from "../src/services/azampay/disbursement/types.js";
 
-const providers = new Set(["airtel", "tigo", "azampesa"]);
 let providerOperationStarted = false;
 
 async function useFreshProviderToken(): Promise<void> {
@@ -38,12 +39,13 @@ function requiredOption(name: string): string {
   return value;
 }
 
-function providerOption(): "airtel" | "tigo" | "azampesa" {
-  const value = requiredOption("provider").toLowerCase();
-  if (!providers.has(value)) {
-    throw new Error("--provider must be airtel, tigo, or azampesa");
+function providerOption(): AzamPayDisburseBankName {
+  const supplied = requiredOption("provider");
+  const value = canonicalAzamPayProvider(supplied);
+  if (!value) {
+    throw new Error("--provider must be yas, vodacom, airtel, halotel, or azampesa");
   }
-  return value as "airtel" | "tigo" | "azampesa";
+  return value;
 }
 
 function mask(value: string): string {

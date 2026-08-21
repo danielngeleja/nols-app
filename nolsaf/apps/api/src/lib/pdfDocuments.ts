@@ -206,24 +206,45 @@ function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
   return { regular: "NRMS-Trebuchet", bold: "NRMS-Trebuchet-Bold" };
 }
 
+/**
+ * Document masthead. The wordmark and the document type stack on the left so
+ * the type reads as a label rather than as part of the brand name, and the
+ * identifier gets its own outlined chip on the right instead of floating as
+ * loose grey text.
+ */
 function drawTealHeader(doc: PDFKit.PDFDocument, title: string, subtitle: string) {
-  // Teal header band
-  doc.rect(0, 0, PAGE_W, 90).fill(TEAL);
+  const bandH = 96;
+  doc.rect(0, 0, PAGE_W, bandH).fill(TEAL);
+  // Accent stripe gives the band an edge instead of ending in flat colour.
+  doc.rect(0, bandH, PAGE_W, 3.5).fill("#0b9182");
 
-  // NoLSAF wordmark
-  doc.font("Helvetica-Bold").fontSize(22).fillColor("#ffffff")
-    .text("NoLSAF", MARGIN, 22, { lineBreak: false });
+  doc.font("Helvetica-Bold").fontSize(21).fillColor("#ffffff")
+    .text("NoLSAF", MARGIN, 24, { lineBreak: false });
 
-  // Document title
-  doc.font("Helvetica").fontSize(10).fillColor("rgba(255,255,255,0.75)")
-    .text(title.toUpperCase(), MARGIN + 90, 28, { lineBreak: false });
+  // Hairline between the wordmark and the document type.
+  doc.save().strokeColor("#ffffff").opacity(0.28).lineWidth(0.75)
+    .moveTo(MARGIN + 1, 51).lineTo(MARGIN + 74, 51).stroke().restore();
 
-  // Subtitle right-aligned
-  doc.font("Helvetica").fontSize(9).fillColor("rgba(255,255,255,0.65)")
-    .text(subtitle, MARGIN, 55, { align: "right", width: COL_W });
+  doc.font("Helvetica-Bold").fontSize(8).fillColor("#ffffff").opacity(0.82)
+    .text(title.toUpperCase(), MARGIN + 1, 59, { characterSpacing: 2.2, lineBreak: false });
+  doc.opacity(1);
 
-  doc.moveDown(0);
-  doc.y = 110;
+  // Identifier chip, right aligned.
+  const chipText = subtitle.replace(/^[^:]+:\s*/, "");
+  const chipLabel = subtitle.includes(":") ? subtitle.split(":")[0]!.trim().toUpperCase() : "";
+  const chipW = Math.max(150, doc.font("Helvetica-Bold").fontSize(10).widthOfString(chipText) + 26);
+  const chipX = MARGIN + COL_W - chipW;
+  doc.save().roundedRect(chipX, 30, chipW, chipLabel ? 40 : 30, 6)
+    .fillOpacity(0.14).fill("#ffffff").restore();
+  if (chipLabel) {
+    doc.font("Helvetica-Bold").fontSize(6.5).fillColor("#ffffff").opacity(0.75)
+      .text(chipLabel, chipX, 37, { width: chipW, align: "center", characterSpacing: 1.4, lineBreak: false });
+    doc.opacity(1);
+  }
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#ffffff")
+    .text(chipText, chipX, chipLabel ? 50 : 39, { width: chipW, align: "center", lineBreak: false });
+
+  doc.y = 122;
 }
 
 function drawSectionLabel(doc: PDFKit.PDFDocument, label: string) {
@@ -389,6 +410,123 @@ export async function generateBookingTicketPdf(data: BookingTicketData): Promise
   });
 }
 
+// ─── 1b. Agent Booking Voucher (NRMS Agent B2B) ───────────────────────────────
+
+export interface AgentVoucherData {
+  voucherNumber: string;
+  agencyName: string;
+  agentReference: string;
+  guestName?: string | null;
+  propertyName: string;
+  propertyLocation?: string | null;
+  roomType?: string | null;
+  ratePlan?: string | null;
+  mealPlan?: string | null;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  rooms: number;
+  totalAmount: number | string;
+  currency?: string;
+  bookingMode?: string | null;
+  paymentStatus?: string | null;
+  confirmedAt?: Date | null;
+  /** QR payload rendered top-right. Scanned by the desk at check-in. */
+  qrPng?: Buffer | null;
+}
+
+export async function generateNrmsAgentVoucherPdf(data: AgentVoucherData): Promise<Buffer> {
+  const nights = Math.max(1, Math.ceil((new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000));
+  const paid = data.paymentStatus === "SETTLED" || data.paymentStatus === "CREDIT";
+
+  // A5 portrait. A voucher is carried, handed over and filed, so it is sized
+  // like a ticket rather than a report. Everything that is not needed at the
+  // front desk was cut; the full commercial detail lives on the invoice.
+  const M = 32;
+  const W = 419.53 - M * 2; // A5 width in points
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = M;
+    let y = M;
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+    // ── Masthead, matching the invoice construction at voucher scale ───────
+    doc.font(fonts.bold).fontSize(12).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: W * 0.5, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 16, { width: W * 0.5, ellipsis: true });
+    doc.font(fonts.bold).fontSize(14).fillColor(TEAL).text("BOOKING VOUCHER", left, y, { width: W, align: "right" });
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED).text("Issued " + dateOnly(data.confirmedAt || new Date()), left, y + 19, { width: W, align: "right" });
+    y += 34;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + W, y).stroke();
+    y += 14;
+
+    // ── Identity: number, status and QR in one band ────────────────────────
+    const qrBox = 76;
+    const bandH = 92;
+    doc.roundedRect(left, y, W, bandH, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + 12, y + 12, 44, 15, 7.5).fill(paid ? TEAL : AMBER);
+    doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+      .text(paid ? "PAID" : "DUE", left + 12, y + 16.5, { width: 44, align: "center", lineBreak: false });
+
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("VOUCHER NUMBER", left + 12, y + 36, { characterSpacing: 0.7, lineBreak: false });
+    doc.font("Courier-Bold").fontSize(15).fillColor(TEAL)
+      .text(data.voucherNumber, left + 12, y + 48, { width: W - qrBox - 36, lineBreak: false });
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("Present on arrival", left + 12, y + 70, { width: W - qrBox - 36, lineBreak: false });
+
+    if (data.qrPng) {
+      try { doc.image(data.qrPng, left + W - qrBox - 10, y + 8, { fit: [qrBox, qrBox], align: "center", valign: "center" }); } catch { /* decorative */ }
+    }
+    y += bandH + 12;
+
+    // ── The three facts the desk reads first ───────────────────────────────
+    const stripH = 40;
+    const cellW = W / 3;
+    doc.rect(left, y, W, stripH).fill(LIGHT_TEAL);
+    ([
+      ["CHECK IN", dateOnly(data.checkIn)],
+      ["CHECK OUT", dateOnly(data.checkOut)],
+      ["STAY", nights + " night" + (nights === 1 ? "" : "s")],
+    ] as Array<[string, string]>).forEach(([label, value], index) => {
+      const cellX = left + cellW * index;
+      if (index > 0) doc.strokeColor("#ffffff").lineWidth(1).moveTo(cellX, y + 7).lineTo(cellX, y + stripH - 7).stroke();
+      doc.font(fonts.bold).fontSize(6).fillColor(TEAL).text(label, cellX + 10, y + 9, { width: cellW - 16, characterSpacing: 0.8, lineBreak: false });
+      doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN).text(value, cellX + 10, y + 21, { width: cellW - 16, ellipsis: true, lineBreak: false });
+    });
+    y += stripH + 14;
+
+    // ── Only what reception needs, two columns ─────────────────────────────
+    const colW = (W - 14) / 2;
+    const kv = (label: string, value: string, x: number, rowY: number) => {
+      doc.font(fonts.bold).fontSize(6).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: colW, characterSpacing: 0.6 });
+      doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "Not stated", x, rowY + 9, { width: colW, ellipsis: true });
+    };
+    const rightCol = left + colW + 14;
+    kv("Agency", data.agencyName, left, y);
+    kv("Agent reference", data.agentReference, rightCol, y);
+    y += 26;
+    kv("Rooms", String(data.rooms) + (data.roomType ? " × " + data.roomType : ""), left, y);
+    kv("Board", data.mealPlan ? data.mealPlan.replace(/_/g, " ") : "Room only", rightCol, y);
+    y += 26;
+    if (data.guestName) { kv("Lead guest", data.guestName, left, y); }
+    kv("Total", fmtMoney(data.totalAmount, data.currency), data.guestName ? rightCol : left, y);
+    y += 30;
+
+    // ── Desk scan strip ────────────────────────────────────────────────────
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + W, y).stroke();
+    y += 12;
+    drawCode128Barcode(doc, data.voucherNumber, left + W / 2 - 90, y, 180, 28);
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.voucherNumber, left, y + 32, { width: W, align: "center", characterSpacing: 1 });
+    y += 48;
+
+    // ── Footer, matching the invoice ───────────────────────────────────────
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + W, y).stroke();
+    doc.font(fonts.bold).fontSize(6).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 8, { width: W * 0.55, ellipsis: true })
+      .text("NoLSAF · support@nolsaf.com", left + W * 0.55, y + 8, { width: W * 0.45, align: "right" });
+  }, { size: "A5", margin: M });
+}
+
 // ─── 2. Payment Receipt ───────────────────────────────────────────────────────
 
 export interface PaymentReceiptData {
@@ -399,9 +537,14 @@ export interface PaymentReceiptData {
   guestName: string;
   guestEmail?: string | null;
   propertyName: string;
+  /** Shown under the property name, mirroring the Pro Forma masthead. */
+  propertyLocation?: string | null;
   checkIn: Date | string;
   checkOut: Date | string;
   total: number | string;
+  /** Invoice total and remaining balance, so the receipt reconciles itself. */
+  invoiceTotal?: number | string | null;
+  balanceAfter?: number | string | null;
   commissionAmount?: number | string | null;
   taxAmount?: number | string | null;
   netPayable?: number | string | null;
@@ -414,68 +557,122 @@ export interface PaymentReceiptData {
 }
 
 export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promise<Buffer> {
+  const cur = data.currency || "TZS";
+  const nights = Math.max(1, Math.ceil(
+    (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000
+  ));
+  const invoiceTotal = data.invoiceTotal == null ? null : Number(data.invoiceTotal);
+  const balance = data.balanceAfter == null ? null : Number(data.balanceAfter);
+
+  // Deliberately mirrors generateNrmsProFormaPdf: same Trebuchet fonts, same
+  // masthead and teal rule, same card, table and totals treatment. A receipt
+  // and the invoice it settles should read as one family of documents.
   return buildBuffer((doc) => {
-    drawTealHeader(doc, "Payment Receipt", `Receipt: ${data.receiptNumber}`);
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not recorded");
+    const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "Not provided", x, rowY + 11, { width: rowW, ellipsis: true });
+    };
 
-    // Paid badge
-    const badgeY = doc.y;
-    doc.rect(MARGIN + COL_W - 80, badgeY - 4, 80, 22).fill("#dcfce7");
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#166534")
-      .text("PAID ✓", MARGIN + COL_W - 76, badgeY + 2, { width: 72, align: "center" });
-    doc.y = badgeY;
+    // ── Masthead ───────────────────────────────────────────────────────────
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(21).fillColor(TEAL).text("PAYMENT RECEIPT", left, y, { width, align: "right" });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.receiptNumber, left, y + 29, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text("Paid " + dateOnly(data.paidAt), left, y + 42, { width, align: "right" });
+    y += 66;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 16;
 
-    drawSectionLabel(doc, "Receipt Details");
-    drawRow(doc, "Receipt Number", data.receiptNumber, true);
-    drawRow(doc, "Invoice Number", data.invoiceNumber);
-    drawRow(doc, "Date Paid", fmtDate(data.paidAt));
-    drawRow(doc, "Payment Method", (data.paymentMethod || "—").replace(/_/g, " "));
-    if (data.paymentRef) drawRow(doc, "Transaction Reference", data.paymentRef);
-    drawDivider(doc);
+    // ── Received from / receipt facts ──────────────────────────────────────
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("RECEIVED FROM", left + 12, y + 11, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.guestName, left + 12, y + 27, { width: cardW - 24, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text(data.guestEmail || "No email on file", left + 12, y + 47, { width: cardW - 24, ellipsis: true })
+      .text("Booking " + (data.bookingCode || "#" + data.bookingId), left + 12, y + 61, { width: cardW - 24, ellipsis: true })
+      .text("Against invoice " + (data.invoiceNumber || "not linked"), left + 12, y + 75, { width: cardW - 24, ellipsis: true });
+    const rightX = left + cardW + cardGap + 12;
+    keyValue("Payment date", dateOnly(data.paidAt), rightX, y + 11, 105);
+    keyValue("Method", (data.paymentMethod || "Not stated").replace(/_/g, " "), rightX + 112, y + 11, 105);
+    keyValue("Reference", data.paymentRef || "Not provided", rightX, y + 52, 105);
+    keyValue("Receipt no.", data.receiptNumber, rightX + 112, y + 52, 105);
+    y += 114;
 
-    drawSectionLabel(doc, "Customer Details");
-    drawRow(doc, "Name", data.guestName, true);
-    if (data.guestEmail) drawRow(doc, "Email", data.guestEmail);
-    drawDivider(doc);
+    // ── Stay covered ───────────────────────────────────────────────────────
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("STAY COVERED", left, y, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN).text(data.propertyName, left, y + 14, { width: width * 0.55, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text(dateOnly(data.checkIn) + " to " + dateOnly(data.checkOut) + " · " + nights + " night" + (nights === 1 ? "" : "s"), left, y + 30, { width: width * 0.55 });
+    y += 54;
 
-    drawSectionLabel(doc, "Booking Details");
-    drawRow(doc, "Booking Reference", `#${data.bookingId}`);
-    if (data.bookingCode) drawRow(doc, "Booking Code", data.bookingCode);
-    drawRow(doc, "Property", data.propertyName, true);
-    drawRow(doc, "Check-In", fmtDate(data.checkIn));
-    drawRow(doc, "Check-Out", fmtDate(data.checkOut));
-    const nights = Math.max(1, Math.ceil(
-      (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000
-    ));
-    drawRow(doc, "Duration", `${nights} night${nights !== 1 ? "s" : ""}`);
-    drawDivider(doc);
+    // ── Single-line ledger, same table treatment as the invoice ────────────
+    const amountW = 130;
+    doc.rect(left, y, width, 22).fill(TEAL);
+    doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+      .text("DESCRIPTION", left + 8, y + 7, { width: width - amountW - 16 })
+      .text("AMOUNT", left + width - amountW, y + 7, { width: amountW - 8, align: "right" });
+    y += 22;
+    doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN)
+      .text("Payment received against invoice " + (data.invoiceNumber || "(not linked)"), left + 8, y + 6, { width: width - amountW - 16, ellipsis: true });
+    doc.font(fonts.regular).fontSize(6.8).fillColor(TEXT_MUTED)
+      .text((data.paymentMethod || "Not stated").replace(/_/g, " ") + (data.paymentRef ? " · " + data.paymentRef : ""), left + 8, y + 19, { width: width - amountW - 16, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+      .text(fmtMoney(data.total, cur), left + width - amountW, y + 7, { width: amountW - 8, align: "right" });
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(left, y + 34).lineTo(left + width, y + 34).stroke();
+    y += 48;
 
-    // Amount breakdown
-    drawSectionLabel(doc, "Payment Summary");
-    drawRow(doc, "Booking Amount",   fmtMoney(data.total, data.currency));
-    const totalLine = doc.y;
-    doc.rect(MARGIN, totalLine, COL_W, 24).fill(LIGHT_TEAL);
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(DARK)
-      .text("Total Paid", MARGIN + 8, totalLine + 7, { width: 160, lineBreak: false });
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(DARK)
-      .text(fmtMoney(data.total, data.currency), MARGIN + 170, totalLine + 7, { width: COL_W - 178 });
-    doc.y = totalLine + 32;
+    // ── Totals, right aligned like the invoice ─────────────────────────────
+    const totalsX = left + width - 230;
+    const totalLine = (label: string, value: number, bold = false, color = TEXT_MAIN) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text(label, totalsX, y, { width: 120 });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(9).fillColor(color).text(fmtMoney(value, cur), totalsX + 120, y, { width: 110, align: "right" });
+      y += 17;
+    };
+    if (invoiceTotal != null) totalLine("Invoice total", invoiceTotal);
+    totalLine("Amount received", Number(data.total));
+    doc.strokeColor(BORDER).lineWidth(0.8).moveTo(totalsX, y).lineTo(left + width, y).stroke();
+    y += 8;
+    if (balance != null) totalLine("BALANCE REMAINING", balance, true, balance > 0 ? AMBER : TEAL);
+    else totalLine("TOTAL PAID", Number(data.total), true, TEAL);
+    y += 10;
 
-    // QR code (right-aligned)
+    // ── Confirmation card carrying the PAID mark and the QR ────────────────
+    const settled = balance == null || balance <= 0;
+    const cardH = 92;
+    doc.roundedRect(left, y, width, cardH, 8).fillAndStroke(LIGHT_TEAL, BORDER);
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
+      .text(settled ? "PAYMENT RECEIVED IN FULL" : "PART PAYMENT RECEIVED", left + 14, y + 14, { characterSpacing: 0.8 });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(
+        settled
+          ? "This receipt confirms the property has recorded the payment above against the invoice. No balance remains."
+          : "This receipt confirms the amount above. The balance shown remains payable to the property.",
+        left + 14, y + 30, { width: width - 130 },
+      );
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("Keep this document for your records.", left + 14, y + 62, { width: width - 130 });
     if (data.qrPng && data.qrPng.length > 0) {
-      doc.moveDown(0.4);
-      const qrY = doc.y;
       try {
-        doc.image(data.qrPng, MARGIN + COL_W - 90, qrY, { width: 80, height: 80 });
-        doc.font("Helvetica").fontSize(7.5).fillColor(TEXT_MUTED)
-          .text("Scan to verify receipt", MARGIN + COL_W - 90, qrY + 82, { width: 80, align: "center" });
-      } catch {
-        // QR embed failed — skip silently
-      }
-      doc.y = qrY + 96;
+        doc.image(data.qrPng, left + width - 88, y + 9, { fit: [76, 76], align: "center", valign: "center" });
+        doc.font(fonts.bold).fontSize(5.8).fillColor(TEXT_MUTED).text("RECEIPT CODE", left + width - 93, y + 86, { width: 86, align: "center" });
+      } catch { /* QR is decorative */ }
     }
+    y += cardH + 16;
 
-    drawFooter(doc);
-  });
+    // ── Footer, identical construction to the invoice ──────────────────────
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(data.receiptNumber, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
+  }, { size: "A4", margin: MARGIN });
 }
 
 // ─── 3. Owner Disbursement Notice ─────────────────────────────────────────────

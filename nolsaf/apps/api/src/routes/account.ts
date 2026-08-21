@@ -36,6 +36,7 @@ import {
 } from "@simplewebauthn/server";
 import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
 import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
+import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -164,13 +165,23 @@ const confirmContactChangeSchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
+const PAYOUT_BANK_CODES = ["CRDB", "NBC", "NMB"] as const;
+
+function canonicalPayoutBank(value: unknown): (typeof PAYOUT_BANK_CODES)[number] | null {
+  const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  return PAYOUT_BANK_CODES.find((bank) => normalized === bank || normalized === `${bank}BANK`) ?? null;
+}
+
 const payoutBankSchema = z.preprocess(
-  (value) => {
-    const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
-    const match = ["CRDB", "NBC", "NMB"].find((bank) => normalized === bank || normalized === `${bank}BANK`);
-    return match ?? value;
-  },
+  (value) => canonicalPayoutBank(value) ?? value,
   z.enum(["CRDB", "NBC", "NMB"], { message: "Select CRDB, NBC, or NMB" })
+);
+
+const payoutMobileProviderSchema = z.preprocess(
+  (value) => canonicalAzamPayProvider(String(value ?? "")) ?? value,
+  z.enum(["yas", "vodacom", "airtel", "halotel", "azampesa"], {
+    message: "Select Yas, Vodacom, Airtel, Halotel, or Azampesa",
+  })
 );
 
 const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
@@ -186,7 +197,7 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
   z
     .object({
       payoutPreferred: z.literal("MOBILE_MONEY"),
-      mobileMoneyProvider: z.enum(["azampesa", "airtel", "tigo"]),
+      mobileMoneyProvider: payoutMobileProviderSchema,
       mobileMoneyNumber: z.string().trim().regex(/^\d{9,15}$/, "Enter a valid mobile wallet number"),
     })
     .strict(),
@@ -1475,6 +1486,25 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     if (!lookup.status || !resolvedName) {
       return sendError(res, 409, "AzamPay could not verify the payout account holder");
     }
+    const returnedProvider = String(lookup.bankName || "").trim();
+    const providerMatches = isBank
+      ? canonicalPayoutBank(returnedProvider) === provider
+      : azamPayProvidersMatch(provider, returnedProvider);
+    if (!providerMatches) {
+      await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
+        mismatch: "PROVIDER",
+        requestedProvider: provider,
+        returnedProvider: returnedProvider || null,
+        accountNumber: maskSensitiveDestination(accountNumber),
+      });
+      return sendError(
+        res,
+        409,
+        isBank
+          ? "The account does not match the selected bank. Check the bank and account number."
+          : "The wallet number does not match the selected mobile money provider. Check the provider and number."
+      );
+    }
     if (returnedNumber !== canonicalNumber) {
       await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
         provider,
@@ -1493,6 +1523,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_LOOKED_UP", `user:${userId}`, null, {
       payoutPreferred: data.payoutPreferred,
       provider,
+      azamPayDisbursementEnabled: !isBank,
       accountName: resolvedName,
       accountNumber: maskSensitiveDestination(accountNumber),
       expiresAt: new Date(challenge.expiresAt).toISOString(),
@@ -1510,8 +1541,14 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
           accountNumber: maskSensitiveDestination(accountNumber),
           currency: "TZS",
         },
+        capabilities: {
+          nameLookupVerified: true,
+          azamPayDisbursementEnabled: !isBank,
+        },
       },
-      "Payout destination verified. Confirm the account holder to save it."
+      isBank
+        ? "Bank account name verified. Automated AzamPay bank disbursement remains disabled."
+        : "Payout destination verified. Confirm the account holder to save it."
     );
   } catch (error: unknown) {
     if (sendPayoutProviderError(res, error)) return;

@@ -6,6 +6,7 @@ import { getRoomTypeAvailability, getRoomTypesAvailability, lockPropertyInventor
 import { evaluateRestrictionRules, findRestrictionBlocks } from "../lib/nrmsRestrictions.js";
 import { REVIEW_RECOVERY_THRESHOLD, resolveReviewCategories, reviewCategoryOptions, sanitiseCategoryRatings } from "../lib/nrmsReviewCategories.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
+import { computeNightlyRates, money, nightsBetween } from "../lib/nrmsRateMath.js";
 import { limitPublicNrmsDirectHold, limitPublicNrmsDirectQuote, limitPublicNrmsGuestCapability } from "../middleware/rateLimit.js";
 
 export const router = Router();
@@ -40,10 +41,6 @@ const shareLinks = (propertyId: number, title: string) => {
 const directQuoteSchema = z.object({ checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), adults: z.coerce.number().int().min(1).max(20).default(1), children: z.coerce.number().int().min(0).max(20).default(0) });
 const directHoldSchema = directQuoteSchema.extend({ roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
-const nights = (start: Date, end: Date) => Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
-const adjust = (base: number, type: string, value: number) => type === "FIXED" ? value : type === "OFFSET" ? base + value : type === "PERCENT" ? base * (1 + value / 100) : base;
-const money = (value: number) => Math.max(0, Number(value.toFixed(2)));
-const appliesOn = (daysOfWeek: unknown, date: Date) => !Array.isArray(daysOfWeek) || daysOfWeek.length === 0 || daysOfWeek.map(Number).includes(date.getUTCDay());
 type DirectRoomQuote = {
   roomType: { id: number; name: string; description: string | null; capacityAdults: number; capacityChildren: number; images: unknown };
   ratePlan: { id: number; name: string; refundable: boolean; mealPlan: string; cancellationPolicy: unknown } | null;
@@ -51,7 +48,7 @@ type DirectRoomQuote = {
 };
 
 async function directQuote(propertyId: number, input: z.infer<typeof directQuoteSchema>, requestedRoomTypeId?: number, requestedRatePlanId?: number | null) {
-  const checkIn = dateOnly(input.checkIn); const checkOut = dateOnly(input.checkOut); const stayNights = nights(checkIn, checkOut);
+  const checkIn = dateOnly(input.checkIn); const checkOut = dateOnly(input.checkOut); const stayNights = nightsBetween(checkIn, checkOut);
   const today = dateOnly(new Date().toISOString().slice(0, 10)); const advanceDays = Math.floor((checkIn.getTime() - today.getTime()) / 86_400_000); const stayDates = Array.from({ length: Math.max(0, stayNights) }, (_, offset) => new Date(checkIn.getTime() + offset * 86_400_000));
   if (checkIn < today || stayNights < 1 || stayNights > 365) throw new Error("INVALID_DATES");
   const property = await prisma.property.findFirst({ where: { id: propertyId, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true, ownerId: true, title: true, currency: true, nrmsGuestPayInstructions: true } });
@@ -92,8 +89,7 @@ async function directQuote(propertyId: number, input: z.infer<typeof directQuote
     // Same evaluator the marketplace uses, over rules already loaded above, so
     // a control cannot mean one thing on the direct page and another on NoLSAF.
     if (evaluateRestrictionRules(restrictions, { propertyId, roomTypeId: roomType.id, ratePlanId: plan?.id ?? null, checkIn, checkOut, channelCode: "DIRECT" }).length) continue;
-    let total = 0; const nightly: Array<{ date: string; rate: number }> = [];
-    for (let offset = 0; offset < stayNights; offset += 1) { const stayDate = stayDates[offset]!; let rate = adjust(Number(roomType.baseRate), plan?.adjustmentType ?? "BASE", Number(plan?.adjustment ?? 0)); const season = plan?.seasons.find((item) => item.startDate <= stayDate && item.endDate >= stayDate && appliesOn(item.daysOfWeek, stayDate)); if (season) rate = adjust(rate, season.adjustmentType, Number(season.adjustment)); rate = money(rate); total += rate; nightly.push({ date: stayDate.toISOString().slice(0, 10), rate }); }
+    const { nightly, subtotal: total } = computeNightlyRates(Number(roomType.baseRate), plan, stayDates);
     const taxPolicy = (plan?.taxPolicy && typeof plan.taxPolicy === "object" ? plan.taxPolicy : {}) as Record<string, unknown>; const feePolicy = (plan?.feePolicy && typeof plan.feePolicy === "object" ? plan.feePolicy : {}) as Record<string, unknown>; const tax = money(total * Math.max(0, Number(taxPolicy.percent || 0)) / 100); const fees = money(Number(feePolicy.fixed || 0)); const grandTotal = money(total + tax + fees); const channelPolicy = (plan?.channelPolicy && typeof plan.channelPolicy === "object" ? plan.channelPolicy : {}) as Record<string, unknown>; const depositPercent = Math.min(100, Math.max(0, Number(channelPolicy.directDepositPercent ?? 20)));
     quotes.push({ roomType: { id: roomType.id, name: roomType.name, description: roomType.description, capacityAdults: roomType.capacityAdults, capacityChildren: roomType.capacityChildren, images: roomType.images }, ratePlan: plan ? { id: plan.id, name: plan.name, refundable: plan.refundable, mealPlan: plan.mealPlan, cancellationPolicy: plan.cancellationPolicy } : null, currency: roomType.currency, nightly, subtotal: money(total), tax, fees, total: grandTotal, depositAmount: money(grandTotal * depositPercent / 100), available: availability.available });
   }

@@ -27,6 +27,10 @@ type PayoutVerificationPreview = {
     accountNumber: string;
     currency: string;
   };
+  capabilities?: {
+    nameLookupVerified: boolean;
+    azamPayDisbursementEnabled: boolean;
+  };
   draft: Record<string, string>;
 };
 
@@ -813,7 +817,11 @@ export default function OwnerProfile() {
         return updated;
       });
       setPayoutPreview(null);
-      setPayoutSuccess("Payout destination verified and saved.");
+      setPayoutSuccess(
+        preferred === "BANK"
+          ? "Bank account name verified and saved. Automated AzamPay bank payout remains disabled."
+          : "Payout destination verified and saved."
+      );
     } catch (err: any) {
       console.error('Failed to confirm payout destination', err);
       const serverData = err?.response?.data;
@@ -1774,13 +1782,20 @@ export default function OwnerProfile() {
                 </div>
                 <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
                   <dt className="text-slate-500">Provider</dt>
-                  <dd className="m-0 text-right font-medium text-slate-800">{{ azampesa: 'AzamPesa', airtel: 'Airtel Money', tigo: 'Mixx by Yas' }[payoutPreview.destination.provider.toLowerCase()] || payoutPreview.destination.provider}</dd>
+                  <dd className="m-0 text-right font-medium text-slate-800">{{ azampesa: 'AzamPesa', airtel: 'Airtel Money', tigo: 'Mixx by Yas', yas: 'Mixx by Yas', mpesa: 'M-Pesa', vodacom: 'M-Pesa', halopesa: 'HaloPesa', halotel: 'HaloPesa' }[payoutPreview.destination.provider.toLowerCase()] || payoutPreview.destination.provider}</dd>
                 </div>
                 <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
                   <dt className="text-slate-500">Destination</dt>
                   <dd className="m-0 text-right font-mono font-medium text-slate-800">{payoutPreview.destination.accountNumber}</dd>
                 </div>
               </dl>
+
+              {payoutPreview.destination.type === "BANK" && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  This confirms the bank account holder for your saved profile only. Automated AzamPay bank disbursement is not enabled.
+                </div>
+              )}
 
               <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
                 <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />

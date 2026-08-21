@@ -1,16 +1,10 @@
 /**
  * AzamPay Disbursement — Checksum Input Builder
  *
- * AzamPay has not published which fields make up the checksum input string,
- * in what order, with what casing, or with what separator (if any) — see
- * "Checksum: the security primitive" in docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md.
- * "Please contact us for the fields that will be used to calculate checksum."
- *
- * This module is deliberately configuration-driven instead of hardcoding a
- * guessed field list. Once AzamPay confirms the contract, set the matching
- * env var and nothing else in the call sites needs to change. Until then,
- * calling buildChecksumInput() throws a clear "not configured" error rather
- * than silently producing a wrong checksum.
+ * AzamPay supplied the field composition used in the successful 17 August
+ * integration tests. Those accepted formulas are now safe defaults. Optional
+ * env overrides remain available for a future provider-contract revision and
+ * are strictly validated before use.
  *
  * Config shape (JSON), one env var per AzamPay operation:
  *   {
@@ -35,19 +29,29 @@ const ENV_VAR_BY_PURPOSE: Record<AzamPayChecksumPurpose, string> = {
   DISBURSE: "AZAMPAY_CHECKSUM_FIELDS_DISBURSE",
 };
 
+const CONFIRMED_FIELD_CONFIG: Record<AzamPayChecksumPurpose, ChecksumFieldConfig> = {
+  NAMELOOKUP: {
+    fields: ["bankName", "accountNumber"],
+    separator: "",
+  },
+  DISBURSE: {
+    fields: [
+      "source.accountNumber",
+      "destination.accountNumber",
+      "source.currency",
+      "transferDetails.amount",
+      "transferDetails.dateInEpoch",
+      "externalReferenceId",
+    ],
+    separator: "",
+  },
+};
+
 function loadFieldConfig(purpose: AzamPayChecksumPurpose): ChecksumFieldConfig {
   const envVar = ENV_VAR_BY_PURPOSE[purpose];
   const raw = process.env[envVar];
 
-  if (!raw) {
-    throw new AzamPayDisburseConfigurationError({
-      operation: "CHECKSUM",
-      missingKeys: [envVar],
-      message:
-        `AzamPay checksum: ${envVar} is not set. AzamPay must confirm the exact field ` +
-        `composition for ${purpose} before this can be built — do not guess it.`,
-    });
-  }
+  if (!raw) return CONFIRMED_FIELD_CONFIG[purpose];
 
   let parsed: unknown;
   try {
@@ -94,8 +98,8 @@ function stringifyField(value: unknown): string {
  * outgoing request payload, using the field order confirmed by AzamPay via
  * AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP / AZAMPAY_CHECKSUM_FIELDS_DISBURSE.
  *
- * Throws if the config env var is not set — this is intentional. There is
- * no safe default here.
+ * Uses the accepted provider formula by default; an env override is useful
+ * only if AzamPay revisions the contract for this account.
  */
 export function buildChecksumInput(
   purpose: AzamPayChecksumPurpose,

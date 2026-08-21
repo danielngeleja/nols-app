@@ -39,14 +39,14 @@ describe("AzamPay checksum input", () => {
     );
   });
 
-  it("continues to fail closed when the separate Name Lookup formula is absent", () => {
+  it("uses the provider-confirmed Name Lookup formula when no override is configured", () => {
     vi.stubEnv("AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP", "");
 
-    expect(() =>
+    expect(
       buildChecksumInput("NAMELOOKUP", {
-        bankName: "airtel",
+        bankName: "Airtel",
         accountNumber: "255700000000",
       })
-    ).toThrow(/AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP/);
+    ).toBe("Airtel255700000000");
   });
 });

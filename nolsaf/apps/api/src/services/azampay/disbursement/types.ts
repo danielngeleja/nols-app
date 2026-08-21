@@ -1,14 +1,12 @@
 /**
  * AzamPay Disbursement — Request/Response Types
  *
- * Mirrors the OpenAPI schema and examples documented in
- * docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md. bankName is typed as a union of
- * the values the schema currently enumerates (tigo/airtel/azampesa) — this
- * endpoint is MNO-focused until AzamPay confirms bank payout support.
+ * Mirrors the live provider values AzamPay enabled for NoLSAF. Legacy stored
+ * aliases (Tigo/Mixx, M-Pesa and HaloPesa) are normalized in providers.ts.
  */
 
-/** Confirmed-enabled MNO rails only. Do not widen until AzamPay confirms bank support. */
-export type AzamPayDisburseBankName = "tigo" | "airtel" | "azampesa";
+/** Confirmed-enabled MNO rails only. Bank payouts remain feature-gated. */
+export type AzamPayDisburseBankName = "yas" | "vodacom" | "airtel" | "halotel" | "azampesa";
 
 export interface AzamPayAccountParty {
   countryCode: string;

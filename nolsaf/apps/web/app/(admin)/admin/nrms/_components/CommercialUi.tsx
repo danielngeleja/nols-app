@@ -5,14 +5,14 @@ import type { LucideIcon } from "lucide-react";
 
 export function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: LucideIcon; label: string; value: string; detail: string; tone: "emerald" | "slate" | "amber" | "blue" }) {
   const tones = {
-    emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
-    slate: "border-neutral-200 bg-neutral-100 text-neutral-600",
-    amber: "border-amber-100 bg-amber-50 text-amber-700",
-    blue: "border-blue-100 bg-blue-50 text-blue-700",
+    emerald: "from-emerald-500 to-emerald-700",
+    slate: "from-neutral-400 to-neutral-600",
+    amber: "from-amber-400 to-amber-600",
+    blue: "from-blue-500 to-blue-700",
   } as const;
   return (
-    <div className="flex min-w-0 items-center gap-3.5 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_10px_30px_-28px_rgba(15,23,42,0.45)] sm:p-5">
-      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
+    <div className="flex min-w-0 items-center gap-3.5 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-inset ring-neutral-200/70 transition hover:ring-neutral-300 sm:p-5">
+      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0">
         <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</p>
         <p className="m-0 mt-1 truncate text-lg font-black tracking-tight text-neutral-950">{value}</p>

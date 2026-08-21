@@ -25,15 +25,16 @@ const [mode, argA, argB] = process.argv.slice(2);
  * so instanceof fails. We detect by `name` and read the known fields, which
  * preserves AzamPay's raw error body (the part worth sharing with them).
  */
-function describeError(err: any): unknown {
-  const name = err?.name;
+function describeError(err: unknown): unknown {
+  const detail = err && typeof err === "object" ? (err as Record<string, unknown>) : {};
+  const name = detail.name;
   if (name === "AzamPayDisburseError") {
-    return { type: "AzamPayDisburseError", httpStatus: err.httpStatus ?? null, providerMessage: err.providerMessage ?? null, retryClass: err.retryClass, rawBody: err.rawBody };
+    return { type: "AzamPayDisburseError", httpStatus: detail.httpStatus ?? null, providerMessage: detail.providerMessage ?? null, retryClass: detail.retryClass, rawBody: detail.rawBody };
   }
   if (name === "AzamPayDisburseConfigurationError") {
-    return { type: "ConfigurationError", operation: err.operation, missingKeys: err.missingKeys, message: err.message };
+    return { type: "ConfigurationError", operation: detail.operation, missingKeys: detail.missingKeys, message: detail.message };
   }
-  return { type: "Error", message: err?.message ?? String(err) };
+  return { type: "Error", message: detail.message ?? String(err) };
 }
 
 /** Runs one call, capturing the response OR the classified error, never throwing. */
@@ -63,13 +64,15 @@ async function harvest() {
     ["namelookup: Azampesa known", "Azampesa", "1710446004"],
     ["namelookup: Azampesa other", "Azampesa", "1780120104"],
     ["namelookup: Azampesa source acct", "Azampesa", "1000000164"],
-    ["namelookup: Tigo", "Tigo", "0714000001"],
+    ["namelookup: Yas", "Yas", "0714000001"],
     ["namelookup: Airtel", "Airtel", "0784000001"],
+    ["namelookup: Vodacom", "Vodacom", "0754000001"],
+    ["namelookup: Halotel", "Halotel", "0622000001"],
     ["namelookup: empty account", "Azampesa", ""],
     ["namelookup: nonexistent", "Azampesa", "9999999999"],
   ];
   for (const [name, bankName, accountNumber] of nameLookups) {
-    rows.push(await capture(name, { bankName, accountNumber }, () => azamPayNameLookup({ bankName: bankName as any, accountNumber })));
+    rows.push(await capture(name, { bankName, accountNumber }, () => azamPayNameLookup({ bankName, accountNumber })));
   }
 
   // --- Disburse, then poll its status ---
@@ -86,7 +89,12 @@ async function harvest() {
   const disbRow = await capture("disburse: Azampesa 1000 TZS", disburseReq, () => azamPayDisburse(disburseReq));
   rows.push(disbRow);
 
-  const pgRef = disbRow.ok ? (disbRow.result as any)?.pgReferenceId : null;
+  const disburseResult = disbRow.result && typeof disbRow.result === "object"
+    ? (disbRow.result as Record<string, unknown>)
+    : null;
+  const pgRef = disbRow.ok && typeof disburseResult?.pgReferenceId === "string"
+    ? disburseResult.pgReferenceId
+    : null;
   if (pgRef) {
     rows.push(await capture("status: poll disburse pgReferenceId", { pgReferenceId: pgRef, bankName: "Azampesa" }, () => azamPayTransactionStatus({ pgReferenceId: pgRef, bankName: "Azampesa" })));
   }
@@ -162,7 +170,7 @@ async function run() {
   const bankName = argA || "Azampesa";
   const accountNumber = argB || "1710446004";
   console.log(`namelookup -> bankName=${bankName} accountNumber=${accountNumber}`);
-  const res = await azamPayNameLookup({ bankName: bankName as any, accountNumber });
+  const res = await azamPayNameLookup({ bankName, accountNumber });
   console.log("NAMELOOKUP OK:", JSON.stringify(res, null, 2));
 }
 

@@ -47,7 +47,7 @@ function isFolderAllowedForRole(req: any, folder: string): boolean {
   const role = String(req.user?.role || "").toUpperCase();
   if (role === "ADMIN") return true;
   if (folder === "uploads" || folder === "avatars") return true;
-  if (role === "AGENT") return folderMatches(folder, "agent-documents");
+  if (role === "AGENT" || role === "NRMS_AGENT") return folderMatches(folder, "agent-documents");
   if (role === "OWNER") return folderMatches(folder, "owner-documents") || folderMatches(folder, "properties");
   if (role === "DRIVER") return folderMatches(folder, "driver-documents");
   return false;

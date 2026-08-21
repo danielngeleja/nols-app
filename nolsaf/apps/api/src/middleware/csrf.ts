@@ -204,6 +204,7 @@ const PRE_AUTH_PATHS = new Set([
   "/api/auth/admin-mfa/passkey/register/options",
   "/api/auth/admin-mfa/passkey/register/verify",
   "/api/auth/admin-mfa/cancel",
+  "/api/public/nrms/agent/activate",
 ]);
 
 /**

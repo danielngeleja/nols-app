@@ -4,7 +4,7 @@ Source: `NoLSAF AzamPay Disbursement Developer.pptx` (Desktop/DAILY READINGS/NoL
 
 Stack target: Node.js + TypeScript + Express, sandbox-first.
 
-**Important**: AzamPay must still provide the exact checksum field composition, public key, production endpoints, and enabled payout rails before production launch. This document is an internal implementation guideline, not a replacement for AzamPay's official documentation or merchant-specific integration instructions.
+**Live-account update (21 August 2026):** AzamPay confirmed that disbursement reuses NoLSAF's checkout credentials, supplied the RSA public key and production source account, confirmed the live host `https://api-disbursement.azampay.co.tz`, and enabled `Yas`, `Vodacom`, `Airtel`, `Halotel`, and `Azampesa`. The accepted 17 August test evidence confirms the checksum formulas, PKCS#1 v1.5, epoch seconds, and `transferDetails.type = FUND`. Callback authentication/source IPs remain the one provider-controlled production gap.
 
 Reference sources:
 - AzamPay Tanzania, Disbursement: https://developerdocs.azampay.co.tz/tanzania/disbursement
@@ -19,7 +19,7 @@ These apply to every phase below, without exception:
 
 - **No commits.** Code, schema drafts, and docs generated for this integration are written to disk only. Nothing is staged, committed, or pushed on the assistant's own initiative, regardless of how complete a phase looks. Daniel reviews and commits.
 - **No DB migrations without explicit written approval.** Schema changes are drafted in `prisma/schema.prisma` and a migration SQL file is prepared, but `prisma migrate` / `db push` (or any command that touches the staging/production database) is never run until Daniel says yes to that specific migration.
-- **No real AzamPay disbursement calls until AzamPay confirms the checksum contract.** The client code is built and unit-testable, but is not exercised against the sandbox `/namelookup` or `/disburse` endpoints until the public key and field composition are in hand.
+- **No uncontrolled AzamPay disbursement calls.** The checksum contract is confirmed and test submissions were accepted, but live money movement must still pass NoLSAF's approval, batching, finance re-authentication, release challenge, amount ceilings, and reconciliation controls.
 - **Professional standard**: typed, idempotent, transactional where money or state changes, audited, and consistent with the strongest existing pattern in the codebase (the Sales Partner payout ledger), not the weakest one (the Owner/Invoice flow).
 
 ---
@@ -33,7 +33,7 @@ These apply to every phase below, without exception:
 | 2 | Schema draft: `Disbursement`, `DisbursementEvent`, `PayoutAccount` in `schema.prisma`, plus a hand-written migration SQL file | Drafted, **not applied** to any database. Applying needs Daniel's approval |
 | 3 | Service layer: eligibility checks (reads the 4 existing flows), ledger writes (request/approve/submit/apply-event), reconciliation job | Done — `apps/api/src/services/payouts/`, typechecked against a `prisma generate`-only client (no DB touched). Runtime calls will fail until Phase 2 is applied and the tables actually exist |
 | 4 | Routes: owner-facing payout view (`owner.payouts.ts`), admin review/approve/submit/reconcile (`admin.disbursements.ts`), callback endpoint (`payments.azampay.disbursement.ts`) | Done — wired into the app, typechecked and linted clean. Runtime calls fail until Phase 2 is applied, same as Phase 3 |
-| 5 | Sandbox verification against real AzamPay checksum contract, then production readiness gate (see below) | Needs AzamPay's written answers to the Phase 5 question list |
+| 5 | Test-host verification against the AzamPay checksum/request contract, then production readiness gate (see below) | Request/auth/status contract verified; live provider alignment implemented; callback authentication still pending |
 
 Phase 3 and 4's code are fully typed (Prisma Client was regenerated from the schema draft, which only reads `schema.prisma` and never connects to a database) but cannot run for real until Phase 2's migration is applied to the actual database.
 
@@ -52,7 +52,7 @@ Build against the canonical API definitions, then confirm provider-specific valu
 1. **Understand the flow**: how NoLSAF moves from payout eligibility to a final paid/failed state.
 2. **Build provider primitives**: token, checksum, name lookup, disburse, status, callback.
 3. **Protect NoLSAF logic**: eligibility, approval, idempotency, duplicate prevention, ledger/reconciliation.
-4. **Resolve documentation gaps**: do not guess checksum inputs, bank support, USD support, or transfer type.
+4. **Keep unresolved rails feature-gated**: checksum inputs and transfer type are confirmed; bank support, non-TZS currencies, bulk API availability, and callback authentication must not be guessed.
 
 ---
 
@@ -80,7 +80,7 @@ Flow: eligible earnings -> verified payout account -> admin/policy approval -> p
 
 ---
 
-## Canonical sandbox endpoints
+## Canonical test and live endpoints
 
 | Purpose | Method | Canonical sandbox endpoint |
 |---|---|---|
@@ -90,7 +90,7 @@ Flow: eligible earnings -> verified payout account -> admin/policy approval -> p
 | Transaction status | GET | `https://api-disbursement-sandbox.azampay.co.tz/api/v1/azampay/transactionstatus` |
 | Disbursement callback | POST | `https://api.nolsaf.com/api/payments/azampay/disbursement/callback` (NoLSAF endpoint) |
 
-Production base URLs are not published on the disbursement doc page. Obtain them from AzamPay together with production credentials and callback registration.
+AzamPay supplied the NoLSAF live disbursement host as `https://api-disbursement.azampay.co.tz`. Live authentication reuses the existing checkout credentials and checkout authentication host. Keep `AZAMPAY_DISBURSE_API_URL` explicit in production so an unset variable can never switch a deployment from test to live accidentally.
 
 Some OpenAPI code samples still show `/azampay/createtransfer` or `/azampay/gettransactionstatus`. Treat those as stale unless AzamPay explicitly confirms otherwise.
 
@@ -121,9 +121,9 @@ export async function getAzamPayToken() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        appName: 'NoLSAF',
-        clientId: env.AZAMPAY_CLIENT_ID,
-        clientSecret: env.AZAMPAY_CLIENT_SECRET
+        appName: env.AZAMPAY_DISBURSE_APP_NAME || env.AZAMPAY_APP_NAME,
+        clientId: env.AZAMPAY_DISBURSE_CLIENT_ID || env.AZAMPAY_CLIENT_ID,
+        clientSecret: env.AZAMPAY_DISBURSE_CLIENT_SECRET || env.AZAMPAY_CLIENT_SECRET
       })
     }
   );
@@ -147,7 +147,7 @@ States (implemented, `services/payouts/ledger.ts` + `services/payouts/batching.t
 
 - **REQUESTED / APPROVED** — unchanged from before batching existed: admin creates the disbursement against an already-approved source (eligibility.ts) and a verified `PayoutAccount`, then approves it (`ledger.approveDisbursement`). Approval also freezes an **approval fingerprint** — see "Batch security architecture" below.
 - **BATCHED / AUTHORIZED / PROCESSING** — new. See "Batch security architecture."
-- There is **no manual per-item "send to AzamPay" step** in normal use. Approval only ever lands a payout in the batch queue; batch authorization is the one action that actually submits money. `ledger.submitToAzamPay` still accepts a disbursement in `APPROVED` state directly, for a manual/legacy retry of a single stuck item outside the batch flow — that path stays behind the same finance re-auth gate as everything else.
+- There is **no manual per-item "send to AzamPay" step** in normal use. Approval only ever lands a payout in the batch queue; batch authorization is the one action that permits money movement. `ledger.submitToAzamPay` accepts `AUTHORIZED` only, so there is no legacy path that can bypass batching, re-verification, risk scoring, or release authority.
 
 **Reference strategy:**
 - NoLSAF reference: `NoLSAF-O-2608081645-D51QVX` (source-type letter: O/T/D/S, then minute-precision timestamp, then 6 random alphanumeric chars)
@@ -220,7 +220,7 @@ Clearing returns the payout to `APPROVED` with `batchId: null`, so the next form
 
 Filters are the two questions finance actually asks: a whole group (`OWNERS` | `TOURS` | `DRIVERS` | `SALES`, mapped onto `sourceType`, multi-select) or one named beneficiary (`recipientUserId`, resolved through `PayoutAccount.userId`), plus a date range, status, currency, destination network, batch reference and free text. The date range applies to a **chosen** timestamp (`createdAt` | `approvedAt` | `paidAt`), because a payout report keyed on the wrong date lands rows in the wrong week, and day boundaries are resolved in `REPORT_TIMEZONE` (default `Africa/Dar_es_Salaam`) rather than UTC — parsing "1 August" as UTC midnight would push every payout made before 03:00 local into the previous day and silently disagree with the provider statement the file exists to be reconciled against.
 
-A destination is not always a phone number. `PayoutAccount.type` is `MOBILE_MONEY` or `BANK`, and `provisioning.ts` creates both, so the report carries `DESTINATION TYPE` beside `RECEIVER ACCOUNT NUMBER` (not "mobile number") and `OPERATOR CODE` names the institution either way — `airtel` for an MSISDN, `crdb` for a bank account. `destinationType` filters the two apart, and the institution filter is populated from `summary.byDestination`, built from the rows in scope, rather than from a fixed list of MNOs that bank payouts could never match. Note this is wider than what the submission path currently accepts: `AzamPayDisburseBankName` is `tigo | airtel | azampesa` today, so a BANK payout account can be requested and approved but not yet submitted. The report describes what the ledger holds, not what AzamPay will take.
+A destination is not always a phone number. `PayoutAccount.type` is `MOBILE_MONEY` or `BANK`, and `provisioning.ts` creates both, so the report carries `DESTINATION TYPE` beside `RECEIVER ACCOUNT NUMBER` (not "mobile number") and `OPERATOR CODE` names the institution either way. AzamPay has enabled only five MNO rails for NoLSAF today. The request path therefore rejects BANK and unknown-provider destinations before they enter approval/batching; reports may still describe historical or non-AzamPay bank destination records.
 
 The CSV follows the layout of the provider's own bulk disbursement report (record and batch identity, both sides' references, split payment date and time, operator, amount, response message, remarks) so the two can be read side by side. Columns the provider fills from data NoLSAF does not hold (KYC name and status, service charge, post balance, institution id) are not emitted as empty decoration; they are replaced by what NoLSAF does know about the destination, which is whether Name Lookup verified it and when, plus the NoLSAF-side audit columns (recipient group, approver, risk level).
 
@@ -258,7 +258,7 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "bankName": "airtel",
+  "bankName": "Airtel",
   "accountNumber": "255688123821",
   "checksum": "<base64-checksum>"
 }
@@ -277,13 +277,15 @@ Content-Type: application/json
 
 **NoLSAF UI rule**: beneficiary `accountName` becomes read-only after verification. Any account number/provider change must invalidate verification and require a fresh Name Lookup.
 
-The documentation says Name Lookup can be used for bank accounts or Mobile Money. However, the disbursement request schema itself is currently MNO-focused. Confirm bank payout enablement separately.
+The documentation says Name Lookup can be used for bank accounts or Mobile Money. NoLSAF therefore permits verification-only lookup and profile storage for the explicit bank codes `CRDB`, `NBC`, and `NMB`. A successful bank lookup returns `capabilities.nameLookupVerified = true` and `capabilities.azamPayDisbursementEnabled = false`, and the UI must display that distinction before the user confirms the details.
+
+This does **not** make the bank account eligible for AzamPay money-out. `requestDisbursement` accepts only a verified, active `MOBILE_MONEY` account whose provider maps to one of the five confirmed live rails. A `BANK` account is rejected before a disbursement can enter approval or batching. Confirm bank payout enablement and exact wire values separately with AzamPay.
 
 ---
 
 ## Checksum: the security primitive
 
-AzamPay documents the algorithm, but the exact input-string composition must come from their team.
+AzamPay documents the algorithm, and its team supplied the NoLSAF input-string composition used in the accepted 17 August test calls.
 
 **Published rule**
 ```
@@ -293,15 +295,14 @@ Base64( RSA( SHA512(string) ) )
 - AzamPay supplies the required public key.
 - Checksum is included in Name Lookup and Disburse requests.
 
-**Do not guess:**
-- Which fields are concatenated?
-- Exact order and casing?
-- Separators or no separators?
-- Handling of null/optional fields?
-- Epoch unit and formatting?
-- Whether JSON canonicalisation is involved?
+**Confirmed NoLSAF formulas:**
+- Name Lookup: `bankName + accountNumber`.
+- Disburse: `source.accountNumber + destination.accountNumber + source.currency + transferDetails.amount + transferDetails.dateInEpoch + externalReferenceId`.
+- Separator: none.
+- `bankName` uses exact live wire casing before Name Lookup hashing.
+- `dateInEpoch` uses Unix seconds.
 
-AzamPay explicitly says: "Please contact us for the fields that will be used to calculate checksum." Build the crypto helper now, but keep the input builder configuration-driven until AzamPay confirms the contract.
+These formulas are code defaults. The existing JSON environment overrides remain available only for a future account-specific contract revision.
 
 ### Node.js / TypeScript implementation
 
@@ -334,7 +335,7 @@ export function azamPayChecksum(
 - Unit-test with a known AzamPay test vector when they provide one.
 - Never log the full checksum input if it contains sensitive account data.
 
-**Documentation inconsistency**: the written rule says PKCS1 padding, while published Python and Go samples use OAEP APIs. The Node.js example uses `RSA_PKCS1_PADDING` and matches the written rule. Confirm with AzamPay before certification.
+**Documentation inconsistency resolved for NoLSAF**: the written rule says PKCS1 padding while older Python and Go samples use OAEP APIs. NoLSAF's `RSA_PKCS1_PADDING` implementation was accepted by AzamPay's test host.
 
 ---
 
@@ -354,7 +355,7 @@ Canonical body shape exposed by the OpenAPI schema.
 | `checksum` | Schema field | Encrypted SHA-512 checksum |
 | `remarks` | Optional | Human-readable payout purpose |
 
-The OpenAPI schema currently enumerates `tigo`, `airtel`, and `azampesa` for source/destination `bankName`, despite the field description saying "bank." Treat this endpoint as MNO-focused until AzamPay confirms supported bank disbursement values.
+The older OpenAPI schema enumerates `tigo`, `airtel`, and `azampesa`, but AzamPay's live onboarding instructions for NoLSAF supersede that list: `Yas`, `Vodacom`, `Airtel`, `Halotel`, and `Azampesa`. NoLSAF normalizes legacy stored aliases (`tigo`, `mpesa`, `halopesa`) to those live wire values. Bank disbursement remains disabled.
 
 ### Example NoLSAF disbursement payload
 
@@ -365,19 +366,19 @@ Illustrative MNO payout; values must match NoLSAF's enabled AzamPay account conf
   "source": {
     "countryCode": "TZ",
     "fullName": "NoLS AFRICA COMPANY LIMITED",
-    "bankName": "azampesa",
+    "bankName": "Azampesa",
     "accountNumber": "<NOLSAF_SOURCE_ACCOUNT>",
     "currency": "TZS"
   },
   "destination": {
     "countryCode": "TZ",
     "fullName": "SERENGETI ADVENTURES LTD",
-    "bankName": "airtel",
+    "bankName": "Airtel",
     "accountNumber": "255688123821",
     "currency": "TZS"
   },
   "transferDetails": {
-    "type": "<AZAMPAY_CONFIRMED_TYPE>",
+    "type": "FUND",
     "amount": 850000,
     "dateInEpoch": 1786122000
   },
@@ -399,7 +400,7 @@ Illustrative MNO payout; values must match NoLSAF's enabled AzamPay account conf
 - USD should remain feature-gated until AzamPay confirms currency/rail support.
 - Source account values should come from secure configuration, not the UI.
 
-Illustrative only. The exact checksum input fields and `transferDetails.type` are provider-confirmation items.
+Illustrative only. Substitute the configured production source account and verified destination; the checksum formulas and `FUND` transfer type are confirmed.
 
 ---
 
@@ -630,37 +631,39 @@ Treat the canonical schema as the starting point, and obtain written clarificati
 |---|---|---|
 | Disburse path | Canonical `/api/v1/azampay/disburse`, older samples use `/azampay/createtransfer` | Use canonical path |
 | Status path | Canonical `/api/v1/azampay/transactionstatus`, samples show `/azampay/gettransactionstatus` | Use canonical path |
-| Checksum padding | Written rule: PKCS1, Python/Go samples use OAEP APIs | Use PKCS1 in Node, request test vector |
-| Disburse providers | Request schema enum: tigo, airtel, azampesa | Enable only confirmed providers |
-| Bank support | Name Lookup says bank/MNO, BankProvider enum lists CRDB/NMB, disburse schema does not | Feature-gate bank payout until confirmed |
+| Checksum padding | Written rule: PKCS1, Python/Go samples use OAEP APIs | PKCS1 accepted by the test host; keep `RSA_PKCS1_PADDING` |
+| Disburse providers | Older schema: tigo, airtel, azampesa; live onboarding: Yas, Vodacom, Airtel, Halotel, Azampesa | Normalize legacy aliases and send only the five confirmed live values |
+| Bank support | Name Lookup says bank/MNO, while AzamPay confirmed NoLSAF checkout is MNO-only and supplied only five mobile disbursement provider values | Permit verification-only bank Name Lookup/profile storage for CRDB/NBC/NMB, but keep bank disbursement feature-gated |
 | Currency | String field, no explicit disbursement currency enum | Feature-gate USD until confirmed |
-| Transfer type | Generic examples mention SWIFT/SEPA | Do not guess, ask valid local values |
+| Transfer type | Generic examples mention SWIFT/SEPA | `FUND` accepted for NoLSAF; use it as the account default |
 | Callback security | No signature field published in DisburseCallback | Ask for signature/allowlist/auth mechanism |
 
 This table should remain in the code repository/wiki until every "confirm" item is resolved. It prevents later developers from treating documentation placeholders as production facts.
 
 ---
 
-## Questions NoLSAF must send AzamPay before production
+## Provider-contract status and remaining questions
 
-**Checksum + request contract:**
-- What exact fields, order, casing, and separators form the checksum input for Name Lookup?
-- What exact fields, order, casing, and separators form the checksum input for Disburse?
-- Please provide the RSA public key and one known checksum test vector.
-- Confirm PKCS#1 v1.5 padding (not OAEP).
-- Confirm `dateInEpoch` unit: seconds or milliseconds.
+**Resolved and verified:**
+- Name Lookup and Disburse checksum field order and empty separator.
+- RSA public key, SHA-512 and PKCS#1 v1.5 padding.
+- Unix epoch seconds.
+- `transferDetails.type = FUND`.
+- Test and live disbursement hosts.
+- Live app authentication reuses checkout credentials.
+- Production source account supplied.
+- Live provider values: `Yas`, `Vodacom`, `Airtel`, `Halotel`, `Azampesa`.
+- Outbound TCP/TLS connectivity from whitelisted IP `51.21.132.223` to the live host on port 443.
 
-**Rail + production contract:**
+**Still open / deliberately feature-gated:**
 - **Native Bulk Disbursement API availability — contested, ask directly.** The public developer docs (`developerdocs.azampay.co.tz/tanzania/disbursement#disburse`) show only a single-transaction `/disburse` endpoint, no batch/bulk endpoint. But AzamPay's own marketing page (`azampay.com/products/disbursement`) advertises bulk payments via CSV upload for bank and mobile money. Ask explicitly: is bulk/CSV a merchant-dashboard-only feature (a human uploads a file in AzamPay's portal), or is there a programmatic bulk API NoLSAF's backend can call? If the latter exists, get its endpoint, request schema, and checksum model — it is not in the public dev docs. Until answered, NoLSAF's `DisbursementBatch` stays a NoLSAF-side grouping construct only; `processBatch` submits members one at a time via the documented single-item `/disburse`.
-- Which `bankName`/provider values are enabled for NoLSAF disbursement?
 - Can the same API pay CRDB/NMB bank accounts? If yes, what exact values?
 - Which currencies are supported for disbursement, including USD accounts?
-- What values are valid for `transferDetails.type`?
 - What is the callback authentication method and retry policy?
-- Provide production base URL, source-account setup, limits, fees, and prefunding/settlement requirements.
+- Confirm live limits, fees, and prefunding/settlement requirements.
 - **Is there a merchant dashboard/portal for disbursement at all?** Neither the developer docs nor the marketing page name one. The developer docs' only onboarding step is "contact us to configure the callback URL" (manual, not self-service). Don't plan around AzamPay-side visibility — NoLSAF's own Disbursement Workspace (`/admin/disbursements`) is built entirely from our own DB fed by the API/callback, independent of whatever AzamPay does or doesn't expose on their side.
 
-Do not go live until these are answered in writing or validated in sandbox with AzamPay technical support.
+The five confirmed MNO/TZS rails may proceed through a controlled production certification payout once deployment configuration and callback/reconciliation controls pass the readiness gate. Bank, USD, native bulk, and unauthenticated callbacks remain disabled until their specific questions are resolved.
 
 ---
 
@@ -750,13 +753,13 @@ Exit criterion: zero scenario can create an untracked or duplicate partner payme
 
 A concise checklist before switching `AZAMPAY_ENV=production` for disbursement.
 
-- **Credentials**: production app/client credentials issued and stored in secret manager.
+- **Credentials**: checkout app/client credentials available to the disbursement auth fallback (or disbursement-specific overrides stored in secret manager).
 - **Callback**: production HTTPS callback registered + authentication control confirmed.
-- **Endpoint**: production disbursement/auth hosts confirmed by AzamPay.
+- **Endpoint**: `AZAMPAY_DISBURSE_API_URL=https://api-disbursement.azampay.co.tz`; authentication uses the confirmed checkout host/credentials.
 - **DB**: unique refs, idempotent events, ledger transaction, and status constraints migrated.
-- **Checksum**: field order + public key + test vector confirmed.
+- **Checksum**: provider public key stored in secret manager; accepted field-order defaults retained; PEM parses correctly after deployment.
 - **Operations**: admin approval, reconciliation, failure handling, and audit visibility ready.
-- **Providers**: enabled MNO/bank values documented for NoLSAF.
+- **Providers**: only Yas, Vodacom, Airtel, Halotel and Azampesa enabled; bank payout request is rejected before approval.
 - **Testing**: sandbox matrix passed with evidence and provider references.
 - **Currencies**: TZS/USD capability documented, unsupported rails hidden in UI.
 - **Monitoring**: alerts for FAILED / stale PROCESSING / callback errors.
@@ -774,6 +777,6 @@ A concise checklist before switching `AZAMPAY_ENV=production` for disbursement.
 
 **Recommended release sequence**: MNO/TZS first -> stable reconciliation -> confirmed bank payouts -> confirmed USD payouts. Keep each rail feature-gated.
 
-Document review date: 07 August 2026. Re-check the documentation and AzamPay merchant instructions before any future material integration change.
+Document review date: 21 August 2026. Re-check the documentation and AzamPay merchant instructions before any future material integration change.
 
 **NoLSAF engineering principle**: own the payout logic, let payment providers supply the rails.

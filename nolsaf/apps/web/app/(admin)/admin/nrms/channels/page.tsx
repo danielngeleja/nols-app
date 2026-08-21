@@ -416,11 +416,11 @@ export default function ChannelControlPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> NRMS directory
       </Link>
 
-      <section className="relative overflow-hidden rounded-xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_70%,#eaf7f3_100%)] p-5 shadow-[0_18px_45px_-36px_rgba(2,102,94,0.55)] sm:p-6">
+      <section className="relative overflow-hidden rounded-xl bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_70%,#eaf7f3_100%)] p-5 shadow-sm ring-1 ring-inset ring-emerald-100/70 sm:p-6">
         <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
         <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Activity className="h-5 w-5" /></span>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm"><Activity className="h-5 w-5" /></span>
             <div className="min-w-0">
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS operations</p>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">OTA channel control</h1>
@@ -443,17 +443,17 @@ export default function ChannelControlPage() {
         <SummaryCard icon={AlertTriangle} label="Dead letters" value={String(overview?.summary.deadLetters ?? 0)} detail={`${workersNeedingAttention} worker alerts`} tone={(overview?.summary.deadLetters ?? 0) > 0 ? "amber" : "slate"} />
       </div>
 
-      <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)] sm:p-6">
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-sky-200 bg-white text-sky-700"><ShieldAlert className="h-4 w-4" /></span>
+      <section className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-inset ring-sky-200/70">
+        <div className="flex items-start gap-3 bg-sky-50/70 p-5 sm:p-6">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-sm"><ShieldAlert className="h-4 w-4" /></span>
           <div className="min-w-0">
             <h2 className="m-0 text-sm font-bold text-sky-900">Expedia certification gate</h2>
             <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-sky-800">Code-complete does not mean live. Expedia stays in pilot trust until every step below is signed off. Owners see only an activation notice; this operational checklist lives here and in the connectivity runbook.</p>
           </div>
         </div>
-        <ul className="mt-4 grid list-none gap-2 p-0 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="m-0 grid list-none gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
           {["Partner enrollment", "API scopes granted", "Webhook registration", "ARI endpoint assignment", "Sandbox certification", "Reconciled test property"].map((step) => (
-            <li key={step} className="flex items-center gap-2 rounded-md border border-sky-100 bg-white px-3 py-2 text-xs font-semibold text-neutral-700"><Clock3 className="h-3.5 w-3.5 shrink-0 text-sky-600" />{step}</li>
+            <li key={step} className="flex items-center gap-2 rounded-lg bg-neutral-50/70 px-3 py-2.5 text-xs font-semibold text-neutral-700 ring-1 ring-inset ring-neutral-200/60"><Clock3 className="h-3.5 w-3.5 shrink-0 text-sky-600" />{step}</li>
           ))}
         </ul>
       </section>

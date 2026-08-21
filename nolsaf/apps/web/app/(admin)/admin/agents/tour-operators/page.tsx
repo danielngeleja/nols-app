@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Building2, ChevronDown, ChevronsUpDown, ChevronUp, Eye, Filter, Info, RefreshCw, Search, ShieldCheck, ShieldOff } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import TableRow from "@/components/TableRow";
 
 const api = apiClient;
 
@@ -291,9 +292,9 @@ export default function AdminAgentsTourOperatorsPage() {
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
+    <div className="box-border w-full min-w-0 max-w-full overflow-x-hidden space-y-4 px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
       <section
-        className="relative rounded-2xl overflow-hidden shadow-2xl"
+        className="relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl shadow-2xl"
         style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)" }}
       >
         <svg
@@ -345,7 +346,7 @@ export default function AdminAgentsTourOperatorsPage() {
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
 
-        <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 sm:py-14">
+        <div className="relative z-10 flex flex-col items-center px-4 py-10 text-center sm:px-6 sm:py-14 md:items-start md:px-8 md:text-left lg:px-10">
           <div
             className="mb-5 inline-flex items-center justify-center rounded-full"
             style={{
@@ -369,7 +370,7 @@ export default function AdminAgentsTourOperatorsPage() {
             Hired, pending and approved tour operators managed as a company workflow.
           </p>
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-4 flex w-full flex-wrap items-center justify-center gap-2 md:justify-start">
             <div className="relative group/tooltip inline-flex">
               <button
                 type="button"
@@ -413,7 +414,7 @@ export default function AdminAgentsTourOperatorsPage() {
       </section>
 
       <section
-        className="rounded-xl overflow-hidden"
+        className="w-full min-w-0 max-w-full overflow-hidden rounded-xl"
         style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}
       >
         <div className="p-3 sm:p-4 lg:p-6">
@@ -434,7 +435,7 @@ export default function AdminAgentsTourOperatorsPage() {
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 sm:gap-2">
             {[
               { label: "All", value: "" },
               { label: "Active", value: "ACTIVE" },
@@ -529,7 +530,7 @@ export default function AdminAgentsTourOperatorsPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4 lg:p-6">
+      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4 lg:p-6">
 
         {error ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
@@ -568,20 +569,20 @@ export default function AdminAgentsTourOperatorsPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {loading ? (
-                <tr>
+                <TableRow hover={false}>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">Loading tour operator records...</td>
-                </tr>
+                </TableRow>
               ) : (showingApplications ? sortedApplicationRows.length === 0 : sortedRows.length === 0) ? (
-                <tr>
+                <TableRow hover={false}>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                     {showingApplications
                       ? "No applications found for this filter."
                       : "No hired tour operators found for this filter."}
                   </td>
-                </tr>
+                </TableRow>
               ) : showingApplications ? (
                 sortedApplicationRows.map((r, index) => (
-                  <tr key={`app-${r.id}`} className="hover:bg-slate-50/70">
+                  <TableRow key={`app-${r.id}`}>
                     <td className="px-4 py-3 text-slate-700">{String(index + 1).padStart(2, "0")}</td>
                     <td className="w-[220px] px-4 py-3 text-slate-700">Application Stage</td>
                     <td className="w-[220px] px-4 py-3">
@@ -612,11 +613,11 @@ export default function AdminAgentsTourOperatorsPage() {
                         <Eye className="h-4 w-4" />
                       </Link>
                     </td>
-                  </tr>
+                  </TableRow>
                 ))
               ) : (
                 sortedRows.map((r, index) => (
-                  <tr key={r.id} className="hover:bg-slate-50/70">
+                  <TableRow key={r.id}>
                     <td className="px-4 py-3 text-slate-700">{String(index + 1).padStart(2, "0")}</td>
                     <td className="w-[220px] px-4 py-3 text-slate-700">{r.user?.fullName || r.user?.name || "Company profile pending"}</td>
                     <td className="w-[220px] px-4 py-3">
@@ -651,7 +652,7 @@ export default function AdminAgentsTourOperatorsPage() {
                         <Eye className="h-4 w-4" />
                       </Link>
                     </td>
-                  </tr>
+                  </TableRow>
                 ))
               )}
             </tbody>

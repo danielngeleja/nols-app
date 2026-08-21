@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ClipboardCheck, Loader2, LockKeyhole, Plus, Receipt, RefreshCw, Scale, WalletCards, XCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { AlertTriangle, BadgeCheck, CalendarCheck2, CheckCircle2, Loader2, LockKeyhole, Plus, Receipt, RefreshCw, WalletCards, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
@@ -30,11 +31,6 @@ type FinanceData = {
   nbs: { month: string; reportingDays: number; bedsAvailable: number; bedNightsAvailable: number; bedNightsOccupied: number; domesticBedNights: number; internationalBedNights: number; roomNightsOccupied: number; bedOccupancyRate: number; missingNationalityBedNights: number; methodology: string };
 };
 
-const tabs: Array<{ id: Tab; label: string; icon: typeof ClipboardCheck }> = [
-  { id: "audit", label: "Night Audit", icon: ClipboardCheck }, { id: "cashiers", label: "Cashier variance", icon: WalletCards },
-  { id: "expenses", label: "Expenses", icon: Receipt },
-  { id: "ledger", label: "Accounting ledger", icon: BookOpen }, { id: "tax", label: "Tax register", icon: Calculator }, { id: "nbs", label: "NBS statistics", icon: Scale },
-];
 const EXPENSE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "STAFF_WAGES", label: "Staff wages" },
   { value: "UTILITIES", label: "Utilities" },
@@ -75,6 +71,7 @@ function Metric({ label, value, note, tone = "neutral" }: { label: string; value
 
 export default function FinanceControlPage() {
   const { selectedPropertyId } = useNrms();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("audit");
   const [businessDate, setBusinessDate] = useState(lastCompletedDay());
   const [month, setMonth] = useState(lastCompletedDay().slice(0, 7));
@@ -88,6 +85,18 @@ export default function FinanceControlPage() {
   const [expenseVoidReason, setExpenseVoidReason] = useState<Record<number, string>>({});
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [confirmNightAudit, setConfirmNightAudit] = useState(false);
+
+  useEffect(() => {
+    const view = searchParams.get("view");
+    if (view === "audit" || view === "cashiers" || view === "expenses" || view === "ledger" || view === "tax" || view === "nbs") {
+      setTab(view);
+      setError(null);
+      setMessage(null);
+    }
+  }, [searchParams]);
+  useEffect(() => {
+    if (data?.accessRole === "FRONT_DESK" && !["audit", "cashiers"].includes(tab)) setTab("audit");
+  }, [data?.accessRole, tab]);
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
@@ -199,8 +208,6 @@ export default function FinanceControlPage() {
     <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control</p><h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">Business date, cash and statutory records</h2><p className="mb-0 mt-1 text-xs text-neutral-500">One controlled flow from operational transactions to Night Audit, ledgers and NBS statistics.</p></div><button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600"><RefreshCw className="h-4 w-4" />Refresh</button></header>
     <section className="grid gap-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"><div className="flex min-w-0 flex-wrap items-center gap-2"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-4 w-4" /></span><div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50/70 p-1.5"><div className="flex h-10 items-center gap-1.5"><span className="pl-1 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Business date</span><div className="w-[148px]"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div></div><span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden /><div className="flex h-10 items-center gap-1.5"><span className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">NBS month</span><div className="w-[132px]"><DatePickerField label="NBS reporting month" value={`${month}-01`} onChangeAction={(next) => setMonth(next.slice(0, 7))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast display="month" /></div></div></div></div><div className="grid grid-cols-2 gap-2 sm:flex"><div className={`flex min-w-[142px] items-center gap-2 rounded-xl border px-3 py-2 ${data?.businessDay.status === "CLOSED" ? "border-neutral-800 bg-neutral-900 text-white" : "border-emerald-100 bg-emerald-50 text-emerald-800"}`}><LockKeyhole className="h-4 w-4 shrink-0" /><div><p className="m-0 text-[8px] font-bold uppercase tracking-wide opacity-60">Business date</p><p className="mb-0 mt-0.5 text-[10px] font-bold">{data?.businessDay.status.replaceAll("_", " ")}</p></div></div><div className={`flex min-w-[142px] items-center gap-2 rounded-xl border px-3 py-2 ${data?.ledger.balanced ? "border-emerald-100 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><CheckCircle2 className="h-4 w-4 shrink-0" /><div><p className="m-0 text-[8px] font-bold uppercase tracking-wide opacity-60">Ledger control</p><p className="mb-0 mt-0.5 text-[10px] font-bold">{data?.ledger.balanced ? "Balanced" : "Review required"}</p></div></div></div></section>
     {(error || message) && <div className={`rounded-xl border px-4 py-3 text-xs font-semibold ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
-    <nav className="grid grid-cols-2 gap-1 rounded-2xl border border-neutral-200 bg-white p-1 shadow-sm sm:grid-cols-5">{tabs.filter((item) => data?.accessRole !== "FRONT_DESK" || ["audit", "cashiers"].includes(item.id)).map((item) => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-0 px-2 text-[11px] font-bold ${tab === item.id ? "bg-[#073c35] text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"}`}><Icon className="h-4 w-4" />{item.label}</button>; })}</nav>
-
     {tab === "audit" && (
       <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">

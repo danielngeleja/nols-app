@@ -21,6 +21,7 @@ import { summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
+import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import {
   billingRoutesExtras,
   billingUsesMasterFolio,
@@ -264,6 +265,14 @@ function formatReservation(r: any) {
           paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
         }
       : null,
+    agentBooking: r.agentBookingRequest
+      ? {
+          requestId: r.agentBookingRequest.id,
+          guestManifestStatus: r.agentBookingRequest.guestManifestStatus,
+          incidentalBilling: r.agentBookingRequest.incidentalBilling,
+          travellerCount: r.agentBookingRequest.guests?.length ?? 0,
+        }
+      : null,
     allocations: Array.isArray(r.allocations)
       ? r.allocations.map((a: any) => ({
           id: a.id,
@@ -378,6 +387,14 @@ const reservationGroupSelect = {
 
 const detailInclude = {
   guestProfile: true,
+  agentBookingRequest: {
+    select: {
+      id: true,
+      guestManifestStatus: true,
+      incidentalBilling: true,
+      guests: { select: { id: true } },
+    },
+  },
   booking: {
     select: {
       id: true,
@@ -2002,6 +2019,23 @@ function transition(
       const parsed = reasonSchema.safeParse(req.body ?? {});
       const reason = parsed.success && parsed.data.reason ? sanitizeText(parsed.data.reason) : null;
 
+      // Agent inventory may be paid and confirmed before the agency has named
+      // every occupant.  Identity verification is therefore a separate,
+      // explicit front-desk gate: secured inventory alone is never sufficient
+      // to check anonymous travellers in.
+      if (eventType === "CHECKED_IN" && reservation.agentPropertyLinkId != null) {
+        const manifest = await prisma.nrmsAgentBookingRequest.findUnique({
+          where: { reservationId: reservation.id },
+          select: { guestManifestStatus: true, adults: true, children: true, _count: { select: { guests: true } } },
+        });
+        if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children) {
+          return res.status(409).json({
+            error: "Verify every traveller's identity document before checking in this agent booking",
+            code: "AGENT_GUEST_MANIFEST_REQUIRED",
+          });
+        }
+      }
+
       await prisma.$transaction(async (tx: any) => {
         await lockPropertyInventory(tx, reservation.propertyId);
         if (opts?.requireAssignedRooms) {
@@ -2011,6 +2045,15 @@ function transition(
           });
           if (activeAllocations.length === 0 || activeAllocations.some((allocation: any) => allocation.roomUnitId == null)) {
             throw new Error("NRMS_ROOM_ASSIGNMENT_REQUIRED");
+          }
+        }
+        if (eventType === "CHECKED_IN" && reservation.agentPropertyLinkId != null) {
+          const manifest = await tx.nrmsAgentBookingRequest.findUnique({
+            where: { reservationId: reservation.id },
+            select: { guestManifestStatus: true, adults: true, children: true, _count: { select: { guests: true } } },
+          });
+          if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children) {
+            throw new Error("NRMS_AGENT_GUEST_MANIFEST_REQUIRED");
           }
         }
         const changed = await tx.reservation.updateMany({
@@ -2042,6 +2085,12 @@ function transition(
         return res.status(409).json({
           error: "Assign a specific room to every active allocation before check-in",
           code: "ROOM_ASSIGNMENT_REQUIRED",
+        });
+      }
+      if (err instanceof Error && err.message === "NRMS_AGENT_GUEST_MANIFEST_REQUIRED") {
+        return res.status(409).json({
+          error: "Verify every traveller's identity document before checking in this agent booking",
+          code: "AGENT_GUEST_MANIFEST_REQUIRED",
         });
       }
       console.error(`[owner.nrms.reservations] ${eventType} failed`, err);
@@ -2324,8 +2373,9 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       }
       const current = await tx.reservation.findUnique({
         where: { id: reservation.id },
-        select: { totalAmount: true, chargesTotal: true, amountPaid: true },
+        select: { status: true, totalAmount: true, chargesTotal: true, amountPaid: true },
       });
+      if (!current || ["CANCELLED", "EXPIRED"].includes(current.status)) throw new Error("NRMS_PAYMENT_RESERVATION_CLOSED");
       const currentTransfer = await transferredToMasterForReservation(tx, reservation.id);
       const currentOutstanding = current ? computeOutstanding(current.totalAmount, current.chargesTotal, Number(current.amountPaid) + currentTransfer) : 0;
       if (currentOutstanding <= 0) throw new Error("NRMS_PAYMENT_COMPLETE");
@@ -2367,11 +2417,21 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
     }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
+    if (!transactionResult.idempotent) {
+      const agentRequest = await prisma.nrmsAgentBookingRequest.findFirst({
+        where: { reservationId: reservation.id, status: "CONFIRMED" },
+        select: { id: true, reservation: { select: { amountPaid: true, totalAmount: true, paymentRequests: { where: { kind: "AGENT_PREPAY", status: "SETTLED" }, take: 1, select: { id: true } } } } },
+      });
+      if (agentRequest?.reservation?.paymentRequests?.length && Number(agentRequest.reservation.amountPaid) >= Number(agentRequest.reservation.totalAmount)) {
+        void emailAgentVoucher(prisma as any, agentRequest.id);
+      }
+    }
     res.status(transactionResult.idempotent ? 200 : 201).json({ reservation: formatReservation(updated), idempotent: transactionResult.idempotent });
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_PAYMENT_COMPLETE") {
       return res.status(409).json({ error: "This reservation is already paid in full", code: "PAYMENT_COMPLETE" });
     }
+    if (err instanceof Error && err.message === "NRMS_PAYMENT_RESERVATION_CLOSED") return res.status(409).json({ error: "This reservation closed before the payment was recorded", code: "RESERVATION_CLOSED" });
     if (err instanceof Error && err.message.startsWith("NRMS_PAYMENT_EXCEEDS_BALANCE:")) {
       const outstanding = Number(err.message.split(":")[1]);
       return res.status(400).json({ error: `Payment cannot exceed the outstanding balance of ${outstanding.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE" });

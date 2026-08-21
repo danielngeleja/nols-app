@@ -46,6 +46,9 @@ export function buildNrmsUsageRows(input: {
   // on top. The source string is only a fallback, because the FK is what every
   // other marketplace code path keys on and the two must never disagree.
   const commissionOnly = input.bookingId != null || input.source.trim().toUpperCase() === "NOLSAF";
+  // An agent-portal stay is billable exactly like any other external channel;
+  // it is only labelled BILLABLE_AGENT so the agent channel is reportable.
+  const isAgent = input.source.trim().toUpperCase() === "AGENT";
   const cutoff = input.postThroughDate ? utcDay(input.postThroughDate) : null;
   const rows: any[] = [];
   for (const allocation of input.allocations) {
@@ -54,7 +57,7 @@ export function buildNrmsUsageRows(input: {
     for (let day = utcDay(allocation.startDate); day < end; day = new Date(day.getTime() + DAY_MS)) {
       if (input.alreadyBilled?.has(billedKey(allocation.id, day))) continue;
       const trialFree = day < trialEnd;
-      const classification = commissionOnly ? "COMMISSION_ONLY" : trialFree ? "TRIAL_FREE" : "BILLABLE_EXTERNAL";
+      const classification = commissionOnly ? "COMMISSION_ONLY" : trialFree ? "TRIAL_FREE" : isAgent ? "BILLABLE_AGENT" : "BILLABLE_EXTERNAL";
       rows.push({
         accountId: input.accountId, propertyId: input.propertyId, reservationId: input.reservationId,
         allocationId: allocation.id, policyId: input.policyId, serviceDate: day,

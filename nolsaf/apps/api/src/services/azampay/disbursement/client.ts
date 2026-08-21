@@ -6,16 +6,16 @@
  * job is: attach a token, attach a checksum, call the endpoint, classify
  * errors, and return typed results.
  *
- * Disbursement remains fail-closed until its public key and checksum field
- * composition are configured. Name Lookup is read-only and the current test
- * environment accepts it without a checksum. Configuring
- * AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP automatically adds the encrypted value.
+ * Both money movement and Name Lookup fail closed until the provider public
+ * key is configured. The accepted checksum formulas have safe code defaults;
+ * environment overrides are reserved for a future provider-contract revision.
  */
 
 import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "./auth.js";
 import { azamPayChecksum } from "./checksum.js";
 import { buildChecksumInput } from "./checksumInput.js";
 import { AzamPayDisburseConfigurationError, mapAzamPayError } from "./errors.js";
+import { toAzamPayWireBankName } from "./providers.js";
 import type {
   AzamPayDisburseRequest,
   AzamPayDisburseResponse,
@@ -38,27 +38,10 @@ function disburseHost(): string {
 }
 
 /**
- * AzamPay's Name Lookup / Disburse samples send the provider token in a
- * specific casing ("Azampesa"), and provider matching on their side is
- * case-sensitive. Our internal representation is lowercase
- * (AzamPayDisburseBankName, and PayoutAccount.provider can be any casing the
- * profile stored), so translate to AzamPay's wire casing at the egress —
- * this keeps the payload bankName and the (Name Lookup) checksum input both
- * on the exact string AzamPay expects. Unknown providers pass through
- * untouched. Only "Azampesa" is confirmed against an AzamPay sample;
- * Tigo/Airtel follow the same Title-case convention and should be
- * reconfirmed if a rail misroutes.
+ * Kept as a client export for existing scripts; the canonical implementation
+ * lives in providers.ts and covers both current live names and legacy aliases.
  */
-const AZAMPAY_WIRE_BANK_NAME: Record<string, string> = {
-  azampesa: "Azampesa",
-  tigo: "Tigo",
-  airtel: "Airtel",
-};
-
-export function toAzamPayWireBankName(value: string): string {
-  const trimmed = String(value || "").trim();
-  return AZAMPAY_WIRE_BANK_NAME[trimmed.toLowerCase()] ?? trimmed;
-}
+export { toAzamPayWireBankName } from "./providers.js";
 
 function requirePublicKey(): string {
   const key = process.env.AZAMPAY_DISBURSE_PUBLIC_KEY;
@@ -71,7 +54,10 @@ function requirePublicKey(): string {
         "for the RSA public key before any real disbursement or name lookup call can be made.",
     });
   }
-  return key;
+  // Elastic Beanstalk/secret stores commonly preserve PEM line breaks as the
+  // two characters "\\n". Accept both representations without changing the
+  // key material.
+  return key.replace(/\\n/g, "\n").trim();
 }
 
 async function postJson(
@@ -152,19 +138,16 @@ function invalidProviderResponse(status: number, body: any, detail: string): nev
 export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
-  let request: AzamPayNameLookupRequest = { ...input };
-
-  // The test API accepts name lookups with no checksum (config env unset). When
-  // the checksum field config IS set, AzamPay matches bankName case-sensitively,
-  // so normalize to the wire casing BEFORE hashing — the hashed bankName and the
-  // payload bankName must be the same string. buildChecksumInput throws when the
-  // env is unset, so it must only run inside this branch.
-  if (String(process.env.AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP || "").trim()) {
-    const publicKey = requirePublicKey();
-    const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
-    const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
-    request = { ...normalizedInput, checksum: azamPayChecksum(checksumInput, publicKey) };
-  }
+  // The checksum formula and public-key flow were accepted by AzamPay's test
+  // host. Always normalize before hashing so the signed bankName and payload
+  // bankName are byte-for-byte identical on live requests.
+  const publicKey = requirePublicKey();
+  const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
+  const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
+  const request: AzamPayNameLookupRequest = {
+    ...normalizedInput,
+    checksum: azamPayChecksum(checksumInput, publicKey),
+  };
 
   const { status, body } = await withAuthRetry((token) =>
     postJson("/api/v1/azampay/namelookup", request, token)
@@ -242,7 +225,7 @@ export async function azamPayTransactionStatus(params: {
 }): Promise<AzamPayTransactionStatusResponse> {
   const url = new URL(`${disburseHost()}/api/v1/azampay/transactionstatus`);
   url.searchParams.set("pgReferenceId", params.pgReferenceId);
-  url.searchParams.set("bankName", params.bankName);
+  url.searchParams.set("bankName", toAzamPayWireBankName(params.bankName));
 
   const { status, body } = await withAuthRetry(async (token) => {
     const controller = new AbortController();

@@ -3,28 +3,38 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   BarChart3,
   BedDouble,
+  BookOpen,
   Building2,
   CalendarDays,
+  Calculator,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  ClipboardCheck,
   Coffee,
   DoorOpen,
   FileText,
+  Handshake,
+  Gauge,
+  Inbox,
   LayoutDashboard,
   LayoutGrid,
+  Layers3,
   Link2,
   Loader2,
   LogOut,
   Menu,
+  MessageSquareText,
   Package,
   QrCode,
   ReceiptText,
+  Scale,
   ShoppingBasket,
   TrendingUp,
   SlidersHorizontal,
@@ -36,6 +46,7 @@ import {
   Wallet,
   WalletCards,
   Wine,
+  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -56,7 +67,7 @@ const PRIMARY_TABS = [
   { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
 ];
 
-type NavItem = { href: string; label: string; icon: LucideIcon; exact?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; exact?: boolean; children?: NavItem[]; roles?: string[] };
 type NavSection = { label?: string; items: NavItem[] };
 type NavGroup = { label: string; sections: NavSection[] };
 
@@ -97,7 +108,14 @@ const NAV_GROUPS: NavGroup[] = [
       {
         label: "Food service setup",
         items: [
-          { href: "/owner/nrms/outlets", label: "Outlets & menus", icon: Store },
+          {
+            href: "/owner/nrms/outlets",
+            label: "Outlets & menus",
+            icon: Store,
+            children: [
+              { href: "/owner/nrms/outlets?outlet=setup", label: "Outlet setup", icon: Store },
+            ],
+          },
           { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
           { href: "/owner/nrms/stock", label: "Stock", icon: Package },
         ],
@@ -106,8 +124,39 @@ const NAV_GROUPS: NavGroup[] = [
         label: "Property & distribution",
         items: [
           { href: "/owner/nrms/rooms", label: "Rooms", icon: BedDouble },
-          { href: "/owner/nrms/controls", label: "Hotel controls", icon: SlidersHorizontal },
-          { href: "/owner/nrms/channels", label: "OTA channels", icon: Link2 },
+          {
+            href: "/owner/nrms/controls",
+            label: "Hotel controls",
+            icon: SlidersHorizontal,
+            children: [
+              { href: "/owner/nrms/controls?section=rates", label: "Rates", icon: SlidersHorizontal },
+              { href: "/owner/nrms/controls?section=readiness", label: "Readiness", icon: ClipboardCheck },
+              { href: "/owner/nrms/controls?section=service", label: "Service desk", icon: Wrench },
+              { href: "/owner/nrms/controls?section=guest", label: "Guest journey", icon: MessageSquareText },
+              { href: "/owner/nrms/controls?section=portfolio", label: "Portfolio", icon: Layers3 },
+              { href: "/owner/nrms/controls?section=growth", label: "Growth", icon: Gauge },
+            ],
+          },
+          {
+            href: "/owner/nrms/channels",
+            label: "OTA channels",
+            icon: Link2,
+            children: [
+              { href: "/owner/nrms/channels?provider=EXPEDIA", label: "Expedia Group", icon: Link2 },
+              { href: "/owner/nrms/channels?provider=BOOKING_COM", label: "Booking.com", icon: Link2 },
+              { href: "/owner/nrms/channels?provider=AIRBNB", label: "Airbnb", icon: Link2 },
+            ],
+          },
+          {
+            href: "/owner/nrms/agents",
+            label: "Travel agents",
+            icon: Handshake,
+            children: [
+              { href: "/owner/nrms/agents", label: "All travel agents", icon: UsersRound, exact: true },
+              { href: "/owner/nrms/agents/partnerships", label: "Partnership requests", icon: Handshake },
+              { href: "/owner/nrms/agents/requests", label: "Booking requests", icon: Inbox },
+            ],
+          },
         ],
       },
       {
@@ -129,7 +178,19 @@ const NAV_GROUPS: NavGroup[] = [
     sections: [
       {
         items: [
-          { href: "/owner/nrms/finance", label: "Finance & Night Audit", icon: WalletCards },
+          {
+            href: "/owner/nrms/finance",
+            label: "Finance & Night Audit",
+            icon: WalletCards,
+            children: [
+              { href: "/owner/nrms/finance?view=audit", label: "Night Audit", icon: ClipboardCheck, roles: ["OWNER", "MANAGER", "FRONT_DESK"] },
+              { href: "/owner/nrms/finance?view=cashiers", label: "Cashier variance", icon: WalletCards, roles: ["OWNER", "MANAGER", "FRONT_DESK"] },
+              { href: "/owner/nrms/finance?view=expenses", label: "Expenses", icon: ReceiptText, roles: ["OWNER", "MANAGER"] },
+              { href: "/owner/nrms/finance?view=ledger", label: "Accounting ledger", icon: BookOpen, roles: ["OWNER", "MANAGER"] },
+              { href: "/owner/nrms/finance?view=tax", label: "Tax register", icon: Calculator, roles: ["OWNER", "MANAGER"] },
+              { href: "/owner/nrms/finance?view=nbs", label: "NBS statistics", icon: Scale, roles: ["OWNER", "MANAGER"] },
+            ],
+          },
           { href: "/owner/nrms/analytics", label: "Revenue & analytics", icon: BarChart3 },
           { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
           { href: "/owner/nrms/billing", label: "NRMS billing", icon: ReceiptText },
@@ -140,7 +201,19 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function isActive(pathname: string, item: { href: string; exact?: boolean }) {
-  return item.exact ? pathname === item.href : pathname.startsWith(item.href);
+  const path = item.href.split("?")[0]!;
+  return item.exact ? pathname === path : pathname.startsWith(path);
+}
+
+function isNestedActive(pathname: string, searchParams: { get: (name: string) => string | null }, item: NavItem) {
+  const [path, query] = item.href.split("?");
+  if (pathname !== path) return false;
+  if (!query) return true;
+  const expected = new URLSearchParams(query);
+  return Array.from(expected.entries()).every(([key, value]) => {
+    const fallback = key === "provider" ? "EXPEDIA" : key === "section" ? "rates" : key === "view" ? "audit" : key === "outlet" ? "setup" : null;
+    return (searchParams.get(key) ?? fallback) === value;
+  });
 }
 
 // Outlet staff serve one side only, so the shared "Restaurant & bar" entry is
@@ -204,13 +277,22 @@ function PropertyActivationGate() {
 function NrmsShell({ children }: { children: ReactNode }) {
   const { loading, error, entitled, restriction, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId, refresh } = useNrms();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [travelAgentsOpen, setTravelAgentsOpen] = useState(() => pathname.startsWith("/owner/nrms/agents"));
+  const [otaChannelsOpen, setOtaChannelsOpen] = useState(() => pathname.startsWith("/owner/nrms/channels"));
+  const [hotelControlsOpen, setHotelControlsOpen] = useState(() => pathname.startsWith("/owner/nrms/controls"));
+  const [financeOpen, setFinanceOpen] = useState(() => pathname.startsWith("/owner/nrms/finance"));
+  const [outletsOpen, setOutletsOpen] = useState(() => pathname.startsWith("/owner/nrms/outlets"));
+  const [sidebarOutlets, setSidebarOutlets] = useState<Array<{ id: number; name: string; type: string }>>([]);
   const [booting, setBooting] = useState(true);
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
   const [liveOrders, setLiveOrders] = useState<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number } | null>(null);
+  const [agentWorkload, setAgentWorkload] = useState<{ partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number } | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const prevPlacedRef = useRef<number | null>(null);
+  const prevAgentWorkloadRef = useRef<number | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
@@ -221,6 +303,34 @@ function NrmsShell({ children }: { children: ReactNode }) {
     try { setCollapsed(localStorage.getItem("nrms-sidebar-collapsed") === "1"); } catch {}
   }, []);
   useEffect(() => setMobileOpen(false), [pathname]);
+  useEffect(() => {
+    if (pathname.startsWith("/owner/nrms/agents")) setTravelAgentsOpen(true);
+    if (pathname.startsWith("/owner/nrms/channels")) setOtaChannelsOpen(true);
+    if (pathname.startsWith("/owner/nrms/controls")) setHotelControlsOpen(true);
+    if (pathname.startsWith("/owner/nrms/finance")) setFinanceOpen(true);
+    if (pathname.startsWith("/owner/nrms/outlets")) setOutletsOpen(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!selectedPropertyId || !roleCanSee("/owner/nrms/outlets", accessRole)) { setSidebarOutlets([]); return; }
+    let active = true;
+    void apiClient.get<any>(`/api/nrms/operations/property/${selectedPropertyId}/outlets`)
+      .then((response) => {
+        if (!active) return;
+        setSidebarOutlets((response.data?.outlets ?? []).map((outlet: any) => ({ id: Number(outlet.id), name: String(outlet.name), type: String(outlet.type) })));
+      })
+      .catch(() => { if (active) setSidebarOutlets([]); });
+    return () => { active = false; };
+  }, [accessRole, selectedPropertyId]);
+
+  useEffect(() => {
+    const syncOutlets = (event: Event) => {
+      const detail = (event as CustomEvent<{ propertyId: number; outlets: Array<{ id: number; name: string; type: string }> }>).detail;
+      if (detail?.propertyId === selectedPropertyId) setSidebarOutlets(detail.outlets);
+    };
+    window.addEventListener("nrms-outlets-updated", syncOutlets);
+    return () => window.removeEventListener("nrms-outlets-updated", syncOutlets);
+  }, [selectedPropertyId]);
 
   // Any NRMS request on any page can 423 once a property is frozen mid-session
   // (reservations, orders, analytics, reports, ...). apiClient dispatches this
@@ -285,6 +395,27 @@ function NrmsShell({ children }: { children: ReactNode }) {
         const totalPlaced = res.data.placedRoom + res.data.placedTable;
         if (prevPlacedRef.current !== null && totalPlaced > prevPlacedRef.current) chime();
         prevPlacedRef.current = totalPlaced;
+      } catch { /* transient; keep the last known count */ }
+    };
+    void fetchCount();
+    const id = setInterval(fetchCount, 20000);
+    return () => { active = false; clearInterval(id); };
+  }, [selectedPropertyId, accessRole, chime]);
+
+  // Travel-agent work can arrive while the hotel is busy elsewhere in NRMS.
+  // Poll the same way as Restaurant & bar and ring only when the actionable
+  // queue grows; handled or expired items disappear from the marker.
+  useEffect(() => {
+    const canSee = roleCanSee("/owner/nrms/agents", accessRole);
+    if (!selectedPropertyId || !canSee) { setAgentWorkload(null); prevAgentWorkloadRef.current = null; return; }
+    let active = true;
+    const fetchCount = async () => {
+      try {
+        const res = await apiClient.get<{ partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number }>(`/api/owner/nrms/agents/property/${selectedPropertyId}/live-count`);
+        if (!active) return;
+        setAgentWorkload(res.data);
+        if (prevAgentWorkloadRef.current !== null && res.data.total > prevAgentWorkloadRef.current) chime();
+        prevAgentWorkloadRef.current = res.data.total;
       } catch { /* transient; keep the last known count */ }
     };
     void fetchCount();
@@ -394,6 +525,13 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 const Icon = override?.icon ?? item.icon;
                 const label = override?.label ?? item.label;
                 const active = isActive(pathname, item);
+                const nestedChildren: NavItem[] = item.href === "/owner/nrms/outlets"
+                  ? [...(item.children ?? []), ...sidebarOutlets.map((outlet) => ({ href: `/owner/nrms/outlets?outlet=${outlet.id}`, label: outlet.name, icon: outlet.type === "BAR" ? Wine : UtensilsCrossed } satisfies NavItem))]
+                  : item.children ?? [];
+                const isNestedGroup = nestedChildren.length > 0;
+                const nestedOpen = item.href === "/owner/nrms/agents" ? travelAgentsOpen : item.href === "/owner/nrms/channels" ? otaChannelsOpen : item.href === "/owner/nrms/controls" ? hotelControlsOpen : item.href === "/owner/nrms/finance" ? financeOpen : item.href === "/owner/nrms/outlets" ? outletsOpen : false;
+                const toggleNested = item.href === "/owner/nrms/agents" ? setTravelAgentsOpen : item.href === "/owner/nrms/channels" ? setOtaChannelsOpen : item.href === "/owner/nrms/controls" ? setHotelControlsOpen : item.href === "/owner/nrms/finance" ? setFinanceOpen : setOutletsOpen;
+                const nestedId = item.href === "/owner/nrms/agents" ? "nrms-travel-agent-navigation" : item.href === "/owner/nrms/channels" ? "nrms-ota-navigation" : item.href === "/owner/nrms/controls" ? "nrms-hotel-controls-navigation" : item.href === "/owner/nrms/finance" ? "nrms-finance-navigation" : "nrms-outlet-navigation";
                 // Tables & tabs is an operational workload count, not only an
                 // unread notification: keep it visible while the page is open
                 // until every table/walk-in order has been completed.
@@ -401,7 +539,49 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   ? (liveOrders?.openTable ? liveOrders.openTable : null)
                   : item.href === "/owner/nrms/orders"
                   ? (!active && liveOrders?.placedRoom ? liveOrders.placedRoom : null)
+                  : item.href === "/owner/nrms/agents"
+                  ? (agentWorkload?.total ? agentWorkload.total : null)
                   : null;
+                if (isNestedGroup && !collapsed) {
+                  return (
+                    <div key={item.href}>
+                      <button
+                        type="button"
+                        onClick={() => toggleNested((current) => !current)}
+                        aria-expanded={nestedOpen}
+                        aria-controls={nestedId}
+                        className={`group flex min-h-9 w-full appearance-none items-center gap-2.5 rounded-lg border px-2.5 text-left text-[13px] font-semibold transition ${active ? "border-emerald-300/70 !bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent !bg-transparent text-emerald-50/65 hover:border-white/5 hover:!bg-white/[0.07] hover:text-white"}`}
+                      >
+                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={`${badge} travel agent items need attention`}>{badge > 99 ? "99+" : badge}</span>}
+                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${nestedOpen ? "rotate-180" : ""}`} aria-hidden />
+                      </button>
+                      {nestedOpen && (
+                        <div id={nestedId} className="relative ml-5 mt-1 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2">
+                          {nestedChildren.filter((child) => !child.roles || child.roles.includes(accessRole)).map((child) => {
+                            const ChildIcon = child.icon;
+                            const childActive = isNestedActive(pathname, searchParams, child);
+                            const childBadge = child.href === "/owner/nrms/agents"
+                              ? (agentWorkload?.acceptedInvites ? agentWorkload.acceptedInvites : null)
+                              : child.href === "/owner/nrms/agents/partnerships"
+                              ? (agentWorkload?.partnershipRequests ? agentWorkload.partnershipRequests : null)
+                              : child.href === "/owner/nrms/agents/requests"
+                              ? ((agentWorkload?.bookingRequests || agentWorkload?.guestManifests) ? (agentWorkload.bookingRequests + agentWorkload.guestManifests) : null)
+                              : null;
+                            return (
+                              <Link key={child.href} href={child.href} aria-current={childActive ? "page" : undefined} className={`group flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[12px] font-medium no-underline transition hover:no-underline ${childActive ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-transparent text-emerald-50/50 hover:bg-white/[0.06] hover:text-white"}`}>
+                                <ChildIcon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                                {childBadge != null && <span className="min-w-[16px] shrink-0 rounded-full bg-violet-500 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-label={`${childBadge} items need attention`}>{childBadge > 99 ? "99+" : childBadge}</span>}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 return (
                   <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>

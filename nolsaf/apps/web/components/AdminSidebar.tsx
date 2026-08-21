@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -189,6 +189,8 @@ const cancellationsDetails: Item[] = [
 
 const nrmsDetails: Item[] = [
   { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/agents", label: "Agency verification", Icon: Users },
+  { href: "/admin/nrms/partnerships", label: "Partnership oversight", Icon: Handshake },
   { href: "/admin/nrms/channels", label: "OTA Control", Icon: KeyRound },
   { href: "/admin/nrms/billing", label: "PAYG Billing", Icon: Wallet },
   { href: "/admin/nrms/pricing", label: "Pricing & Levers", Icon: Coins },
