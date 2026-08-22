@@ -28,7 +28,7 @@ export async function loginWithPassword(email: string, password: string) {
 export async function sendOtp(destination: OtpDestination, role?: "CUSTOMER" | "RESET") {
   return apiRequest<SendOtpResponse>("/api/auth/send-otp", {
     method: "POST",
-    body: { ...destination, ...(role ? { role } : {}) }
+    body: { ...destination, ...(role ? { role } : {}), ...(role === "CUSTOMER" ? { registrationSource: "TRAVELLER_APP" } : {}) }
   });
 }
 
@@ -36,7 +36,7 @@ export async function sendOtp(destination: OtpDestination, role?: "CUSTOMER" | "
 export async function verifyOtp(destination: OtpDestination, otp: string, role?: "CUSTOMER" | "RESET") {
   return apiRequest<VerifyOtpResponse>("/api/auth/verify-otp", {
     method: "POST",
-    body: { ...destination, otp, ...(role ? { role } : {}) }
+    body: { ...destination, otp, ...(role ? { role } : {}), ...(role === "CUSTOMER" ? { registrationSource: "TRAVELLER_APP" } : {}) }
   });
 }
 
@@ -53,7 +53,7 @@ export async function completeOtpProfile(token: string, input: CompleteOtpProfil
   return apiRequest<{ ok?: boolean; message?: string; error?: string; user?: AuthUser }>("/api/auth/profile", {
     method: "POST",
     token,
-    body: { role: "CUSTOMER", ...input }
+    body: { role: "CUSTOMER", registrationSource: "TRAVELLER_APP", ...input }
   });
 }
 
@@ -62,7 +62,8 @@ export async function registerCustomer(input: RegisterCustomerInput) {
     method: "POST",
     body: {
       ...input,
-      role: "CUSTOMER"
+      role: "CUSTOMER",
+      registrationSource: "TRAVELLER_APP"
     }
   });
 }

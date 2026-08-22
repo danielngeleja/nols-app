@@ -51,6 +51,11 @@ export function apiBaseUrl() {
       status: 0
     });
   }
+  if (!__DEV__ && /^http:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(?=:\d+|\/|$)/i.test(base)) {
+    throw Object.assign(new Error("This production app build points to a local API. Configure EXPO_PUBLIC_API_URL with the production HTTPS origin and rebuild."), {
+      status: 0
+    });
+  }
   return base;
 }
 
@@ -63,7 +68,8 @@ function connectionMessage(baseUrl: string): string {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
-    Accept: "application/json"
+    Accept: "application/json",
+    "X-NoLSAF-Client": "TRAVELLER_APP"
   };
 
   if (options.body != null) {
@@ -137,7 +143,7 @@ export async function apiUploadFile<T>(
     } as any);
   }
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", "X-NoLSAF-Client": "TRAVELLER_APP" };
   if (params.token) headers.Authorization = `Bearer ${params.token}`;
 
   const baseUrl = apiBaseUrl();

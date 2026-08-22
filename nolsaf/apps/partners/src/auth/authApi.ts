@@ -33,3 +33,28 @@ export async function logoutSession(token: string | null) {
     token
   });
 }
+
+export async function sendOwnerSignupOtp(phone: string) {
+  return apiRequest<{ ok?: boolean; message?: string }>("/api/auth/send-otp", {
+    method: "POST",
+    body: { phone, role: "owner", registrationSource: "PARTNERS_APP" }
+  });
+}
+
+export async function verifyOwnerSignupOtp(phone: string, otp: string) {
+  return apiRequest<LoginResponse>("/api/auth/verify-otp", {
+    method: "POST",
+    body: { phone, otp, role: "owner", registrationSource: "PARTNERS_APP" }
+  });
+}
+
+export async function completeOwnerSignupProfile(
+  token: string,
+  input: { name: string; email: string; phone: string; password?: string }
+) {
+  return apiRequest<{ ok?: boolean; message?: string; error?: string; user?: AuthUser }>("/api/auth/profile", {
+    method: "POST",
+    token,
+    body: { role: "owner", registrationSource: "PARTNERS_APP", ...input }
+  });
+}

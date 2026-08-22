@@ -14,7 +14,7 @@ import { RoleGateScreen } from "./src/screens/RoleGateScreen";
 // Point the shared API client at the configured base URL once at startup. The
 // decoupled configureApiClient keeps @nolsaf/native-ui free of any single app's
 // env module, per the Shared code contract.
-configureApiClient({ apiUrl: env.apiUrl });
+configureApiClient({ apiUrl: env.apiUrl, client: "PARTNERS_APP" });
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 

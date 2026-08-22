@@ -12,10 +12,12 @@ export type ApiError = Error & {
 };
 
 let configuredApiUrl = "";
+let configuredClient = "NATIVE_APP";
 
 /** Configures the API base URL used by apiRequest/apiUploadFile. Call once per app at startup. */
-export function configureApiClient(config: { apiUrl: string }) {
+export function configureApiClient(config: { apiUrl: string; client?: string }) {
   configuredApiUrl = config.apiUrl;
+  configuredClient = config.client?.trim() || "NATIVE_APP";
 }
 
 /**
@@ -42,6 +44,11 @@ export function apiBaseUrl() {
       status: 0
     });
   }
+  if (!__DEV__ && /^http:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(?=:\d+|\/|$)/i.test(base)) {
+    throw Object.assign(new Error("This production app build points to a local API. Configure the production HTTPS API origin and rebuild."), {
+      status: 0
+    });
+  }
   if (Platform.OS === "android") {
     return base.replace(/^http:\/\/(localhost|127\.0\.0\.1)(?=:\d+|$)/i, "http://10.0.2.2");
   }
@@ -50,7 +57,8 @@ export function apiBaseUrl() {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
-    Accept: "application/json"
+    Accept: "application/json",
+    "X-NoLSAF-Client": configuredClient
   };
 
   if (options.body != null) {
@@ -118,7 +126,7 @@ export async function apiUploadFile<T>(
     } as any);
   }
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", "X-NoLSAF-Client": configuredClient };
   if (params.token) headers.Authorization = `Bearer ${params.token}`;
 
   const baseUrl = apiBaseUrl();

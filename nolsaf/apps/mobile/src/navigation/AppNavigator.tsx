@@ -91,18 +91,29 @@ const navigationTheme = {
 };
 
 export function AppNavigator() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
+  const registrationComplete = user?.registrationStatus === "COMPLETE" || Boolean(
+    String(user?.fullName || user?.name || "").trim() && String(user?.email || "").trim() && String(user?.phone || "").trim()
+  );
+  const needsRegistrationCompletion = status === "authenticated" && !registrationComplete;
 
   return (
     <NavigationContainer theme={navigationTheme} linking={linking}>
       <Stack.Navigator
-        initialRouteName="Onboarding"
+        initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : status === "authenticated" ? "CustomerHome" : "Onboarding"}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.surface }
         }}
       >
         {status === "authenticated" ? (
+          needsRegistrationCompletion ? (
+            <>
+              <Stack.Screen name="ProfileCompletion" component={ProfileCompletionScreen} />
+              <Stack.Screen name="Account" component={AccountScreen} />
+              <Stack.Screen name="AccountSecurity" component={AccountSecurityScreen} />
+            </>
+          ) : (
           <>
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
             <Stack.Screen name="CustomerHome" component={CustomerHomeScreen} />
@@ -143,6 +154,7 @@ export function AppNavigator() {
             <Stack.Screen name="Payments" component={PaymentsScreen} />
             <Stack.Screen name="Search" component={SearchScreen} />
           </>
+          )
         ) : (
           <>
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />

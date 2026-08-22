@@ -16,6 +16,9 @@ export type AuthUser = {
   emailVerifiedAt?: string | null;
   phoneVerifiedAt?: string | null;
   createdAt?: string | null;
+  registrationStatus?: "INCOMPLETE" | "COMPLETE";
+  registrationSource?: string | null;
+  profileCompletedAt?: string | null;
 };
 
 export type LoginResponse = {
@@ -29,7 +32,7 @@ export type LoginResponse = {
 export type RegisterCustomerInput = {
   name: string;
   email: string;
-  phone?: string;
+  phone: string;
   password: string;
   referralCode?: string;
 };
@@ -105,5 +108,6 @@ export type CompleteOtpProfileInput = {
   name: string;
   password?: string;
   email?: string;
+  phone?: string;
   referralCode?: string;
 };

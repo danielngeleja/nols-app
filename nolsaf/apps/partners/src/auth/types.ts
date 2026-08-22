@@ -12,6 +12,10 @@ export type AuthUser = {
   phone?: string | null;
   avatarUrl?: string | null;
   suspendedAt?: string | null;
+  registrationStatus?: "INCOMPLETE" | "COMPLETE";
+  registrationSource?: string | null;
+  profileCompletedAt?: string | null;
+  hasPassword?: boolean;
 };
 
 export type LoginResponse = {

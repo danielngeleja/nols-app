@@ -118,19 +118,25 @@ export function RegisterScreen({ navigation, route }: Props) {
     { label: "At least one symbol", ok: /[^A-Za-z0-9]/.test(password) },
     { label: "Confirmation matches", ok: Boolean(confirmPassword) && password === confirmPassword }
   ];
-  const profileValid = name.trim().length >= 2 && passwordChecks.every((item) => item.ok);
+  const emailValid = /^\S+@\S+\.\S{2,}$/.test(email.trim());
+  const phoneValid = isPhoneLengthValid(phone, countryCode);
+  const profileValid = name.trim().length >= 2 && emailValid && phoneValid && passwordChecks.every((item) => item.ok);
 
   async function finishProfile() {
     if (loading || !sessionToken || !profileValid) return;
     setLoading(true);
     setError(null);
     try {
-      await completeOtpProfile(sessionToken, {
+      const completed = await completeOtpProfile(sessionToken, {
         name: name.trim(),
         password,
-        ...(channel === "PHONE" && /^\S+@\S+\.\S{2,}$/.test(email.trim()) ? { email: email.trim().toLowerCase() } : {}),
+        email: email.trim().toLowerCase(),
+        phone: `${countryCode}${phone.trim()}`,
         ...(referralCode ? { referralCode } : {})
       });
+      if (completed.user?.registrationStatus !== "COMPLETE") {
+        throw new Error("Your account profile is still incomplete. Confirm your full name, email, and phone, then try again.");
+      }
       await completeOtpSignIn(sessionToken);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not finish your profile. Please try again.");
@@ -145,7 +151,7 @@ export function RegisterScreen({ navigation, route }: Props) {
       ? "One traveller account for verified stays, rides and tours."
       : step === "otp"
         ? "A quick security check keeps your account protected."
-        : "Add the essentials now; you can complete the rest later.";
+        : "Add your full name, email, and phone so bookings and support use the same verified account.";
 
   const handleBack = () => {
     if (step === "contact") navigation.goBack();
@@ -277,6 +283,7 @@ export function RegisterScreen({ navigation, route }: Props) {
                 {channel === "PHONE" ? (
                   <AppInput
                     label="Email"
+                    required
                     value={email}
                     onChangeText={setEmail}
                     placeholder="you@example.com"
@@ -284,7 +291,15 @@ export function RegisterScreen({ navigation, route }: Props) {
                     keyboardType="email-address"
                     textContentType="emailAddress"
                   />
-                ) : null}
+                ) : (
+                  <PhoneNumberField
+                    label="Phone number *"
+                    countryCode={countryCode}
+                    onCountryCodeChange={setCountryCode}
+                    value={phone}
+                    onChangeText={setPhone}
+                  />
+                )}
                 <PasswordField
                   label="Password"
                   required

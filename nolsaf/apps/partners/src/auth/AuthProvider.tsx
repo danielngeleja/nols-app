@@ -10,6 +10,7 @@ type AuthContextValue = AuthState & {
   signInWithPasskey: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  adoptSession: (token: string, user: AuthUser) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -111,9 +112,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
     applyAuthenticated(state.token, user);
   }, [applyAuthenticated, state.token]);
 
+  const adoptSession = useCallback(async (token: string, user: AuthUser) => {
+    await storeToken(token);
+    try {
+      applyAuthenticated(token, await getCurrentAccount(token));
+    } catch {
+      applyAuthenticated(token, user);
+    }
+  }, [applyAuthenticated]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, signIn, signInWithPasskey, signOut, refreshProfile }),
-    [refreshProfile, signIn, signInWithPasskey, signOut, state]
+    () => ({ ...state, signIn, signInWithPasskey, signOut, refreshProfile, adoptSession }),
+    [adoptSession, refreshProfile, signIn, signInWithPasskey, signOut, state]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

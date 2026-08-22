@@ -12,15 +12,17 @@ import {
 } from "@nolsaf/native-ui";
 import { Fingerprint } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
+import { RegisterOwnerScreen } from "./RegisterOwnerScreen";
 
 // The single Partners login. One login for both Owner and Operator; the role on
 // the account decides which dashboard renders (see RoleGateScreen). No
 // registration here, partners already hold accounts.
 export function LoginScreen() {
   const { signIn, signInWithPasskey } = useAuth();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +60,10 @@ export function LoginScreen() {
       setPasskeySubmitting(false);
     }
   };
+
+  if (mode === "register") {
+    return <RegisterOwnerScreen onBackToSignIn={() => setMode("login")} />;
+  }
 
   return (
     <SafeScreen contentStyle={styles.content}>
@@ -133,6 +139,12 @@ export function LoginScreen() {
             onPress={onSubmit}
             style={passkeyAvailable ? styles.submitNeutral : undefined}
           />
+          <View style={styles.registerRow}>
+            <AppText variant="bodySmall" tone="muted">Own a property?</AppText>
+            <Pressable accessibilityRole="button" onPress={() => setMode("register")} hitSlop={8}>
+              <AppText variant="bodySmall" weight="bold" tone="primary">Register as owner</AppText>
+            </Pressable>
+          </View>
         </View>
       </View>
     </SafeScreen>
@@ -202,5 +214,11 @@ const styles = StyleSheet.create({
   submitNeutral: {
     backgroundColor: colors.ink,
     borderColor: colors.ink
+  },
+  registerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing[1]
   }
 });
