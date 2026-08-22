@@ -341,7 +341,10 @@ router.get("/menu/:token", limitPublicQrMenu as RequestHandler, (async (req: Req
     // and failing at checkout.
     orderingEnabled: Boolean(point.orderingEnabled),
     // Only the capability is advertised; the guest's identity never leaves the server.
-    roomChargeAvailable: Boolean(stay),
+    // A permanent QR can be photographed and reused by somebody who no longer
+    // occupies the room. Only the signed per-stay link is allowed to expose
+    // room charging; the printed QR remains available for pay-now orders.
+    roomChargeAvailable: Boolean(stay && point.boundReservationId),
     outlets: outlets.map((outlet: any) => ({
       ...outlet,
       autoAcceptQrOrders: undefined,
@@ -363,6 +366,12 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
   if (!parsed.success) return res.status(400).json({ error: "Invalid order", details: parsed.error.flatten() });
   if (!parsed.data.chargeToRoom && !parsed.data.paymentMethod) {
     return res.status(400).json({ error: "Choose how you intend to pay before sending the order.", code: "PAYMENT_METHOD_REQUIRED" });
+  }
+  if (parsed.data.chargeToRoom && !point.boundReservationId) {
+    return res.status(403).json({
+      error: "To add this order to a room bill, open the private stay link issued for the current guest. The permanent room QR supports pay-now orders only.",
+      code: "ROOM_CHARGE_REQUIRES_STAY_LINK",
+    });
   }
 
   const outlet = await db.nrmsOutlet.findFirst({

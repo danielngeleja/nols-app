@@ -11,8 +11,6 @@ export default function PasswordPage() {
       backHref="/account/security"
       roleLabel="ACCOUNT"
       variant="page"
-      minLength={8}
-      maxLength={12}
       requireCurrentPassword
       submitLabel="Update Password"
     />

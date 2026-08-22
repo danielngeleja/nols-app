@@ -1,19 +1,23 @@
 /**
  * AzamPay Disbursement — Request/Response Types
  *
- * Mirrors the OpenAPI schema and examples documented in
- * docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md. bankName is typed as a union of
- * the values the schema currently enumerates (tigo/airtel/azampesa) — this
- * endpoint is MNO-focused until AzamPay confirms bank payout support.
+ * Mirrors the live provider values AzamPay enabled for NoLSAF. Legacy stored
+ * aliases (Tigo/Mixx, M-Pesa and HaloPesa) are normalized in providers.ts.
  */
 
-/** Confirmed-enabled MNO rails only. Do not widen until AzamPay confirms bank support. */
-export type AzamPayDisburseBankName = "tigo" | "airtel" | "azampesa";
+/** Confirmed-enabled MNO rails only. Bank payouts remain feature-gated. */
+export type AzamPayDisburseBankName = "yas" | "vodacom" | "airtel" | "halotel" | "azampesa";
 
 export interface AzamPayAccountParty {
   countryCode: string;
   fullName: string;
-  bankName: AzamPayDisburseBankName;
+  /**
+   * Provider token as it goes on the wire. The enabled rail is validated
+   * upstream (config.ts -> AzamPayDisburseBankName), but the wire value is
+   * AzamPay's own casing ("Azampesa", not "azampesa") — see
+   * toAzamPayWireBankName in client.ts — so this is a plain string here.
+   */
+  bankName: string;
   accountNumber: string;
   currency: string;
 }
@@ -45,13 +49,15 @@ export interface AzamPayDisburseResponse {
 export interface AzamPayNameLookupRequest {
   bankName: AzamPayDisburseBankName | string;
   accountNumber: string;
-  checksum: string;
+  /** Optional in the current AzamPay test environment; include when a field contract is configured. */
+  checksum?: string;
 }
 
 export interface AzamPayNameLookupResponse {
   name: string;
   fname?: string;
   lname?: string;
+  message?: string;
   status: boolean;
   statusCode: number;
   accountNumber: string;

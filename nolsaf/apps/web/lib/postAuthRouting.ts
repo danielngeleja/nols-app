@@ -1,8 +1,8 @@
-export type AccountRole = "ADMIN" | "OWNER" | "DRIVER" | "AGENT" | "USER" | "CUSTOMER";
+export type AccountRole = "ADMIN" | "OWNER" | "DRIVER" | "AGENT" | "NRMS_AGENT" | "USER" | "CUSTOMER";
 
 export function normalizeAccountRole(role: unknown): AccountRole | "" {
   const normalized = String(role || "").trim().toUpperCase();
-  return ["ADMIN", "OWNER", "DRIVER", "AGENT", "USER", "CUSTOMER"].includes(normalized)
+  return ["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER"].includes(normalized)
     ? (normalized as AccountRole)
     : "";
 }
@@ -17,6 +17,8 @@ export function roleHomePath(role: unknown): string {
       return "/driver";
     case "AGENT":
       return "/account/agent";
+    case "NRMS_AGENT":
+      return "/agent-portal";
     default:
       return "/account";
   }
@@ -70,6 +72,13 @@ export function isPostAuthTargetAllowed(target: string, role: unknown): boolean 
     return accountRole === "AGENT" || accountRole === "ADMIN";
   }
 
+  if (pathname === "/agent-portal" || pathname.startsWith("/agent-portal/")) {
+    // AGENT is an additive candidate role only. Navigation may enter the shell,
+    // but every portal API still requires the centrally granted accommodation
+    // capability, approved operator profile, and active agency identity.
+    return accountRole === "AGENT" || accountRole === "NRMS_AGENT" || accountRole === "ADMIN";
+  }
+
   return true;
 }
 
@@ -82,7 +91,7 @@ export function doesRoleHintMatchAccount(roleHint: unknown, role: unknown): bool
   if (hint === "admin") return accountRole === "ADMIN";
   if (hint === "owner" || hint === "partner" || hint === "partners") return accountRole === "OWNER";
   if (hint === "driver") return accountRole === "DRIVER";
-  if (hint === "agent") return accountRole === "AGENT";
+  if (hint === "agent") return accountRole === "AGENT" || accountRole === "NRMS_AGENT";
   if (hint === "traveller" || hint === "traveler" || hint === "customer" || hint === "user") {
     return accountRole === "USER" || accountRole === "CUSTOMER";
   }

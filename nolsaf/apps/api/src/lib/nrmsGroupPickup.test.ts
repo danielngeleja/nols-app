@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PICKUP_RACE, pickUpBlockRoom } from "./nrmsGroupPickup.js";
+import { PICKUP_RACE, PICKUP_TX_OPTIONS, pickUpBlockRoom, runBlockPickupForGuest } from "./nrmsGroupPickup.js";
 
 const availability = vi.hoisted(() => ({ getRoomTypesAvailability: vi.fn(), lockPropertyInventory: vi.fn(), findUnitConflicts: vi.fn() }));
+const prismaClient = vi.hoisted(() => ({ $transaction: vi.fn() }));
 
-vi.mock("@nolsaf/prisma", () => ({ typedPrisma: {}, prisma: {} }));
+vi.mock("@nolsaf/prisma", () => ({ typedPrisma: prismaClient, prisma: prismaClient }));
 vi.mock("./nrmsAvailability.js", () => availability);
 vi.mock("./pdfDocuments.js", () => ({ generateNrmsRandomCode: () => "ABC123" }));
 
@@ -52,6 +53,11 @@ function fakeTx(options: FakeOptions = {}) {
       updateMany: vi.fn().mockResolvedValue({ count: options.linkCount ?? 1 }),
     },
     nrmsReservationGroup: { create: vi.fn().mockResolvedValue({ id: 55 }) },
+    guestProfile: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: 200 }),
+    },
     reservation: {
       create: vi.fn().mockResolvedValue({ id: 400, externalRef: "BLK-1-01", totalAmount: 300, currency: "TZS" }),
       findMany: vi.fn().mockResolvedValue((options.issuedRefs ?? []).map((externalRef) => ({ externalRef }))),
@@ -75,6 +81,37 @@ const args = { blockId: 7, ownerId: 11, blockRoomId: 21, guestProfileId: 200, ad
 beforeEach(() => {
   vi.clearAllMocks();
   availability.findUnitConflicts.mockResolvedValue([]);
+});
+
+describe("pickup transaction", () => {
+  it("uses 30 seconds of headroom and resolves a new guest before taking the inventory lock", async () => {
+    vi.setSystemTime(new Date("2026-08-20T09:00:00.000Z"));
+    const tx = fakeTx();
+    prismaClient.$transaction.mockImplementation(async (work: (db: unknown) => unknown) => work(tx));
+
+    const outcome = await runBlockPickupForGuest({
+      blockId: 7,
+      propertyId: 3,
+      ownerId: 11,
+      blockRoomId: 21,
+      adults: 2,
+      children: 0,
+      actorId: 11,
+      roomingListRowId: 90,
+    }, {
+      fullName: "Amina Juma",
+      phone: null,
+    });
+
+    expect(PICKUP_TX_OPTIONS).toEqual({ maxWait: 5000, timeout: 30000 });
+    expect(prismaClient.$transaction).toHaveBeenCalledWith(expect.any(Function), PICKUP_TX_OPTIONS);
+    expect(tx.guestProfile.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ propertyId: 3, ownerId: 11, fullName: "Amina Juma" }),
+    });
+    expect(tx.guestProfile.create.mock.invocationCallOrder[0]).toBeLessThan(availability.lockPropertyInventory.mock.invocationCallOrder[0]);
+    expect(outcome).toMatchObject({ reservationId: 400, groupId: 55 });
+    vi.useRealTimers();
+  });
 });
 
 describe("block pickup", () => {

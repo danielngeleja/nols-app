@@ -6,17 +6,16 @@
  * job is: attach a token, attach a checksum, call the endpoint, classify
  * errors, and return typed results.
  *
- * The public key and checksum field composition are unconfirmed by AzamPay
- * as of this writing (docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md). Calls will
- * throw a clear configuration error until AZAMPAY_DISBURSE_PUBLIC_KEY and
- * the AZAMPAY_CHECKSUM_FIELDS_* env vars are set — this is intentional, not
- * a bug, so nobody accidentally ships a request AzamPay will reject.
+ * Both money movement and Name Lookup fail closed until the provider public
+ * key is configured. The accepted checksum formulas have safe code defaults;
+ * environment overrides are reserved for a future provider-contract revision.
  */
 
 import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "./auth.js";
 import { azamPayChecksum } from "./checksum.js";
 import { buildChecksumInput } from "./checksumInput.js";
 import { AzamPayDisburseConfigurationError, mapAzamPayError } from "./errors.js";
+import { toAzamPayWireBankName } from "./providers.js";
 import type {
   AzamPayDisburseRequest,
   AzamPayDisburseResponse,
@@ -38,6 +37,12 @@ function disburseHost(): string {
   ).replace(/\/$/, "");
 }
 
+/**
+ * Kept as a client export for existing scripts; the canonical implementation
+ * lives in providers.ts and covers both current live names and legacy aliases.
+ */
+export { toAzamPayWireBankName } from "./providers.js";
+
 function requirePublicKey(): string {
   const key = process.env.AZAMPAY_DISBURSE_PUBLIC_KEY;
   if (!key) {
@@ -49,7 +54,10 @@ function requirePublicKey(): string {
         "for the RSA public key before any real disbursement or name lookup call can be made.",
     });
   }
-  return key;
+  // Elastic Beanstalk/secret stores commonly preserve PEM line breaks as the
+  // two characters "\\n". Accept both representations without changing the
+  // key material.
+  return key.replace(/\\n/g, "\n").trim();
 }
 
 async function postJson(
@@ -130,11 +138,14 @@ function invalidProviderResponse(status: number, body: any, detail: string): nev
 export async function azamPayNameLookup(
   input: Pick<AzamPayNameLookupRequest, "bankName" | "accountNumber">
 ): Promise<AzamPayNameLookupResponse> {
+  // The checksum formula and public-key flow were accepted by AzamPay's test
+  // host. Always normalize before hashing so the signed bankName and payload
+  // bankName are byte-for-byte identical on live requests.
   const publicKey = requirePublicKey();
-
-  const checksumInput = buildChecksumInput("NAMELOOKUP", input);
+  const normalizedInput = { ...input, bankName: toAzamPayWireBankName(input.bankName) };
+  const checksumInput = buildChecksumInput("NAMELOOKUP", normalizedInput);
   const request: AzamPayNameLookupRequest = {
-    ...input,
+    ...normalizedInput,
     checksum: azamPayChecksum(checksumInput, publicKey),
   };
 
@@ -149,7 +160,18 @@ export async function azamPayNameLookup(
     invalidProviderResponse(status, body, "name lookup statusCode is missing or non-success");
   }
 
-  return body as AzamPayNameLookupResponse;
+  // The live test API returns fName/lName while older documentation and
+  // examples use fname/lname/name. Normalise both shapes for every caller.
+  const fname = String(body.fName ?? body.fname ?? "").trim();
+  const lname = String(body.lName ?? body.lname ?? "").trim();
+  const name = String(body.name ?? [fname, lname].filter(Boolean).join(" ")).trim();
+
+  return {
+    ...body,
+    name,
+    fname: fname || undefined,
+    lname: lname || undefined,
+  } as AzamPayNameLookupResponse;
 }
 
 /**
@@ -163,9 +185,19 @@ export async function azamPayDisburse(
 ): Promise<AzamPayDisburseResponse> {
   const publicKey = requirePublicKey();
 
-  const checksumInput = buildChecksumInput("DISBURSE", request);
-  const fullRequest: AzamPayDisburseRequest = {
+  // The Disburse checksum does not include bankName, but the payload does and
+  // AzamPay matches the rail case-sensitively — normalize both parties here.
+  const normalizedRequest = {
     ...request,
+    source: { ...request.source, bankName: toAzamPayWireBankName(request.source.bankName) },
+    destination: {
+      ...request.destination,
+      bankName: toAzamPayWireBankName(request.destination.bankName),
+    },
+  };
+  const checksumInput = buildChecksumInput("DISBURSE", normalizedRequest);
+  const fullRequest: AzamPayDisburseRequest = {
+    ...normalizedRequest,
     checksum: azamPayChecksum(checksumInput, publicKey),
   };
 
@@ -193,7 +225,7 @@ export async function azamPayTransactionStatus(params: {
 }): Promise<AzamPayTransactionStatusResponse> {
   const url = new URL(`${disburseHost()}/api/v1/azampay/transactionstatus`);
   url.searchParams.set("pgReferenceId", params.pgReferenceId);
-  url.searchParams.set("bankName", params.bankName);
+  url.searchParams.set("bankName", toAzamPayWireBankName(params.bankName));
 
   const { status, body } = await withAuthRetry(async (token) => {
     const controller = new AbortController();

@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   eventCreate: vi.fn(),
   azamPayDisburse: vi.fn(),
+  payoutAccountFindUnique: vi.fn(),
+  loadEligiblePayoutSource: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -18,6 +20,7 @@ vi.mock("@nolsaf/prisma", () => ({
       updateMany: mocks.updateManyDisbursement,
     },
     disbursementEvent: { create: mocks.eventCreate },
+    payoutAccount: { findUnique: mocks.payoutAccountFindUnique },
     invoice: { findUnique: vi.fn() },
     notification: { create: vi.fn() },
     $transaction: mocks.transaction,
@@ -26,6 +29,9 @@ vi.mock("@nolsaf/prisma", () => ({
 
 vi.mock("../services/azampay/disbursement/client.js", () => ({
   azamPayDisburse: mocks.azamPayDisburse,
+}));
+vi.mock("../services/payouts/eligibility.js", () => ({
+  loadEligiblePayoutSource: mocks.loadEligiblePayoutSource,
 }));
 vi.mock("../lib/notifications.js", () => ({ notifyUser: vi.fn() }));
 vi.mock("../lib/mailer.js", () => ({ sendMail: vi.fn() }));
@@ -37,6 +43,7 @@ vi.mock("../lib/bookingEmailTemplates.js", () => ({
 import {
   applyProviderEvent,
   PayoutStateError,
+  requestDisbursement,
   submitToAzamPay,
 } from "../services/payouts/ledger";
 import { AzamPayDisburseError } from "../services/azampay/disbursement/errors";
@@ -118,9 +125,41 @@ describe("disbursement state-machine attack resistance", () => {
     vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "255700000000");
     vi.stubEnv("AZAMPAY_DISBURSE_TRANSFER_TYPE", "MOBILE_MONEY");
     mocks.eventCreate.mockResolvedValue({});
+    mocks.loadEligiblePayoutSource.mockResolvedValue({
+      sourceType: "DRIVER_TRIP",
+      sourceId: 123,
+      payeeUserId: 44,
+      amount: 150000,
+      currency: "TZS",
+    });
   });
 
   afterEach(() => vi.unstubAllEnvs());
+
+  it("rejects a verified bank destination before creating a disbursement", async () => {
+    mocks.payoutAccountFindUnique.mockResolvedValue({
+      id: 19,
+      userId: 44,
+      type: "BANK",
+      provider: "CRDB",
+      accountNumber: "12345678901234",
+      accountName: "ASHA MTUMWA",
+      currency: "TZS",
+      isVerified: true,
+      isActive: true,
+    });
+
+    await expect(
+      requestDisbursement({
+        sourceType: "DRIVER_TRIP",
+        sourceId: 123,
+        payoutAccountId: 19,
+        requestedById: 4,
+      })
+    ).rejects.toThrow("AzamPay bank disbursement is not enabled");
+
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
 
   it("does not let a forged final callback skip authorization and provider submission", async () => {
     const authorized = { ...payout("AUTHORIZED"), pgReferenceId: "PG-77" };

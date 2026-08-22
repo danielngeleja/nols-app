@@ -13,6 +13,7 @@ import { AlertCircle, Check, UserPlus, Lock, LogIn, User, Truck, Building2, Mail
 import { useRouter, useSearchParams } from "next/navigation";
 import LogoSpinner from "@/components/LogoSpinner";
 import AdminMfaLoginGate, { type AdminMfaStart } from "@/components/security/AdminMfaLoginGate";
+import { formatOtpCountdown, getOtpRetryAfterSeconds, getOtpSendErrorMessage } from "@/lib/otpRateLimit";
 
 const COUNTRY_CODES = [
   // East Africa — primary markets
@@ -246,6 +247,18 @@ function CountryCodePicker({ value, onChange }: { value: string; onChange: (v: s
   );
 }
 
+function useSecondCountdown() {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const timer = window.setTimeout(() => setSeconds((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [seconds]);
+
+  return [seconds, setSeconds] as const;
+}
+
 export default function RegisterPage() {
   const searchParams = useSearchParams();
   const referralCode = searchParams?.get('ref') || null;
@@ -277,7 +290,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [agreed, setAgreed] = useState(false);
-  const [countdown, setCountdown] = useState<number>(0);
+  const [countdown, setCountdown] = useSecondCountdown();
   const otpRef = useRef<HTMLInputElement | null>(null);
   
   // Login state
@@ -289,6 +302,7 @@ export default function RegisterPage() {
   const [loginOtp, setLoginOtp] = useState<string>('');
   const [loginSent, setLoginSent] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
+  const [loginOtpCountdown, setLoginOtpCountdown] = useSecondCountdown();
   const [loginMethod, setLoginMethod] = useState<'phone' | 'credentials'>(roleParam === 'admin' ? 'credentials' : 'phone');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
@@ -402,7 +416,7 @@ export default function RegisterPage() {
   const [forgotStep, setForgotStep] = useState<'input' | 'otp' | 'sent'>('input');
   const [forgotLoading, setForgotLoading] = useState<boolean>(false);
   const [forgotSent, setForgotSent] = useState<boolean>(false);
-  const [forgotCountdown, setForgotCountdown] = useState<number>(0);
+  const [forgotCountdown, setForgotCountdown] = useSecondCountdown();
   const [, setForgotResetToken] = useState<string | null>(null);
   const forgotOtpRef = useRef<HTMLInputElement | null>(null);
   
@@ -538,12 +552,14 @@ export default function RegisterPage() {
           : { email: registerEmail.trim().toLowerCase() };
       const resp = await fetch('/api/auth/send-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...destination, role }),
+        headers: { 'Content-Type': 'application/json', 'X-NoLSAF-Client': 'WEB' },
+        body: JSON.stringify({ ...destination, role, registrationSource: 'WEB' }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        throw new Error(data?.message || 'Failed to send OTP');
+        const retryAfterSeconds = getOtpRetryAfterSeconds(data, resp.headers.get('Retry-After'));
+        if (resp.status === 429 && retryAfterSeconds > 0) setCountdown(retryAfterSeconds);
+        throw new Error(getOtpSendErrorMessage(data, resp.status, retryAfterSeconds));
       }
       setSuccess(
         registerMethod === 'phone'
@@ -552,15 +568,6 @@ export default function RegisterPage() {
       );
       setStep('otp');
       setCountdown(60);
-      const iv = setInterval(() => {
-        setCountdown(c => {
-          if (c <= 1) {
-            clearInterval(iv);
-            return 0;
-          }
-          return c - 1;
-        });
-      }, 1000);
     } catch (err: any) {
       setError(err?.message || 'Failed to send OTP');
     } finally {
@@ -587,8 +594,8 @@ export default function RegisterPage() {
       // Verify OTP with API
       const resp = await fetch('/api/auth/verify-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...destination, otp, role }),
+        headers: { 'Content-Type': 'application/json', 'X-NoLSAF-Client': 'WEB' },
+        body: JSON.stringify({ ...destination, otp, role, registrationSource: 'WEB' }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -598,16 +605,13 @@ export default function RegisterPage() {
       saveAuthToken(data.token);
       setStep('done');
       const nextPath = safeNextPath(nextParamRaw);
-      if (nextPath?.startsWith('/public/booking/payment')) {
-        setTimeout(() => {
-          window.location.href = nextPath;
-        }, 900);
-        return;
-      }
-      // Include referral code in URL if present
-      const onboardUrl = referralCode 
-        ? `/account/onboard/${role}?ref=${encodeURIComponent(referralCode)}`
-        : `/account/onboard/${role}`;
+      // OTP verification creates an authenticated, incomplete account. Always
+      // finish identity onboarding before checkout or any role dashboard.
+      const onboardParams = new URLSearchParams();
+      if (referralCode) onboardParams.set('ref', referralCode);
+      if (nextPath) onboardParams.set('next', nextPath);
+      const query = onboardParams.toString();
+      const onboardUrl = `/account/onboard/${role}${query ? `?${query}` : ''}`;
       setTimeout(() => router.push(onboardUrl), 900);
     } catch (err: any) {
       setError(err?.message || 'OTP verification failed');
@@ -868,6 +872,7 @@ export default function RegisterPage() {
                   onClick={sendOtp}
                   disabled={
                     loading ||
+                    countdown > 0 ||
                     (registerMethod === 'phone'
                       ? !isPhoneLengthValid(phone, countryCode)
                       : !isValidEmail(registerEmail))
@@ -879,6 +884,8 @@ export default function RegisterPage() {
                       <LogoSpinner size="xs" ariaLabel="Sending" className="text-white/90" />
                       <span>Sending...</span>
                     </>
+                  ) : countdown > 0 ? (
+                    `Try again in ${formatOtpCountdown(countdown)}`
                   ) : (
                     registerMethod === 'phone' ? 'Send code by phone' : 'Send code by email'
                   )}
@@ -960,7 +967,7 @@ export default function RegisterPage() {
                     {countdown > 0 ? (
                       <span className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-pulse flex-shrink-0" />
-                        <span className="whitespace-nowrap">Resend in {countdown}s</span>
+                        <span className="whitespace-nowrap">Resend in {formatOtpCountdown(countdown)}</span>
                       </span>
                     ) : (
                       <button
@@ -1215,6 +1222,8 @@ export default function RegisterPage() {
                     <button
                       onClick={async () => {
                         setLoginLoading(true);
+                        setError(null);
+                        setSuccess(null);
                         try {
                           if (!isPhoneLengthValid(loginPhone, loginCountryCode)) {
                             setError(getPhoneLengthHint(loginCountryCode));
@@ -1229,15 +1238,19 @@ export default function RegisterPage() {
                             setLoginSent(true);
                           }
                         } catch (err: any) {
-                          setError(err?.response?.data?.message || err?.response?.data?.error || 'Failed to send OTP. Please try again.');
+                          const data = err?.response?.data;
+                          const status = Number(err?.response?.status || 0);
+                          const retryAfterSeconds = getOtpRetryAfterSeconds(data, err?.response?.headers?.['retry-after']);
+                          if (status === 429 && retryAfterSeconds > 0) setLoginOtpCountdown(retryAfterSeconds);
+                          setError(getOtpSendErrorMessage(data, status, retryAfterSeconds));
                         } finally {
                           setLoginLoading(false);
                         }
                       }}
-                      disabled={loginLoading || !isPhoneLengthValid(loginPhone, loginCountryCode)}
+                      disabled={loginLoading || loginOtpCountdown > 0 || !isPhoneLengthValid(loginPhone, loginCountryCode)}
                       className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      {loginLoading ? 'Sending...' : 'Send OTP'}
+                      {loginLoading ? 'Sending...' : loginOtpCountdown > 0 ? `Try again in ${formatOtpCountdown(loginOtpCountdown)}` : 'Send OTP'}
                     </button>
                   </>
                 ) : (
@@ -1546,22 +1559,15 @@ export default function RegisterPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: `${forgotCountryCode}${forgotPhone}`, role: 'RESET' }),
       });
+      const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data?.message || 'Failed to send OTP');
+        const retryAfterSeconds = getOtpRetryAfterSeconds(data, resp.headers.get('Retry-After'));
+        if (resp.status === 429 && retryAfterSeconds > 0) setForgotCountdown(retryAfterSeconds);
+        throw new Error(getOtpSendErrorMessage(data, resp.status, retryAfterSeconds));
       }
       setSuccess('OTP sent to your phone. Please check and enter the code.');
       setForgotStep('otp');
       setForgotCountdown(60);
-      const iv = setInterval(() => {
-        setForgotCountdown(c => {
-          if (c <= 1) {
-            clearInterval(iv);
-            return 0;
-          }
-          return c - 1;
-        });
-      }, 1000);
       setTimeout(() => {
         if (forgotOtpRef.current) {
           try { forgotOtpRef.current.focus(); } catch (e) {}
@@ -1779,7 +1785,7 @@ export default function RegisterPage() {
                   disabled={true}
                   className="w-full text-xs text-slate-400 py-1"
                 >
-                  Resend OTP in {forgotCountdown}s
+                  Resend OTP in {formatOtpCountdown(forgotCountdown)}
                 </button>
               )}
               {forgotCountdown === 0 && forgotStep === 'otp' && (
@@ -1852,10 +1858,10 @@ export default function RegisterPage() {
                   </div>
                   <button
                     onClick={sendForgotOtp}
-                    disabled={forgotLoading || !isPhoneLengthValid(forgotPhone, forgotCountryCode)}
+                    disabled={forgotLoading || forgotCountdown > 0 || !isPhoneLengthValid(forgotPhone, forgotCountryCode)}
                     className="w-full max-w-full px-4 py-2.5 bg-[#02665e] text-white text-sm font-medium rounded-lg hover:bg-[#014e47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed box-border"
                   >
-                    {forgotLoading ? 'Sending...' : 'Send OTP'}
+                    {forgotLoading ? 'Sending...' : forgotCountdown > 0 ? `Try again in ${formatOtpCountdown(forgotCountdown)}` : 'Send OTP'}
                   </button>
                 </>
               )}

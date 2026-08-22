@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { ArrowRight, CalendarClock, Loader2, Plus, Users } from "lucide-react";
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Loader2, Plus, Users } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 import {
   CreateReservationGroupModal,
@@ -49,6 +49,42 @@ const GROUP_STATUS_CLS: Record<string, string> = {
   CANCELLED: "bg-red-50 text-red-600",
 };
 
+const PAGE_SIZE = 10;
+
+function ListPagination({ page, totalItems, onPageChange }: { page: number; totalItems: number; onPageChange: (page: number) => void }) {
+  const pageCount = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const firstItem = totalItems === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastItem = Math.min(page * PAGE_SIZE, totalItems);
+  return (
+    <nav aria-label="List pagination" className="flex flex-col gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="m-0 text-[11px] font-medium text-neutral-500">
+        Showing <span className="font-bold tabular-nums text-neutral-800">{firstItem}-{lastItem}</span> of <span className="font-bold tabular-nums text-neutral-800">{totalItems}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          aria-label="Previous page"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white p-0 text-neutral-600 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300 disabled:shadow-none"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="min-w-24 text-center text-[11px] font-semibold tabular-nums text-neutral-600">Page <strong className="text-neutral-900">{page}</strong> of {pageCount}</span>
+        <button
+          type="button"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= pageCount}
+          aria-label="Next page"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white p-0 text-neutral-600 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300 disabled:shadow-none"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 function fmtDate(v: string): string {
   return new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
@@ -79,6 +115,8 @@ export default function NrmsGroupReservationsPage() {
   const [blocks, setBlocks] = useState<GroupBlock[]>([]);
   const [showCreateBlock, setShowCreateBlock] = useState(false);
   const [openBlockId, setOpenBlockId] = useState<number | null>(null);
+  const [blockPage, setBlockPage] = useState(1);
+  const [groupPage, setGroupPage] = useState(1);
 
   const selectParam = searchParams.get("select");
   const selectedIds = useMemo(
@@ -103,6 +141,15 @@ export default function NrmsGroupReservationsPage() {
   }, [selectedPropertyId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const blockPageCount = Math.max(1, Math.ceil(blocks.length / PAGE_SIZE));
+  const groupPageCount = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+  const visibleBlocks = useMemo(() => blocks.slice((blockPage - 1) * PAGE_SIZE, blockPage * PAGE_SIZE), [blockPage, blocks]);
+  const visibleGroups = useMemo(() => groups.slice((groupPage - 1) * PAGE_SIZE, groupPage * PAGE_SIZE), [groupPage, groups]);
+
+  useEffect(() => { setBlockPage((current) => Math.min(current, blockPageCount)); }, [blockPageCount]);
+  useEffect(() => { setGroupPage((current) => Math.min(current, groupPageCount)); }, [groupPageCount]);
+  useEffect(() => { setBlockPage(1); setGroupPage(1); }, [selectedPropertyId]);
 
   // A selection arriving from the reservations table is resolved here so the
   // create modal can show who is in the party before it is committed.
@@ -278,14 +325,14 @@ export default function NrmsGroupReservationsPage() {
                     <th className="px-4 py-3">Agency</th>
                     <th className="px-4 py-3">Stay dates</th>
                     <th className="px-4 py-3 text-center">Held</th>
-                    <th className="px-4 py-3 text-center">Picked up</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Picked up</th>
                     <th className="px-4 py-3">Names by</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {blocks.map((block) => (
+                  {visibleBlocks.map((block) => (
                     <tr
                       key={block.id}
                       onClick={() => setOpenBlockId(block.id)}
@@ -316,6 +363,7 @@ export default function NrmsGroupReservationsPage() {
                 </tbody>
               </table>
             </div>
+            <ListPagination page={blockPage} totalItems={blocks.length} onPageChange={setBlockPage} />
           </div>
         )
       ) : groups.length === 0 ? (
@@ -348,7 +396,7 @@ export default function NrmsGroupReservationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {groups.map((group) => (
+                {visibleGroups.map((group) => (
                   <tr
                     key={group.id}
                     onClick={() => setOpenGroupId(group.id)}
@@ -379,6 +427,7 @@ export default function NrmsGroupReservationsPage() {
               </tbody>
             </table>
           </div>
+          <ListPagination page={groupPage} totalItems={groups.length} onPageChange={setGroupPage} />
         </div>
       )}
 

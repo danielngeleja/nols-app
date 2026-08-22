@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams, useSearchParams } from "next/navigation";
@@ -33,6 +34,7 @@ import {
   ExternalLink,
   MapPin,
   Package,
+  Handshake,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
@@ -113,6 +115,19 @@ type Agent = {
   maxActiveRequests: number;
   currentActiveRequests: number;
   assignedPlanRequests?: Array<{ id: number; status: string }>;
+  accommodationCapability?: {
+    workspace: "ACCOMMODATION";
+    status: string | null;
+    grantedAt: string | null;
+    expiresAt: string | null;
+    statusReason: string | null;
+    identity: {
+      id: number;
+      status: string;
+      verificationStatus: string;
+    } | null;
+    approvedEvidenceCount: number;
+  };
 };
 
 type AgentDocument = {
@@ -423,6 +438,14 @@ export default function AdminAgentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [showAccommodationForm, setShowAccommodationForm] = useState(false);
+  const [showAccommodationConfirmation, setShowAccommodationConfirmation] = useState(false);
+  const [accommodationReason, setAccommodationReason] = useState("");
+  const [accommodationLoading, setAccommodationLoading] = useState(false);
+  const [accommodationMessage, setAccommodationMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [accommodationDetailOpen, setAccommodationDetailOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [showSuspendForm, setShowSuspendForm] = useState(false);
   const [suspendReason, setSuspendReason] = useState("");
   const [notifyAgent, setNotifyAgent] = useState(true);
@@ -741,6 +764,42 @@ export default function AdminAgentDetailPage() {
     }
   }
 
+  async function activateAccommodationCapability() {
+    if (!agent?.id) return;
+    try {
+      setAccommodationLoading(true);
+      setAccommodationMessage(null);
+      const response = await api.post(`/api/admin/agents/${agent.id}/accommodation-capability`, {
+        ...(accommodationReason.trim() ? { reason: accommodationReason.trim() } : {}),
+      });
+      const payload = response.data as any;
+      setAccommodationMessage({
+        tone: "success",
+        text: String(payload?.message || "Accommodation capability activated."),
+      });
+      setAccommodationReason("");
+      setShowAccommodationForm(false);
+      setShowAccommodationConfirmation(false);
+      await load();
+      if (agent.user.id) await loadAuditHistory(agent.user.id);
+    } catch (err: any) {
+      setAccommodationMessage({
+        tone: "error",
+        text: err?.response?.data?.error || err?.response?.data?.message || err?.message || "Accommodation capability could not be activated.",
+      });
+    } finally {
+      setAccommodationLoading(false);
+    }
+  }
+
+  function closeAccommodationDetails() {
+    if (accommodationLoading) return;
+    setAccommodationDetailOpen(false);
+    setShowAccommodationForm(false);
+    setShowAccommodationConfirmation(false);
+    setAccommodationReason("");
+  }
+
   function handleSuspendClick() {
     setShowSuspendForm(true);
     setSuspendReason("");
@@ -925,6 +984,19 @@ export default function AdminAgentDetailPage() {
     submittedProfileRaw.profileSlug || slugifyProfile(String(submittedProfileRaw.companyName || companyName || "operator-profile"), agent?.id),
   );
   const submittedProfileReviewHref = agent?.id ? `/admin/agents/${agent.id}/submitted-profile/${submittedProfileSlug}` : "#";
+  const accommodationCapability = agent?.accommodationCapability;
+  const accommodationEligible = agent?.status === "ACTIVE"
+    && submittedProfileReviewStatus === "APPROVED"
+    && Number(accommodationCapability?.approvedEvidenceCount || 0) > 0
+    && !agent?.suspendedAt;
+  const accommodationUnexpired = !accommodationCapability?.expiresAt
+    || new Date(accommodationCapability.expiresAt).getTime() > Date.now();
+  const accommodationActive = String(accommodationCapability?.status || "").toUpperCase() === "ACTIVE"
+    && String(accommodationCapability?.identity?.status || "").toUpperCase() === "ACTIVE"
+    && agent?.status === "ACTIVE"
+    && submittedProfileReviewStatus === "APPROVED"
+    && !agent?.suspendedAt
+    && accommodationUnexpired;
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -1040,6 +1112,158 @@ export default function AdminAgentDetailPage() {
             </div>
 
             <div className="space-y-6">
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-6">
+                <div className="mb-4 flex items-start gap-3 sm:mb-6">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50">
+                    <Handshake className="h-5 w-5 text-blue-600" aria-hidden />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-base font-semibold text-gray-900 sm:text-lg">Accommodation partnerships</h2>
+                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-gray-400"}`} />
+                        {accommodationActive ? "Active" : "Not activated"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm leading-5 text-gray-500">Hotel partnership access for this operator&apos;s existing account.</p>
+                    <button
+                      type="button"
+                      onClick={() => setAccommodationDetailOpen(true)}
+                      className="mt-4 min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+                    >
+                      <Eye className="h-4 w-4" />
+                      View partnership details
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {mounted && accommodationDetailOpen && createPortal(
+                <div
+                  id="accommodation-capability-modal"
+                  className="box-border fixed inset-0 z-[90] flex items-center justify-center bg-neutral-950/55 p-3 backdrop-blur-sm sm:p-6"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="accommodation-capability-title"
+                  onMouseDown={(event) => { if (event.target === event.currentTarget) closeAccommodationDetails(); }}
+                >
+                  <style>{`#accommodation-capability-modal, #accommodation-capability-modal * { box-sizing: border-box; }`}</style>
+                  <div className="box-border relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)]">
+                    <div className="flex shrink-0 items-center justify-between gap-3 border-0 border-b border-solid border-gray-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50"><Handshake className="h-5 w-5 text-blue-600" aria-hidden /></span>
+                        <div className="min-w-0">
+                          <h2 id="accommodation-capability-title" className="m-0 truncate text-base font-semibold text-gray-900 sm:text-lg">Accommodation partnerships</h2>
+                          <span className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-gray-400"}`} />
+                            {accommodationActive ? "Active" : "Not activated"}
+                          </span>
+                        </div>
+                      </div>
+                      <button type="button" onClick={closeAccommodationDetails} disabled={accommodationLoading} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 transition hover:border-gray-300 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                      <p className="m-0 text-sm leading-5 text-gray-500">
+                        Hotel partnership access for this operator&apos;s existing account. Each hotel relationship still requires separate approval.
+                      </p>
+
+                      <div className="mt-4 space-y-2">
+                        <CapabilityRow label="Operator profile" value={submittedProfileReviewStatus} ready={submittedProfileReviewStatus === "APPROVED"} />
+                        <CapabilityRow label="Approved evidence" value={String(accommodationCapability?.approvedEvidenceCount || 0)} ready={Boolean(accommodationCapability?.approvedEvidenceCount)} />
+                        <CapabilityRow label="Agency identity" value={accommodationCapability?.identity?.verificationStatus || "Not created"} ready={accommodationCapability?.identity?.verificationStatus === "VERIFIED"} />
+                      </div>
+
+                      <div className="mt-4 space-y-3">
+                        {accommodationActive ? (
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                            <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4 flex-shrink-0" /> Capability is active</div>
+                            <div className="mt-1 pl-6 text-xs leading-5 text-emerald-800">Granted {fmtDate(accommodationCapability?.grantedAt)}. Hotel access remains controlled per partnership.</div>
+                          </div>
+                        ) : (
+                          <>
+                            {!accommodationEligible ? (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                                <div className="font-semibold">Requirements not yet complete</div>
+                                <div className="mt-0.5 text-amber-800">Approve the operator profile and at least one identity or business document before activation.</div>
+                              </div>
+                            ) : null}
+
+                            {showAccommodationForm ? (
+                              showAccommodationConfirmation ? (
+                                <div className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm" role="group" aria-labelledby="accommodation-confirmation-title">
+                                  <div className="flex items-start gap-3">
+                                    <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">
+                                      <ShieldCheck className="h-5 w-5" aria-hidden />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <h3 id="accommodation-confirmation-title" className="m-0 text-sm font-semibold text-gray-900">Confirm partnership activation</h3>
+                                      <p className="mt-1 text-xs leading-5 text-gray-600">You are about to enable accommodation partnerships for this tour operator.</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                                    <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Tour operator</div>
+                                    <div className="mt-1 break-words text-sm font-semibold text-gray-900">{companyName}</div>
+                                    <p className="mb-0 mt-2 text-xs leading-5 text-gray-600">Approved KYC will be reused, but no hotel will be connected automatically.</p>
+                                  </div>
+
+                                  {accommodationReason.trim() ? (
+                                    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                      <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Internal note</div>
+                                      <p className="mb-0 mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-gray-700">{accommodationReason.trim()}</p>
+                                    </div>
+                                  ) : null}
+
+                                  <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                    <button type="button" onClick={() => setShowAccommodationConfirmation(false)} disabled={accommodationLoading} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">Keep editing</button>
+                                    <button type="button" onClick={() => void activateAccommodationCapability()} disabled={accommodationLoading || !accommodationEligible} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:opacity-50">
+                                      {accommodationLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <ShieldCheck className="h-4 w-4" />}
+                                      {accommodationLoading ? "Activating..." : "Activate partnerships"}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                  <label className="block text-xs font-semibold text-gray-800" htmlFor="accommodation-activation-reason">
+                                    Internal activation note <span className="font-normal text-gray-500">(optional)</span>
+                                  </label>
+                                  <textarea
+                                    id="accommodation-activation-reason"
+                                    value={accommodationReason}
+                                    onChange={(event) => setAccommodationReason(event.target.value.slice(0, 300))}
+                                    placeholder="Why this operator is approved for accommodation partnerships"
+                                    className="min-h-20 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                                  />
+                                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                    <button type="button" onClick={() => { setShowAccommodationForm(false); setShowAccommodationConfirmation(false); setAccommodationReason(""); }} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50">Cancel</button>
+                                    <button type="button" onClick={() => { setShowAccommodationConfirmation(true); setAccommodationMessage(null); }} disabled={!accommodationEligible} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:opacity-50">
+                                      <ShieldCheck className="h-4 w-4" />
+                                      Review activation
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            ) : (
+                              <button type="button" onClick={() => { setShowAccommodationForm(true); setShowAccommodationConfirmation(false); setAccommodationMessage(null); }} disabled={!accommodationEligible || accommodationLoading} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#02665e] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none">
+                                <Handshake className="h-4 w-4" /> Activate accommodation capability
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {accommodationMessage ? (
+                          <div role="status" className={`rounded-lg border p-3 text-xs leading-5 ${accommodationMessage.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-800"}`}>
+                            {accommodationMessage.text}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
               <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
                 <div className="flex items-start gap-3 mb-4 sm:mb-6">
                   <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
@@ -1071,7 +1295,7 @@ export default function AdminAgentDetailPage() {
                         <>
                           {!showSuspendForm ? (
                             <button
-                              className="w-full px-4 py-2.5 sm:py-3 bg-red-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-red-700 active:bg-red-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-red-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-red-700 active:bg-red-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                               onClick={handleSuspendClick}
                               disabled={actionLoading}
                             >
@@ -1140,7 +1364,7 @@ export default function AdminAgentDetailPage() {
 
                       {!showImpersonateForm ? (
                         <button
-                          className="w-full px-4 py-2.5 sm:py-3 bg-[#02665e] text-white rounded-lg text-sm sm:text-base font-medium hover:bg-[#02665e]/90 active:bg-[#02665e]/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-[#02665e] text-white rounded-lg text-sm sm:text-base font-medium hover:bg-[#02665e]/90 active:bg-[#02665e]/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                           onClick={handleImpersonateClick}
                           disabled={actionLoading}
                         >
@@ -1194,7 +1418,7 @@ export default function AdminAgentDetailPage() {
                       )}
 
                       <button
-                        className="w-full px-4 py-2.5 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         onClick={handleNotificationToggle}
                         disabled={actionLoading || !agent.user.email}
                       >
@@ -1733,6 +1957,20 @@ export default function AdminAgentDetailPage() {
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function CapabilityRow({ label, value, ready }: { label: string; value: string; ready: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5">
+      <span className="min-w-0 text-xs font-medium text-gray-600">{label}</span>
+      <span className={`inline-flex flex-shrink-0 items-center gap-1.5 text-xs font-semibold ${ready ? "text-emerald-700" : "text-gray-700"}`}>
+        <span className={`grid h-4 w-4 place-items-center rounded-full ${ready ? "bg-emerald-100" : "bg-gray-200"}`}>
+          {ready ? <Check className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+        </span>
+        {value}
+      </span>
     </div>
   );
 }

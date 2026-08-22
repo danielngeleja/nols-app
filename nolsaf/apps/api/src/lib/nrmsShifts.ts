@@ -4,6 +4,7 @@
 // discrepancy blamed on the wrong person.
 
 export const SHIFT_ZONE = "Africa/Dar_es_Salaam";
+export const NRMS_BUSINESS_DAY_LOCKED = "NRMS_BUSINESS_DAY_LOCKED";
 
 export function shiftMoney(value: unknown): number {
   const parsed = Number(value ?? 0);
@@ -14,6 +15,13 @@ export function shiftDateOnly(key: string): Date {
   return new Date(`${key}T00:00:00.000Z`);
 }
 
+/** The next sequential hotel business date, independent of server locale. */
+export function nextShiftDayKey(key: string): string {
+  const date = shiftDateOnly(key);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 /** Business date in the property's timezone, so a late-night shift books to the right day. */
 export function shiftDayKey(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: SHIFT_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
@@ -21,13 +29,48 @@ export function shiftDayKey(date: Date): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-export async function ensureBusinessDay(tx: any, propertyId: number, key: string, userId: number) {
+export async function ensureBusinessDay(tx: any, propertyId: number, key: string, userId: number | null) {
   const date = shiftDateOnly(key);
   return tx.nrmsBusinessDay.upsert({
     where: { propertyId_businessDate: { propertyId, businessDate: date } },
     create: { propertyId, businessDate: date, openedById: userId },
     update: {},
   });
+}
+
+/**
+ * Financial writers call this while holding the property's inventory row lock.
+ * Night Audit takes the same lock before moving a day to CLOSING, so a writer
+ * either completes before the audit snapshot or observes the sealed day and
+ * fails.
+ */
+export async function assertNrmsBusinessDayWritable(tx: any, propertyId: number, at?: Date): Promise<string> {
+  const key = shiftDayKey(at ?? new Date());
+  const businessDay = await tx.nrmsBusinessDay.findUnique({
+    where: { propertyId_businessDate: { propertyId, businessDate: shiftDateOnly(key) } },
+    select: { businessDate: true, status: true },
+  });
+
+  // An explicitly dated correction must respect that exact day's seal. New
+  // operational work, however, belongs to the active OPEN business day.
+  if (at) {
+    if (businessDay && ["CLOSING", "CLOSED"].includes(businessDay.status)) throw new Error(NRMS_BUSINESS_DAY_LOCKED);
+    return key;
+  }
+
+  const latest = await tx.nrmsBusinessDay.findFirst({
+    where: { propertyId },
+    orderBy: { businessDate: "desc" },
+    select: { businessDate: true, status: true },
+  });
+  if (latest?.status === "OPEN") return shiftDayKey(latest.businessDate);
+  if (latest?.status === "CLOSING") {
+    throw new Error(NRMS_BUSINESS_DAY_LOCKED);
+  }
+  const openKey = latest?.status === "CLOSED" ? nextShiftDayKey(shiftDayKey(latest.businessDate)) : key;
+  const opened = await ensureBusinessDay(tx, propertyId, openKey, null);
+  if (opened.status !== "OPEN") throw new Error(NRMS_BUSINESS_DAY_LOCKED);
+  return openKey;
 }
 
 /** Local midnight of a business-day key. SHIFT_ZONE is fixed UTC+3, no DST. */

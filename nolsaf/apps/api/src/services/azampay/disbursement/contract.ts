@@ -2,6 +2,7 @@ import type {
   AzamPayDisburseCallback,
   AzamPayTransactionStatusResponse,
 } from "./types.js";
+import { azamPayProvidersMatch, toAzamPayWireBankName } from "./providers.js";
 
 export type AzamPayFinalStatus = "success" | "failure";
 
@@ -74,12 +75,12 @@ export function validateDisbursementCallbackCorrelation(
     };
   }
 
-  const expectedOperator = String(stored.bankName || "").trim().toLowerCase();
-  const receivedOperator = String(callback.operator || "").trim().toLowerCase();
-  if (!expectedOperator || receivedOperator !== expectedOperator) {
+  const expectedOperator = String(stored.bankName || "").trim();
+  const receivedOperator = String(callback.operator || "").trim();
+  if (!expectedOperator || !receivedOperator || !azamPayProvidersMatch(expectedOperator, receivedOperator)) {
     return {
       code: "operator_mismatch",
-      expected: expectedOperator || "<missing stored operator>",
+      expected: expectedOperator ? toAzamPayWireBankName(expectedOperator) : "<missing stored operator>",
       received: receivedOperator || "<missing callback operator>",
     };
   }

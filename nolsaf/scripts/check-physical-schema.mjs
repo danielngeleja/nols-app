@@ -17,6 +17,63 @@ const allowedLegacyMigrationNames = new Set([
   "20251213210000_baseline",
   "20260106185415_add_performance_indexes",
 ]);
+// Staging applied these exact historical SQL revisions before the files were
+// edited in later commits. The property-verification hash is the successful
+// case-corrected revision whose semantics were verified by physical diff plus
+// property/orphan preflights.
+//
+// Three additional hashes were read from successful, non-rolled-back rows on
+// the 2026-08-22 restored production-snapshot clone. The clone's data preflights
+// passed and its remaining physical diff was limited to seven semantically
+// correct FK names. Retained EB bundles did not preserve the exact applied SQL,
+// so these are environment-observed aliases, not Git-proven source revisions.
+// Keep this registry exact and explicit: never rewrite _prisma_migrations to
+// hide history, and never add an alias without environment evidence.
+const acceptedHistoricalMigrationHashes = {
+  staging: new Map([
+    [
+      "20260629090000_add_property_verification",
+      new Set(["ab34ab4b4773589b492179157d8ce993fbd24edae04cf3eecc84dd4c5da6032d"]),
+    ],
+    [
+      "20260714130000_reconcile_legacy_database_drift",
+      new Set(["e6087c4c25ac026b591ba4ba3002541c183f7b62dcd5556901efac127f2fe6b9"]),
+    ],
+    [
+      "20260714195920",
+      new Set(["5f4541d704a6fe6019966ff9416e93a43a29f9dd4e8c5a31a79851cff0b1994c"]),
+    ],
+    [
+      "20260720130000_add_platform_restriction_cases",
+      new Set(["0be78fa0e40beeb33d5fa03d80dedf7c1d49118ce7524ea2e43fd56f427f1088"]),
+    ],
+  ]),
+  clone: new Map([
+    [
+      "20260714130000_reconcile_legacy_database_drift",
+      new Set(["ade4652df6411719630a40ad5e5a1a92e597929ba8639e78e3668175002c071b"]),
+    ],
+    [
+      "20260714195920",
+      new Set(["0eecd7471f2c4b9fda1e86be50cfb8f330e3a37781c585656bcf124c07b2d843"]),
+    ],
+    [
+      "20260720130000_add_platform_restriction_cases",
+      new Set(["967481159ca53ff3941e8d5f4dce39d552865d64abcbd7db7b0eed4e4e105b98"]),
+    ],
+  ]),
+  local: new Map(),
+};
+
+for (const [environmentName, migrations] of Object.entries(acceptedHistoricalMigrationHashes)) {
+  for (const [migrationName, checksums] of migrations) {
+    for (const checksum of checksums) {
+      if (!/^[a-f0-9]{64}$/.test(checksum)) {
+        fail(`Invalid ${environmentName} checksum alias for ${migrationName}`);
+      }
+    }
+  }
+}
 
 const targetArgument = process.argv.find((value) => value.startsWith("--target="));
 const target = targetArgument?.slice("--target=".length);
@@ -140,9 +197,12 @@ function acceptedMigrationHashes(name) {
   );
   const lf = contents.replace(/\r\n/g, "\n");
   const crlf = lf.replace(/\n/g, "\r\n");
-  return new Set([contents, lf, crlf].map((value) =>
-    createHash("sha256").update(value).digest("hex"),
-  ));
+  return new Set([
+    ...[contents, lf, crlf].map((value) =>
+      createHash("sha256").update(value).digest("hex"),
+    ),
+    ...(acceptedHistoricalMigrationHashes[target]?.get(name) ?? []),
+  ]);
 }
 
 function fail(message, code = 1) {

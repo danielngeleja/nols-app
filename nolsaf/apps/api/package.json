@@ -24,6 +24,7 @@
     "load:test:socket": "tsx scripts/socket-load-test.ts",
     "load:test:capacity": "tsx scripts/capacity-suite.ts",
     "smoke:driver-payouts": "tsx scripts/seed-driver-payout-smoke.ts",
+    "azp:disbursement:test": "tsx scripts/test-azampay-disbursement.ts",
     "generate:encryption-key": "node scripts/generate-encryption-key.js",
     "azp:ids": "tsx scripts/collect-azp-ids.ts",
     "ngrok:dev": "ngrok http 4000"

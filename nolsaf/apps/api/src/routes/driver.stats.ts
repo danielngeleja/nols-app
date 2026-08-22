@@ -5,10 +5,16 @@ import { Prisma } from "@prisma/client";
 import qrcode from 'qrcode';
 import { authenticator } from 'otplib';
 import crypto from 'crypto';
-import argon2 from 'argon2';
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-import { validatePasswordStrength, isPasswordReused, addPasswordToHistory } from '../lib/security.js';
+import {
+  PASSWORD_MAX_LENGTH,
+  addPasswordToHistory,
+  getPasswordChangeCooldownRemaining,
+  isPasswordReused,
+  recordPasswordChangeSuccess,
+} from '../lib/security.js';
 import { validatePasswordWithSettings } from '../lib/securitySettings.js';
+import { hashPassword, verifyPassword } from '../lib/crypto.js';
 import { requireAuth, blockImpersonated, AuthedRequest } from "../middleware/auth.js";
 import { z } from "zod";
 import { limitDriverLocationUpdate, limitDriverAvailabilityToggle } from "../middleware/rateLimit.js";
@@ -1117,205 +1123,139 @@ const updateDriverProfile: RequestHandler = async (req, res) => {
 };
 router.put('/profile', updateDriverProfile as unknown as RequestHandler);
 
-/**
- * Security endpoints for drivers
- * - POST /driver/security/password
- * - POST /driver/security/2fa
- *
- *
- * These implementations are best-effort / demo-friendly: if a prisma model exists
- * they attempt to perform updates, otherwise they return success or sample data.
- */
+interface DriverPasswordChangeAttempt {
+  failures: number;
+  lastFailure: number;
+  lockedUntil: number | null;
+}
+
+const driverPasswordChangeAttempts = new Map<number, DriverPasswordChangeAttempt>();
+
+function getDriverPasswordChangeAttempt(userId: number): DriverPasswordChangeAttempt {
+  const existing = driverPasswordChangeAttempts.get(userId);
+  if (existing) return existing;
+  const created = { failures: 0, lastFailure: 0, lockedUntil: null };
+  driverPasswordChangeAttempts.set(userId, created);
+  return created;
+}
+
+const driverPasswordAttemptCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [userId, attempt] of driverPasswordChangeAttempts.entries()) {
+    if (attempt.lockedUntil && now >= attempt.lockedUntil) {
+      driverPasswordChangeAttempts.delete(userId);
+    } else if (!attempt.lockedUntil && now - attempt.lastFailure > 60 * 60 * 1000) {
+      driverPasswordChangeAttempts.delete(userId);
+    }
+  }
+}, 60 * 1000);
+driverPasswordAttemptCleanup.unref?.();
+
+/** Security endpoints for drivers. */
 const postChangePassword: RequestHandler = async (req, res) => {
   const user = (req as AuthedRequest).user!;
   const { currentPassword, newPassword } = req.body ?? {};
-  
-  // DoS protection: Enforce 8-12 character limit
-  if (!newPassword || typeof newPassword !== 'string') { 
-    res.status(400).json({ error: 'newPassword required' }); 
-    return; 
+
+  if (!newPassword || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'newPassword required' });
   }
-  
-  if (newPassword.length < 8 || newPassword.length > 12) {
-    return res.status(400).json({ 
-      error: 'Password must be between 8 and 12 characters', 
-      reasons: ['Password length must be between 8 and 12 characters to prevent DoS attacks'] 
+  if (!currentPassword || typeof currentPassword !== 'string') {
+    return res.status(400).json({ error: 'currentPassword required' });
+  }
+  if (newPassword.length < 8 || newPassword.length > PASSWORD_MAX_LENGTH) {
+    return res.status(400).json({
+      error: `Password must be between 8 and ${PASSWORD_MAX_LENGTH} characters`,
+      reasons: [`Password length must be between 8 and ${PASSWORD_MAX_LENGTH} characters`],
     });
   }
 
   try {
-    // Import shared password change security utilities from account.ts
-    // For now, implement inline to avoid circular dependencies
-    // Track password change attempts (shared with account endpoint would be ideal, but using local for now)
-    interface PasswordChangeAttempt {
-      failures: number;
-      lastFailure: number;
-      lockedUntil: number | null;
-      lastSuccess: number | null;
-    }
-    const passwordChangeAttempts = new Map<number, PasswordChangeAttempt>();
-    
-    function getPasswordChangeAttempt(userId: number): PasswordChangeAttempt {
-      if (!passwordChangeAttempts.has(userId)) {
-        passwordChangeAttempts.set(userId, { failures: 0, lastFailure: 0, lockedUntil: null, lastSuccess: null });
-      }
-      return passwordChangeAttempts.get(userId)!;
-    }
-
-    const attempt = getPasswordChangeAttempt(user.id);
+    const attempt = getDriverPasswordChangeAttempt(user.id);
     const now = Date.now();
-    
-    // Check for timeout/lockout
+
     if (attempt.lockedUntil && now < attempt.lockedUntil) {
       const remaining = Math.ceil((attempt.lockedUntil - now) / 1000);
-      return res.status(429).json({ 
+      return res.status(429).json({
         error: `Too many failed attempts. Please wait ${remaining} seconds.`,
         reasons: [`Account temporarily locked. Try again in ${remaining} seconds.`],
-        lockedUntil: attempt.lockedUntil
+        lockedUntil: attempt.lockedUntil,
       });
     }
 
-    // Check 30-minute cooldown after successful password change
-    if (attempt.lastSuccess && (now - attempt.lastSuccess) < (30 * 60 * 1000)) {
-      const remaining = Math.ceil((30 * 60 * 1000 - (now - attempt.lastSuccess)) / 60000);
-      return res.status(429).json({ 
+    const cooldownRemaining = getPasswordChangeCooldownRemaining(user.id);
+    if (cooldownRemaining > 0) {
+      const remaining = Math.ceil(cooldownRemaining / 60000);
+      return res.status(429).json({
         error: `Password was recently changed. Please wait ${remaining} minute(s) before changing it again.`,
         reasons: [`Password change cooldown active. Try again in ${remaining} minute(s).`],
-        cooldownUntil: attempt.lastSuccess + (30 * 60 * 1000)
+        cooldownUntil: now + cooldownRemaining,
       });
     }
 
-    // If a user table with a password/hash exists, attempt proper verification & hashing
-    if ((prisma as any).user) {
-      try {
-        // Try passwordHash first (standard field), then fallback to password
-        const u = await prisma.user.findUnique({ 
-          where: { id: user.id }, 
-          select: { passwordHash: true, password: true } as any 
-        });
-        const stored = (u as any)?.passwordHash ?? (u as any)?.password ?? null;
+    const account = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { id: true, passwordHash: true, role: true },
+    });
+    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account.passwordHash) return res.status(400).json({ error: 'No password set for this account' });
 
-        // If a password exists, require currentPassword and verify
-        if (stored) {
-          if (!currentPassword || typeof currentPassword !== 'string') { 
-            res.status(400).json({ error: 'currentPassword required' }); 
-            return; 
-          }
-
-          let ok = false;
-          try {
-            // If stored value looks like an argon2 hash, verify with argon2
-            if (typeof stored === 'string' && stored.startsWith('$argon2')) {
-              ok = await argon2.verify(stored, currentPassword);
-            } else {
-              // fallback to plain compare
-              ok = stored === currentPassword;
-            }
-          } catch (e) {
-            ok = false;
-          }
-
-          if (!ok) {
-            // Track failure
-            attempt.failures += 1;
-            attempt.lastFailure = now;
-            
-            // Lock after 3 consecutive failures for 5 minutes
-            if (attempt.failures >= 3) {
-              attempt.lockedUntil = now + (5 * 60 * 1000); // 5 minutes
-              attempt.failures = 0; // Reset counter after lockout
-              return res.status(429).json({ 
-                error: "Too many failed attempts. Account locked for 5 minutes.",
-                reasons: ['Account temporarily locked due to multiple failed password change attempts.'],
-                lockedUntil: attempt.lockedUntil
-              });
-            }
-            
-            return res.status(400).json({ 
-              error: 'current password is incorrect',
-              reasons: [`Incorrect current password. ${3 - attempt.failures} attempt(s) remaining before lockout.`]
-            });
-          }
-        }
-
-        // Reset failure counter on successful password verification
+    const currentPasswordValid = await verifyPassword(account.passwordHash, currentPassword);
+    if (!currentPasswordValid) {
+      attempt.failures += 1;
+      attempt.lastFailure = now;
+      if (attempt.failures >= 3) {
+        attempt.lockedUntil = now + 5 * 60 * 1000;
         attempt.failures = 0;
-        attempt.lockedUntil = null;
-
-        // Enforce policy: Prevent reusing the current/existing password
-        if (stored) {
-          let isCurrentPassword = false;
-          try {
-            if (typeof stored === 'string' && stored.startsWith('$argon2')) {
-              isCurrentPassword = await argon2.verify(stored, newPassword);
-            } else {
-              isCurrentPassword = stored === newPassword;
-            }
-          } catch (e) {
-            isCurrentPassword = false;
-          }
-          
-          if (isCurrentPassword) {
-            return res.status(400).json({ 
-              error: "Cannot reuse current password", 
-              reasons: ['The new password must be different from your current password. Please choose a different password.'] 
-            });
-          }
-        }
-
-        // Validate strength before hashing using SystemSetting configuration
-        try {
-          const { valid, reasons } = await validatePasswordWithSettings(newPassword, (user as any).role);
-          if (!valid) {
-            res.status(400).json({ error: 'Password does not meet strength requirements', reasons });
-            return;
-          }
-
-          // Prevent reuse of recent passwords from history
-          const reused = await isPasswordReused(user.id, newPassword);
-          if (reused) {
-            return res.status(400).json({ 
-              error: "Password was used recently", 
-              reasons: ['This password was used recently. Please choose a different password that has not been used before.'] 
-            });
-          }
-
-          const hash = await argon2.hash(newPassword);
-          // Try passwordHash first, then fallback to password
-          const updateData: any = {};
-          try {
-            updateData.passwordHash = hash;
-          } catch (e) {
-            updateData.password = hash;
-          }
-          await prisma.user.update({ where: { id: user.id }, data: updateData as any });
-          
-          // Record the new hash in password history (best-effort)
-          try {
-            await addPasswordToHistory(user.id, hash);
-          } catch (e) {
-            // Best-effort
-          }
-          
-          // Record successful password change and set cooldown
-          attempt.lastSuccess = now;
-          attempt.failures = 0;
-          attempt.lockedUntil = null;
-          
-          return res.json({ ok: true, message: 'Password changed successfully', cooldownUntil: now + (30 * 60 * 1000) });
-        } catch (e) {
-          // if update fails, fall through to generic success to avoid leaking implementation
-        }
-      } catch (e) {
-        // ignore and fallthrough
+        return res.status(429).json({
+          error: 'Too many failed attempts. Account locked for 5 minutes.',
+          reasons: ['Account temporarily locked due to multiple failed password change attempts.'],
+          lockedUntil: attempt.lockedUntil,
+        });
       }
+      return res.status(400).json({
+        error: 'current password is incorrect',
+        reasons: [`Incorrect current password. ${3 - attempt.failures} attempt(s) remaining before lockout.`],
+      });
     }
 
-    // Fallback: no prisma user model or persistence failed — return success for demo
-    return res.json({ ok: true });
+    attempt.failures = 0;
+    attempt.lockedUntil = null;
+
+    if (await verifyPassword(account.passwordHash, newPassword)) {
+      return res.status(400).json({
+        error: 'Cannot reuse current password',
+        reasons: ['The new password must be different from your current password. Please choose a different password.'],
+      });
+    }
+
+    const { valid, reasons } = await validatePasswordWithSettings(newPassword, account.role);
+    if (!valid) {
+      return res.status(400).json({ error: 'Password does not meet strength requirements', reasons });
+    }
+
+    if (await isPasswordReused(account.id, newPassword)) {
+      return res.status(400).json({
+        error: 'Password was used recently',
+        reasons: ['This password was used recently. Please choose a different password that has not been used before.'],
+      });
+    }
+
+    const hash = await hashPassword(newPassword);
+    await prisma.user.update({ where: { id: account.id }, data: { passwordHash: hash } });
+    await addPasswordToHistory(account.id, hash).catch((error) => {
+      console.warn('driver.security.password history write failed', error);
+    });
+
+    recordPasswordChangeSuccess(account.id);
+    driverPasswordChangeAttempts.delete(account.id);
+    return res.json({
+      ok: true,
+      message: 'Password changed successfully',
+      cooldownUntil: now + 30 * 60 * 1000,
+    });
   } catch (err) {
     console.warn('driver.security.password failed', err);
-    return res.status(500).json({ error: 'failed' });
+    return res.status(500).json({ error: 'Password change failed. Your password was not changed.' });
   }
 };
 router.post('/security/password', blockImpersonated as unknown as RequestHandler, postChangePassword as unknown as RequestHandler);

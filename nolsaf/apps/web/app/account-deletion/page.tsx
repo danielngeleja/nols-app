@@ -44,45 +44,54 @@ const retainedData = [
   "A minimal suppression record may be retained when needed to honor communication choices or prevent fraud. Sensitive travel documents are retained only as long as reasonably required for the booked service, safety, disputes, or law.",
 ];
 
+const appDeletionSteps = [
+  "Sign in to the NoLSAF mobile app.",
+  "Open Account, then select Preferences.",
+  "Choose Delete Account and review the information shown.",
+  "Confirm your identity and approve permanent deletion.",
+];
+
 export default function AccountDeletionPage() {
   return (
     <>
       <PublicHeader />
 
       <main className="min-h-screen bg-[#f5f8f7] text-slate-900">
-        <section className="relative overflow-hidden border-b border-emerald-950/10 bg-[#033f3b] text-white">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-emerald-300/15 blur-3xl"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -bottom-28 left-1/4 h-72 w-72 rounded-full bg-amber-300/10 blur-3xl"
-          />
+        <section className="public-container pt-8 sm:pt-12">
+          <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-[#065750] via-[#033f3b] to-[#022926] text-white shadow-xl shadow-emerald-950/25 ring-1 ring-white/10 sm:rounded-[2.25rem]">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-emerald-300/20 blur-3xl"
+            />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -bottom-28 left-1/4 h-72 w-72 rounded-full bg-amber-300/10 blur-3xl"
+            />
 
-          <div className="public-container relative py-14 sm:py-20">
-            <div className="mx-auto max-w-4xl text-center">
-              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-xl shadow-black/10">
-                <Trash2 className="h-8 w-8" aria-hidden="true" />
+            <div className="relative px-6 py-16 sm:px-10 sm:py-24">
+              <div className="mx-auto max-w-4xl text-center">
+                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 shadow-xl shadow-black/20 ring-1 ring-white/20 backdrop-blur">
+                  <Trash2 className="h-8 w-8" aria-hidden="true" />
+                </div>
+                <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-emerald-200">
+                  NoLSAF account and data controls
+                </p>
+                <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
+                  Delete your NoLSAF account
+                </h1>
+                <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-emerald-50/90 sm:text-lg">
+                  You can permanently delete your account from the NoLSAF mobile app or request deletion here if you cannot access the app.
+                </p>
               </div>
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-emerald-200">
-                NoLSAF account and data controls
-              </p>
-              <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
-                Delete your NoLSAF account
-              </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-emerald-50/90 sm:text-lg">
-                You can permanently delete your account from the NoLSAF mobile app or request deletion here if you cannot access the app.
-              </p>
             </div>
           </div>
         </section>
 
         <section className="public-container py-10 sm:py-14">
           <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <article className="rounded-3xl bg-white p-6 shadow-[0_12px_40px_-16px_rgba(2,102,94,0.22)] ring-1 ring-slate-900/5 transition-shadow duration-300 hover:shadow-[0_22px_55px_-20px_rgba(2,102,94,0.30)] sm:p-8">
               <div className="flex items-start gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#02665e]">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#02665e] ring-1 ring-emerald-100">
                   <Smartphone className="h-6 w-6" aria-hidden="true" />
                 </span>
                 <div>
@@ -91,18 +100,19 @@ export default function AccountDeletionPage() {
                 </div>
               </div>
 
-              <ol className="mt-7 space-y-4">
-                {[
-                  "Sign in to the NoLSAF mobile app.",
-                  "Open Account, then select Preferences.",
-                  "Choose Delete Account and review the information shown.",
-                  "Confirm your identity and approve permanent deletion.",
-                ].map((step, index) => (
-                  <li key={step} className="flex gap-4">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#02665e] text-sm font-extrabold text-white">
+              <ol className="mt-8">
+                {appDeletionSteps.map((step, index) => (
+                  <li key={step} className="relative flex gap-4 pb-6 last:pb-0">
+                    {index < appDeletionSteps.length - 1 && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute bottom-0 left-[1.375rem] top-11 w-px bg-emerald-100"
+                      />
+                    )}
+                    <span className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#02665e] text-sm font-extrabold text-white shadow-sm ring-4 ring-white">
                       {index + 1}
                     </span>
-                    <p className="pt-1 text-[15px] leading-6 text-slate-700">{step}</p>
+                    <p className="pt-2.5 text-[15px] leading-6 text-slate-700">{step}</p>
                   </li>
                 ))}
               </ol>
@@ -112,8 +122,8 @@ export default function AccountDeletionPage() {
               </div>
             </article>
 
-            <aside className="rounded-3xl border border-emerald-900/10 bg-gradient-to-br from-[#eaf7f3] to-white p-6 shadow-sm sm:p-8">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[#02665e] shadow-sm">
+            <aside className="rounded-3xl bg-gradient-to-br from-[#eaf7f3] to-white p-6 shadow-[0_12px_40px_-16px_rgba(2,102,94,0.22)] ring-1 ring-emerald-900/10 transition-shadow duration-300 hover:shadow-[0_22px_55px_-20px_rgba(2,102,94,0.30)] sm:p-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-[#02665e] shadow-sm ring-1 ring-emerald-100">
                 <Mail className="h-6 w-6" aria-hidden="true" />
               </div>
               <h2 className="mt-5 text-2xl font-extrabold text-slate-950">Cannot access the app?</h2>
@@ -123,7 +133,7 @@ export default function AccountDeletionPage() {
 
               <a
                 href={deletionEmail}
-                className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#02665e] px-5 py-3 text-center text-sm font-bold text-white no-underline shadow-md shadow-emerald-950/15 transition hover:bg-[#014f49] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2 sm:w-auto"
+                className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#02665e] px-5 py-3 text-center text-sm font-bold text-white no-underline shadow-md shadow-emerald-950/15 transition hover:-translate-y-0.5 hover:bg-[#014f49] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2 sm:w-auto"
               >
                 Request account deletion
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -137,7 +147,7 @@ export default function AccountDeletionPage() {
                 with the subject “NoLSAF Account Deletion Request”.
               </p>
 
-              <div className="mt-6 flex gap-3 rounded-2xl border border-white bg-white/80 p-4">
+              <div className="mt-6 flex gap-3 rounded-2xl bg-white/70 p-4 ring-1 ring-emerald-900/5">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#02665e]" aria-hidden="true" />
                 <p className="text-sm leading-6 text-slate-700">
                   To protect your account, NoLSAF will verify that the request came from you before deleting data. Never email your password, payment PIN, or one-time verification code.

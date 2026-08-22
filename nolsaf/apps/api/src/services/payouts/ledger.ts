@@ -24,6 +24,7 @@ import { computeApprovalFingerprint } from "./fingerprint.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
+import { canonicalAzamPayProvider } from "../azampay/disbursement/providers.js";
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
 import { notifyUser } from "../../lib/notifications.js";
 import { sendMail } from "../../lib/mailer.js";
@@ -302,6 +303,19 @@ export async function requestDisbursement(params: {
   }
   if (!payoutAccount.isActive) {
     throw new PayoutStateError(`PayoutAccount ${params.payoutAccountId} is not active`);
+  }
+  // AzamPay has enabled five mobile-money rails for NoLSAF, but has not
+  // supplied live bank-provider values. Reject unsupported destinations before
+  // they can enter approval/batching and become a stranded finance obligation.
+  if (payoutAccount.type !== "MOBILE_MONEY") {
+    throw new PayoutStateError(
+      `PayoutAccount ${params.payoutAccountId} is ${payoutAccount.type}; AzamPay bank disbursement is not enabled`
+    );
+  }
+  if (!canonicalAzamPayProvider(payoutAccount.provider)) {
+    throw new PayoutStateError(
+      `PayoutAccount ${params.payoutAccountId} uses unsupported provider ${JSON.stringify(payoutAccount.provider)}`
+    );
   }
 
   // Fast, friendly pre-check. It is NOT the guarantee — two concurrent

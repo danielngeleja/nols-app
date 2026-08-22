@@ -23,14 +23,20 @@ export const BLOCK_LIVE_STATUSES = ["HELD", "PARTIALLY_PICKED_UP"];
 /**
  * The pickup transaction takes the property inventory lock, re-reads the block
  * and its line, writes the reservation, its allocation and its events, and
- * updates the block. Prisma's 5s interactive default is too tight for that.
+ * updates the block. Production database latency can push the commit beyond
+ * 15s even without a business conflict, so leave enough headroom for a short
+ * lock wait while still bounding how long the property lock can be held.
  */
-export const PICKUP_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+export const PICKUP_TX_OPTIONS = { maxWait: 5000, timeout: 30000 };
+
+/** Log slow transactions before they become user-visible timeouts. */
+const SLOW_PICKUP_MS = 5000;
 
 /** Thrown when a concurrent writer claimed the same room or row first. */
 export const PICKUP_RACE = "NRMS_BLOCK_PICKUP_RACE";
 
 export type PickupErrorCode =
+  | "GUEST_NOT_FOUND"
   | "BLOCK_NOT_FOUND"
   | "BLOCK_NOT_LIVE"
   | "LINE_NOT_FOUND"
@@ -60,6 +66,20 @@ export type PickupArgs = {
   roomingListRowId?: number | null;
   /** Whoever pressed the button, recorded on the reservation and its events. */
   actorId: number;
+};
+
+export type GroupGuestInput = {
+  guestProfileId?: number | null;
+  fullName: string;
+  phone?: string | null;
+  email?: string | null;
+  nationality?: string | null;
+};
+
+type PickupTimings = {
+  guestProfileMs?: number;
+  locateBlockMs?: number;
+  inventoryLockMs?: number;
 };
 
 function utcDay(value: Date): Date {
@@ -99,13 +119,18 @@ export function nightsBetween(checkIn: Date, checkOut: Date): number {
  * transaction: the property inventory lock is taken here and every check below
  * depends on holding it.
  */
-export async function pickUpBlockRoom(tx: any, args: PickupArgs): Promise<PickupOutcome> {
+export async function pickUpBlockRoom(tx: any, args: PickupArgs, timings?: PickupTimings): Promise<PickupOutcome> {
+  const locateStartedAt = Date.now();
   const located = await tx.nrmsGroupBlock.findFirst({
     where: { id: args.blockId, ownerId: args.ownerId },
     select: { propertyId: true },
   });
+  if (timings) timings.locateBlockMs = Date.now() - locateStartedAt;
   if (!located) return { error: "BLOCK_NOT_FOUND" };
+
+  const lockStartedAt = Date.now();
   await lockPropertyInventory(tx, located.propertyId);
+  if (timings) timings.inventoryLockMs = Date.now() - lockStartedAt;
 
   // Re-read under the lock: the block may have been released, or another clerk
   // may have created its group, between the caller's read and this one.
@@ -249,6 +274,7 @@ export async function pickUpBlockRoom(tx: any, args: PickupArgs): Promise<Pickup
 
 /** One wording per failure, so the desk reads the same sentence everywhere. */
 const PICKUP_MESSAGES: Record<PickupErrorCode, string> = {
+  GUEST_NOT_FOUND: "Guest profile not found for this property",
   BLOCK_NOT_FOUND: "Group block not found",
   BLOCK_NOT_LIVE: "This block is no longer holding rooms",
   LINE_NOT_FOUND: "That room line does not belong to this block",
@@ -260,7 +286,7 @@ const PICKUP_MESSAGES: Record<PickupErrorCode, string> = {
 
 export function pickupStatus(code: PickupErrorCode): number {
   if (code === "BLOCK_NOT_FOUND") return 404;
-  if (code === "LINE_NOT_FOUND") return 400;
+  if (code === "LINE_NOT_FOUND" || code === "GUEST_NOT_FOUND") return 400;
   return 409;
 }
 
@@ -272,34 +298,64 @@ export function pickupErrorBody(outcome: { error: PickupErrorCode; conflicts?: u
   };
 }
 
-/** `pickUpBlockRoom` in its own transaction, for callers naming one room. */
+async function runPickupTransaction(
+  args: Omit<PickupArgs, "guestProfileId">,
+  work: (tx: any, timings: PickupTimings) => Promise<PickupOutcome>,
+): Promise<PickupOutcome> {
+  const startedAt = Date.now();
+  const timings: PickupTimings = {};
+  let failure: unknown;
+  try {
+    return await prisma.$transaction((tx: any) => work(tx, timings), PICKUP_TX_OPTIONS) as PickupOutcome;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= SLOW_PICKUP_MS) {
+      console.warn("[nrmsGroupPickup] slow pickup transaction", {
+        blockId: args.blockId,
+        blockRoomId: args.blockRoomId,
+        roomingListRowId: args.roomingListRowId ?? null,
+        durationMs,
+        ...timings,
+        ...(failure && typeof failure === "object" && "code" in failure
+          ? { errorCode: String((failure as { code?: unknown }).code ?? "UNKNOWN") }
+          : {}),
+      });
+    }
+  }
+}
+
+/** `pickUpBlockRoom` in its own transaction, for callers with a resolved guest. */
 export async function runBlockPickup(args: PickupArgs): Promise<PickupOutcome> {
-  return prisma.$transaction(async (tx: any) => pickUpBlockRoom(tx, args), PICKUP_TX_OPTIONS) as Promise<PickupOutcome>;
+  return runPickupTransaction(args, (tx, timings) => pickUpBlockRoom(tx, args, timings));
 }
 
 /**
- * Finds or creates the guest profile a pickup will attach to. Kept outside the
- * pickup transaction: it touches no inventory, and the locked section should
- * stay as short as it can be.
+ * Finds or creates the guest profile a pickup will attach to. The database
+ * parameter lets the combined pickup workflow keep this write in the same
+ * transaction without taking the inventory lock early.
  *
  * Matching on phone is safe here because the desk, not the public, supplies it:
  * a rooming list row only reaches this after a member of staff accepted it.
  */
-export async function resolveGroupGuestProfile(
+async function resolveGroupGuestProfileWithDb(
+  db: any,
   propertyId: number,
   ownerId: number,
-  guest: { guestProfileId?: number | null; fullName: string; phone?: string | null; email?: string | null; nationality?: string | null },
+  guest: GroupGuestInput,
 ): Promise<{ guestProfileId: number } | { error: "GUEST_NOT_FOUND" }> {
   if (guest.guestProfileId) {
-    const existing = await prisma.guestProfile.findFirst({ where: { id: guest.guestProfileId, propertyId, ownerId } });
+    const existing = await db.guestProfile.findFirst({ where: { id: guest.guestProfileId, propertyId, ownerId } });
     if (!existing) return { error: "GUEST_NOT_FOUND" };
     return { guestProfileId: existing.id };
   }
 
   const phone = guest.phone ? sanitizeText(guest.phone) : null;
-  const existing = phone ? await prisma.guestProfile.findFirst({ where: { propertyId, phone } }) : null;
+  const existing = phone ? await db.guestProfile.findFirst({ where: { propertyId, phone } }) : null;
   if (existing) {
-    const updated = await prisma.guestProfile.update({
+    const updated = await db.guestProfile.update({
       where: { id: existing.id },
       data: {
         fullName: sanitizeText(guest.fullName),
@@ -309,7 +365,7 @@ export async function resolveGroupGuestProfile(
     return { guestProfileId: updated.id };
   }
 
-  const created = await prisma.guestProfile.create({
+  const created = await db.guestProfile.create({
     data: {
       propertyId,
       ownerId,
@@ -320,4 +376,31 @@ export async function resolveGroupGuestProfile(
     },
   });
   return { guestProfileId: created.id };
+}
+
+export async function resolveGroupGuestProfile(
+  propertyId: number,
+  ownerId: number,
+  guest: GroupGuestInput,
+): Promise<{ guestProfileId: number } | { error: "GUEST_NOT_FOUND" }> {
+  return resolveGroupGuestProfileWithDb(prisma, propertyId, ownerId, guest);
+}
+
+/**
+ * Resolve the guest and pick up the room atomically. Guest work happens before
+ * the inventory lock, so it does not lengthen lock ownership; if pickup or
+ * commit fails, Prisma rolls the guest create/update back with the reservation.
+ */
+export async function runBlockPickupForGuest(
+  args: Omit<PickupArgs, "guestProfileId"> & { propertyId: number },
+  guest: GroupGuestInput,
+): Promise<PickupOutcome> {
+  return runPickupTransaction(args, async (tx, timings) => {
+    const { propertyId, ...pickupArgs } = args;
+    const guestStartedAt = Date.now();
+    const resolved = await resolveGroupGuestProfileWithDb(tx, propertyId, args.ownerId, guest);
+    timings.guestProfileMs = Date.now() - guestStartedAt;
+    if ("error" in resolved) return resolved;
+    return pickUpBlockRoom(tx, { ...pickupArgs, guestProfileId: resolved.guestProfileId }, timings);
+  });
 }

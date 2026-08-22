@@ -104,6 +104,27 @@ describe("secure payout destination update", () => {
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
   });
 
+  it("soft-deletes an account without relying on Prisma delegate metadata", async () => {
+    mocks.userFindUnique.mockResolvedValue({ id: 44, name: "Account Owner" });
+
+    const response = await request(app()).delete("/account");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      message: "Account deleted successfully",
+    });
+    expect(mocks.userUpdate).toHaveBeenCalledWith({
+      where: { id: 44 },
+      data: {
+        deletedAt: expect.any(Date),
+        name: "Deleted Driver",
+        email: expect.stringMatching(/^deleted_44_\d+@nolsaf\.invalid$/),
+        phone: null,
+      },
+    });
+  });
+
   it("accepts only the supported payout banks and stores their canonical code", async () => {
     mocks.lookup.mockResolvedValue({
       name: "AGREY MBILINYI",
@@ -123,6 +144,11 @@ describe("secure payout destination update", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.data.destination.provider).toBe("CRDB");
+    expect(response.body.data.capabilities).toEqual({
+      nameLookupVerified: true,
+      azamPayDisbursementEnabled: false,
+    });
+    expect(response.body.message).toContain("bank disbursement remains disabled");
     expect(mocks.lookup).toHaveBeenCalledWith({ bankName: "CRDB", accountNumber: "12345678901234" });
   });
 
@@ -174,6 +200,10 @@ describe("secure payout destination update", () => {
       accountNumber: "********0001",
       currency: "TZS",
     });
+    expect(lookupResponse.body.data.capabilities).toEqual({
+      nameLookupVerified: true,
+      azamPayDisbursementEnabled: true,
+    });
 
     const response = await request(app()).put("/account/payouts").send({
       challengeToken: lookupResponse.body.data.challengeToken,
@@ -203,6 +233,54 @@ describe("secure payout destination update", () => {
     });
     expect(replay.status).toBe(410);
     expect(replay.body.code).toBe("PAYOUT_VERIFICATION_EXPIRED");
+  });
+
+  it("normalizes a legacy mobile provider alias before Name Lookup", async () => {
+    mocks.lookup.mockResolvedValue({
+      name: "ASHA MTUMWA",
+      status: true,
+      statusCode: 200,
+      accountNumber: "255754000001",
+      bankName: "Vodacom",
+    });
+
+    const response = await request(app()).post("/account/payouts/verify").send({
+      payoutPreferred: "MOBILE_MONEY",
+      mobileMoneyProvider: "M-Pesa",
+      mobileMoneyNumber: "255754000001",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.destination.provider).toBe("vodacom");
+    expect(response.body.data.capabilities.azamPayDisbursementEnabled).toBe(true);
+    expect(mocks.lookup).toHaveBeenCalledWith({ bankName: "vodacom", accountNumber: "255754000001" });
+  });
+
+  it("rejects a wallet number that AzamPay resolves to a different mobile provider", async () => {
+    mocks.lookup.mockResolvedValue({
+      name: "ASHA MTUMWA",
+      status: true,
+      statusCode: 200,
+      accountNumber: "255754000001",
+      bankName: "Yas",
+    });
+
+    const response = await request(app()).post("/account/payouts/verify").send({
+      payoutPreferred: "MOBILE_MONEY",
+      mobileMoneyProvider: "vodacom",
+      mobileMoneyNumber: "255754000001",
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("does not match the selected mobile money provider");
+    expect(response.body.data).toBeUndefined();
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.anything(),
+      "USER_PAYOUT_LOOKUP_MISMATCH",
+      "user:44",
+      null,
+      expect.objectContaining({ mismatch: "PROVIDER", requestedProvider: "vodacom", returnedProvider: "Yas" })
+    );
   });
 
   it("fails closed when AzamPay returns a different destination", async () => {

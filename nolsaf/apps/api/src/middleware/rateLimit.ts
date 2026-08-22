@@ -46,6 +46,18 @@ export const limitAgentPortalRead = rateLimit({
   },
 });
 
+export const limitNrmsAgentBookingCreate = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many booking attempts. Please wait before trying again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return userId ? `nrms-agent-book:${userId}` : `nrms-agent-book-ip:${req.ip || "unknown"}`;
+  },
+});
+
 export const limitAgentNotifyAdmin = rateLimit({
   windowMs: 60_000, // 1 minute
   limit: 5, // prevent inbox spam
@@ -283,9 +295,14 @@ export const limitOtpSend = rateLimit({
   message: (req: any) => {
     const resetTime: Date | undefined = req.rateLimit?.resetTime;
     const retryAfterMs = resetTime ? Math.max(0, resetTime.getTime() - Date.now()) : 15 * 60_000;
+    const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+    const message = "Too many OTP requests. Please wait before requesting another code.";
     return {
-      error: "Too many OTP requests. Please wait before requesting another code.",
+      error: message,
+      code: "rate_limited",
+      message,
       retryAfterMs,
+      retryAfterSeconds,
       cooldownUntil: Date.now() + retryAfterMs,
     };
   },

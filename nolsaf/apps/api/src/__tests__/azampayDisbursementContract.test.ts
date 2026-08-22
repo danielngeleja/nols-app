@@ -27,6 +27,10 @@ import {
   azamPayNameLookup,
   azamPayTransactionStatus,
 } from "../services/azampay/disbursement/client";
+import {
+  canonicalAzamPayProvider,
+  toAzamPayWireBankName,
+} from "../services/azampay/disbursement/providers";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -50,7 +54,7 @@ const disburseRequest = {
     accountNumber: "255688000001",
     currency: "TZS",
   },
-  transferDetails: { type: "MOBILE_MONEY", amount: 150000, dateInEpoch: 1786225810 },
+  transferDetails: { type: "FUND", amount: 150000, dateInEpoch: 1786225810 },
   externalReferenceId: "NoLSAF-O-2608081645-D51QVX",
 };
 
@@ -69,6 +73,10 @@ describe("AzamPay disbursement HTTP contract", () => {
   });
 
   it("sends name lookup with bearer auth and the calculated checksum", async () => {
+    vi.stubEnv(
+      "AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP",
+      JSON.stringify({ fields: ["bankName", "accountNumber"], separator: "" })
+    );
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         name: "ASHA MTUMWA",
@@ -82,6 +90,7 @@ describe("AzamPay disbursement HTTP contract", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
+    // Internal lowercase provider in -> AzamPay's wire casing out ("Airtel").
     await azamPayNameLookup({ bankName: "airtel", accountNumber: "255688000001" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -89,10 +98,39 @@ describe("AzamPay disbursement HTTP contract", () => {
     expect(url).toBe("https://api-disbursement-sandbox.azampay.co.tz/api/v1/azampay/namelookup");
     expect(init.headers.Authorization).toBe("Bearer token-1");
     expect(JSON.parse(init.body)).toEqual({
-      bankName: "airtel",
+      bankName: "Airtel",
       accountNumber: "255688000001",
       checksum: "checksum-value",
     });
+  });
+
+  it("uses the confirmed default Name Lookup checksum and normalizes fName/lName", async () => {
+    vi.stubEnv("AZAMPAY_CHECKSUM_FIELDS_NAMELOOKUP", "");
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        fName: "ASHA",
+        lName: "MTUMWA",
+        status: true,
+        statusCode: 200,
+        accountNumber: "255688000001",
+        bankName: "airtel",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await azamPayNameLookup({ bankName: "airtel", accountNumber: "255688000001" });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      bankName: "Airtel",
+      accountNumber: "255688000001",
+      checksum: "checksum-value",
+    });
+    expect(result).toMatchObject({ name: "ASHA MTUMWA", fname: "ASHA", lname: "MTUMWA" });
+    expect(mocks.checksumInput).toHaveBeenCalledWith("NAMELOOKUP", {
+      bankName: "Airtel",
+      accountNumber: "255688000001",
+    });
+    expect(mocks.checksum).toHaveBeenCalledWith("checksum-input", "test-public-key");
   });
 
   it("refreshes once on 401 and replays the exact same disbursement reference", async () => {
@@ -144,12 +182,14 @@ describe("AzamPay disbursement HTTP contract", () => {
       success: true,
       statusCode: 200,
     };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body));
+    vi.stubGlobal("fetch", fetchMock);
 
-    const result = await azamPayTransactionStatus({ pgReferenceId: "PG-77", bankName: "airtel" });
+    const result = await azamPayTransactionStatus({ pgReferenceId: "PG-77", bankName: "tigo" });
 
     expect(result).toEqual(body);
     expect(normalizeAzamPayFinalStatus(result)).toBeNull();
+    expect(String(fetchMock.mock.calls[0][0])).toContain("bankName=Yas");
   });
 
   it("recognizes only an explicit provider final status", () => {
@@ -205,6 +245,53 @@ describe("AzamPay callback correlation", () => {
     expect(validateDisbursementCallbackCorrelation(stored, callback)).toBeNull();
   });
 
+  it("restores PEM newlines escaped by the deployment secret store", async () => {
+    vi.stubEnv(
+      "AZAMPAY_DISBURSE_PUBLIC_KEY",
+      "-----BEGIN PUBLIC KEY-----\\nencoded-key\\n-----END PUBLIC KEY-----"
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          name: "ASHA MTUMWA",
+          status: true,
+          statusCode: 200,
+          accountNumber: "255688000001",
+          bankName: "Airtel",
+        })
+      )
+    );
+
+    await azamPayNameLookup({ bankName: "airtel", accountNumber: "255688000001" });
+
+    expect(mocks.checksum).toHaveBeenCalledWith(
+      "checksum-input",
+      "-----BEGIN PUBLIC KEY-----\nencoded-key\n-----END PUBLIC KEY-----"
+    );
+  });
+
+  it("correlates callbacks across legacy wallet aliases and live network names", () => {
+    expect(
+      validateDisbursementCallbackCorrelation(
+        { ...stored, bankName: "tigo" },
+        { ...callback, operator: "Yas" }
+      )
+    ).toBeNull();
+    expect(
+      validateDisbursementCallbackCorrelation(
+        { ...stored, bankName: "mpesa" },
+        { ...callback, operator: "Vodacom" }
+      )
+    ).toBeNull();
+    expect(
+      validateDisbursementCallbackCorrelation(
+        { ...stored, bankName: "halopesa" },
+        { ...callback, operator: "Halotel" }
+      )
+    ).toBeNull();
+  });
+
   it("detects pgReferenceId, amount, and operator mismatches", () => {
     expect(
       validateDisbursementCallbackCorrelation(stored, { ...callback, pgReferenceId: "PG-OTHER" })
@@ -218,5 +305,20 @@ describe("AzamPay callback correlation", () => {
     expect(
       validateDisbursementCallbackCorrelation(stored, { ...callback, pgReferenceId: "" })
     ).toMatchObject({ code: "pg_reference_mismatch" });
+  });
+});
+
+describe("AzamPay live provider normalization", () => {
+  it.each([
+    ["tigo", "yas", "Yas"],
+    ["Mixx by Yas", "yas", "Yas"],
+    ["mpesa", "vodacom", "Vodacom"],
+    ["M-Pesa", "vodacom", "Vodacom"],
+    ["halopesa", "halotel", "Halotel"],
+    ["Airtel Money", "airtel", "Airtel"],
+    ["AzamPesa", "azampesa", "Azampesa"],
+  ])("maps %s to canonical %s and wire value %s", (input, canonical, wire) => {
+    expect(canonicalAzamPayProvider(input)).toBe(canonical);
+    expect(toAzamPayWireBankName(input)).toBe(wire);
   });
 });

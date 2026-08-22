@@ -5,6 +5,7 @@ import { audit } from "../lib/audit.js";
 import { resolveTierLadder, defaultTierLadderConfig, validateTierLadder } from "../lib/agentLevel.js";
 import { invalidateSessionPolicyCache } from "../lib/securitySettings.js";
 import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH_FLOOR } from "../lib/security.js";
 
 /** Convert a resolved tier-spec list back to the editable {TIER:{thresholds}} config. */
 function tierLadderToConfig(raw: unknown) {
@@ -283,6 +284,23 @@ router.put("/", async (req, res) => {
 
   const sanitizedUpdate: Record<string, unknown> = { ...body };
   const errors: Array<{ field: string; message: string }> = [];
+
+  if (body.minPasswordLength !== undefined) {
+    const minPasswordLength = toIntOrNull(body.minPasswordLength);
+    if (
+      minPasswordLength == null ||
+      !Number.isFinite(minPasswordLength) ||
+      minPasswordLength < PASSWORD_MIN_LENGTH_FLOOR ||
+      minPasswordLength > PASSWORD_MAX_LENGTH
+    ) {
+      errors.push({
+        field: "minPasswordLength",
+        message: `Must be an integer between ${PASSWORD_MIN_LENGTH_FLOOR} and ${PASSWORD_MAX_LENGTH}.`,
+      });
+    } else {
+      sanitizedUpdate.minPasswordLength = minPasswordLength;
+    }
+  }
 
   // `agentTierLadderDefaults` is a read-only echo — never persist it.
   delete (sanitizedUpdate as any).agentTierLadderDefaults;

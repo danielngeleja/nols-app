@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle, BarChart3, BedDouble, Check, CheckCircle2, ClipboardCheck, CloudOff, CreditCard,
-  Gauge, Gift, Info, Layers3, Loader2, MessageSquareText, Plus, RefreshCw, Save, SlidersHorizontal,
-  Sparkles, Star, Wrench, ChevronLeft, ChevronRight, X,
+  Gauge, Gift, Info, Layers3, Loader2, MessageSquareText, Plus, RefreshCw, Save,
+  Sparkles, Star, Wrench, ChevronLeft, ChevronRight, X, Tag, Coins, Percent,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
@@ -19,12 +20,6 @@ type Dashboard = {
   reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }> } | null;
 };
 type OfflineMutation = { clientMutationId: string; action: "SERVICE_CASE_CREATE" | "SERVICE_CASE_STATUS" | "ROOM_HOUSEKEEPING_STATUS"; targetId?: number; baseVersion?: number; payload: Record<string, unknown> };
-
-const TABS: Array<{ id: Tab; label: string; icon: typeof SlidersHorizontal }> = [
-  { id: "rates", label: "Rates", icon: SlidersHorizontal }, { id: "readiness", label: "Readiness", icon: ClipboardCheck },
-  { id: "service", label: "Service desk", icon: Wrench }, { id: "guest", label: "Guest journey", icon: MessageSquareText },
-  { id: "portfolio", label: "Portfolio", icon: Layers3 }, { id: "growth", label: "Growth", icon: Gauge },
-];
 
 const inputClass = "box-border min-h-10 w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100 disabled:bg-neutral-100";
 const buttonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border-0 bg-[#075e54] px-4 text-xs font-bold text-white transition hover:bg-[#064b43] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500";
@@ -191,6 +186,7 @@ function cacheKey(propertyId: number) { return `nrms-offline-snapshot:${property
 
 export default function NrmsControlsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("rates"); const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [restrictionConfirmation, setRestrictionConfirmation] = useState<RestrictionConfirmation | null>(null);
@@ -203,6 +199,15 @@ export default function NrmsControlsPage() {
   const [payment, setPayment] = useState({ reservationId: "", kind: "DEPOSIT", amount: "", dueAt: "" });
   const [portfolio, setPortfolio] = useState({ name: "", propertyIds: [] as number[] });
   const [loyaltyPage, setLoyaltyPage] = useState(1); const [reviewPage, setReviewPage] = useState(1);
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section === "rates" || section === "readiness" || section === "service" || section === "guest" || section === "portfolio" || section === "growth") {
+      setTab(section);
+      setMessage(null);
+      setError(null);
+    }
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return; setLoading(true); setError(null);
@@ -272,30 +277,6 @@ export default function NrmsControlsPage() {
       <div className="flex flex-wrap items-center gap-2"><ShareBookingButton propertyId={selectedPropertyId} propertyTitle={selectedProperty?.title} /><span className={`inline-flex min-h-9 items-center gap-2 rounded-full px-3 text-xs font-bold ${online ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{online ? <CheckCircle2 className="h-4 w-4" /> : <CloudOff className="h-4 w-4" />}{online ? (queued ? `${queued} waiting to sync` : "Synced") : `${queued} saved offline`}</span><button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button></div>
     </header>
     {(message || error) && <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${error ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Check className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || message}</span></div>}
-    <nav className="overflow-x-auto rounded-lg border border-neutral-200 bg-white p-1.5 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Hotel controls">
-      <div className="flex min-w-max gap-1.5 lg:min-w-0">
-        {TABS.map((item) => {
-          const Icon = item.icon;
-          const active = tab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              aria-current={active ? "page" : undefined}
-              className={`group relative inline-flex min-h-12 shrink-0 cursor-pointer appearance-none items-center gap-2.5 rounded-md border px-3.5 text-[11px] font-bold outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 lg:flex-1 lg:justify-center ${active ? "border-emerald-200 bg-emerald-50/80 text-emerald-900 shadow-sm" : "border-transparent bg-transparent text-neutral-500 hover:border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900"}`}
-            >
-              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-800 text-white shadow-sm" : "bg-neutral-100 text-neutral-500 group-hover:bg-white group-hover:text-neutral-700"}`}>
-                <Icon className="h-3.5 w-3.5" />
-              </span>
-              <span className="whitespace-nowrap">{item.label}</span>
-              {active && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-t-full bg-emerald-700" aria-hidden="true" />}
-            </button>
-          );
-        })}
-      </div>
-    </nav>
-
     {tab === "rates" && <div className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
       <div className="space-y-5">
         <Section
@@ -303,8 +284,9 @@ export default function NrmsControlsPage() {
           copy="Create a reusable price for direct bookings and connected channels."
           action={<button type="button" title="A rate plan controls who can book, what is included and how the nightly price is calculated." aria-label="About rate plans" className="inline-flex h-8 w-8 cursor-help items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-400 outline-none transition hover:border-emerald-200 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500"><Info className="h-4 w-4" /></button>}
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-3 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,.42fr)]">
+          <div className="space-y-5">
+            {/* Step 1: identity */}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,.42fr)]">
               <label htmlFor="rate-plan-name" className="grid min-w-0 gap-1.5 text-xs font-semibold text-neutral-700">Plan name<input id="rate-plan-name" className={inputClass} value={rate.name} onChange={(event) => setRate({ ...rate, name: event.target.value })} placeholder="e.g. Best Available Rate" /></label>
               <label htmlFor="rate-plan-code" className="grid min-w-0 gap-1.5 text-xs font-semibold text-neutral-700">
                 Code
@@ -315,12 +297,75 @@ export default function NrmsControlsPage() {
                 </span>
               </label>
             </div>
-            <label htmlFor="rate-plan-room-type" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Room type<select id="rate-plan-room-type" className={inputClass} value={rate.roomTypeId} onChange={(event) => setRate({ ...rate, roomTypeId: event.target.value })}><option value="">All room types</option>{data?.roomTypes.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
-            <label htmlFor="rate-plan-meal" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Meal plan<select id="rate-plan-meal" className={inputClass} value={rate.mealPlan} onChange={(event) => setRate({ ...rate, mealPlan: event.target.value })}><option value="ROOM_ONLY">Room only</option><option value="BREAKFAST">Breakfast included</option><option value="HALF_BOARD">Half board</option><option value="FULL_BOARD">Full board</option></select></label>
-            <label htmlFor="rate-plan-method" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Rate method<select id="rate-plan-method" className={inputClass} value={rate.adjustmentType} onChange={(event) => setRate({ ...rate, adjustmentType: event.target.value })}><option value="BASE">Use room base rate</option><option value="FIXED">Set fixed nightly rate</option><option value="OFFSET">Add or subtract amount</option><option value="PERCENT">Add or subtract percentage</option></select></label>
-            <label htmlFor="rate-plan-value" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Rate value{rate.adjustmentType === "BASE" ? <input id="rate-plan-value" type="text" disabled className={inputClass} value="Uses room base rate" readOnly /> : <input id="rate-plan-value" type="number" step="1" className={inputClass} value={rate.adjustment} onChange={(event) => setRate({ ...rate, adjustment: event.target.value })} placeholder={rate.adjustmentType === "FIXED" ? "e.g. 120000" : rate.adjustmentType === "PERCENT" ? "e.g. 10 or -10" : "e.g. 10000 or -10000"} />}</label>
-            <label htmlFor="rate-plan-minimum-stay" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Minimum stay<input id="rate-plan-minimum-stay" type="number" min="1" max="365" className={inputClass} value={rate.defaultMinStay} onChange={(event) => setRate({ ...rate, defaultMinStay: event.target.value })} placeholder="1 night" /></label>
-            <label htmlFor="rate-plan-default" className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-xs font-semibold text-neutral-700"><input id="rate-plan-default" type="checkbox" checked={rate.isDefault} onChange={(event) => setRate({ ...rate, isDefault: event.target.checked })} />Default direct rate</label>
+            {duplicateRatePlan && <p className="-mt-2.5 flex items-center gap-1.5 text-[11px] font-semibold text-red-600"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />Code &ldquo;{normalizedRateCode}&rdquo; already belongs to {duplicateRatePlan.name}. Choose another code.</p>}
+
+            {/* Step 2: what the guest gets */}
+            <div className="border-t border-neutral-100 pt-4">
+              <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">What guests get</p>
+              <label htmlFor="rate-plan-room-type" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Room type<select id="rate-plan-room-type" className={inputClass} value={rate.roomTypeId} onChange={(event) => setRate({ ...rate, roomTypeId: event.target.value })}><option value="">All room types</option>{data?.roomTypes.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+              <p className="mb-1.5 mt-4 text-xs font-semibold text-neutral-700">Meal plan</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Meal plan">
+                {[["ROOM_ONLY", "Room only"], ["BREAKFAST", "Breakfast"], ["HALF_BOARD", "Half board"], ["FULL_BOARD", "Full board"]].map(([value, label]) => {
+                  const active = rate.mealPlan === value;
+                  return <button key={value} type="button" aria-pressed={active} onClick={() => setRate({ ...rate, mealPlan: value })} className={`min-h-9 rounded-full border px-3.5 text-[11px] font-bold transition ${active ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}>{label}</button>;
+                })}
+              </div>
+            </div>
+
+            {/* Step 3: pricing method as tap tiles */}
+            <div className="border-t border-neutral-100 pt-4">
+              <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">How this plan is priced</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { value: "BASE", label: "Room base rate", hint: "Follows each room's own price", Icon: BedDouble },
+                  { value: "FIXED", label: "Fixed nightly", hint: "One set price per night", Icon: Tag },
+                  { value: "OFFSET", label: "Adjust by amount", hint: "Add or subtract TZS", Icon: Coins },
+                  { value: "PERCENT", label: "Adjust by percent", hint: "Raise or lower by a %", Icon: Percent },
+                ].map(({ value, label, hint, Icon }) => {
+                  const active = rate.adjustmentType === value;
+                  return (
+                    <button key={value} type="button" aria-pressed={active} onClick={() => setRate({ ...rate, adjustmentType: value, adjustment: value === "BASE" ? "0" : rate.adjustment })} className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition ${active ? "border-emerald-600 bg-emerald-50 ring-1 ring-inset ring-emerald-600" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+                      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${active ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-500"}`}><Icon className="h-4 w-4" /></span>
+                      <span className="min-w-0"><span className="block text-xs font-bold text-neutral-900">{label}</span><span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">{hint}</span></span>
+                    </button>
+                  );
+                })}
+              </div>
+              {rate.adjustmentType === "BASE"
+                ? <p className="mt-3 flex items-start gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-500"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />No price to set. Each room is sold at the base rate you configure on its room type.</p>
+                : <label htmlFor="rate-plan-value" className="mt-3 grid gap-1.5 text-xs font-semibold text-neutral-700">{rate.adjustmentType === "FIXED" ? "Nightly price" : rate.adjustmentType === "PERCENT" ? "Percentage change" : "Amount change"}
+                    <span className="relative block">
+                      {rate.adjustmentType !== "PERCENT" && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">TZS</span>}
+                      <input id="rate-plan-value" type="number" step="1" className={`${inputClass} ${rate.adjustmentType === "PERCENT" ? "!pr-9" : "!pl-12"}`} value={rate.adjustment} onChange={(event) => setRate({ ...rate, adjustment: event.target.value })} placeholder={rate.adjustmentType === "FIXED" ? "120000" : rate.adjustmentType === "PERCENT" ? "10 or -10" : "10000 or -10000"} />
+                      {rate.adjustmentType === "PERCENT" && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>}
+                    </span>
+                    {rate.adjustmentType !== "FIXED" && <span className="text-[10px] font-medium text-neutral-400">Use a minus sign to sell below the base rate, e.g. -10.</span>}
+                  </label>}
+            </div>
+
+            {/* Step 4: booking rules */}
+            <div className="border-t border-neutral-100 pt-4">
+              <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Booking rules</p>
+              <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
+                <label htmlFor="rate-plan-minimum-stay" className="grid gap-1.5 text-xs font-semibold text-neutral-700">Minimum stay<input id="rate-plan-minimum-stay" type="number" min="1" max="365" className={inputClass} value={rate.defaultMinStay} onChange={(event) => setRate({ ...rate, defaultMinStay: event.target.value })} placeholder="1 night" /></label>
+                <label htmlFor="rate-plan-default" className="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-xs font-semibold text-neutral-700"><input id="rate-plan-default" type="checkbox" checked={rate.isDefault} onChange={(event) => setRate({ ...rate, isDefault: event.target.checked })} />Default direct rate</label>
+              </div>
+            </div>
+
+            {/* Live preview of the plan being built */}
+            {(() => {
+              const roomName = rate.roomTypeId ? (data?.roomTypes.find((room) => String(room.id) === rate.roomTypeId)?.name || "the selected room") : "all room types";
+              const mealLabel = ({ ROOM_ONLY: "room only", BREAKFAST: "breakfast included", HALF_BOARD: "half board", FULL_BOARD: "full board" } as Record<string, string>)[rate.mealPlan];
+              const amount = Number(rate.adjustment) || 0;
+              const price = rate.adjustmentType === "BASE" ? "each room's base rate"
+                : rate.adjustmentType === "FIXED" ? `${money(amount)} per night`
+                : rate.adjustmentType === "PERCENT" ? `the base rate ${amount >= 0 ? "+" : "-"}${Math.abs(amount)}%`
+                : `the base rate ${amount >= 0 ? "+" : "-"}${money(Math.abs(amount))}`;
+              return <div className="flex items-start gap-3 rounded-xl bg-[#f6f8f8] px-4 py-3 ring-1 ring-inset ring-neutral-200/80">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm ring-1 ring-neutral-200/70"><Sparkles className="h-4 w-4" /></span>
+                <p className="m-0 text-[11px] leading-5 text-neutral-600"><span className="font-bold text-neutral-900">{rate.name || "This plan"}</span> sells {roomName}, {mealLabel}, at {price}{Number(rate.defaultMinStay) > 1 ? `, ${rate.defaultMinStay}-night minimum` : ""}.{rate.isDefault ? " Shown as the default direct rate." : ""}</p>
+              </div>;
+            })()}
           </div>
           <div className="mt-5 flex justify-end border-t border-neutral-100 pt-4">
             <button type="button" className={`${buttonClass} w-full sm:w-auto`} disabled={busy === "rate" || Boolean(duplicateRatePlan)} onClick={createRate}>{busy === "rate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save rate plan</button>

@@ -2,7 +2,8 @@
 // Group block (allotment) dialogs: agree rooms for a party before any guest
 // name exists. The rooming list and pickup follow; a block on its own already
 // does the important job of stopping the desk overselling rooms it promised.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { AlertTriangle, ArrowLeftRight, BedDouble, Building2, CalendarClock, Check, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, ReceiptText, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
@@ -44,6 +45,11 @@ export type GroupBlock = {
   roomsHeld: number;
   roomsPickedUp: number;
   blockValue: number;
+  groupMinimumRooms: number;
+  agreedRoomsAtCreation: number | null;
+  groupClassification: "STANDARD" | "APPROVED_SMALL" | "GRANDFATHERED";
+  smallGroupApprovedAt: string | null;
+  smallGroupApprovalReason: string | null;
   masterFolio: {
     id: number;
     reference: string;
@@ -126,6 +132,10 @@ type RoomTypeOption = { id: number; name: string; baseRate: number | null };
 
 type DraftLine = { roomTypeId: number | ""; quantity: number; nightlyRate: string };
 
+const STANDARD_GROUP_MIN_ROOMS = 5;
+const APPROVED_SMALL_GROUP_MIN_ROOMS = 2;
+const SMALL_GROUP_REASON_MIN_LENGTH = 10;
+
 const BILLING_MODES: Array<{ value: string; label: string; detail: string }> = [
   { value: "INDIVIDUAL", label: "Each guest pays their own", detail: "Rooms and extras settle on each guest's own folio." },
   { value: "SPLIT", label: "Agency pays rooms, guests pay extras", detail: "The usual tour arrangement. Rooms and tax to the agency, bar and laundry to the guest." },
@@ -136,6 +146,10 @@ const inputCls =
   "h-11 w-full min-w-0 max-w-full box-border rounded-xl border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 const labelCls = "mb-1.5 block text-xs font-semibold text-neutral-700";
+
+function RequiredMark() {
+  return <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>;
+}
 
 function BillingModeCards({ value, onChange, name, disabled = false }: { value: string; onChange: (value: string) => void; name: string; disabled?: boolean }) {
   return (
@@ -327,8 +341,9 @@ export function CreateGroupBlockModal({
   const [checkOut, setCheckOut] = useState(todayIso(10));
   const [cutOffAt, setCutOffAt] = useState(todayIso(3));
   const [billingMode, setBillingMode] = useState("SPLIT");
-  const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ roomTypeId: "", quantity: 1, nightlyRate: "" }]);
+  const [approveSmallGroup, setApproveSmallGroup] = useState(false);
+  const [smallGroupApprovalReason, setSmallGroupApprovalReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -352,6 +367,8 @@ export function CreateGroupBlockModal({
   }, [lines, nights]);
 
   const usedTypeIds = lines.map((line) => line.roomTypeId).filter(Boolean) as number[];
+  const isSingleRoom = totals.rooms === 1;
+  const needsSmallGroupApproval = totals.rooms >= APPROVED_SMALL_GROUP_MIN_ROOMS && totals.rooms < STANDARD_GROUP_MIN_ROOMS;
 
   const setLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -360,6 +377,7 @@ export function CreateGroupBlockModal({
   const save = async () => {
     if (name.trim().length < 2) return setError("Give the block a name the desk will recognise");
     if (contactName.trim().length < 2) return setError("Enter the group leader or agency contact name");
+    if (contactPhone.trim().length < 7) return setError("Enter the group contact phone number");
     if (!/^\S+@\S+\.\S+$/.test(contactEmail.trim())) return setError("Enter the email address that should receive the group documents");
     if (billingMode !== "INDIVIDUAL" && agencyName.trim().length < 2) return setError("Enter the agency or company that will receive the bill");
     if (nights < 1) return setError("Departure must be after arrival");
@@ -369,6 +387,10 @@ export function CreateGroupBlockModal({
       nightlyRate: Number(line.nightlyRate || 0),
     }));
     if (!rooms.length) return setError("Add at least one room type to hold");
+    const agreedRooms = rooms.reduce((sum, room) => sum + room.quantity, 0);
+    if (agreedRooms < APPROVED_SMALL_GROUP_MIN_ROOMS) return setError("One room is a normal reservation, not a group. Create it from Reservations instead.");
+    if (agreedRooms < STANDARD_GROUP_MIN_ROOMS && !approveSmallGroup) return setError(`Standard groups start at ${STANDARD_GROUP_MIN_ROOMS} rooms. Approve this contracted party as a small group, or use normal reservations.`);
+    if (agreedRooms < STANDARD_GROUP_MIN_ROOMS && smallGroupApprovalReason.trim().length < SMALL_GROUP_REASON_MIN_LENGTH) return setError(`Explain the small-group exception in at least ${SMALL_GROUP_REASON_MIN_LENGTH} characters.`);
     setBusy(true);
     setError(null);
     try {
@@ -382,7 +404,7 @@ export function CreateGroupBlockModal({
         checkOut,
         cutOffAt,
         billingMode,
-        notes: notes.trim() || null,
+        smallGroupApprovalReason: agreedRooms < STANDARD_GROUP_MIN_ROOMS ? smallGroupApprovalReason.trim() : null,
         rooms,
       });
       await onSaved();
@@ -413,24 +435,25 @@ export function CreateGroupBlockModal({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
+          <p className="m-0 text-[11px] font-semibold text-neutral-500 sm:col-span-2"><RequiredMark /> Required fields</p>
           <label className="block">
-            <span className={labelCls}>Block name</span>
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Kilimanjaro Tour, August" autoFocus />
+            <span className={labelCls}>Block name<RequiredMark /></span>
+            <input className={inputCls} required value={name} onChange={(e) => setName(e.target.value)} placeholder="Kilimanjaro Tour, August" autoFocus />
           </label>
           <label className="block">
-            <span className={labelCls}>Agency or company {billingMode === "INDIVIDUAL" && <span className="font-normal text-neutral-400">(optional)</span>}</span>
+            <span className={labelCls}>Agency or company {billingMode === "INDIVIDUAL" ? <span className="font-normal text-neutral-400">(optional)</span> : <RequiredMark />}</span>
             <input className={inputCls} required={billingMode !== "INDIVIDUAL"} value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="Serengeti Adventures Ltd" />
           </label>
           <label className="block">
-            <span className={labelCls}>Group leader or agency contact</span>
+            <span className={labelCls}>Group leader or agency contact<RequiredMark /></span>
             <input className={inputCls} required value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Full name" />
           </label>
           <label className="block">
-            <span className={labelCls}>Contact phone <span className="font-normal text-neutral-400">(optional)</span></span>
-            <input className={inputCls} value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="+255..." />
+            <span className={labelCls}>Contact phone<RequiredMark /></span>
+            <input className={inputCls} required minLength={7} value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="+255..." />
           </label>
           <label className="block sm:col-span-2">
-            <span className={labelCls}>Document email</span>
+            <span className={labelCls}>Document email<RequiredMark /></span>
             <input className={inputCls} type="email" required value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="bookings@agency.co.tz" />
             <span className="mt-1 block text-[11px] text-neutral-500">Pro Forma invoices and other group documents go here.</span>
           </label>
@@ -438,6 +461,7 @@ export function CreateGroupBlockModal({
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="min-w-0">
+            <span className={labelCls}>Arrival<RequiredMark /></span>
             <DatePickerField
               label="Arrival"
               value={checkIn}
@@ -457,6 +481,7 @@ export function CreateGroupBlockModal({
             <p className="m-0 mt-1.5 text-[11px] leading-4 text-neutral-500">Party checks in.</p>
           </div>
           <div className="min-w-0">
+            <span className={labelCls}>Departure<RequiredMark /></span>
             <DatePickerField
               label="Departure"
               value={checkOut}
@@ -471,6 +496,7 @@ export function CreateGroupBlockModal({
             </p>
           </div>
           <div className="min-w-0">
+            <span className={labelCls}>Names needed by<RequiredMark /></span>
             <DatePickerField
               label="Names needed by"
               value={cutOffAt}
@@ -490,7 +516,7 @@ export function CreateGroupBlockModal({
 
         <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3.5">
           <div className="mb-2.5 flex items-center justify-between gap-3">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Rooms to hold</p>
+            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Rooms to hold<RequiredMark /></p>
             <span className="text-xs font-semibold text-neutral-500">{nights} {nights === 1 ? "night" : "nights"}</span>
           </div>
           <div className="space-y-2">
@@ -498,6 +524,7 @@ export function CreateGroupBlockModal({
               <div key={index} className="grid grid-cols-[minmax(0,1fr)_84px_minmax(0,140px)_32px] items-center gap-2">
                 <select
                   aria-label="Room type"
+                  required
                   className="box-border h-10 w-full min-w-0 cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-sm"
                   value={line.roomTypeId}
                   onChange={(e) => {
@@ -514,6 +541,7 @@ export function CreateGroupBlockModal({
                 <input
                   type="number"
                   min={1}
+                  required
                   aria-label="Rooms"
                   className="box-border h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-sm tabular-nums"
                   value={line.quantity}
@@ -549,23 +577,76 @@ export function CreateGroupBlockModal({
           </button>
         </div>
 
+        {isSingleRoom && (
+          <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+            <div>
+              <p className="m-0 text-sm font-bold text-amber-950">This is a normal reservation</p>
+              <p className="m-0 mt-1 text-xs leading-5 text-amber-900">A group must include at least two rooms. Create this stay from Reservations instead.</p>
+              <Link href="/owner/nrms/reservations" className="mt-2 inline-flex text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-4">Go to Reservations</Link>
+            </div>
+          </div>
+        )}
+
+        {needsSmallGroupApproval && (
+          <div className="overflow-hidden rounded-2xl border border-solid border-amber-300 bg-gradient-to-br from-amber-50 to-white shadow-sm">
+            <div className="border-0 border-b border-solid border-amber-200 px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
+                  <div>
+                    <p className="m-0 text-sm font-bold text-amber-950">Choose how to manage this {totals.rooms}-room party</p>
+                    <p className="m-0 mt-1 text-xs leading-5 text-amber-900">It is {STANDARD_GROUP_MIN_ROOMS - totals.rooms} {STANDARD_GROUP_MIN_ROOMS - totals.rooms === 1 ? "room" : "rooms"} below the standard group minimum. Select the option that matches the agreement.</p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">{totals.rooms} of {STANDARD_GROUP_MIN_ROOMS} rooms</span>
+              </div>
+            </div>
+
+            <div className="grid gap-2.5 p-4 sm:grid-cols-2">
+              <Link href="/owner/nrms/reservations" className="group flex items-start gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 text-left no-underline shadow-sm transition hover:border-sky-300 hover:shadow-md">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><BedDouble className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-bold text-neutral-950">Regular reservations</span>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">Separate guest details and payments.</span>
+                  <span className="mt-1.5 block text-[10px] font-bold text-sky-700 group-hover:text-sky-900">Open Reservations</span>
+                </span>
+              </Link>
+
+              <button type="button" aria-pressed={approveSmallGroup} onClick={() => { setApproveSmallGroup((current) => !current); setError(null); }} className={`relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3 text-left shadow-sm transition ${approveSmallGroup ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15" : "border-neutral-200 bg-white hover:border-emerald-300 hover:shadow-md"}`}>
+                {approveSmallGroup && <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-2.5 w-2.5" strokeWidth={3} /></span>}
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approveSmallGroup ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}><Building2 className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0 flex-1 pr-4">
+                  <span className="block text-xs font-bold text-neutral-950">Contracted small group</span>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">One deadline, rooming list, or shared billing.</span>
+                  <span className={`mt-1.5 block text-[10px] font-bold ${approveSmallGroup ? "text-emerald-800" : "text-neutral-700"}`}>{approveSmallGroup ? "Selected" : "Approve this option"}</span>
+                </span>
+              </button>
+            </div>
+
+            {approveSmallGroup && (
+              <label className="mx-4 mb-4 block rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4 sm:mx-5 sm:mb-5">
+                <span className="block text-xs font-bold text-emerald-950">Why is this party being approved?<RequiredMark /></span>
+                <span className="mt-1 block text-[10px] leading-4 text-emerald-700">This reason is saved with the group for accountability.</span>
+                <textarea value={smallGroupApprovalReason} onChange={(event) => setSmallGroupApprovalReason(event.target.value)} maxLength={300} rows={2} autoFocus placeholder="For example: Tour operator contract with shared billing" className="mt-3 box-border w-full resize-y rounded-lg border border-solid border-emerald-300 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15" />
+              </label>
+            )}
+          </div>
+        )}
+
+        {totals.rooms >= STANDARD_GROUP_MIN_ROOMS && (
+          <div className="flex items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+            <Check className="h-4 w-4" /> Qualifies as a standard group with {totals.rooms} rooms.
+          </div>
+        )}
+
         <div>
           <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <span className="text-xs font-semibold text-neutral-700">Who settles the bill</span>
+            <span className="text-xs font-semibold text-neutral-700">Who settles the bill<RequiredMark /></span>
             <span className="text-[10px] text-neutral-500">Choose where room charges and guest extras will settle.</span>
           </div>
           <BillingModeCards value={billingMode} onChange={setBillingMode} name="billingMode" />
         </div>
-
-        <label className="block">
-          <span className={labelCls}>Desk note <span className="font-normal text-neutral-400">(optional)</span></span>
-          <textarea
-            className="box-border min-h-20 w-full min-w-0 max-w-full resize-y rounded-xl border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Arrival transport, meal arrangement, invoicing instructions"
-          />
-        </label>
 
         {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
@@ -604,7 +685,8 @@ export function GroupBlockDetailModal({
   const [editing, setEditing] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showRoomingList, setShowRoomingList] = useState(false);
-  const [draft, setDraft] = useState({ name: "", agencyName: "", contactName: "", contactPhone: "", contactEmail: "", cutOffAt: "", billingMode: "INDIVIDUAL", notes: "" });
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState({ name: "", agencyName: "", contactName: "", contactPhone: "", contactEmail: "", cutOffAt: "", billingMode: "INDIVIDUAL" });
   const [roomAmendments, setRoomAmendments] = useState<Array<{ id: number; roomTypeName: string; quantity: string; nightlyRate: string }>>([]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [guestName, setGuestName] = useState("");
@@ -614,6 +696,8 @@ export function GroupBlockDetailModal({
   const [agencyPaymentAmount, setAgencyPaymentAmount] = useState("");
   const [agencyPaymentMethod, setAgencyPaymentMethod] = useState("BANK");
   const [agencyPaymentReference, setAgencyPaymentReference] = useState("");
+  const agencyPaymentRequest = useRef<{ signature: string; key: string } | null>(null);
+  const [agencyPaymentError, setAgencyPaymentError] = useState<string | null>(null);
   const [proFormaError, setProFormaError] = useState<{ message: string; code?: string } | null>(null);
   const [proFormaNotice, setProFormaNotice] = useState<string | null>(null);
   const [statementNotice, setStatementNotice] = useState<string | null>(null);
@@ -651,27 +735,34 @@ export function GroupBlockDetailModal({
     return () => { cancelled = true; };
   }, [blockId]);
 
-  const openEditor = () => {
+  const openEditor = (extendDeadline = false) => {
     if (!block) return;
+    const tomorrow = todayIso(1);
+    const lastPossibleDeadline = String(block.checkOut).slice(0, 10);
+    const suggestedDeadline = extendDeadline && tomorrow <= lastPossibleDeadline ? tomorrow : String(block.cutOffAt).slice(0, 10);
     setDraft({
       name: block.name,
       agencyName: block.agencyName ?? "",
       contactName: block.contactName ?? "",
       contactPhone: block.contactPhone ?? "",
       contactEmail: block.contactEmail ?? "",
-      cutOffAt: String(block.cutOffAt).slice(0, 10),
+      cutOffAt: suggestedDeadline,
       billingMode: block.billingMode,
-      notes: block.notes ?? "",
     });
     setRoomAmendments(block.rooms.map((room) => ({ id: room.id, roomTypeName: room.roomTypeName || "Room type", quantity: String(room.quantity), nightlyRate: String(room.nightlyRate) })));
     setError(null);
     setEditing(true);
   };
 
+  useEffect(() => {
+    if (editing) editorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [editing]);
+
   const saveEdit = async () => {
     if (!block) return;
     if (draft.name.trim().length < 2) return setError("Give the block a name the desk will recognise");
     if (draft.contactName.trim().length < 2) return setError("Enter the group leader or agency contact name");
+    if (draft.contactPhone.trim().length < 7) return setError("Enter the group contact phone number");
     if (!/^\S+@\S+\.\S+$/.test(draft.contactEmail.trim())) return setError("Enter the email address that should receive the group documents");
     if (draft.billingMode !== "INDIVIDUAL" && draft.agencyName.trim().length < 2) return setError("Enter the agency or company that will receive the bill");
     if (block.roomsPickedUp === 0 && roomAmendments.some((room) => !Number.isInteger(Number(room.quantity)) || Number(room.quantity) < 1 || !Number.isFinite(Number(room.nightlyRate)) || Number(room.nightlyRate) < 0)) return setError("Enter a valid quantity and rate for every room line");
@@ -682,11 +773,10 @@ export function GroupBlockDetailModal({
         name: draft.name.trim(),
         agencyName: draft.agencyName.trim() || null,
         contactName: draft.contactName.trim(),
-        contactPhone: draft.contactPhone.trim() || null,
+        contactPhone: draft.contactPhone.trim(),
         contactEmail: draft.contactEmail.trim(),
         cutOffAt: draft.cutOffAt,
         billingMode: draft.billingMode,
-        notes: draft.notes.trim() || null,
         ...(block.roomsPickedUp === 0 ? { rooms: roomAmendments.map((room) => ({ id: room.id, quantity: Number(room.quantity), nightlyRate: Number(room.nightlyRate) })) } : {}),
       });
       await reload();
@@ -761,21 +851,27 @@ export function GroupBlockDetailModal({
   const recordAgencyPayment = async () => {
     if (!block?.masterFolio) return;
     const amount = Number(agencyPaymentAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return setError("Enter the agency payment amount");
+    if (!Number.isFinite(amount) || amount <= 0) return setAgencyPaymentError("Enter the agency payment amount");
+    if (amount > block.masterFolio.paymentDue) return setAgencyPaymentError(`Payment cannot exceed the agency balance of ${block.masterFolio.paymentDue.toLocaleString()}`);
+    const signature = JSON.stringify([blockId, amount, agencyPaymentMethod, agencyPaymentReference.trim()]);
+    if (agencyPaymentRequest.current?.signature !== signature) agencyPaymentRequest.current = { signature, key: crypto.randomUUID() };
     setBusy(true);
     setError(null);
+    setAgencyPaymentError(null);
     try {
       await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payments`, {
         amount,
         method: agencyPaymentMethod,
+        idempotencyKey: agencyPaymentRequest.current.key,
         reference: agencyPaymentReference.trim() || null,
       });
+      agencyPaymentRequest.current = null;
       await reload();
       setAgencyPaymentAmount("");
       setAgencyPaymentReference("");
       await onChanged();
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to record the agency payment");
+      setAgencyPaymentError(e?.response?.data?.error || "Failed to record the agency payment");
     } finally {
       setBusy(false);
     }
@@ -982,6 +1078,7 @@ export function GroupBlockDetailModal({
   const canManageBlockAgreement = accessRole === "OWNER";
   const canVoidAgencyPayment = accessRole === "OWNER" || accessRole === "MANAGER";
   const canManageAgencyRefunds = accessRole === "OWNER" || accessRole === "MANAGER";
+  const hasPaidConfirmedRooms = block?.chargeRegister.some((row) => row.sourceType === "ROOM" && ["PAID_BY_AGENCY", "GUEST_FOLIO_SETTLED"].includes(row.settlementStatus)) ?? false;
 
   return (
     <ModalFrame title={block?.name || "Group block"} onClose={onClose} extraWide>
@@ -997,6 +1094,9 @@ export function GroupBlockDetailModal({
               <p className="m-0 mt-1 text-sm font-bold text-neutral-900">
                 {block.roomsHeld} held · {block.roomsPickedUp} picked up · {block.roomsTotal} agreed
               </p>
+              {block.groupClassification === "APPROVED_SMALL" && <p className="m-0 mt-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">Approved contracted small group</p>}
+              {block.groupClassification === "GRANDFATHERED" && <p className="m-0 mt-1 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Existing group retained under the previous policy</p>}
+              {block.smallGroupApprovalReason && <p className="m-0 mt-0.5 text-[10px] text-neutral-500">Approval: {block.smallGroupApprovalReason}</p>}
               {block.agencyName && <p className="m-0 mt-0.5 text-xs text-neutral-500">{block.agencyName}</p>}
             </div>
             <div className="min-w-0 sm:text-right">
@@ -1036,8 +1136,8 @@ export function GroupBlockDetailModal({
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><FileText className="h-4 w-4" /></span>
                         <div className="min-w-0">
-                          <p className="m-0 text-sm font-bold text-neutral-950">Pro Forma invoice</p>
-                          <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">Request payment directly to the property&apos;s selected bank account.</p>
+                          <p className="m-0 text-sm font-bold text-neutral-950">{block.masterFolio.status === "SETTLED" ? "Previous Pro Forma" : "Pro Forma invoice"}</p>
+                          <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">{block.masterFolio.status === "SETTLED" ? "A record of the original payment request. The current agency account is settled." : "Request payment directly to the property's selected bank account."}</p>
                         </div>
                       </div>
                       {block.masterFolio.status !== "SETTLED" && block.masterFolio.paymentDue > 0.005 && (
@@ -1077,28 +1177,40 @@ export function GroupBlockDetailModal({
                       </div>
                     ) : (() => {
                       const proForma = block.masterFolio!.proFormas[0];
+                      const accountSettled = block.masterFolio!.status === "SETTLED";
                       return (
-                        <div className="mt-3 rounded-lg border border-solid border-neutral-200 bg-neutral-50 p-3">
+                        <div className="mt-3 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-50">
+                          {accountSettled && (
+                            <div className="flex items-center gap-2 border-0 border-b border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] font-bold text-emerald-800">
+                              <Check className="h-3.5 w-3.5" /> Current account settled. Nothing to pay.
+                            </div>
+                          )}
+                          <div className="p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
                               <p className="m-0 text-xs font-bold text-neutral-900">{proForma.number} <span className="font-semibold text-neutral-500">· Rev {proForma.revision}</span></p>
                               <p className="m-0 mt-1 text-[10px] text-neutral-500">Issued {fmtLongDate(proForma.issuedAt.slice(0, 10))} · Due {fmtLongDate(proForma.dueAt.slice(0, 10))} · Account ending {proForma.bankAccountLast4}</p>
                               {proForma.bankSource === "MANUAL_UNVERIFIED" && <p className="m-0 mt-1 text-[9px] font-bold uppercase tracking-wide text-amber-700">Manual bank · Not verified by NoLSAF or AzamPay</p>}
                             </div>
-                            <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${proForma.paymentStatus === "PAID" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{proForma.paymentStatus.replace(/_/g, " ")}</span>
+                            <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${accountSettled ? "bg-neutral-200 text-neutral-700" : proForma.paymentStatus === "PAID" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{accountSettled ? "PREVIOUS REQUEST" : proForma.paymentStatus.replace(/_/g, " ")}</span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-200 pt-2">
-                            <p className="m-0 text-[11px] font-semibold text-neutral-700">Due now: <span className="font-bold tabular-nums text-neutral-950">{proForma.liveBalance.toLocaleString()} {proForma.currency}</span>{proForma.sentAt ? ` · Sent to ${proForma.sentToEmail}` : ""}{proForma.viewCount ? ` · Viewed ${proForma.viewCount} time${proForma.viewCount === 1 ? "" : "s"}` : ""}</p>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Original request</p><p className="m-0 mt-1 text-[11px] font-bold tabular-nums text-neutral-900">{proForma.quotedTotal.toLocaleString()} {proForma.currency}</p></div>
+                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Payment recorded</p><p className="m-0 mt-1 text-[11px] font-bold tabular-nums text-neutral-900">{proForma.paidNow.toLocaleString()} {proForma.currency}</p></div>
+                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">{accountSettled ? "No longer payable" : "Amount due"}</p><p className={`m-0 mt-1 text-[11px] font-bold tabular-nums ${accountSettled ? "text-neutral-500" : "text-amber-800"}`}>{proForma.liveBalance.toLocaleString()} {proForma.currency}</p></div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-200 pt-3">
+                            <p className="m-0 text-[10px] text-neutral-500">{proForma.sentAt ? `Sent to ${proForma.sentToEmail}` : "Not sent yet"}{proForma.viewCount ? ` · Viewed ${proForma.viewCount} time${proForma.viewCount === 1 ? "" : "s"}` : ""}</p>
                             <div className="flex flex-wrap gap-1.5">
                               <button type="button" onClick={() => void downloadProForma(proForma.id, proForma.number)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-solid border-neutral-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"><Download className="h-3 w-3" /> PDF</button>
                               <a href={proForma.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-solid border-neutral-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-neutral-700 no-underline hover:bg-neutral-100"><Link2 className="h-3 w-3" /> Verify</a>
-                              <button type="button" onClick={() => void sendProForma(proForma.id)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1 rounded-md border-0 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{proForma.sentAt ? <Mail className="h-3 w-3" /> : <Send className="h-3 w-3" />} {proForma.sentAt ? "Resend" : `Send to ${block.contactEmail}`}</button>
+                              {!accountSettled && <button type="button" onClick={() => void sendProForma(proForma.id)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1 rounded-md border-0 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{proForma.sentAt ? <Mail className="h-3 w-3" /> : <Send className="h-3 w-3" />} {proForma.sentAt ? "Resend" : `Send to ${block.contactEmail}`}</button>}
                             </div>
+                          </div>
                           </div>
                         </div>
                       );
                     })()}
-                    {block.masterFolio.status === "SETTLED" && <p className="m-0 mt-3 text-[10px] font-semibold text-emerald-800">This agency account is settled. Use the final receipt or statement rather than issuing another request for payment.</p>}
                   </div>
 
                   <div className="flex flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
@@ -1118,12 +1230,24 @@ export function GroupBlockDetailModal({
 
                   {block.masterFolio.paymentDue > 0.005 && (
                     <div className="grid gap-2 sm:grid-cols-[1fr_160px_1fr_auto]">
-                      <input className={inputCls} type="number" min="0.01" max={block.masterFolio.paymentDue} step="0.01" value={agencyPaymentAmount} onChange={(e) => setAgencyPaymentAmount(e.target.value)} placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`} />
+                      <input
+                        className={`${inputCls} ${agencyPaymentError ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
+                        type="number"
+                        min="0.01"
+                        max={block.masterFolio.paymentDue}
+                        step="0.01"
+                        value={agencyPaymentAmount}
+                        onChange={(e) => { setAgencyPaymentAmount(e.target.value); setAgencyPaymentError(null); }}
+                        placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`}
+                        aria-invalid={Boolean(agencyPaymentError)}
+                        aria-describedby={agencyPaymentError ? "agency-payment-error" : undefined}
+                      />
                       <select className={inputCls} value={agencyPaymentMethod} onChange={(e) => setAgencyPaymentMethod(e.target.value)}>
                         <option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="CASH">Cash</option><option value="OTHER">Other</option>
                       </select>
                       <input className={inputCls} value={agencyPaymentReference} onChange={(e) => setAgencyPaymentReference(e.target.value)} placeholder="Transfer reference (optional)" />
                       <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="cursor-pointer rounded-xl border-0 bg-sky-700 px-4 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-50">Record payment</button>
+                      {agencyPaymentError && <p id="agency-payment-error" className="m-0 text-xs font-semibold text-red-700 sm:col-span-4">{agencyPaymentError}</p>}
                     </div>
                   )}
                   {block.masterFolio.payments.length > 0 && (
@@ -1240,10 +1364,15 @@ export function GroupBlockDetailModal({
             <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
               <div className="min-w-0">
-                <p className="m-0 text-sm font-bold text-amber-950">The deadline for names has passed</p>
+                <p className="m-0 text-sm font-bold text-amber-950">Guest names are overdue</p>
                 <p className="m-0 mt-1 text-xs leading-5 text-amber-900">
-                  The {block.roomsHeld} unnamed {block.roomsHeld === 1 ? "room is" : "rooms are"} back on sale already. Close the block to tidy it off the list, or use Edit details to push the deadline back if the agency is still coming.
+                  {hasPaidConfirmedRooms ? "Paid and confirmed rooms remain secure. " : block.roomsPickedUp > 0 ? "Confirmed rooms remain secure. " : ""}The remaining {block.roomsHeld} {block.roomsHeld === 1 ? "room is" : "rooms are"} no longer reserved and may be booked by other guests. Extend the deadline if the agency still needs {block.roomsHeld === 1 ? "it" : "them"}.
                 </p>
+                {canManageBlockAgreement && (
+                  <button type="button" onClick={() => openEditor(true)} disabled={busy} className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-amber-400 bg-white px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50">
+                    <CalendarClock className="h-3.5 w-3.5" /> Extend deadline
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1255,7 +1384,7 @@ export function GroupBlockDetailModal({
                   <tr className="border-b border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
                     <th className="px-4 py-2.5">Room type</th>
                     <th className="px-4 py-2.5 text-center">Agreed</th>
-                    <th className="px-4 py-2.5 text-center">Picked up</th>
+                    <th className="whitespace-nowrap px-4 py-2.5 text-center">Picked up</th>
                     <th className="px-4 py-2.5 text-center">Still held</th>
                     <th className="px-4 py-2.5 text-right">Rate per night</th>
                     <th className="px-4 py-2.5 text-right">Name a guest</th>
@@ -1354,30 +1483,32 @@ export function GroupBlockDetailModal({
           )}
 
           {editing && (
-            <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
+            <div ref={editorRef} className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
               <p className="m-0 mb-3 text-sm font-bold text-neutral-900">Edit block details</p>
               <div className="grid gap-3 sm:grid-cols-2">
+                <p className="m-0 text-[11px] font-semibold text-neutral-500 sm:col-span-2"><RequiredMark /> Required fields</p>
                 <label className="block">
-                  <span className={labelCls}>Block name</span>
-                  <input className={inputCls} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                  <span className={labelCls}>Block name<RequiredMark /></span>
+                  <input className={inputCls} required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
                 </label>
                 <label className="block">
-                  <span className={labelCls}>Agency or company {draft.billingMode === "INDIVIDUAL" && <span className="font-normal text-neutral-400">(optional)</span>}</span>
+                  <span className={labelCls}>Agency or company {draft.billingMode === "INDIVIDUAL" ? <span className="font-normal text-neutral-400">(optional)</span> : <RequiredMark />}</span>
                   <input className={inputCls} required={draft.billingMode !== "INDIVIDUAL"} value={draft.agencyName} onChange={(e) => setDraft({ ...draft, agencyName: e.target.value })} />
                 </label>
                 <label className="block">
-                  <span className={labelCls}>Group leader or agency contact</span>
+                  <span className={labelCls}>Group leader or agency contact<RequiredMark /></span>
                   <input className={inputCls} required value={draft.contactName} onChange={(e) => setDraft({ ...draft, contactName: e.target.value })} />
                 </label>
                 <label className="block">
-                  <span className={labelCls}>Contact phone</span>
-                  <input className={inputCls} value={draft.contactPhone} onChange={(e) => setDraft({ ...draft, contactPhone: e.target.value })} placeholder="Optional" />
+                  <span className={labelCls}>Contact phone<RequiredMark /></span>
+                  <input className={inputCls} required minLength={7} value={draft.contactPhone} onChange={(e) => setDraft({ ...draft, contactPhone: e.target.value })} />
                 </label>
                 <label className="block">
-                  <span className={labelCls}>Document email</span>
+                  <span className={labelCls}>Document email<RequiredMark /></span>
                   <input className={inputCls} type="email" required value={draft.contactEmail} onChange={(e) => setDraft({ ...draft, contactEmail: e.target.value })} />
                 </label>
                 <div className="min-w-0">
+                  <span className={labelCls}>Names needed by<RequiredMark /></span>
                   <DatePickerField
                     label="Names needed by"
                     value={draft.cutOffAt}
@@ -1397,8 +1528,8 @@ export function GroupBlockDetailModal({
                     {roomAmendments.map((room, index) => (
                       <div key={room.id} className="grid items-end gap-2 sm:grid-cols-[1fr_110px_160px]">
                         <p className="m-0 pb-3 text-xs font-semibold text-neutral-700">{room.roomTypeName}</p>
-                        <label className="block"><span className={labelCls}>Rooms</span><input className={inputCls} type="number" min="1" max="200" value={room.quantity} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: e.target.value } : item))} /></label>
-                        <label className="block"><span className={labelCls}>Rate per night</span><input className={inputCls} type="number" min="0" step="0.01" value={room.nightlyRate} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, nightlyRate: e.target.value } : item))} /></label>
+                        <label className="block"><span className={labelCls}>Rooms<RequiredMark /></span><input className={inputCls} type="number" min="1" max="200" required value={room.quantity} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: e.target.value } : item))} /></label>
+                        <label className="block"><span className={labelCls}>Rate per night<RequiredMark /></span><input className={inputCls} type="number" min="0" step="0.01" required value={room.nightlyRate} onChange={(e) => setRoomAmendments((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, nightlyRate: e.target.value } : item))} /></label>
                       </div>
                     ))}
                   </div>
@@ -1406,20 +1537,12 @@ export function GroupBlockDetailModal({
               )}
               <div className="mt-3">
                 <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <span className="text-xs font-semibold text-neutral-700">Who settles the bill</span>
+                  <span className="text-xs font-semibold text-neutral-700">Who settles the bill<RequiredMark /></span>
                   <span className="text-[10px] text-neutral-500">Choose where room charges and guest extras will settle.</span>
                 </div>
                 <BillingModeCards value={draft.billingMode} onChange={(billingMode) => setDraft({ ...draft, billingMode })} name="editBillingMode" disabled={block.roomsPickedUp > 0} />
                 {block.roomsPickedUp > 0 && <p className="m-0 mt-1.5 text-[11px] text-neutral-500">Billing responsibility is fixed after the first room is picked up.</p>}
               </div>
-              <label className="mt-3 block">
-                <span className={labelCls}>Desk note</span>
-                <textarea
-                  className="box-border min-h-16 w-full min-w-0 max-w-full resize-y rounded-xl border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-                  value={draft.notes}
-                  onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                />
-              </label>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => void saveEdit()} disabled={busy} className="inline-flex cursor-pointer appearance-none items-center gap-2 rounded-lg border-0 bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">
                   {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save changes
@@ -1432,7 +1555,7 @@ export function GroupBlockDetailModal({
           {(canWorkRoomingList || canManageBlockAgreement) && live && !confirmRelease && !confirmCancel && !editing && (
             <div className="flex flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 pt-4">
               {canManageBlockAgreement && (
-                <button type="button" onClick={openEditor} disabled={busy} className="mr-auto cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
+                <button type="button" onClick={() => openEditor()} disabled={busy} className="mr-auto cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3.5 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
                   Edit details
                 </button>
               )}

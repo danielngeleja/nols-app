@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import PasswordField from "../PasswordField";
 
 export default function DriverRegisterPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordValid, setPasswordValid] = useState(false);
   const [vehicleMake, setVehicleMake] = useState("");
   const [vehiclePlate, setVehiclePlate] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
@@ -55,10 +57,7 @@ export default function DriverRegisterPage() {
           <input className="input w-full" value={phone} onChange={(e)=>setPhone(e.target.value)} />
         </label>
 
-        <label className="block text-sm">
-          <span className="block mb-1">Password</span>
-          <input type="password" className="input w-full" value={password} onChange={(e)=>setPassword(e.target.value)} />
-        </label>
+        <PasswordField value={password} onChange={setPassword} onValidityChange={setPasswordValid} />
 
         <label className="block text-sm">
           <span className="block mb-1">Vehicle make / model (optional)</span>
@@ -77,7 +76,7 @@ export default function DriverRegisterPage() {
 
         {message && <div className="text-sm text-gray-700">{message}</div>}
 
-        <button className="btn btn-solid w-full" disabled={loading}>{loading ? 'Creating…' : 'Create driver account'}</button>
+        <button className="btn btn-solid w-full" disabled={loading || !passwordValid}>{loading ? 'Creating…' : 'Create driver account'}</button>
       </form>
     </div>
   );

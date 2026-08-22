@@ -38,9 +38,25 @@ export async function verifyPassword(hash: string | null | undefined, password: 
 
 // Validate password strength. Returns { valid, reasons[] } where reasons
 // contains human-friendly messages explaining why the password is weak.
-export function validatePasswordStrength(password: string, options?: { minLength?: number; requireUpper?: boolean; requireLower?: boolean; requireNumber?: boolean; requireSpecial?: boolean; noSpaces?: boolean; role?: string }) {
+export const PASSWORD_MIN_LENGTH_FLOOR = 8;
+export const PASSWORD_MAX_LENGTH = 128;
+export const PASSWORD_SPECIAL_CHARACTERS = "!@#$%^&*()-_=+[]{};:'\"\\|,<.>/?`~";
+
+export type PasswordValidationOptions = {
+  minLength?: number;
+  maxLength?: number;
+  requireUpper?: boolean;
+  requireLower?: boolean;
+  requireNumber?: boolean;
+  requireSpecial?: boolean;
+  noSpaces?: boolean;
+  role?: string;
+};
+
+export function validatePasswordStrength(password: string, options?: PasswordValidationOptions) {
   const opts = {
-    minLength: 8,
+    minLength: PASSWORD_MIN_LENGTH_FLOOR,
+    maxLength: PASSWORD_MAX_LENGTH,
     requireUpper: true,
     requireLower: true,
     requireNumber: true,
@@ -59,10 +75,13 @@ export function validatePasswordStrength(password: string, options?: { minLength
   }
   if (opts.noSpaces && /\s/.test(password)) reasons.push('Password must not contain spaces');
   if (password.length < opts.minLength) reasons.push(`Password must be at least ${opts.minLength} characters long`);
+  if (password.length > opts.maxLength) reasons.push(`Password must not exceed ${opts.maxLength} characters`);
   if (opts.requireUpper && !/[A-Z]/.test(password)) reasons.push('Password must include at least one uppercase letter');
   if (opts.requireLower && !/[a-z]/.test(password)) reasons.push('Password must include at least one lowercase letter');
   if (opts.requireNumber && !/[0-9]/.test(password)) reasons.push('Password must include at least one digit');
-  if (opts.requireSpecial && !/[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(password)) reasons.push('Password must include at least one special character (e.g. !@#$%)');
+  if (opts.requireSpecial && !Array.from(password).some((char) => PASSWORD_SPECIAL_CHARACTERS.includes(char))) {
+    reasons.push('Password must include at least one special character (e.g. !@#$%)');
+  }
 
   return { valid: reasons.length === 0, reasons };
 }
@@ -206,11 +225,13 @@ const passwordHistoryStore = new Map<string, string[]>();
 
 export async function isPasswordReused(userId: string | number, candidatePassword: string, limit = 5) {
   const id = String(userId);
-  // Try DB-backed storage if possible: common field names include previousPasswordHashes, previousPasswords
-    try {
+  try {
     if ((prisma as any).user) {
-      const u = await prisma.user.findUnique({ where: { id: userId as any }, select: { previousPasswordHashes: true, previousPasswords: true } as any });
-      const arr: string[] = (u as any)?.previousPasswordHashes ?? (u as any)?.previousPasswords ?? null;
+      const u = await prisma.user.findUnique({
+        where: { id: userId as any },
+        select: { previousPasswordHashes: true },
+      });
+      const arr: string[] = Array.isArray((u as any)?.previousPasswordHashes) ? (u as any).previousPasswordHashes : [];
       if (Array.isArray(arr) && arr.length) {
         for (const h of arr.slice(-limit)) {
           try { if (await argon2.verify(h, candidatePassword)) return true; } catch (e) { /* ignore */ }
@@ -231,21 +252,24 @@ export async function isPasswordReused(userId: string | number, candidatePasswor
 
 export async function addPasswordToHistory(userId: string | number, newHash: string, limit = 5) {
   const id = String(userId);
-  // Try to persist in DB if a suitable field exists
   try {
     if ((prisma as any).user) {
-      // Attempt to push into a string[] field if available. This will fail harmlessly when model doesn't exist.
-      try {
-      await prisma.user.update({ where: { id: userId as any }, data: { previousPasswordHashes: { push: newHash } } as any });
-        // Optionally trim server-side stored array if DB supports it — skip for now.
-        return { persisted: true };
-      } catch (e) {
-        // try alternative field
-        try { await prisma.user.update({ where: { id: userId as any }, data: { previousPasswords: { push: newHash } } as any }); return { persisted: true }; } catch (e2) { /* ignore */ }
-      }
+      const current = await prisma.user.findUnique({
+        where: { id: userId as any },
+        select: { previousPasswordHashes: true },
+      });
+      const existing = Array.isArray((current as any)?.previousPasswordHashes)
+        ? (current as any).previousPasswordHashes.filter((value: unknown): value is string => typeof value === 'string')
+        : [];
+      const next = [...existing, newHash].slice(-limit);
+      await prisma.user.update({
+        where: { id: userId as any },
+        data: { previousPasswordHashes: next } as any,
+      });
+      return { persisted: true };
     }
   } catch (e) {
-    // ignore
+    console.warn('Password history persistence failed; using process-local fallback', e);
   }
 
   // Fallback: in-memory

@@ -170,45 +170,49 @@ export default function NrmsOrdersPage() {
         <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center"><StoreIcon /><h3 className="mt-3 text-base font-bold text-neutral-900">No outlet configured</h3><p className="mt-1 text-sm text-neutral-500">Create a restaurant or bar under Outlets & menus before recording orders.</p></div>
       ) : (
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(25rem,1.1fr)]">
-          <section className="min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,0.9fr)] sm:items-end">
-              <div className="min-w-0">
-                <p className="m-0 text-sm font-bold text-neutral-900">Outlet ledger</p>
-                <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Open an outlet to view and select its entered items.</p>
+          <section className="min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-200 bg-neutral-50/70 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><ReceiptText className="h-4 w-4" /></span>
+                <div className="min-w-0">
+                  <p className="m-0 text-sm font-bold text-neutral-950">Outlet ledger</p>
+                  <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Choose an outlet and add items to the current order.</p>
+                </div>
               </div>
-              <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer<span className="text-red-500"> *</span><select value={selection} onChange={(event) => setSelection(event.target.value)} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-blue-300 bg-blue-50/40 px-3 py-0 text-sm font-medium normal-case tracking-normal text-blue-800 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10">
-                <option value="">Room guest, walk-in or table?</option>
-                <option value={WALK_IN}>Walk-in customer (not staying here)</option>
+              <label className="mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Serve order to<span className="text-red-500"> *</span><select value={selection} onChange={(event) => setSelection(event.target.value)} className={`mt-1.5 box-border !h-11 w-full min-w-0 rounded-lg border px-3 py-0 text-sm font-semibold normal-case tracking-normal outline-none transition focus:bg-white focus:ring-2 ${selection ? "border-emerald-300 bg-emerald-50/50 text-emerald-900 focus:border-emerald-500 focus:ring-emerald-500/10" : "border-neutral-300 bg-white text-neutral-600 focus:border-emerald-500 focus:ring-emerald-500/10"}`}>
+                <option value="">Select room guest, table or walk-in</option>
+                <option value={WALK_IN}>Walk-in customer</option>
                 {tablePoints.length > 0 && <optgroup label="Tables">{tablePoints.map((point) => <option key={point.id} value={`table-${point.id}`}>{point.label}</option>)}</optgroup>}
-                {guests.length > 0 && <optgroup label="Room guests">{guests.map((guest) => <option key={guest.id} value={`res-${guest.id}`}>{roomLabel(guest)} · {guest.guestProfile?.fullName ?? "Guest"}</option>)}</optgroup>}
+                {guests.length > 0 && <optgroup label="Checked-in room guests">{guests.map((guest) => <option key={guest.id} value={`res-${guest.id}`}>{roomLabel(guest)} · {guest.guestProfile?.fullName ?? "Guest"}</option>)}</optgroup>}
               </select></label>
             </div>
             {isGenericWalkIn && (
-              <label className="mt-3 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer label<input value={customerLabel} onChange={(event) => setCustomerLabel(event.target.value)} maxLength={120} placeholder="e.g. Table 4, a name (optional)" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
+              <label className="mx-4 mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer name or reference <span className="font-medium normal-case tracking-normal text-neutral-400">(optional)</span><input value={customerLabel} onChange={(event) => setCustomerLabel(event.target.value)} maxLength={120} placeholder="For example, Asha or counter guest" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
             )}
 
-            <div className="mt-4 space-y-2">
+            <div className="m-4 overflow-hidden rounded-xl border border-neutral-200 bg-white">
               {outlets.map((item) => {
                 const expanded = item.id === outletId;
                 const OutletIcon = item.type === "BAR" ? Wine : UtensilsCrossed;
                 return (
-                  <div key={item.id} className={`overflow-hidden rounded-lg border transition ${expanded ? "border-emerald-400 bg-white shadow-sm" : "border-neutral-300 bg-neutral-50"}`}>
-                    <button type="button" aria-expanded={expanded} onClick={() => { setOutletId(expanded ? "" : item.id); setCart({}); }} className={`box-border flex !min-h-12 w-full min-w-0 items-center gap-3 border-0 px-3 py-2 text-left hover:bg-emerald-50/60 ${expanded ? "bg-emerald-50/70" : "bg-transparent"}`}>
-                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${expanded ? "bg-emerald-100 text-emerald-800" : "bg-white text-neutral-500"}`}><OutletIcon className="h-4 w-4" /></span>
-                      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-900">{item.name}</span><span className="mt-0.5 block text-[9px] uppercase tracking-wide text-neutral-400">{item.type.toLowerCase()} · {item.menuItems.length} {item.menuItems.length === 1 ? "item" : "items"}</span></span>
-                      <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                  <div key={item.id} className="border-b border-neutral-100 last:border-b-0">
+                    <button type="button" aria-expanded={expanded} onClick={() => { setOutletId(expanded ? "" : item.id); setCart({}); }} className={`box-border flex !min-h-14 w-full min-w-0 items-center gap-3 border-0 px-3.5 py-2.5 text-left transition ${expanded ? "bg-emerald-50/80" : "bg-white hover:bg-neutral-50"}`}>
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm ${expanded ? "border-emerald-200 bg-white text-emerald-700" : item.type === "BAR" ? "border-sky-100 bg-sky-50 text-sky-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}><OutletIcon className="h-4 w-4" /></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-950">{item.name}</span><span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[0.08em] text-neutral-400">{item.code} · {item.menuItems.length} {item.menuItems.length === 1 ? "item" : "items"}</span></span>
+                      <span className={`mr-1 hidden rounded-md px-2 py-1 text-[9px] font-bold sm:inline ${expanded ? "bg-white text-emerald-700 shadow-sm" : "bg-neutral-100 text-neutral-500"}`}>{expanded ? "Viewing" : "Open"}</span>
+                      <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180 text-emerald-700" : "text-neutral-400"}`} />
                     </button>
 
                     {expanded && (
-                      <div className="border-t border-emerald-200 bg-white">
+                      <div className="border-t border-emerald-100 bg-white">
                         {item.menuItems.map((menuItem) => {
                           const outOfStock = menuItem.inStock === false;
                           return (
-                            <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : undefined} className={`box-border flex min-h-12 w-full min-w-0 items-center gap-3 border-0 border-b border-neutral-100 px-3 py-2 text-left transition last:border-b-0 disabled:cursor-not-allowed ${outOfStock ? "bg-neutral-50 opacity-60" : "bg-white hover:bg-emerald-50 disabled:opacity-50"}`}>
-                              <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-800">{menuItem.name}</span><span className="mt-0.5 block truncate text-[10px] text-neutral-400">{menuItem.category || "Uncategorised"}</span></span>
+                            <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : `Add ${menuItem.name} to the order`} className={`box-border flex min-h-14 w-full min-w-0 items-center gap-3 border-0 border-b border-neutral-100 px-4 py-2.5 text-left transition last:border-b-0 disabled:cursor-not-allowed ${outOfStock ? "bg-neutral-50 opacity-60" : "bg-white hover:bg-emerald-50/60 disabled:opacity-50"}`}>
+                              <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-900">{menuItem.name}</span><span className="mt-0.5 block truncate text-[10px] text-neutral-400">{menuItem.category || "Uncategorised"}</span></span>
                               {outOfStock && <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">Out of stock</span>}
-                              <strong className="shrink-0 text-xs tabular-nums text-emerald-700">{money(menuItem.price, item.currency)}</strong>
-                              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${outOfStock ? "bg-neutral-100 text-neutral-400" : "bg-emerald-100 text-emerald-800"}`}><Plus className="h-3.5 w-3.5" /></span>
+                              <strong className="shrink-0 text-xs tabular-nums text-emerald-800">{money(menuItem.price, item.currency)}</strong>
+                              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${outOfStock ? "border-neutral-200 bg-neutral-100 text-neutral-400" : "border-emerald-200 bg-emerald-50 text-emerald-800 shadow-sm"}`}><Plus className="h-3.5 w-3.5" /></span>
                             </button>
                           );
                         })}

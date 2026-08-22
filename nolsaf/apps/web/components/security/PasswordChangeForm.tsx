@@ -5,79 +5,11 @@ import Link from "next/link"
 import { Eye, EyeOff, Lock, CheckCircle2, XCircle, AlertCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import SecuritySettingsShell from "@/components/security/SecuritySettingsShell"
-
-type PasswordLengthPolicy = {
-  minLength: number
-  maxLength: number
-  exactLength?: number
-}
-
-function validatePasswordStrength(password: string, policy: PasswordLengthPolicy) {
-  const minLength = policy.minLength
-  const maxLength = policy.maxLength
-  const exactLength = policy.exactLength
-  const requireUpper = true
-  const requireLower = true
-  const requireNumber = true
-  const requireSpecial = true
-  const noSpaces = true
-
-  const reasons: string[] = []
-  let strength: "weak" | "medium" | "strong" = "weak"
-  let score = 0
-
-  if (typeof password !== "string" || password.length === 0) {
-    return { valid: false, reasons: [], strength: "weak" as const, score: 0 }
-  }
-
-  if (typeof exactLength === "number") {
-    if (password.length !== exactLength) {
-      reasons.push(`Password must be exactly ${exactLength} characters long`)
-    } else {
-      score += 2
-    }
-  } else {
-    if (password.length < minLength) {
-      reasons.push(`Password must be at least ${minLength} characters long`)
-    } else if (password.length > maxLength) {
-      reasons.push(`Password must not exceed ${maxLength} characters`)
-    } else {
-      score += 2
-    }
-  }
-
-  if (noSpaces && /\s/.test(password)) reasons.push("Password must not contain spaces")
-
-  if (requireUpper && !/[A-Z]/.test(password)) {
-    reasons.push("Password must include at least one uppercase letter")
-  } else {
-    score += 1
-  }
-
-  if (requireLower && !/[a-z]/.test(password)) {
-    reasons.push("Password must include at least one lowercase letter")
-  } else {
-    score += 1
-  }
-
-  if (requireNumber && !/[0-9]/.test(password)) {
-    reasons.push("Password must include at least one digit")
-  } else {
-    score += 1
-  }
-
-  if (requireSpecial && !/[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(password)) {
-    reasons.push("Password must include at least one special character (e.g. !@#$%)")
-  } else {
-    score += 1
-  }
-
-  if (reasons.length === 0) strength = score >= 5 ? "strong" : "medium"
-  else if (reasons.length <= 2) strength = "medium"
-  else strength = "weak"
-
-  return { valid: reasons.length === 0, reasons, strength, score }
-}
+import {
+  validatePasswordAgainstPolicy,
+  type PasswordPolicy,
+} from "@/lib/passwordPolicy"
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy"
 
 export type PasswordChangeFormProps = {
   apiUrl: string
@@ -98,8 +30,8 @@ export default function PasswordChangeForm({
   backHref,
   roleLabel = "DRIVER",
   variant = "page",
-  minLength = 8,
-  maxLength = 12,
+  minLength,
+  maxLength,
   exactLength,
   requireCurrentPassword = true,
   submitLabel,
@@ -113,12 +45,7 @@ export default function PasswordChangeForm({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [passwordValidation, setPasswordValidation] = useState<{
-    valid: boolean
-    reasons: string[]
-    strength: "weak" | "medium" | "strong"
-    score: number
-  }>({ valid: false, reasons: [], strength: "weak", score: 0 })
+  const { policy: serverPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy()
   const [passwordMatch, setPasswordMatch] = useState<boolean | null>(null)
   const [inputLocked, setInputLocked] = useState(false)
   const [confirmInputLocked, setConfirmInputLocked] = useState(false)
@@ -128,21 +55,20 @@ export default function PasswordChangeForm({
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0)
   const router = useRouter()
 
-  const effectiveMaxLength = useMemo(() => (typeof exactLength === "number" ? exactLength : maxLength), [exactLength, maxLength])
-  const policy = useMemo<PasswordLengthPolicy>(() => ({ minLength, maxLength: effectiveMaxLength, exactLength }), [minLength, effectiveMaxLength, exactLength])
-  const lengthLabel =
-    typeof exactLength === "number" ? `Exactly ${exactLength} characters` : `Between ${minLength} and ${effectiveMaxLength} characters`
-  const placeholderLabel =
-    typeof exactLength === "number" ? `${exactLength} characters` : `${minLength}-${effectiveMaxLength} characters`
-
-  useEffect(() => {
-    if (newPassword) {
-      const validation = validatePasswordStrength(newPassword, policy)
-      setPasswordValidation(validation)
-    } else {
-      setPasswordValidation({ valid: false, reasons: [], strength: "weak", score: 0 })
+  const policy = useMemo<PasswordPolicy>(() => {
+    if (typeof exactLength === "number") {
+      return { ...serverPolicy, minLength: exactLength, maxLength: exactLength }
     }
-  }, [newPassword, policy])
+    const configuredMin = typeof minLength === "number" ? Math.max(serverPolicy.minLength, minLength) : serverPolicy.minLength
+    const configuredMax = typeof maxLength === "number" ? Math.min(serverPolicy.maxLength, maxLength) : serverPolicy.maxLength
+    return { ...serverPolicy, minLength: Math.min(configuredMin, configuredMax), maxLength: configuredMax }
+  }, [serverPolicy, minLength, maxLength, exactLength])
+  const effectiveMaxLength = policy.maxLength
+  const passwordValidation = useMemo(() => validatePasswordAgainstPolicy(newPassword, policy), [newPassword, policy])
+  const lengthLabel =
+    typeof exactLength === "number" ? `Exactly ${exactLength} characters` : `At least ${policy.minLength} characters`
+  const placeholderLabel =
+    typeof exactLength === "number" ? `${exactLength} characters` : `at least ${policy.minLength} characters`
 
   useEffect(() => {
     if (confirmPassword && newPassword) {
@@ -213,10 +139,23 @@ export default function PasswordChangeForm({
         return
       }
     } else {
-      if (newPassword.length < minLength || newPassword.length > effectiveMaxLength) {
-        setError(`Password must be between ${minLength} and ${effectiveMaxLength} characters`)
+      if (newPassword.length < policy.minLength || newPassword.length > effectiveMaxLength) {
+        setError(
+          newPassword.length < policy.minLength
+            ? `Password must be at least ${policy.minLength} characters`
+            : "Password is too long",
+        )
         return
       }
+    }
+    if (!passwordValidation.valid) {
+      setError("Password requirements:\n" + passwordValidation.reasons.join("\n"))
+      return
+    }
+
+    if (!policyReady) {
+      setError("Password requirements are unavailable. Reload them before changing your password.")
+      return
     }
     if (currentPassword && newPassword === currentPassword) {
       setError("The new password must be different from your current password. Please choose a different password.")
@@ -233,7 +172,7 @@ export default function PasswordChangeForm({
       })
       if (!res.ok) {
         const b = await res.json().catch(() => null)
-        const reasons = b?.reasons || []
+        const reasons = b?.reasons || b?.details?.reasons || []
 
         const newFailureCount = consecutiveFailures + 1
         setConsecutiveFailures(newFailureCount)
@@ -289,28 +228,17 @@ export default function PasswordChangeForm({
 
   const safeBackHref = backHref || redirectHref || "/"
 
-  const requirements = [
-    {
-      check:
-        typeof exactLength === "number" ? newPassword.length === exactLength : newPassword.length >= minLength && newPassword.length <= effectiveMaxLength,
-      label: lengthLabel,
-    },
-    { check: /[A-Z]/.test(newPassword), label: "One uppercase letter (A-Z)" },
-    { check: /[a-z]/.test(newPassword), label: "One lowercase letter (a-z)" },
-    { check: /[0-9]/.test(newPassword), label: "One number (0-9)" },
-    {
-      check: /[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(newPassword),
-      label: "One special character (!@#$%&*)",
-    },
-    { check: !/\s/.test(newPassword), label: "No spaces" },
-  ]
+  const requirements = passwordValidation.requirements.map((requirement) => ({
+    check: requirement.pass,
+    label: requirement.id === "length" ? lengthLabel : requirement.label,
+  }))
 
   const isSection = variant === "section"
   const roleUpper = String(roleLabel || "").toUpperCase()
   const pageContainerClass = roleUpper === "DRIVER" ? "w-full max-w-6xl mx-auto px-4" : "public-container w-full"
 
   const SectionRequirements =
-    isSection && newPassword ? (
+    isSection && newPassword && policyReady ? (
       <div className="mt-2 space-y-2">
         <div className="space-y-1.5">
           <div className="flex items-center justify-between mb-1">
@@ -439,7 +367,7 @@ export default function PasswordChangeForm({
                   setNewPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={placeholderLabel}
                 className={`border rounded-lg px-3 py-2.5 pr-14 text-sm focus:outline-none focus:ring-1 transition-all duration-300 ease-out w-full bg-slate-800/60 text-slate-100 placeholder:text-slate-500 ${
                   inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)
@@ -493,7 +421,7 @@ export default function PasswordChangeForm({
                   setNewPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={`Enter your new password (${placeholderLabel})`}
                 className="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-600"
               />
@@ -503,7 +431,7 @@ export default function PasswordChangeForm({
                 onClick={() => setShowNewPassword(!showNewPassword)}
                 className="inline-flex w-12 shrink-0 appearance-none items-center justify-center border-0 bg-transparent text-slate-500 transition-colors hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus-visible:outline-none disabled:opacity-60"
                 aria-label={showNewPassword ? "Hide password" : "Show password"}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
               >
                 {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
@@ -541,7 +469,7 @@ export default function PasswordChangeForm({
                   setConfirmPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={placeholderLabel}
                 className={`border rounded-lg px-3 py-2.5 pr-14 text-sm focus:outline-none focus:ring-1 transition-all duration-300 ease-out w-full bg-slate-800/60 text-slate-100 placeholder:text-slate-500 ${
                   confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)
@@ -595,7 +523,7 @@ export default function PasswordChangeForm({
                   setConfirmPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={`Confirm your new password (${placeholderLabel})`}
                 className="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-600"
               />
@@ -605,7 +533,7 @@ export default function PasswordChangeForm({
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="inline-flex w-12 shrink-0 appearance-none items-center justify-center border-0 bg-transparent text-slate-500 transition-colors hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus-visible:outline-none disabled:opacity-60"
                 aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
               >
                 {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
@@ -634,9 +562,19 @@ export default function PasswordChangeForm({
 
   const FormFields = (
     <>
+      {policyStatus !== "ready" ? (
+        <div className={isSection ? "rounded-lg border border-amber-500/30 bg-amber-900/20 p-3 text-sm text-amber-300" : "rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"}>
+          <span>{policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}</span>
+          {policyStatus === "error" ? (
+            <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold underline">
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {InputsGrid}
 
-      {!isSection && newPassword ? (
+      {!isSection && newPassword && policyReady ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="space-y-2">
             <div className="space-y-1.5">
@@ -650,7 +588,7 @@ export default function PasswordChangeForm({
                   {passwordValidation.strength === "medium" && "⚠ Password needs improvement"}
                   {passwordValidation.strength === "weak" && "✗ Password is too weak"}
                 </span>
-                <span className="text-xs text-slate-500">{passwordValidation.score}/5</span>
+                <span className="text-xs text-slate-500">{passwordValidation.score}%</span>
               </div>
               <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                 <div
@@ -661,7 +599,7 @@ export default function PasswordChangeForm({
                         ? "bg-gradient-to-r from-yellow-400 to-orange-500"
                         : "bg-gradient-to-r from-red-400 to-red-600"
                   }`}
-                  style={{ width: `${Math.min(100, (passwordValidation.score / 5) * 100)}%` } as React.CSSProperties}
+                  style={{ width: `${passwordValidation.score}%` } as React.CSSProperties}
                 />
               </div>
             </div>
@@ -747,6 +685,7 @@ export default function PasswordChangeForm({
           type="submit"
           disabled={
             loading ||
+            !policyReady ||
             !passwordValidation.valid ||
             newPassword !== confirmPassword ||
             (requireCurrentPassword ? !currentPassword : false) ||

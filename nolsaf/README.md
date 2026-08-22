@@ -121,12 +121,20 @@ npm --workspace=@nolsaf/api run dev
 npm --workspace=@nolsaf/web run dev
 ```
 
-### Database Migrations
+### Database changes
 
-```bash
-npm run prisma:migrate      # Apply pending migrations
-npm run prisma:generate     # Regenerate Prisma client
+Follow the authoritative
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+Prisma schema, a new forward-only migration, its checksum, and compatible code
+must be reviewed and committed together.
+
+```powershell
+npm run prisma:generate
+npm run migrations:checksums
+npm run migrations:coverage
 ```
+
+Never run `prisma migrate dev`, `db push`, or `migrate reset` against staging or production.
 
 ---
 

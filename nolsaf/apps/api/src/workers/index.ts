@@ -1,5 +1,6 @@
 import type { Server as SocketServer } from "socket.io";
 import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js";
+import { startExpireAgentHoldsWorker } from "./expireAgentHolds.js";
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
@@ -82,6 +83,18 @@ export function startBackgroundWorkers(io: SocketServer): void {
 
     console.log("[workers] Background workers enabled for this process (worker lease acquired).");
 
+    // Kill-switch for outgoing AzamPay disbursements. Until the production
+    // disbursement credentials are provisioned the feature is not live, so
+    // DISBURSEMENTS_ENABLED=false keeps the batch *sender* dark. The
+    // reconciliation worker below is intentionally NOT gated: it is a cheap
+    // no-op when nothing is in flight, and leaving it on means this flag can
+    // never strand an already-submitted payout. Unset or set to "true" (the
+    // default) once the disbursement keys are in place.
+    const disbursementSenderEnabled = process.env.DISBURSEMENTS_ENABLED !== "false";
+    if (!disbursementSenderEnabled) {
+      console.log("[workers] Disbursement batch sender DISABLED (DISBURSEMENTS_ENABLED=false).");
+    }
+
     // Auto-assign near-term paid transport bookings. If no driver is assigned
     // within the grace window, the trip will later become claimable.
     startTransportAutoDispatch({ io });
@@ -90,6 +103,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireStaleBookings();
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
+    // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.
+    startExpireAgentHoldsWorker();
     startGuestSmsCampaignWorker();
     startDailyOccupiedHousekeepingWorker();
     startNrmsUsageAccrualWorker();
@@ -113,7 +128,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     // Submits authorized batches to AzamPay. Authorization is the human
     // decision; this is what actually moves the money, so that an HTTP
     // timeout can never strand a released batch half-submitted.
-    startDisbursementBatchWorker();
+    if (disbursementSenderEnabled) startDisbursementBatchWorker();
     startChannelOperationsWorker();
     // Calendar feeds need no credentials and no provider partnership, so this
     // one runs unconditionally: with no feeds attached it is a single indexed

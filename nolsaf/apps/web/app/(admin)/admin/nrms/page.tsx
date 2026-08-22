@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Hotel, Loader2, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Handshake, Hotel, Loader2, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "./_components/CommercialUi";
 
 type Enrollment = {
@@ -162,11 +162,11 @@ export default function AdminNrmsDirectoryPage() {
       <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
         <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">NRMS</div>
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3.5">
+        <div className="relative flex flex-col flex-wrap gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:gap-3.5 sm:text-left">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Hotel className="h-5 w-5" /></span>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
                 <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Read-only</span>
               </div>
@@ -175,6 +175,8 @@ export default function AdminNrmsDirectoryPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <Link href="/admin/nrms/agents" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldCheck className="h-4 w-4" /> Verify agencies</Link>
+            <Link href="/admin/nrms/partnerships" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Handshake className="h-4 w-4" /> Partnerships</Link>
             <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Wallet className="h-4 w-4" /> PAYG billing board</Link>
             <Link href="/admin/nrms/pricing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Coins className="h-4 w-4" /> Pricing &amp; levers</Link>
             <Link href="/admin/nrms/health" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldAlert className="h-4 w-4" /> System health</Link>

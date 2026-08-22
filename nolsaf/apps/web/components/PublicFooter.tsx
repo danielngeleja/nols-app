@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { BookOpen, BriefcaseBusiness, Building2, Compass, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone, Sparkles } from "lucide-react";
+import { BedDouble, BookOpen, BriefcaseBusiness, Building2, Compass, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone, Sparkles } from "lucide-react";
 import FooterBridge from "@/components/FooterBridge";
 
 const APP_VERSION = "v0.1.0";
@@ -405,6 +405,7 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
                 <ul className="m-0 grid list-none gap-2 p-0">
                   {[
                     { href: "/help", label: "Help Center", icon: BookOpen },
+                    { href: "/nrms", label: "NRMS for hotels", icon: BedDouble },
                     { href: "/careers", label: "Careers", icon: BriefcaseBusiness },
                   ].map((item) => (
                     <li key={item.href}>

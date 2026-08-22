@@ -13,8 +13,14 @@ const api = apiClient;
 type CustomerRow = {
   id: number;
   name: string | null;
-  email: string;
+  displayName?: string;
+  bookingGuestName?: string | null;
+  identityNameSource?: "ACCOUNT" | "BOOKING" | "MISSING";
+  email: string | null;
   phone: string | null;
+  registrationStatus?: "COMPLETE" | "INCOMPLETE";
+  registrationSource?: "WEB" | "TRAVELLER_APP" | "DRIVER_APP" | "PARTNERS_APP" | "LEGACY" | "UNKNOWN";
+  profileCompletedAt?: string | null;
   createdAt: string;
   emailVerifiedAt: string | null;
   phoneVerifiedAt: string | null;
@@ -33,6 +39,8 @@ type CustomersSummary = {
   totalRevenue: number;
   verifiedEmailCount?: number;
   verifiedPhoneCount?: number;
+  verifiedCustomerCount?: number;
+  incompleteRegistrationCount?: number;
 };
 
 type CustomerSortKey = "customer" | "accountId" | "contact" | "verification" | "status" | "bookings" | "totalSpent" | "lastBooking" | "joined";
@@ -40,6 +48,7 @@ type CustomerSortKey = "customer" | "accountId" | "contact" | "verification" | "
 export default function AdminUsersListPage(){
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [registrationStatus, setRegistrationStatus] = useState("");
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<CustomerRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -52,6 +61,7 @@ export default function AdminUsersListPage(){
     totalBookings: 0,
     totalRevenue: 0,
     verifiedCustomers: 0,
+    incompleteRegistrations: 0,
   });
   const pageSize = 30;
   const role = "CUSTOMER";
@@ -73,7 +83,7 @@ export default function AdminUsersListPage(){
       // (e.g. /admin/users is a page route, not an API route).
       const [listRes, summaryRes] = await Promise.all([
         api.get<{ data: CustomerRow[]; meta: { total: number } }>("/api/admin/users", {
-          params: { q, status, page, perPage: pageSize, role },
+          params: { q, status, registrationStatus, page, perPage: pageSize, role },
         }),
         api.get<CustomersSummary>("/api/admin/users/summary"),
       ]);
@@ -82,13 +92,14 @@ export default function AdminUsersListPage(){
       setTotal(listRes.data.meta?.total || 0);
 
       const summary = summaryRes.data;
-      const verified = Number(summary.verifiedEmailCount || 0) + Number(summary.verifiedPhoneCount || 0);
+      const verified = Number(summary.verifiedCustomerCount || 0);
       setStats({
         totalCustomers: Number(summary.totalCustomers || 0),
         activeCustomers: Number(summary.activeCustomers || 0),
         totalBookings: Number(summary.totalBookings || 0),
         totalRevenue: Number(summary.totalRevenue || 0),
         verifiedCustomers: verified,
+        incompleteRegistrations: Number(summary.incompleteRegistrationCount || 0),
       });
     } catch (err) {
       console.error("Failed to load customers", err);
@@ -97,7 +108,7 @@ export default function AdminUsersListPage(){
     } finally {
       setLoading(false);
     }
-  }, [q, status, page, role]);
+  }, [q, status, registrationStatus, page, role]);
 
   useEffect(()=>{ load(); }, [load]);
 
@@ -110,7 +121,7 @@ export default function AdminUsersListPage(){
     const t = setTimeout(()=>{ 
       (async ()=>{
         try{ 
-          const r = await api.get<{ data: CustomerRow[] }>("/api/admin/users", { params: { status, q: term, page:1, perPage:5, role } }); 
+          const r = await api.get<{ data: CustomerRow[] }>("/api/admin/users", { params: { status, registrationStatus, q: term, page:1, perPage:5, role } });
           setSuggestions(r.data.data ?? []); 
         } catch(e){ 
           setSuggestions([]); 
@@ -118,7 +129,7 @@ export default function AdminUsersListPage(){
       })(); 
     }, 400);
     return ()=> clearTimeout(t);
-  }, [q, status, role]);
+  }, [q, status, registrationStatus, role]);
 
   useEffect(()=>{ 
     const url = typeof window !== 'undefined'
@@ -139,7 +150,7 @@ export default function AdminUsersListPage(){
     const readValue = (c: CustomerRow): string | number => {
       switch (sortBy) {
         case "customer":
-          return `${c.name || ""} ${c.email || ""}`.toLowerCase();
+          return `${c.displayName || c.name || ""} ${c.email || ""}`.toLowerCase();
         case "accountId":
           return c.id;
         case "contact":
@@ -297,6 +308,10 @@ export default function AdminUsersListPage(){
             <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(125,211,252,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Verified</div>
             <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#7dd3fc", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.verifiedCustomers.toLocaleString()}</div>
           </div>
+          <div style={{ background: "rgba(249,115,22,0.16)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 105 }}>
+            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(253,186,116,0.9)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incomplete</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#fdba74", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.incompleteRegistrations.toLocaleString()}</div>
+          </div>
         </div>
       </div>
 
@@ -336,11 +351,11 @@ export default function AdminUsersListPage(){
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => { setQ(s.name ?? s.email); setSuggestions([]); setPage(1); load(); }}
+                    onClick={() => { setQ(s.displayName ?? s.name ?? s.email ?? ''); setSuggestions([]); setPage(1); load(); }}
                     className="w-full text-left px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 last:border-b-0"
                   >
-                    <div className="font-medium text-gray-900">{s.name ?? s.email}</div>
-                    <div className="text-xs text-gray-500">{s.email}</div>
+                    <div className="font-medium text-gray-900">{s.displayName ?? s.name ?? s.email ?? `Account #${s.id}`}</div>
+                    <div className="text-xs text-gray-500">{s.email || s.phone || 'Missing contact details'}</div>
                   </button>
                 ))}
               </div>
@@ -358,6 +373,18 @@ export default function AdminUsersListPage(){
               <option value="">All Status</option>
               <option value="ACTIVE">Active</option>
               <option value="SUSPENDED">Suspended</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
+            <select
+              value={registrationStatus}
+              onChange={(e) => { setRegistrationStatus(e.target.value); setPage(1); }}
+              aria-label="Registration status"
+              className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white text-gray-700 outline-none box-border min-w-[180px]"
+            >
+              <option value="">All Registrations</option>
+              <option value="COMPLETE">Complete Profiles</option>
+              <option value="INCOMPLETE">Incomplete Profiles</option>
             </select>
           </div>
         </div>
@@ -468,8 +495,14 @@ export default function AdminUsersListPage(){
                   {sortedItems.map((customer) => (
                     <TableRow key={customer.id} className="align-middle hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-semibold text-gray-900">{customer.name || "N/A"}</div>
-                        <div className="text-sm text-gray-500">{customer.email}</div>
+                        <div className="font-semibold text-gray-900">{customer.displayName || customer.name || "Incomplete profile"}</div>
+                        <div className="text-sm text-gray-500">{customer.email || 'Email missing'}</div>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${customer.registrationStatus === 'COMPLETE' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                            {customer.registrationStatus === 'COMPLETE' ? 'Profile complete' : 'Profile incomplete'}
+                          </span>
+                          <span className="text-[10px] font-medium text-gray-400">{(customer.registrationSource || 'UNKNOWN').replaceAll('_', ' ')}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-semibold text-gray-600">#{customer.id}</span>

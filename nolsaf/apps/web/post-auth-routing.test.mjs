@@ -14,6 +14,7 @@ test("maps every authenticated role to its own home", () => {
   assert.equal(roleHomePath("OWNER"), "/owner");
   assert.equal(roleHomePath("DRIVER"), "/driver");
   assert.equal(roleHomePath("AGENT"), "/account/agent");
+  assert.equal(roleHomePath("NRMS_AGENT"), "/agent-portal");
   assert.equal(roleHomePath("USER"), "/account");
   assert.equal(roleHomePath("CUSTOMER"), "/account");
   assert.equal(roleHomePath(undefined), "/account");
@@ -26,6 +27,7 @@ test("only ordinary customer roles enter workspace selection", () => {
   assert.equal(shouldResolveWorkspaceSelection("OWNER"), false);
   assert.equal(shouldResolveWorkspaceSelection("DRIVER"), false);
   assert.equal(shouldResolveWorkspaceSelection("AGENT"), false);
+  assert.equal(shouldResolveWorkspaceSelection("NRMS_AGENT"), false);
   assert.equal(shouldResolveWorkspaceSelection(undefined), false);
 });
 
@@ -35,17 +37,20 @@ test("rejects protected portal targets for the wrong account role", () => {
   assert.equal(isPostAuthTargetAllowed("/driver", "OWNER"), false);
   assert.equal(isPostAuthTargetAllowed("/admin/home", "OWNER"), false);
   assert.equal(isPostAuthTargetAllowed("/account/agent", "USER"), false);
+  assert.equal(isPostAuthTargetAllowed("/agent-portal", "AGENT"), true);
 
   assert.equal(isPostAuthTargetAllowed("/owner", "OWNER"), true);
   assert.equal(isPostAuthTargetAllowed("/driver/earnings", "DRIVER"), true);
   assert.equal(isPostAuthTargetAllowed("/admin/home", "ADMIN"), true);
   assert.equal(isPostAuthTargetAllowed("/account/agent/assignments", "AGENT"), true);
+  assert.equal(isPostAuthTargetAllowed("/agent-portal/bookings", "NRMS_AGENT"), true);
 });
 
 test("keeps NRMS membership routes available to authenticated staff", () => {
   assert.equal(isPostAuthTargetAllowed("/owner/nrms?propertyId=17", "USER"), true);
   assert.equal(isPostAuthTargetAllowed("/owner/nrms/front-desk", "AGENT"), true);
   assert.equal(isPostAuthTargetAllowed("/owner/nrms", ""), false);
+  assert.equal(isPostAuthTargetAllowed("/owner/nrms", "NRMS_AGENT"), true);
 });
 
 test("treats a portal role hint as intent instead of authenticated role truth", () => {
@@ -55,6 +60,7 @@ test("treats a portal role hint as intent instead of authenticated role truth", 
   assert.equal(doesRoleHintMatchAccount("admin", "ADMIN"), true);
   assert.equal(doesRoleHintMatchAccount("admin", "USER"), false);
   assert.equal(doesRoleHintMatchAccount("driver", "DRIVER"), true);
+  assert.equal(doesRoleHintMatchAccount("agent", "NRMS_AGENT"), true);
   assert.equal(doesRoleHintMatchAccount("traveller", "CUSTOMER"), true);
   assert.equal(doesRoleHintMatchAccount("traveller", "OWNER"), false);
 });
@@ -67,7 +73,7 @@ test("rejects malformed return targets", () => {
 });
 
 test("exhaustive role, role-hint, and destination matrix", () => {
-  const roles = ["ADMIN", "OWNER", "DRIVER", "AGENT", "USER", "CUSTOMER", ""];
+  const roles = ["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER", ""];
   const hints = ["", "admin", "owner", "partner", "partners", "driver", "agent", "traveller", "customer", "unknown"];
   const targets = [
     ["/admin", new Set(["ADMIN"])],
@@ -78,7 +84,9 @@ test("exhaustive role, role-hint, and destination matrix", () => {
     ["/driver/earnings/history", new Set(["DRIVER", "ADMIN"])],
     ["/account/agent", new Set(["AGENT", "ADMIN"])],
     ["/account/agent/assignments/9", new Set(["AGENT", "ADMIN"])],
-    ["/owner/nrms?propertyId=17", new Set(["ADMIN", "OWNER", "DRIVER", "AGENT", "USER", "CUSTOMER"])],
+    ["/agent-portal", new Set(["AGENT", "NRMS_AGENT", "ADMIN"])],
+    ["/agent-portal/bookings", new Set(["AGENT", "NRMS_AGENT", "ADMIN"])],
+    ["/owner/nrms?propertyId=17", new Set(["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER"])],
     ["/account/bookings?tab=upcoming", new Set(roles)],
     ["/public/properties/serengeti", new Set(roles)],
   ];
@@ -89,7 +97,7 @@ test("exhaustive role, role-hint, and destination matrix", () => {
     partner: new Set(["OWNER"]),
     partners: new Set(["OWNER"]),
     driver: new Set(["DRIVER"]),
-    agent: new Set(["AGENT"]),
+    agent: new Set(["AGENT", "NRMS_AGENT"]),
     traveller: new Set(["USER", "CUSTOMER"]),
     customer: new Set(["USER", "CUSTOMER"]),
   };
@@ -109,7 +117,7 @@ test("exhaustive role, role-hint, and destination matrix", () => {
       }
     }
   }
-  assert.equal(assertions, 770);
+  assert.equal(assertions, 1040);
 });
 
 test("normalizes tricky same-origin paths before applying role policy", () => {
@@ -132,18 +140,19 @@ test("normalizes tricky same-origin paths before applying role policy", () => {
 });
 
 test("twenty thousand generated cross-role redirect attempts obey the independent policy matrix", () => {
-  const roles = ["ADMIN", "OWNER", "DRIVER", "AGENT", "USER", "CUSTOMER", ""];
+  const roles = ["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER", ""];
   const portalTargets = [
     { prefix: "/admin", allowed: new Set(["ADMIN"]) },
     { prefix: "/owner", allowed: new Set(["OWNER", "ADMIN"]) },
     { prefix: "/driver", allowed: new Set(["DRIVER", "ADMIN"]) },
     { prefix: "/account/agent", allowed: new Set(["AGENT", "ADMIN"]) },
+    { prefix: "/agent-portal", allowed: new Set(["AGENT", "NRMS_AGENT", "ADMIN"]) },
   ];
   const roleHints = [
     { value: "admin", allowed: new Set(["ADMIN"]) },
     { value: "owner", allowed: new Set(["OWNER"]) },
     { value: "driver", allowed: new Set(["DRIVER"]) },
-    { value: "agent", allowed: new Set(["AGENT"]) },
+    { value: "agent", allowed: new Set(["AGENT", "NRMS_AGENT"]) },
     { value: "traveller", allowed: new Set(["USER", "CUSTOMER"]) },
     { value: "", allowed: new Set(roles) },
   ];

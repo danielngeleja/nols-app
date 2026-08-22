@@ -186,6 +186,34 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
   try {
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      nrms_agent_booking_request: {
+        title: "New agent booking request",
+        body: `${data.agencyName || "A travel agent"} requested to book ${data.rooms || 1} room(s) at "${data.propertyTitle || "your property"}" (${data.checkIn || ""} to ${data.checkOut || ""}). Review it in Travel agents before the hold expires.`
+      },
+      nrms_agent_partnership_requested: {
+        title: "New accommodation partnership request",
+        body: `${data.agencyName || "A verified tour operator"} requested a partnership with "${data.propertyTitle || "your property"}". Review the request in Partnership requests; no rates or inventory are shared until you approve it.`
+      },
+      nrms_agent_invitation_accepted: {
+        title: "Hotel invitation accepted",
+        body: `${data.agencyName || "The tour operator"} accepted your invitation for "${data.propertyTitle || "your property"}". Review verification and commercial access before activation.`
+      },
+      nrms_agent_invitation_rejected: {
+        title: "Hotel invitation declined",
+        body: `${data.agencyName || "The tour operator"} declined your invitation for "${data.propertyTitle || "your property"}".${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      nrms_partnership_activated: {
+        title: "Accommodation partnership active",
+        body: `The partnership between "${data.propertyTitle || "your property"}" and ${data.agencyName || "the tour operator"} is active again.${data.reason ? ` Central review note: ${data.reason}` : ""}`
+      },
+      nrms_partnership_suspended: {
+        title: "Accommodation partnership suspended",
+        body: `The partnership between "${data.propertyTitle || "your property"}" and ${data.agencyName || "the tour operator"} was suspended. New booking activity is blocked while existing reservation records remain available.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      nrms_partnership_terminated: {
+        title: "Accommodation partnership ended",
+        body: `The partnership between "${data.propertyTitle || "your property"}" and ${data.agencyName || "the tour operator"} was terminated. New bookings and rate access are no longer available.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
       property_submitted: {
         title: "Property Submitted for Review",
         body: `Your property "${data.propertyTitle || 'Property'}" has been submitted and is now under review by our team. You will be notified once the review is complete.`
@@ -366,7 +394,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
           title: templateData.title,
           body: templateData.body,
           unread: true,
-          meta: data,
+          meta: { ...data, notificationKind: template },
           type: template.startsWith("cancellation")
             ? "cancellation"
             : template.startsWith("booking")
@@ -400,6 +428,44 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
 export async function notifyUser(userId: number, template: string, data: any) {
   try {
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      nrms_agent_verification_decided: {
+        title: data.decision === "VERIFIED" ? "Agency verified" : "Agency verification needs attention",
+        body: data.decision === "VERIFIED"
+          ? `${data.legalName || "Your agency"} has been verified by NoLSAF. You can accept hotel invitations and hotels can activate your booking access.`
+          : `${data.legalName || "Your agency"} was not verified.${data.note ? ` Reason: ${data.note}` : " Contact NoLSAF support for assistance."}`,
+      },
+      nrms_agent_invitation_accepted: {
+        title: "Agency accepted your invitation",
+        body: `${data.agencyName || "A travel agency"} accepted the relationship with "${data.propertyTitle || "your property"}". Once NoLSAF verification is complete, you can activate its rate access.`,
+      },
+      nrms_agent_hotel_invitation: {
+        title: "New hotel invitation",
+        body: `${data.propertyTitle || "A hotel"} invited your agency to a booking relationship. Review and accept it in the Agent Portal before the hotel can activate access.`,
+      },
+      nrms_partnership_activated: {
+        title: "Hotel partnership activated",
+        body: `Your partnership with "${data.propertyTitle || "the hotel"}" is active. Only the approved rates, rooms and booking mode are available through your established accommodation workspace.`,
+      },
+      nrms_partnership_rejected: {
+        title: "Hotel partnership request declined",
+        body: `"${data.propertyTitle || "The hotel"}" declined the accommodation partnership request.${data.reason ? ` Reason: ${data.reason}` : ""}`,
+      },
+      nrms_partnership_suspended: {
+        title: "Hotel partnership suspended",
+        body: `Your partnership with "${data.propertyTitle || "the hotel"}" was suspended. New booking activity is blocked while existing reservation records remain available.${data.reason ? ` Reason: ${data.reason}` : ""}`,
+      },
+      nrms_partnership_terminated: {
+        title: "Hotel partnership ended",
+        body: `Your partnership with "${data.propertyTitle || "the hotel"}" was terminated. New bookings and rate access are no longer available.${data.reason ? ` Reason: ${data.reason}` : ""}`,
+      },
+      nrms_agent_request_approved: {
+        title: "Booking approved",
+        body: `Your request to book "${data.propertyTitle || "the hotel"}" (${data.checkIn || ""} to ${data.checkOut || ""}) was approved. Open My bookings to view it.`
+      },
+      nrms_agent_request_declined: {
+        title: "Booking declined",
+        body: `Your request to book "${data.propertyTitle || "the hotel"}" (${data.checkIn || ""} to ${data.checkOut || ""}) was declined.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
       agent_assignment_assigned: {
         title: "New assignment assigned",
         body: `You have a new assignment${data.requestId ? ` #${data.requestId}` : ""}${data.tripType ? ` (${data.tripType})` : ""}. Open your dashboard to view details.`
@@ -527,7 +593,7 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: templateData.title,
         body: templateData.body,
         unread: true,
-        meta: data,
+        meta: { ...data, notificationKind: template },
         type: template.startsWith("agent_")
           ? "agent"
           : template.startsWith("sales_partner_")

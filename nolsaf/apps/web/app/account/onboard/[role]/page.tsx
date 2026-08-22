@@ -7,6 +7,8 @@ import { REGIONS } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
 import DatePickerField from "@/components/DatePickerField";
 import apiClient from "@/lib/apiClient";
+import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
 import * as Icons from 'lucide-react';
 import { User, Mail, UserCircle, Globe, CreditCard, FileText, Upload, CheckCircle2, Truck, MapPin, Phone, ChevronDown, AlertCircle, ChevronLeft, ChevronRight, Loader2, Car, X, Clock, Building2, UserCircle2, ArrowLeft, Star, Shield, Lock, AlertTriangle, Calendar, Check } from 'lucide-react';
 
@@ -62,11 +64,16 @@ export default function OnboardRole() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const { policy: passwordPolicy, policyReady: passwordPolicyReady, policyStatus: passwordPolicyStatus, retryPolicy } = useServerPasswordPolicy();
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   
   // Get referral code from URL
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const referralCode = searchParams?.get('ref') || null;
+  const rawNextPath = searchParams?.get('next') || null;
+  const nextPath = rawNextPath && rawNextPath.startsWith('/') && !rawNextPath.startsWith('//')
+    ? rawNextPath
+    : null;
   // driver fields
   
   const [plateNumber, setPlateNumber] = useState('');
@@ -141,34 +148,9 @@ export default function OnboardRole() {
     return '/account';
   };
 
-  const computePasswordStrength = (pwd: string) => {
-    const reasons: string[] = [];
-    if (typeof pwd !== 'string' || pwd.length === 0) {
-      return { strength: 'weak' as const, score: 0, reasons };
-    }
-
-    const minLength = role === 'owner' ? 12 : 10;
-    const hasNoSpaces = !/\s/.test(pwd);
-    const hasUpper = /[A-Z]/.test(pwd);
-    const hasLower = /[a-z]/.test(pwd);
-    const hasNumber = /[0-9]/.test(pwd);
-    const hasSpecial = /[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(pwd);
-
-    let score = 0;
-    if (pwd.length >= minLength) score += 2;
-    if (hasNoSpaces) score += 1;
-    score += [hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length;
-
-    if (pwd.length < minLength) reasons.push(`Use at least ${minLength} characters`);
-    if (!hasUpper) reasons.push('Add an uppercase letter');
-    if (!hasLower) reasons.push('Add a lowercase letter');
-    if (!hasNumber) reasons.push('Add a number');
-    if (!hasSpecial) reasons.push('Add a special character');
-    if (!hasNoSpaces) reasons.push('Avoid spaces');
-
-    const strength = score >= 6 ? ('strong' as const) : score >= 4 ? ('medium' as const) : ('weak' as const);
-    return { strength, score, reasons };
-  };
+  const computePasswordStrength = (pwd: string) => validatePasswordAgainstPolicy(pwd, passwordPolicy);
+  const passwordValidation = computePasswordStrength(password);
+  const passwordIsValid = passwordPolicyReady && passwordValidation.valid;
 
   useEffect(() => {
     let alive = true;
@@ -188,7 +170,7 @@ export default function OnboardRole() {
         const hasEmail = Boolean(String(me?.email ?? '').trim());
         const hasPhone = Boolean(String(me?.phone ?? '').trim());
         if (requestedRole !== 'DRIVER' && hasDisplayName && hasEmail && hasPhone) {
-          router.replace(getDefaultRouteForRole(requestedRole));
+          router.replace(requestedRole === 'TRAVELLER' && nextPath ? nextPath : getDefaultRouteForRole(requestedRole));
           return;
         }
 
@@ -233,7 +215,7 @@ export default function OnboardRole() {
     return () => {
       alive = false;
     };
-  }, [requestedRole, router]);
+  }, [requestedRole, router, nextPath]);
 
   const IdIcon: any = (props: any) => (
     <svg suppressHydrationWarning viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -384,8 +366,17 @@ export default function OnboardRole() {
     }
     // First-time onboarding: require setting a password before redirecting.
     if (needsPasswordSetup) {
+      if (!passwordPolicyReady) {
+        setError('Password requirements are unavailable. Reload them before continuing.');
+        return;
+      }
       if (!password.trim()) {
         setError('Please set a password');
+        return;
+      }
+      if (!passwordIsValid) {
+        setError('Your password does not meet all requirements.');
+        setErrorReasons(passwordValidation.reasons);
         return;
       }
       if (password !== confirmPassword) {
@@ -421,6 +412,7 @@ export default function OnboardRole() {
       fd.append('name', name);
       fd.append('email', email);
       fd.append('phone', accountPhone);
+      fd.append('registrationSource', 'WEB');
       if (needsPasswordSetup && password.trim()) fd.append('password', password);
       if (referralCode) {
         fd.append('referralCode', referralCode);
@@ -450,6 +442,7 @@ export default function OnboardRole() {
       // field, which caused /account to redirect straight back here.
       let persistedPhone = String(saveResponse.data?.user?.phone || '').trim();
       let persistedEmail = String(saveResponse.data?.user?.email || '').trim().toLowerCase();
+      let persistedRegistrationStatus = String(saveResponse.data?.user?.registrationStatus || '').toUpperCase();
       if (
         !persistedPhone ||
         normalizePhone(persistedPhone) !== normalizePhone(accountPhone.trim()) ||
@@ -461,9 +454,11 @@ export default function OnboardRole() {
           const savedAccount = meResponse.data?.data ?? meResponse.data;
           persistedPhone = String(savedAccount?.phone || '').trim();
           persistedEmail = String(savedAccount?.email || '').trim().toLowerCase();
+          persistedRegistrationStatus = String(savedAccount?.registrationStatus || '').toUpperCase();
         } catch {
           persistedPhone = '';
           persistedEmail = '';
+          persistedRegistrationStatus = '';
         }
       }
 
@@ -485,13 +480,18 @@ export default function OnboardRole() {
         window.setTimeout(() => emailRef.current?.focus(), 80);
         return;
       }
+      if (persistedRegistrationStatus !== 'COMPLETE') {
+        setError('Your registration is not complete yet. Confirm your full name, email, and phone, then try again.');
+        setStepIndex(1);
+        return;
+      }
 
       setSuccess(role === 'driver' ? 'Application submitted for professional review.' : 'Profile saved');
       // navigate to role dashboard or public account area
       setTimeout(() => {
         if (role === 'driver') router.push('/driver');
         else if (role === 'owner') router.push('/owner');
-        else router.push('/account');
+        else router.push(nextPath || '/account');
       }, 800);
     } catch (err: any) {
       const apiErr = (err as any)?.response?.data;
@@ -550,12 +550,12 @@ export default function OnboardRole() {
     if (role !== 'driver') {
       if (stepIndex === 1) {
         const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
-        if (needsPasswordSetup) return baseValid && password.trim().length >= 1 && confirmPassword === password;
+        if (needsPasswordSetup) return baseValid && passwordIsValid && confirmPassword === password;
         return baseValid;
       }
       if (stepIndex === 2) {
         const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
-        if (needsPasswordSetup) return baseValid && password.trim().length >= 1 && confirmPassword === password;
+        if (needsPasswordSetup) return baseValid && passwordIsValid && confirmPassword === password;
         return baseValid;
       }
       return true;
@@ -563,7 +563,7 @@ export default function OnboardRole() {
     switch (stepIndex) {
       case 1:
         if (needsPasswordSetup) {
-          return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password;
+          return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordIsValid && confirmPassword === password;
         }
         return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
       case 2:
@@ -582,7 +582,7 @@ export default function OnboardRole() {
     if (role !== 'driver') return true;
     if (step === 1) {
       return needsPasswordSetup
-        ? name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && password.trim().length >= 1 && confirmPassword === password
+        ? name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordIsValid && confirmPassword === password
         : name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
     }
     if (step === 2) {
@@ -675,7 +675,9 @@ export default function OnboardRole() {
         return dateOfBirth.trim() ? '' : 'Date of birth is required';
       case 'password':
         if (!needsPasswordSetup) return '';
-        return password.trim() ? '' : 'Password is required';
+        if (!password.trim()) return 'Password is required';
+        if (!passwordPolicyReady) return 'Password requirements are still loading';
+        return passwordIsValid ? '' : passwordValidation.reasons[0] || 'Password does not meet all requirements';
       case 'confirmPassword':
         if (!needsPasswordSetup) return '';
         return confirmPassword.trim() ? (confirmPassword === password ? '' : 'Passwords do not match') : 'Please confirm your password';
@@ -1264,12 +1266,20 @@ export default function OnboardRole() {
                           <label htmlFor="onboard-password" className="block text-sm font-medium text-slate-700">
                             Password <span className="text-red-500">*</span>
                           </label>
+                          {passwordPolicyStatus !== 'ready' && (
+                            <p className="mt-1.5 text-[11px] text-amber-700">
+                              {passwordPolicyStatus === 'loading' ? 'Loading password requirements…' : 'Password requirements could not be loaded.'}
+                              {passwordPolicyStatus === 'error' && <button type="button" onClick={retryPolicy} className="ml-1 border-0 bg-transparent p-0 font-semibold underline">Retry</button>}
+                            </p>
+                          )}
                           <input
                             id="onboard-password"
                             ref={passwordRef}
                             type="password"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
+                            maxLength={passwordPolicy.maxLength}
+                            disabled={!passwordPolicyReady}
                             onBlur={() => { setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
                             className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
                               touched.password && fieldErrors.password
@@ -1283,17 +1293,9 @@ export default function OnboardRole() {
                               <AlertCircle className="h-3 w-3" />{fieldErrors.password}
                             </p>
                           )}
-                          {password.trim().length > 0 && (() => {
+                          {passwordPolicyReady && password.trim().length > 0 && (() => {
                             const s = computePasswordStrength(password);
-                            const minLength = role === 'owner' ? 12 : 10;
-                            const checks = [
-                              { label: `At least ${minLength} characters`, pass: password.length >= minLength },
-                              { label: 'Uppercase letter (A–Z)', pass: /[A-Z]/.test(password) },
-                              { label: 'Lowercase letter (a–z)', pass: /[a-z]/.test(password) },
-                              { label: 'Number (0–9)', pass: /[0-9]/.test(password) },
-                              { label: 'Special character (!@#$…)', pass: /[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(password) },
-                              { label: 'No spaces', pass: !/\s/.test(password) },
-                            ];
+                            const checks = s.requirements;
                             const label = s.strength === 'strong' ? 'Strong' : s.strength === 'medium' ? 'Medium' : 'Weak';
                             const barWidth = s.strength === 'strong' ? 'w-full' : s.strength === 'medium' ? 'w-2/3' : 'w-1/3';
                             const barColor = s.strength === 'strong' ? 'bg-emerald-500' : s.strength === 'medium' ? 'bg-amber-400' : 'bg-red-500';
@@ -1339,6 +1341,8 @@ export default function OnboardRole() {
                             type="password"
                             value={confirmPassword}
                             onChange={e => setConfirmPassword(e.target.value)}
+                            maxLength={passwordPolicy.maxLength}
+                            disabled={!passwordPolicyReady}
                             onBlur={() => { setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
                             className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
                               touched.confirmPassword && fieldErrors.confirmPassword
@@ -1620,11 +1624,19 @@ export default function OnboardRole() {
                           Password
                           <span className="text-red-500">*</span>
                         </label>
+                        {passwordPolicyStatus !== 'ready' && (
+                          <p className="mb-2 text-[11px] text-amber-700">
+                            {passwordPolicyStatus === 'loading' ? 'Loading password requirements…' : 'Password requirements could not be loaded.'}
+                            {passwordPolicyStatus === 'error' && <button type="button" onClick={retryPolicy} className="ml-1 border-0 bg-transparent p-0 font-semibold underline">Retry</button>}
+                          </p>
+                        )}
                         <input
                           ref={passwordRef}
                           type="password"
                           value={password}
                           onChange={e => setPassword(e.target.value)}
+                          maxLength={passwordPolicy.maxLength}
+                          disabled={!passwordPolicyReady}
                           onBlur={() => { setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
                           className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${
                             touched.password && fieldErrors.password
@@ -1640,17 +1652,9 @@ export default function OnboardRole() {
                           </div>
                         )}
 
-                        {password.trim().length > 0 && (() => {
+                        {passwordPolicyReady && password.trim().length > 0 && (() => {
                           const s = computePasswordStrength(password);
-                          const minLength = 10;
-                          const checks = [
-                            { label: `At least ${minLength} characters`, pass: password.length >= minLength },
-                            { label: 'Uppercase letter (A–Z)', pass: /[A-Z]/.test(password) },
-                            { label: 'Lowercase letter (a–z)', pass: /[a-z]/.test(password) },
-                            { label: 'Number (0–9)', pass: /[0-9]/.test(password) },
-                            { label: 'Special character (!@#$…)', pass: /[!@#\$%\^&\*\(\)\-_=+\[\]{};:'"\\|,<.>/?`~]/.test(password) },
-                            { label: 'No spaces', pass: !/\s/.test(password) },
-                          ];
+                          const checks = s.requirements;
                           const label = s.strength === 'strong' ? 'Strong' : s.strength === 'medium' ? 'Medium' : 'Weak';
                           const barWidth = s.strength === 'strong' ? 'w-full' : s.strength === 'medium' ? 'w-2/3' : 'w-1/3';
                           const barColor = s.strength === 'strong' ? 'bg-emerald-500' : s.strength === 'medium' ? 'bg-amber-400' : 'bg-red-500';
@@ -1697,6 +1701,8 @@ export default function OnboardRole() {
                           type="password"
                           value={confirmPassword}
                           onChange={e => setConfirmPassword(e.target.value)}
+                          maxLength={passwordPolicy.maxLength}
+                          disabled={!passwordPolicyReady}
                           onBlur={() => { setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
                           className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${
                             touched.confirmPassword && fieldErrors.confirmPassword

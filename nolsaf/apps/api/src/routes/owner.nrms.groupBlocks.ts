@@ -23,14 +23,15 @@ import { encrypt } from "../lib/crypto.js";
 import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { qualifyGroupBlock, STANDARD_GROUP_MIN_ROOMS } from "../lib/nrmsGroupPolicy.js";
+import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import {
   BLOCK_LIVE_STATUSES,
   PICKUP_RACE,
   nightsBetween,
   pickupErrorBody,
   pickupStatus,
-  resolveGroupGuestProfile,
-  runBlockPickup,
+  runBlockPickupForGuest,
 } from "../lib/nrmsGroupPickup.js";
 import {
   billingUsesMasterFolio,
@@ -75,17 +76,18 @@ const createBlockSchema = z.object({
   name: z.string().trim().min(2).max(160),
   agencyName: z.string().trim().max(160).optional().nullable(),
   contactName: z.string().trim().min(2).max(160),
-  contactPhone: z.string().trim().max(40).optional().nullable(),
+  contactPhone: z.string().trim().min(7).max(40),
   contactEmail: z.string().trim().email().max(160),
   checkIn: dayString,
   checkOut: dayString,
   cutOffAt: dayString,
   billingMode: z.enum(BILLING_MODES).default("INDIVIDUAL"),
+  smallGroupApprovalReason: z.string().trim().max(300).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   rooms: z.array(blockRoomSchema).min(1).max(40),
 });
 
-const editBlockSchema = createBlockSchema.partial().omit({ rooms: true }).extend({
+const editBlockSchema = createBlockSchema.partial().omit({ rooms: true, smallGroupApprovalReason: true }).extend({
   rooms: z.array(z.object({
     id: z.number().int().positive(),
     quantity: z.number().int().min(1).max(200),
@@ -111,6 +113,7 @@ const pickupSchema = z.object({
 const masterPaymentSchema = z.object({
   amount: z.number().positive().max(1_000_000_000),
   method: z.enum(PAYMENT_METHODS),
+  idempotencyKey: z.string().trim().min(8).max(120),
   reference: z.string().trim().max(120).optional().nullable(),
   note: z.string().trim().max(300).optional().nullable(),
 });
@@ -142,6 +145,15 @@ const manualProFormaBankSchema = z.object({
   instructions: z.string().trim().max(500).optional().nullable(),
   policyAccepted: z.literal(true),
 });
+
+function rejectLockedBusinessDay(res: Response, error: unknown): boolean {
+  if (!(error instanceof Error) || error.message !== NRMS_BUSINESS_DAY_LOCKED) return false;
+  res.status(409).json({
+    error: "This business date is closing or closed. Post a controlled correction on an open business date.",
+    code: NRMS_BUSINESS_DAY_LOCKED,
+  });
+  return true;
+}
 
 function utcDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -239,6 +251,11 @@ function formatBlock(block: any) {
     status: block.status,
     currency: block.currency,
     billingMode: block.billingMode,
+    groupMinimumRooms: block.groupMinimumRooms ?? STANDARD_GROUP_MIN_ROOMS,
+    agreedRoomsAtCreation: block.agreedRoomsAtCreation,
+    groupClassification: block.smallGroupApprovedAt ? "APPROVED_SMALL" : block.agreedRoomsAtCreation != null || roomsTotal >= (block.groupMinimumRooms ?? STANDARD_GROUP_MIN_ROOMS) ? "STANDARD" : "GRANDFATHERED",
+    smallGroupApprovedAt: block.smallGroupApprovedAt,
+    smallGroupApprovalReason: block.smallGroupApprovalReason,
     notes: block.notes,
     groupId: block.groupId,
     releasedAt: block.releasedAt,
@@ -443,6 +460,16 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
     if (!active) return;
     const propertyId = active.property.id as number;
     const data = parsed.data;
+    const agreedRooms = data.rooms.reduce((sum, room) => sum + room.quantity, 0);
+    const qualification = qualifyGroupBlock(agreedRooms, data.smallGroupApprovalReason);
+    if (!qualification.ok) {
+      return res.status(400).json({
+        error: qualification.error,
+        code: qualification.code,
+        agreedRooms,
+        standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+      });
+    }
     if (billingUsesMasterFolio(data.billingMode) && !String(data.agencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
     }
@@ -485,6 +512,10 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
           status: "HELD",
           currency: active.property.currency ?? "TZS",
           billingMode: data.billingMode,
+          groupMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+          agreedRoomsAtCreation: agreedRooms,
+          smallGroupApprovedAt: qualification.classification === "APPROVED_SMALL" ? new Date() : null,
+          smallGroupApprovalReason: qualification.approvalReason ? sanitizeText(qualification.approvalReason) : null,
           notes: data.notes ? sanitizeText(data.notes) : null,
           createdById: ownerId,
         },
@@ -771,9 +802,10 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
     const nextBillingMode = data.billingMode ?? block.billingMode;
     const nextAgencyName = data.agencyName !== undefined ? data.agencyName : block.agencyName;
     const nextContactName = data.contactName !== undefined ? data.contactName : block.contactName;
+    const nextContactPhone = data.contactPhone !== undefined ? data.contactPhone : block.contactPhone;
     const nextContactEmail = data.contactEmail !== undefined ? data.contactEmail : block.contactEmail;
-    if (!String(nextContactName || "").trim() || !String(nextContactEmail || "").trim()) {
-      return res.status(400).json({ error: "Group leader name and billing email are required", code: "BILLING_CONTACT_REQUIRED" });
+    if (!String(nextContactName || "").trim() || String(nextContactPhone || "").trim().length < 7 || !String(nextContactEmail || "").trim()) {
+      return res.status(400).json({ error: "Group leader name, contact phone and billing email are required", code: "BILLING_CONTACT_REQUIRED" });
     }
     if (billingUsesMasterFolio(nextBillingMode) && !String(nextAgencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
@@ -819,10 +851,12 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
       cutOffAt: data.cutOffAt ?? block.cutOffAt.toISOString(),
     });
     if ("error" in dates) return res.status(400).json({ error: dates.error });
+    const now = new Date();
+    const reactivatingExpiredHold = block.cutOffAt.getTime() <= now.getTime() && dates.cutOffAt.getTime() > now.getTime();
 
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
-      if (data.rooms) {
+      if (data.rooms || reactivatingExpiredHold) {
         const byId = new Map(block.rooms.map((room: any) => [room.id, room]));
         const availability = await getRoomTypesAvailability(
           tx,
@@ -832,10 +866,21 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
           dates.checkOut,
           { excludeGroupBlockId: block.id },
         );
-        for (const room of data.rooms) {
-          const existing = byId.get(room.id) as any;
-          const capacity = availability.get(existing.roomTypeId);
-          if (!capacity || capacity.available < room.quantity) throw new Error(`NRMS_BLOCK_CAPACITY:${existing.roomTypeId}:${room.quantity}:${capacity?.available ?? 0}`);
+        const requestedByRoomType = new Map<number, number>();
+        if (data.rooms) {
+          for (const room of data.rooms) {
+            const existing = byId.get(room.id) as any;
+            requestedByRoomType.set(existing.roomTypeId, (requestedByRoomType.get(existing.roomTypeId) ?? 0) + room.quantity);
+          }
+        } else {
+          for (const room of block.rooms) {
+            const held = Math.max(0, room.quantity - room.pickedUp);
+            requestedByRoomType.set(room.roomTypeId, (requestedByRoomType.get(room.roomTypeId) ?? 0) + held);
+          }
+        }
+        for (const [roomTypeId, requested] of requestedByRoomType) {
+          const capacity = availability.get(roomTypeId);
+          if (!capacity || capacity.available < requested) throw new Error(`NRMS_BLOCK_CAPACITY:${roomTypeId}:${requested}:${capacity?.available ?? 0}`);
         }
       }
       const changed = await tx.nrmsGroupBlock.update({
@@ -889,10 +934,25 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
     }
     const masterFolioId = block.masterFolio.id;
     const data = parsed.data;
-    await prisma.$transaction(async (tx: any) => {
+    const normalizedReference = data.reference ? sanitizeText(data.reference) : null;
+    const normalizedNote = data.note ? sanitizeText(data.note) : null;
+    const transactionResult = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, ownerId: block.ownerId, blockId: block.id } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
+      const duplicate = await tx.nrmsMasterFolioPayment.findUnique({
+        where: { masterFolioId_idempotencyKey: { masterFolioId: folio.id, idempotencyKey: data.idempotencyKey } },
+      });
+      if (duplicate) {
+        const samePayment = Number(duplicate.amount) === data.amount
+          && duplicate.currency === folio.currency
+          && duplicate.method === data.method
+          && (duplicate.reference ?? null) === normalizedReference
+          && (duplicate.note ?? null) === normalizedNote;
+        if (!samePayment) throw new Error("NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT");
+        return { idempotent: true };
+      }
       const totals = await getMasterFolioTotals(tx, folio.id);
       const latestProForma = await tx.nrmsMasterFolioProForma.findFirst({
         where: { masterFolioId: folio.id, status: { in: ["DRAFT", "SENT"] } },
@@ -915,23 +975,27 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
           amount: data.amount,
           currency: folio.currency,
           method: data.method,
-          reference: data.reference ? sanitizeText(data.reference) : null,
+          idempotencyKey: data.idempotencyKey,
+          reference: normalizedReference,
           receiptNumber: buildMasterPaymentReceiptNumber(folio.id),
-          note: data.note ? sanitizeText(data.note) : null,
+          note: normalizedNote,
           recordedById: actorId,
         },
       });
       await refreshMasterFolioStatus(tx, folio.id);
+      return { idempotent: false };
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
-    res.status(201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
+    res.status(transactionResult.idempotent ? 200 : 201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio, idempotent: transactionResult.idempotent });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:")) {
       const balance = Number(err.message.split(":")[1] ?? 0);
       return res.status(400).json({ error: `Payment cannot exceed the agency balance of ${balance.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE", balance });
     }
     if (err instanceof Error && err.message === "NRMS_MASTER_FOLIO_MISSING") return res.status(409).json({ error: "The agency master folio is missing", code: "MASTER_FOLIO_MISSING" });
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT") return res.status(409).json({ error: "This agency payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
     console.error("[owner.nrms.groupBlocks] master payment failed", err);
     res.status(500).json({ error: "Failed to record the agency payment" });
   }
@@ -951,6 +1015,7 @@ router.post("/blocks/:blockId/master-folio/payments/:paymentId/void", (async (re
     if (!Number.isInteger(paymentId) || paymentId <= 0) return res.status(400).json({ error: "Invalid agency payment id" });
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const payment = await tx.nrmsMasterFolioPayment.findFirst({ where: { id: paymentId, masterFolioId } });
       if (!payment) throw new Error("NRMS_MASTER_PAYMENT_NOT_FOUND");
       if (payment.voidedAt) throw new Error("NRMS_MASTER_PAYMENT_ALREADY_VOID");
@@ -963,6 +1028,7 @@ router.post("/blocks/:blockId/master-folio/payments/:paymentId/void", (async (re
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_NOT_FOUND") return res.status(404).json({ error: "Agency payment not found" });
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_ALREADY_VOID") return res.status(409).json({ error: "Agency payment is already voided" });
     console.error("[owner.nrms.groupBlocks] master payment void failed", err);
@@ -984,6 +1050,7 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
     const actorId = req.user!.id;
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, propertyId: block.propertyId, ownerId: block.ownerId } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
       const totals = await getMasterFolioTotals(tx, folio.id);
@@ -1007,6 +1074,7 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.status(201).json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NO_CREDIT") return res.status(409).json({ error: "This agency account has no credit available to refund", code: "NO_AGENCY_CREDIT" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_REFUND_EXCEEDS_CREDIT:")) {
       const credit = Number(err.message.split(":")[1] ?? 0);
@@ -1032,6 +1100,7 @@ router.post("/blocks/:blockId/master-folio/refunds/:refundId/void", (async (req:
     if (!Number.isInteger(refundId) || refundId <= 0) return res.status(400).json({ error: "Invalid agency refund id" });
     await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, block.propertyId);
+      await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const refund = await tx.nrmsMasterFolioRefund.findFirst({ where: { id: refundId, masterFolioId } });
       if (!refund) throw new Error("NRMS_MASTER_REFUND_NOT_FOUND");
       if (refund.voidedAt) throw new Error("NRMS_MASTER_REFUND_ALREADY_VOID");
@@ -1044,6 +1113,7 @@ router.post("/blocks/:blockId/master-folio/refunds/:refundId/void", (async (req:
     const updated = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     res.json({ block: formatBlock(updated), masterFolio: formatBlock(updated).masterFolio });
   } catch (err) {
+    if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_NOT_FOUND") return res.status(404).json({ error: "Agency refund not found" });
     if (err instanceof Error && err.message === "NRMS_MASTER_REFUND_ALREADY_VOID") return res.status(409).json({ error: "Agency refund is already voided" });
     console.error("[owner.nrms.groupBlocks] master refund void failed", err);
@@ -1076,22 +1146,17 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
     }
     const data = parsed.data;
 
-    // Guest profile is resolved outside the transaction: it touches no
-    // inventory and keeps the locked section short.
-    const guest = await resolveGroupGuestProfile(block.propertyId, ownerId, data.guest);
-    if ("error" in guest) return res.status(400).json({ error: "Guest profile not found for this property" });
-
-    const outcome = await runBlockPickup({
+    const outcome = await runBlockPickupForGuest({
       blockId: block.id,
+      propertyId: block.propertyId,
       ownerId,
       blockRoomId: data.blockRoomId,
-      guestProfileId: guest.guestProfileId,
       adults: data.adults,
       children: data.children,
       roomUnitId: data.roomUnitId ?? null,
       notes: data.notes ?? null,
       actorId,
-    });
+    }, data.guest);
 
     if ("error" in outcome) return res.status(pickupStatus(outcome.error)).json(pickupErrorBody(outcome));
 

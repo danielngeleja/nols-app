@@ -79,6 +79,31 @@ describe("NRMS public menu stay-token resolution", () => {
     expect(mocks.pointFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { token } }));
   });
 
+  it("never advertises room charging from a permanent printed room QR", async () => {
+    const token = "permanent-room-token";
+    mocks.pointFindUnique.mockResolvedValue(roomPoint({ token }));
+    mocks.allocationFindFirst.mockResolvedValue({
+      reservation: { id: 99, currency: "TZS", guestProfile: { fullName: "Current guest" } },
+    });
+
+    const response = await request(app).get(`/api/public/nrms/menu/${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.roomChargeAvailable).toBe(false);
+  });
+
+  it("rejects a room-charge order from a reusable printed QR before any order is created", async () => {
+    const token = "permanent-room-token";
+    mocks.pointFindUnique.mockResolvedValue(roomPoint({ token }));
+
+    const response = await request(app)
+      .post(`/api/public/nrms/menu/${token}/orders`)
+      .send({ outletId: 4, items: [{ menuItemId: 7, quantity: 1 }], chargeToRoom: true });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("ROOM_CHARGE_REQUIRES_STAY_LINK");
+  });
+
   it("closes a genuine stay token after checkout without falling through to a room point", async () => {
     const token = buildStayOrderingToken(41);
     mocks.reservationFindFirst.mockResolvedValue(null);

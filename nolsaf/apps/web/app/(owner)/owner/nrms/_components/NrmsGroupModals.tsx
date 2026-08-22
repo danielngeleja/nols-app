@@ -7,8 +7,9 @@
 // which is the NoLSAF-brokered marketplace product. These are NRMS reservations
 // tied together by the front desk.
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, BedDouble, Check, CheckCircle2, Loader2, LogIn, LogOut, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, BedDouble, Check, CheckCircle2, CreditCard, Loader2, LogIn, LogOut, Users, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsGroupRoomsModal from "./NrmsGroupRoomsModal";
 
@@ -213,6 +214,24 @@ type GroupPreviewMember = {
   requiredChargeIds: number[];
 };
 
+const INDIVIDUAL_FOLIO_BLOCKERS = new Set([
+  "GUEST_BALANCE_DUE",
+  "GUEST_CREDIT_REMAINS",
+  "FOLIO_NOT_SETTLED",
+  "CHARGES_NOT_VERIFIED",
+  "UNCLASSIFIED_OUTLET_PAYMENTS",
+]);
+
+function needsIndividualFolioAction(member: GroupPreviewMember): boolean {
+  return member.blockers.some((blocker) => INDIVIDUAL_FOLIO_BLOCKERS.has(blocker.code));
+}
+
+function individualFolioActionLabel(member: GroupPreviewMember): string {
+  return member.blockers.some((blocker) => blocker.code === "GUEST_BALANCE_DUE" || blocker.code === "FOLIO_NOT_SETTLED")
+    ? "Clear payment"
+    : "Review folio";
+}
+
 export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId: number; onClose: () => void; onChanged: () => Promise<void> }) {
   const [group, setGroup] = useState<ReservationGroup | null>(null);
   const [accessRole, setAccessRole] = useState("OWNER");
@@ -224,6 +243,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [confirmExecution, setConfirmExecution] = useState(false);
   const [confirmUngroup, setConfirmUngroup] = useState(false);
   const [showRooms, setShowRooms] = useState(false);
   const [terminalAction, setTerminalAction] = useState<"cancel" | "no-show" | null>(null);
@@ -247,7 +267,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   }, [groupId]);
 
   useEffect(() => { void loadGroup(); }, [loadGroup]);
-  useEffect(() => { setPreview(null); setResultMessage(null); }, [action, verifyCharges, overrideRoomReadiness]);
+  useEffect(() => { setPreview(null); setResultMessage(null); setConfirmExecution(false); }, [action, verifyCharges, overrideRoomReadiness]);
 
   // Detaching never touches the reservation itself, so this is the safe undo
   // for a member picked by mistake: the stay carries on and is worked alone.
@@ -285,6 +305,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
     setBusy(true);
     setError(null);
     setResultMessage(null);
+    setConfirmExecution(false);
     try {
       const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/preview`, {
         action,
@@ -308,6 +329,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
       const changed = Number(response.data?.changedCount ?? 0);
       const blocked = Number(response.data?.blockedCount ?? 0);
       setResultMessage(`${changed} reservation${changed === 1 ? "" : "s"} updated${blocked ? `; ${blocked} remained blocked` : ""}.`);
+      setConfirmExecution(false);
       setPreview(null);
       await loadGroup();
       await onChanged();
@@ -338,6 +360,8 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   };
 
   const eligibleCount = preview?.filter((member) => member.eligible).length ?? 0;
+  const blockedPreviewMembers = preview?.filter((member) => !member.eligible) ?? [];
+  const blockedPreviewCount = blockedPreviewMembers.length;
   const agencyBilled = group ? group.billingMode === "SPLIT" || group.billingMode === "MASTER" : false;
   const billingLabel = group?.billingMode === "MASTER"
     ? "Agency pays rooms and extras"
@@ -450,8 +474,18 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                       )}
                     </div>
                     {inspected && !inspected.eligible && (
-                      <div className="space-y-0.5 px-4 pb-2.5 sm:pl-4">
-                        {inspected.blockers.map((blocker) => <p key={blocker.code} className="m-0 text-[11px] font-medium leading-4 text-red-700">{blocker.message}</p>)}
+                      <div className="flex flex-col gap-2 px-4 pb-3 sm:flex-row sm:items-end sm:justify-between sm:pl-4">
+                        <div className="space-y-0.5">
+                          {inspected.blockers.map((blocker) => <p key={blocker.code} className="m-0 text-[11px] font-medium leading-4 text-red-700">{blocker.message}</p>)}
+                        </div>
+                        {action === "CHECK_OUT" && needsIndividualFolioAction(inspected) && (
+                          <Link
+                            href={`/owner/nrms/reservations?reservationId=${member.id}`}
+                            className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(inspected)} <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        )}
                       </div>
                     )}
                   </div>
@@ -482,6 +516,69 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
           </div>
           {resultMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
           {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {confirmExecution && preview && (
+            <section className={`rounded-2xl border border-solid p-4 shadow-sm ${action === "CHECK_OUT" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`} aria-label={`Confirm group ${action === "CHECK_OUT" ? "checkout" : "check-in"}`}>
+              <div className="flex items-start gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ${action === "CHECK_OUT" ? "text-amber-700 ring-amber-200" : "text-emerald-700 ring-emerald-200"}`}>
+                  {action === "CHECK_OUT" ? <LogOut className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={`m-0 text-sm font-bold ${action === "CHECK_OUT" ? "text-amber-950" : "text-emerald-950"}`}>
+                    Are you sure you want to {action === "CHECK_OUT" ? "check out" : "check in"} this group?
+                  </p>
+                  <p className={`mb-0 mt-1 text-xs leading-5 ${action === "CHECK_OUT" ? "text-amber-900" : "text-emerald-900"}`}>
+                    {action === "CHECK_OUT"
+                      ? eligibleCount > 0
+                        ? `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked out. ${blockedPreviewCount ? `${blockedPreviewCount} blocked ${blockedPreviewCount === 1 ? "stay keeps" : "stays keep"} the current status until the issue is cleared.` : "Guest folios will close, departure will be recorded, and rooms will move into the departure workflow."}`
+                        : `No reservation in ${group.name} is ready for checkout. Clear the issues below and review readiness again.`
+                      : `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked in and their assigned rooms will become occupied.`}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold">
+                    <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{eligibleCount} ready</span>
+                    {blockedPreviewCount > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">{blockedPreviewCount} blocked and unchanged</span>}
+                    <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{billingLabel}</span>
+                  </div>
+                  {blockedPreviewCount > 0 && (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-solid border-amber-200 bg-white/90">
+                      <div className="border-0 border-b border-solid border-amber-100 px-3 py-2">
+                        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-amber-800">Not included in this action</p>
+                      </div>
+                      <div className="max-h-52 divide-y divide-amber-100 overflow-y-auto">
+                        {blockedPreviewMembers.map((member) => {
+                          const folioAction = action === "CHECK_OUT" && needsIndividualFolioAction(member);
+                          return (
+                            <div key={member.reservation.id} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="m-0 truncate text-xs font-bold text-neutral-900">{member.reservation.guestProfile?.fullName ?? "Guest"}</p>
+                                <p className="m-0 mt-0.5 text-[10px] leading-4 text-red-700">{member.blockers.map((blocker) => blocker.message).join(" ")}</p>
+                              </div>
+                              {folioAction && (
+                                <Link
+                                  href={`/owner/nrms/reservations?reservationId=${member.reservation.id}`}
+                                  className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(member)} <ArrowRight className="h-3 w-3" />
+                                </Link>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    {eligibleCount > 0 && (
+                      <button type="button" onClick={() => void execute()} disabled={busy} className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-4 text-xs font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${action === "CHECK_OUT" ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        Yes, {action === "CHECK_OUT" ? `check out ${eligibleCount} ready` : "check in group"}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setConfirmExecution(false)} disabled={busy} className={`min-h-10 cursor-pointer rounded-xl border border-solid bg-white px-4 text-xs font-bold transition disabled:opacity-50 ${action === "CHECK_OUT" ? "border-amber-300 text-amber-900 hover:bg-amber-100" : "border-emerald-300 text-emerald-900 hover:bg-emerald-100"}`}>Not yet</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
           {terminalAction && (
             <div className="rounded-xl border border-solid border-red-200 bg-red-50 p-4">
               <p className="m-0 text-sm font-bold text-red-950">{terminalAction === "cancel" ? "Cancel this entire group?" : "Mark the entire group no-show?"}</p>
@@ -521,7 +618,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             </div>
             <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
               <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-solid border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />}Review readiness</button>
-              <button type="button" onClick={() => void execute()} disabled={busy || !preview || eligibleCount === 0} className="inline-flex min-h-11 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><Check className="h-3.5 w-3.5" />Confirm {action === "CHECK_IN" ? "check-in" : "checkout"}{preview ? ` (${eligibleCount})` : ""}</button>
+              <button type="button" onClick={() => setConfirmExecution(true)} disabled={busy || !preview || confirmExecution} className="inline-flex min-h-11 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><Check className="h-3.5 w-3.5" />Review {action === "CHECK_IN" ? "check-in" : "checkout"}{preview ? ` (${eligibleCount} ready)` : ""}</button>
             </div>
           </div>
 

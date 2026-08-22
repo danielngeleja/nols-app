@@ -7,7 +7,7 @@ import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/aut
 import { audit } from "../lib/audit.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
-import { validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
+import { PASSWORD_MAX_LENGTH, validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
 import { validatePasswordWithSettings } from "../lib/securitySettings.js";
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
@@ -36,6 +36,8 @@ import {
 } from "@simplewebauthn/server";
 import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
 import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
+import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
+import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -164,13 +166,23 @@ const confirmContactChangeSchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
+const PAYOUT_BANK_CODES = ["CRDB", "NBC", "NMB"] as const;
+
+function canonicalPayoutBank(value: unknown): (typeof PAYOUT_BANK_CODES)[number] | null {
+  const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  return PAYOUT_BANK_CODES.find((bank) => normalized === bank || normalized === `${bank}BANK`) ?? null;
+}
+
 const payoutBankSchema = z.preprocess(
-  (value) => {
-    const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
-    const match = ["CRDB", "NBC", "NMB"].find((bank) => normalized === bank || normalized === `${bank}BANK`);
-    return match ?? value;
-  },
+  (value) => canonicalPayoutBank(value) ?? value,
   z.enum(["CRDB", "NBC", "NMB"], { message: "Select CRDB, NBC, or NMB" })
+);
+
+const payoutMobileProviderSchema = z.preprocess(
+  (value) => canonicalAzamPayProvider(String(value ?? "")) ?? value,
+  z.enum(["yas", "vodacom", "airtel", "halotel", "azampesa"], {
+    message: "Select Yas, Vodacom, Airtel, Halotel, or Azampesa",
+  })
 );
 
 const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
@@ -186,7 +198,7 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
   z
     .object({
       payoutPreferred: z.literal("MOBILE_MONEY"),
-      mobileMoneyProvider: z.enum(["azampesa", "airtel", "tigo"]),
+      mobileMoneyProvider: payoutMobileProviderSchema,
       mobileMoneyNumber: z.string().trim().regex(/^\d{9,15}$/, "Enter a valid mobile wallet number"),
     })
     .strict(),
@@ -303,7 +315,7 @@ function maskSensitiveDestination(value: unknown): string {
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8).max(12), // DoS protection: 8-12 characters
+  newPassword: z.string().min(8).max(PASSWORD_MAX_LENGTH),
 }).strict();
 
 // DoS protection: Track password change attempts and cooldowns
@@ -401,6 +413,9 @@ const getSession: RequestHandler = async (req, res) => {
     if (hasField("avatarUrl")) select.avatarUrl = true;
     if (hasField("suspendedAt")) select.suspendedAt = true;
     if (hasField("isDisabled")) select.isDisabled = true;
+    if (hasField("registrationStatus")) select.registrationStatus = true;
+    if (hasField("registrationSource")) select.registrationSource = true;
+    if (hasField("profileCompletedAt")) select.profileCompletedAt = true;
 
     let user: any = null;
     try {
@@ -439,6 +454,9 @@ const getSession: RequestHandler = async (req, res) => {
       profileImage: avatarUrl,
       isDisabled: Boolean(user.isDisabled),
       isSuspended: Boolean(user.suspendedAt),
+      registrationStatus: user.registrationStatus ?? getRegistrationStatus(user),
+      registrationSource: user.registrationSource ?? 'UNKNOWN',
+      profileCompletedAt: user.profileCompletedAt ?? null,
       impersonated: Boolean((req as AuthedRequest).user?.imp),
     });
   } catch (error: any) {
@@ -492,6 +510,9 @@ const getMe: RequestHandler = async (req, res) => {
     select.avatarUrl = true;
     if (hasField('emailVerifiedAt')) select.emailVerifiedAt = true;
     if (hasField('phoneVerifiedAt')) select.phoneVerifiedAt = true;
+    if (hasField('registrationStatus')) select.registrationStatus = true;
+    if (hasField('registrationSource')) select.registrationSource = true;
+    if (hasField('profileCompletedAt')) select.profileCompletedAt = true;
     if (hasField('twoFactorEnabled')) select.twoFactorEnabled = true;
     if (hasField('twoFactorMethod')) select.twoFactorMethod = true;
     if (hasField('suspendedAt')) select.suspendedAt = true;
@@ -579,6 +600,9 @@ const getMe: RequestHandler = async (req, res) => {
             (user as any).avatarUrl = (user as any).avatarUrl ?? null;
             (user as any).emailVerifiedAt = null;
             (user as any).phoneVerifiedAt = null;
+            (user as any).registrationStatus = getRegistrationStatus(user);
+            (user as any).registrationSource = 'UNKNOWN';
+            (user as any).profileCompletedAt = null;
             // Only set to false if not already set from database
             if (!hasField('twoFactorEnabled') || (user as any).twoFactorEnabled === undefined) {
               (user as any).twoFactorEnabled = false;
@@ -979,6 +1003,18 @@ const updateProfile: RequestHandler = async (req, res) => {
       updateData.nationality = data.nationality;
     }
 
+    const resultingIdentity = {
+      name: data.name ?? before?.name ?? user.name,
+      fullName: data.fullName ?? before?.fullName ?? (user as any).fullName,
+      email: user.email,
+      phone: user.phone,
+    };
+    const resultingRegistrationStatus = getRegistrationStatus(resultingIdentity);
+    updateData.registrationStatus = resultingRegistrationStatus;
+    if (resultingRegistrationStatus === 'COMPLETE' && !(user as any).profileCompletedAt) {
+      updateData.profileCompletedAt = new Date();
+    }
+
     const extractUnknownArg = (err: any): string | null => {
       const msg = String(err?.message ?? '');
       const m = msg.match(/Unknown argument `([^`]+)`/);
@@ -1362,21 +1398,46 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       return sendError(res, 409, `This ${FIELD_LABEL[field]} is already associated with another account.`);
     }
 
-    const before = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true, email: true } });
+    const before = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, email: true, name: true, fullName: true, profileCompletedAt: true },
+    });
     if (!before) return sendError(res, 404, "User not found");
     const verifiedAtField = field === "email" ? "emailVerifiedAt" : "phoneVerifiedAt";
     const changedAtField = field === "email" ? "emailChangedAt" : "phoneChangedAt";
     const oldValue = field === "email" ? before.email : before.phone;
     const actualChange = String(oldValue ?? "").toLowerCase() !== entry.value.toLowerCase();
     const changedAt = actualChange ? new Date() : null;
+    const resultingIdentity = {
+      name: before.name,
+      fullName: before.fullName,
+      email: field === 'email' ? entry.value : before.email,
+      phone: field === 'phone' ? entry.value : before.phone,
+    };
+    const registrationStatus = getRegistrationStatus(resultingIdentity);
     const updated = await prisma.user.update({
       where: { id: userId },
       data: {
         [field]: entry.value,
         [verifiedAtField]: new Date(),
         ...(actualChange ? { [changedAtField]: changedAt } : {}),
+        registrationStatus,
+        ...(registrationStatus === 'COMPLETE' && !before.profileCompletedAt
+          ? { profileCompletedAt: new Date() }
+          : {}),
       } as any,
-      select: { id: true, phone: true, email: true, phoneVerifiedAt: true, emailVerifiedAt: true, phoneChangedAt: true, emailChangedAt: true },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        phoneVerifiedAt: true,
+        emailVerifiedAt: true,
+        phoneChangedAt: true,
+        emailChangedAt: true,
+        registrationStatus: true,
+        registrationSource: true,
+        profileCompletedAt: true,
+      },
     });
 
     await deleteContactChangeChallenge(userId, field === "email" ? "phone" : "email");
@@ -1475,6 +1536,25 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     if (!lookup.status || !resolvedName) {
       return sendError(res, 409, "AzamPay could not verify the payout account holder");
     }
+    const returnedProvider = String(lookup.bankName || "").trim();
+    const providerMatches = isBank
+      ? canonicalPayoutBank(returnedProvider) === provider
+      : azamPayProvidersMatch(provider, returnedProvider);
+    if (!providerMatches) {
+      await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
+        mismatch: "PROVIDER",
+        requestedProvider: provider,
+        returnedProvider: returnedProvider || null,
+        accountNumber: maskSensitiveDestination(accountNumber),
+      });
+      return sendError(
+        res,
+        409,
+        isBank
+          ? "The account does not match the selected bank. Check the bank and account number."
+          : "The wallet number does not match the selected mobile money provider. Check the provider and number."
+      );
+    }
     if (returnedNumber !== canonicalNumber) {
       await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
         provider,
@@ -1493,6 +1573,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_LOOKED_UP", `user:${userId}`, null, {
       payoutPreferred: data.payoutPreferred,
       provider,
+      azamPayDisbursementEnabled: !isBank,
       accountName: resolvedName,
       accountNumber: maskSensitiveDestination(accountNumber),
       expiresAt: new Date(challenge.expiresAt).toISOString(),
@@ -1510,8 +1591,14 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
           accountNumber: maskSensitiveDestination(accountNumber),
           currency: "TZS",
         },
+        capabilities: {
+          nameLookupVerified: true,
+          azamPayDisbursementEnabled: !isBank,
+        },
       },
-      "Payout destination verified. Confirm the account holder to save it."
+      isBank
+        ? "Bank account name verified. Automated AzamPay bank disbursement remains disabled."
+        : "Payout destination verified. Confirm the account holder to save it."
     );
   } catch (error: unknown) {
     if (sendPayoutProviderError(res, error)) return;
@@ -1670,10 +1757,9 @@ const changePassword: RequestHandler = async (req, res) => {
     const { currentPassword, newPassword } = validationResult.data;
     const userId = getUserId(req as AuthedRequest);
 
-    // DoS protection: Enforce 8-12 character limit
-    if (newPassword.length < 8 || newPassword.length > 12) {
-      return sendError(res, 400, "Password must be between 8 and 12 characters", { 
-        reasons: ['Password length must be between 8 and 12 characters to prevent DoS attacks'] 
+    if (newPassword.length < 8 || newPassword.length > PASSWORD_MAX_LENGTH) {
+      return sendError(res, 400, `Password must be between 8 and ${PASSWORD_MAX_LENGTH} characters`, {
+        reasons: [`Password length must be between 8 and ${PASSWORD_MAX_LENGTH} characters`]
       });
     }
 
@@ -1743,7 +1829,7 @@ const changePassword: RequestHandler = async (req, res) => {
       });
     }
 
-    // Validate password strength (but with 8-12 limit already enforced)
+    // Validate against the active SystemSetting password policy.
     const { valid, reasons } = await validatePasswordWithSettings(newPassword, user.role || null);
     if (!valid) {
       return sendError(res, 400, "Password does not meet strength requirements", { reasons });
@@ -2943,25 +3029,18 @@ const deleteAccount: RequestHandler = async (req, res) => {
     const driverName: string = before?.name ?? 'Deleted Driver';
 
     // ── 5. Soft-delete with PII anonymisation ────────────────────────────
-    const meta = (prisma as any).user?._meta ?? {};
-    if (Object.prototype.hasOwnProperty.call(meta, 'deletedAt')) {
-      await (prisma.user.update as any)({
-        where: { id: userId },
-        data: {
-          deletedAt: new Date(),
-          name: 'Deleted Driver',
-          email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
-          phone: null,
-        },
-      });
-    } else {
-      try {
-        await (prisma.user.delete as any)({ where: { id: userId } });
-      } catch (e: any) {
-        console.error('Failed to delete user', e);
-        return sendError(res, 500, "Failed to delete account");
-      }
-    }
+    // deletedAt is part of the canonical Prisma schema. Do not infer schema
+    // support from the private delegate _meta property: it is not guaranteed
+    // at runtime and previously made this endpoint fall back to a hard delete.
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletedAt: new Date(),
+        name: 'Deleted Driver',
+        email: `deleted_${userId}_${Date.now()}@nolsaf.invalid`,
+        phone: null,
+      },
+    });
 
     // ── 6. Alert admins in real-time if any trips returned to pool ───────
     try {
