@@ -7,12 +7,8 @@ import { REGIONS } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
 import DatePickerField from "@/components/DatePickerField";
 import apiClient from "@/lib/apiClient";
-import {
-  DEFAULT_PASSWORD_POLICY,
-  fetchPasswordPolicy,
-  validatePasswordAgainstPolicy,
-  type PasswordPolicy,
-} from "@/lib/passwordPolicy";
+import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
 import * as Icons from 'lucide-react';
 import { User, Mail, UserCircle, Globe, CreditCard, FileText, Upload, CheckCircle2, Truck, MapPin, Phone, ChevronDown, AlertCircle, ChevronLeft, ChevronRight, Loader2, Car, X, Clock, Building2, UserCircle2, ArrowLeft, Star, Shield, Lock, AlertTriangle, Calendar, Check } from 'lucide-react';
 
@@ -68,7 +64,7 @@ export default function OnboardRole() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
+  const { policy: passwordPolicy, policyReady: passwordPolicyReady, policyStatus: passwordPolicyStatus, retryPolicy } = useServerPasswordPolicy();
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   
   // Get referral code from URL
@@ -150,12 +146,7 @@ export default function OnboardRole() {
 
   const computePasswordStrength = (pwd: string) => validatePasswordAgainstPolicy(pwd, passwordPolicy);
   const passwordValidation = computePasswordStrength(password);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchPasswordPolicy(controller.signal).then(setPasswordPolicy).catch(() => {});
-    return () => controller.abort();
-  }, []);
+  const passwordIsValid = passwordPolicyReady && passwordValidation.valid;
 
   useEffect(() => {
     let alive = true;
@@ -371,11 +362,15 @@ export default function OnboardRole() {
     }
     // First-time onboarding: require setting a password before redirecting.
     if (needsPasswordSetup) {
+      if (!passwordPolicyReady) {
+        setError('Password requirements are unavailable. Reload them before continuing.');
+        return;
+      }
       if (!password.trim()) {
         setError('Please set a password');
         return;
       }
-      if (!passwordValidation.valid) {
+      if (!passwordIsValid) {
         setError('Your password does not meet all requirements.');
         setErrorReasons(passwordValidation.reasons);
         return;
@@ -542,12 +537,12 @@ export default function OnboardRole() {
     if (role !== 'driver') {
       if (stepIndex === 1) {
         const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
-        if (needsPasswordSetup) return baseValid && passwordValidation.valid && confirmPassword === password;
+        if (needsPasswordSetup) return baseValid && passwordIsValid && confirmPassword === password;
         return baseValid;
       }
       if (stepIndex === 2) {
         const baseValid = name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5;
-        if (needsPasswordSetup) return baseValid && passwordValidation.valid && confirmPassword === password;
+        if (needsPasswordSetup) return baseValid && passwordIsValid && confirmPassword === password;
         return baseValid;
       }
       return true;
@@ -555,7 +550,7 @@ export default function OnboardRole() {
     switch (stepIndex) {
       case 1:
         if (needsPasswordSetup) {
-          return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordValidation.valid && confirmPassword === password;
+          return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordIsValid && confirmPassword === password;
         }
         return name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
       case 2:
@@ -574,7 +569,7 @@ export default function OnboardRole() {
     if (role !== 'driver') return true;
     if (step === 1) {
       return needsPasswordSetup
-        ? name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordValidation.valid && confirmPassword === password
+        ? name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0 && passwordIsValid && confirmPassword === password
         : name.trim().length > 0 && emailRe.test(email.trim()) && accountPhone.trim().length >= 5 && dateOfBirth.trim().length > 0;
     }
     if (step === 2) {
@@ -668,7 +663,8 @@ export default function OnboardRole() {
       case 'password':
         if (!needsPasswordSetup) return '';
         if (!password.trim()) return 'Password is required';
-        return passwordValidation.valid ? '' : passwordValidation.reasons[0] || 'Password does not meet all requirements';
+        if (!passwordPolicyReady) return 'Password requirements are still loading';
+        return passwordIsValid ? '' : passwordValidation.reasons[0] || 'Password does not meet all requirements';
       case 'confirmPassword':
         if (!needsPasswordSetup) return '';
         return confirmPassword.trim() ? (confirmPassword === password ? '' : 'Passwords do not match') : 'Please confirm your password';
@@ -1257,6 +1253,12 @@ export default function OnboardRole() {
                           <label htmlFor="onboard-password" className="block text-sm font-medium text-slate-700">
                             Password <span className="text-red-500">*</span>
                           </label>
+                          {passwordPolicyStatus !== 'ready' && (
+                            <p className="mt-1.5 text-[11px] text-amber-700">
+                              {passwordPolicyStatus === 'loading' ? 'Loading password requirements…' : 'Password requirements could not be loaded.'}
+                              {passwordPolicyStatus === 'error' && <button type="button" onClick={retryPolicy} className="ml-1 border-0 bg-transparent p-0 font-semibold underline">Retry</button>}
+                            </p>
+                          )}
                           <input
                             id="onboard-password"
                             ref={passwordRef}
@@ -1264,6 +1266,7 @@ export default function OnboardRole() {
                             value={password}
                             onChange={e => setPassword(e.target.value)}
                             maxLength={passwordPolicy.maxLength}
+                            disabled={!passwordPolicyReady}
                             onBlur={() => { setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
                             className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
                               touched.password && fieldErrors.password
@@ -1277,7 +1280,7 @@ export default function OnboardRole() {
                               <AlertCircle className="h-3 w-3" />{fieldErrors.password}
                             </p>
                           )}
-                          {password.trim().length > 0 && (() => {
+                          {passwordPolicyReady && password.trim().length > 0 && (() => {
                             const s = computePasswordStrength(password);
                             const checks = s.requirements;
                             const label = s.strength === 'strong' ? 'Strong' : s.strength === 'medium' ? 'Medium' : 'Weak';
@@ -1326,6 +1329,7 @@ export default function OnboardRole() {
                             value={confirmPassword}
                             onChange={e => setConfirmPassword(e.target.value)}
                             maxLength={passwordPolicy.maxLength}
+                            disabled={!passwordPolicyReady}
                             onBlur={() => { setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
                             className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
                               touched.confirmPassword && fieldErrors.confirmPassword
@@ -1607,12 +1611,19 @@ export default function OnboardRole() {
                           Password
                           <span className="text-red-500">*</span>
                         </label>
+                        {passwordPolicyStatus !== 'ready' && (
+                          <p className="mb-2 text-[11px] text-amber-700">
+                            {passwordPolicyStatus === 'loading' ? 'Loading password requirements…' : 'Password requirements could not be loaded.'}
+                            {passwordPolicyStatus === 'error' && <button type="button" onClick={retryPolicy} className="ml-1 border-0 bg-transparent p-0 font-semibold underline">Retry</button>}
+                          </p>
+                        )}
                         <input
                           ref={passwordRef}
                           type="password"
                           value={password}
                           onChange={e => setPassword(e.target.value)}
                           maxLength={passwordPolicy.maxLength}
+                          disabled={!passwordPolicyReady}
                           onBlur={() => { setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
                           className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${
                             touched.password && fieldErrors.password
@@ -1628,7 +1639,7 @@ export default function OnboardRole() {
                           </div>
                         )}
 
-                        {password.trim().length > 0 && (() => {
+                        {passwordPolicyReady && password.trim().length > 0 && (() => {
                           const s = computePasswordStrength(password);
                           const checks = s.requirements;
                           const label = s.strength === 'strong' ? 'Strong' : s.strength === 'medium' ? 'Medium' : 'Weak';
@@ -1678,6 +1689,7 @@ export default function OnboardRole() {
                           value={confirmPassword}
                           onChange={e => setConfirmPassword(e.target.value)}
                           maxLength={passwordPolicy.maxLength}
+                          disabled={!passwordPolicyReady}
                           onBlur={() => { setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
                           className={`w-full px-3 py-2.5 border-2 rounded-lg transition-all duration-200 ${
                             touched.confirmPassword && fieldErrors.confirmPassword

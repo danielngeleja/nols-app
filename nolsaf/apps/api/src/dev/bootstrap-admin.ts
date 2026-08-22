@@ -76,27 +76,38 @@ function ask(rl: readline.Interface, question: string): Promise<string> {
 
 interface PasswordCheck { label: string; pass: boolean; }
 
-function checkPasswordStrength(pw: string): PasswordCheck[] {
-  const acceptedSpecialCharacters = "!@#$%^&*()-_=+[]{};:'\"\\|,<.>/?`~";
-  return [
-    { label: "Between 12 and 128 characters long",      pass: pw.length >= 12 && pw.length <= 128 },
-    { label: "Contains an uppercase letter (A–Z)",       pass: /[A-Z]/.test(pw) },
-    { label: "Contains a lowercase letter (a–z)",       pass: /[a-z]/.test(pw) },
-    { label: "Contains a digit (0–9)",                  pass: /[0-9]/.test(pw) },
-    { label: "Contains a special character (!@#$…)",    pass: Array.from(pw).some((character) => acceptedSpecialCharacters.includes(character)) },
-    { label: "Does not contain spaces",                 pass: !/\s/.test(pw) },
+type BootstrapPasswordPolicy = {
+  minLength: number;
+  maxLength: number;
+  requireUpper: boolean;
+  requireLower: boolean;
+  requireNumber: boolean;
+  requireSpecial: boolean;
+  noSpaces: boolean;
+  specialCharacters: string;
+};
+
+function checkPasswordStrength(pw: string, policy: BootstrapPasswordPolicy): PasswordCheck[] {
+  const checks: PasswordCheck[] = [
+    { label: `Between ${policy.minLength} and ${policy.maxLength} characters long`, pass: pw.length >= policy.minLength && pw.length <= policy.maxLength },
   ];
+  if (policy.requireUpper) checks.push({ label: "Contains an uppercase letter (A–Z)", pass: /[A-Z]/.test(pw) });
+  if (policy.requireLower) checks.push({ label: "Contains a lowercase letter (a–z)", pass: /[a-z]/.test(pw) });
+  if (policy.requireNumber) checks.push({ label: "Contains a digit (0–9)", pass: /[0-9]/.test(pw) });
+  if (policy.requireSpecial) checks.push({ label: "Contains an accepted special character", pass: Array.from(pw).some((character) => policy.specialCharacters.includes(character)) });
+  if (policy.noSpaces) checks.push({ label: "Does not contain spaces", pass: !/\s/.test(pw) });
+  return checks;
 }
 
-function printPasswordRequirements(): void {
+function printPasswordRequirements(policy: BootstrapPasswordPolicy): void {
   console.log("\n  Password requirements:");
   console.log("  ──────────────────────────────────────────────");
-  console.log("  ✔  Between 12 and 128 characters long");
-  console.log("  ✔  At least one uppercase letter  (A–Z)");
-  console.log("  ✔  At least one lowercase letter  (a–z)");
-  console.log("  ✔  At least one digit             (0–9)");
-  console.log("  ✔  At least one special character (!@#$%^&*…)");
-  console.log("  ✔  Must not contain spaces");
+  console.log(`  ✔  Between ${policy.minLength} and ${policy.maxLength} characters long`);
+  if (policy.requireUpper) console.log("  ✔  At least one uppercase letter  (A–Z)");
+  if (policy.requireLower) console.log("  ✔  At least one lowercase letter  (a–z)");
+  if (policy.requireNumber) console.log("  ✔  At least one digit             (0–9)");
+  if (policy.requireSpecial) console.log("  ✔  At least one accepted special character");
+  if (policy.noSpaces) console.log("  ✔  Must not contain spaces");
   console.log("  ──────────────────────────────────────────────\n");
 }
 
@@ -162,16 +173,18 @@ async function sendAdminNotifications(
 
 async function main() {
   // Load app modules only after env files are loaded to avoid stale config.
-  const [prismaMod, cryptoMod, smsMod, mailerMod, templatesMod] = await Promise.all([
+  const [prismaMod, cryptoMod, smsMod, mailerMod, templatesMod, securitySettingsMod] = await Promise.all([
     import("@nolsaf/prisma"),
     import("../lib/crypto.js"),
     import("../lib/sms.js"),
     import("../lib/mailer.js"),
     import("../lib/adminEmailTemplates.js"),
+    import("../lib/securitySettings.js"),
   ]);
 
   const prisma = prismaMod.prisma;
   const hashPassword = cryptoMod.hashPassword;
+  const passwordPolicy = await securitySettingsMod.getPublicPasswordPolicy();
   const notifyDeps: NotificationDeps = {
     sendSms: smsMod.sendSms,
     sendMail: mailerMod.sendMail,
@@ -208,13 +221,13 @@ async function main() {
 
   rl.close(); // must close before raw-mode password prompt
 
-  printPasswordRequirements();
+  printPasswordRequirements(passwordPolicy);
 
   // Re-prompt until password passes all checks
   let password = "";
   while (true) {
     password = await askPassword("🔑 Password (hidden input)    : ");
-    const checks = checkPasswordStrength(password);
+    const checks = checkPasswordStrength(password, passwordPolicy);
     const failed = checks.filter(c => !c.pass);
     if (failed.length === 0) break;
     console.log("\n  ❌ Password does not meet the following requirements:");
@@ -257,7 +270,7 @@ async function main() {
   // ── Duplicate detection ──────────────────────────────────────────────────
   const byEmail = await (prisma.user as any).findUnique({
     where: { email },
-    select: { id: true, role: true, email: true, phone: true, name: true },
+    select: { id: true, role: true, email: true, phone: true, name: true, previousPasswordHashes: true },
   });
 
   const byPhone = phone
@@ -312,6 +325,10 @@ async function main() {
       data: {
         role: "ADMIN" as any,
         passwordHash: passwordHash as any,
+        previousPasswordHashes: [
+          ...(Array.isArray((existing as any).previousPasswordHashes) ? (existing as any).previousPasswordHashes : []),
+          passwordHash,
+        ].slice(-5) as any,
         ...(name ? { name } : {}),
         ...(phone ? { phone } : {}),
         emailVerifiedAt: now as any,
@@ -334,6 +351,7 @@ async function main() {
       phone,
       role: "ADMIN" as any,
       passwordHash: passwordHash as any,
+      previousPasswordHashes: [passwordHash] as any,
       emailVerifiedAt: now as any,
       phoneVerifiedAt: phone ? (now as any) : (undefined as any),
     } as any,

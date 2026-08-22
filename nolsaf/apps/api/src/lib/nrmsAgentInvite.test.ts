@@ -94,6 +94,7 @@ describe("activateAgentFromInvite", () => {
     expect(res).toMatchObject({ ok: true, userId: 55, role: "NRMS_AGENT" });
     const data = db.user.updateMany.mock.calls[0]![0].data;
     expect(data.passwordHash).toBe("HASHED");
+    expect(data.previousPasswordHashes).toEqual(["HASHED"]);
     expect(data.emailVerifiedAt).toBeInstanceOf(Date);
   });
 

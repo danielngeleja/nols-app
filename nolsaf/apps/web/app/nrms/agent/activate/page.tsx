@@ -1,16 +1,14 @@
 "use client";
 // Public landing for the one-time agent invite link (/nrms/agent/activate?t=...).
 // The invited agent sets their own password and is signed straight into the portal.
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import {
-  DEFAULT_PASSWORD_POLICY,
-  fetchPasswordPolicy,
   validatePasswordAgainstPolicy,
   withMinimumLength,
-  type PasswordPolicy,
 } from "@/lib/passwordPolicy";
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
 import { CheckCircle2, Handshake, Loader2, Lock } from "lucide-react";
 
 function ActivateInner() {
@@ -21,19 +19,17 @@ function ActivateInner() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [serverPolicy, setServerPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
+  const { policy: serverPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy();
 
   const passwordPolicy = withMinimumLength(serverPolicy, 15);
   const passwordValidation = validatePasswordAgainstPolicy(password, passwordPolicy);
-  const valid = token.length > 10 && passwordValidation.valid && password === confirm;
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchPasswordPolicy(controller.signal).then(setServerPolicy).catch(() => {});
-    return () => controller.abort();
-  }, []);
+  const valid = policyReady && token.length > 10 && passwordValidation.valid && password === confirm;
 
   const submit = async () => {
+    if (!policyReady) {
+      setError("Password requirements are unavailable. Reload them before continuing.");
+      return;
+    }
     setSaving(true); setError(null);
     try {
       await apiClient.post("/api/public/nrms/agent/activate", { token, password });
@@ -69,12 +65,18 @@ function ActivateInner() {
           <>
             <p className="m-0 mt-4 text-[13px] text-neutral-500">Set a password to activate your travel-agent account. You will use it to sign in from now on.</p>
             {error && <div className="mt-3 rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
+            {policyStatus !== "ready" && (
+              <div className="mt-3 rounded-lg border border-solid border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                {policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}
+                {policyStatus === "error" && <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold underline">Retry</button>}
+              </div>
+            )}
             <div className="mt-4 flex flex-col gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">Password
-                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`At least ${passwordPolicy.minLength} characters`} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
+                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={password} onChange={(e) => setPassword(e.target.value)} disabled={!policyReady} placeholder={policyReady ? `At least ${passwordPolicy.minLength} characters` : "Loading requirements…"} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-100" />
               </label>
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">Confirm password
-                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={confirm} onChange={(e) => setConfirm(e.target.value)} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
+                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={confirm} onChange={(e) => setConfirm(e.target.value)} disabled={!policyReady} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-100" />
               </label>
               {password && !passwordValidation.valid && (
                 <ul className="m-0 space-y-1 pl-4 text-[11px] text-amber-700">

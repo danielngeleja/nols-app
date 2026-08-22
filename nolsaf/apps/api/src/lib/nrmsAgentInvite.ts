@@ -118,7 +118,9 @@ export async function activateAgentFromInvite(db: Db, params: { token: string; p
   const passwordHash = await hashPassword(params.password);
   const redeemed = await db.user.updateMany({
     where: { id: user.id, role: "NRMS_AGENT", passwordHash: null },
-    data: { passwordHash, emailVerifiedAt: new Date() },
+    // Record the activation password atomically with account redemption so it
+    // is included in the same five-password reuse history as every other flow.
+    data: { passwordHash, previousPasswordHashes: [passwordHash], emailVerifiedAt: new Date() },
   });
   if (redeemed.count !== 1) {
     return { ok: false, reason: "ALREADY_ACTIVE", message: "This account is already set up. Please sign in." };

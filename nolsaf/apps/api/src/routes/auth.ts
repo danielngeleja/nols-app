@@ -2612,8 +2612,11 @@ router.post('/reset-password', async (req, res) => {
       await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any, tokensValidAfter: new Date() as any } as any });
       await invalidateAuthSessionCacheForUser(Number(user.id)).catch(() => {});
     } catch (e) {
-      // if DB update fails, still accept but do not persist
-      console.warn('Failed to persist new password to DB', e);
+      console.error('[reset-password] Failed to persist new password', e);
+      return res.status(503).json({
+        code: 'password_update_failed',
+        message: 'Your password could not be saved. Nothing was changed; please try again.',
+      });
     }
 
     // Update in-memory history if applicable and start the change cooldown

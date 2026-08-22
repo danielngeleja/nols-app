@@ -2,12 +2,8 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, Lock, AlertCircle, CheckCircle2, ArrowLeft, Check } from 'lucide-react';
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  DEFAULT_PASSWORD_POLICY,
-  fetchPasswordPolicy,
-  validatePasswordAgainstPolicy,
-  type PasswordPolicy,
-} from "@/lib/passwordPolicy";
+import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
 
 export default function ResetPasswordPage() {
   const search = useSearchParams();
@@ -33,7 +29,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
-  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
+  const { policy: passwordPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy();
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -50,17 +46,12 @@ export default function ResetPasswordPage() {
     }
   }, [token, id]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchPasswordPolicy(controller.signal).then(setPasswordPolicy).catch(() => {});
-    return () => controller.abort();
-  }, []);
-
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setReasons([]);
     if (!token || !id) return setError("Missing token or id.");
+    if (!policyReady) return setError("Password requirements are unavailable. Reload them before continuing.");
     if (!clientValidation.valid) {
       setReasons(clientValidation.reasons);
       return setError("Password does not meet all requirements.");
@@ -170,6 +161,17 @@ export default function ResetPasswordPage() {
             </div>
           )}
 
+          {policyStatus !== "ready" && (
+            <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
+              {policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}
+              {policyStatus === "error" && (
+                <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold text-amber-100 underline">
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
           {success ? (
             <div className="min-w-0">
               <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl min-w-0">
@@ -232,6 +234,7 @@ export default function ResetPasswordPage() {
                     placeholder="New password"
                     autoComplete="new-password"
                     maxLength={passwordPolicy.maxLength}
+                    disabled={!policyReady}
                   />
                   <button
                     type="button"
@@ -244,7 +247,7 @@ export default function ResetPasswordPage() {
                 </div>
 
                 {/* Strength meter */}
-                {password && (
+                {password && policyReady && (
                   <div className="mt-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800 min-w-0">
                     <div className="flex gap-1 mb-2 min-w-0">
                       {clientValidation.requirements.map((requirement, i) => (
@@ -298,6 +301,7 @@ export default function ResetPasswordPage() {
                     placeholder="Confirm password"
                     autoComplete="new-password"
                     maxLength={passwordPolicy.maxLength}
+                    disabled={!policyReady}
                   />
                   <button
                     type="button"
@@ -325,7 +329,7 @@ export default function ResetPasswordPage() {
               <div className="flex items-center justify-between pt-2 min-w-0 gap-3">
                 <button
                   type="submit"
-                  disabled={loading || !token || !id || !clientValidation.valid || password !== confirm}
+                  disabled={loading || !policyReady || !token || !id || !clientValidation.valid || password !== confirm}
                   className="flex-1 min-w-0 px-6 py-2.5 bg-[#02665e] hover:bg-[#014e47] text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-md box-border"
                 >
                   {loading ? (

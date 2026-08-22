@@ -6,11 +6,10 @@ import { Eye, EyeOff, Lock, CheckCircle2, XCircle, AlertCircle } from "lucide-re
 import { useRouter } from "next/navigation"
 import SecuritySettingsShell from "@/components/security/SecuritySettingsShell"
 import {
-  DEFAULT_PASSWORD_POLICY,
-  fetchPasswordPolicy,
   validatePasswordAgainstPolicy,
   type PasswordPolicy,
 } from "@/lib/passwordPolicy"
+import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy"
 
 export type PasswordChangeFormProps = {
   apiUrl: string
@@ -46,7 +45,7 @@ export default function PasswordChangeForm({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [serverPolicy, setServerPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY)
+  const { policy: serverPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy()
   const [passwordMatch, setPasswordMatch] = useState<boolean | null>(null)
   const [inputLocked, setInputLocked] = useState(false)
   const [confirmInputLocked, setConfirmInputLocked] = useState(false)
@@ -55,12 +54,6 @@ export default function PasswordChangeForm({
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0)
   const router = useRouter()
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchPasswordPolicy(controller.signal).then(setServerPolicy).catch(() => {})
-    return () => controller.abort()
-  }, [])
 
   const policy = useMemo<PasswordPolicy>(() => {
     if (typeof exactLength === "number") {
@@ -159,6 +152,11 @@ export default function PasswordChangeForm({
       setError("Password requirements:\n" + passwordValidation.reasons.join("\n"))
       return
     }
+
+    if (!policyReady) {
+      setError("Password requirements are unavailable. Reload them before changing your password.")
+      return
+    }
     if (currentPassword && newPassword === currentPassword) {
       setError("The new password must be different from your current password. Please choose a different password.")
       return
@@ -240,7 +238,7 @@ export default function PasswordChangeForm({
   const pageContainerClass = roleUpper === "DRIVER" ? "w-full max-w-6xl mx-auto px-4" : "public-container w-full"
 
   const SectionRequirements =
-    isSection && newPassword ? (
+    isSection && newPassword && policyReady ? (
       <div className="mt-2 space-y-2">
         <div className="space-y-1.5">
           <div className="flex items-center justify-between mb-1">
@@ -369,7 +367,7 @@ export default function PasswordChangeForm({
                   setNewPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={placeholderLabel}
                 className={`border rounded-lg px-3 py-2.5 pr-14 text-sm focus:outline-none focus:ring-1 transition-all duration-300 ease-out w-full bg-slate-800/60 text-slate-100 placeholder:text-slate-500 ${
                   inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)
@@ -423,7 +421,7 @@ export default function PasswordChangeForm({
                   setNewPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={`Enter your new password (${placeholderLabel})`}
                 className="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-600"
               />
@@ -433,7 +431,7 @@ export default function PasswordChangeForm({
                 onClick={() => setShowNewPassword(!showNewPassword)}
                 className="inline-flex w-12 shrink-0 appearance-none items-center justify-center border-0 bg-transparent text-slate-500 transition-colors hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus-visible:outline-none disabled:opacity-60"
                 aria-label={showNewPassword ? "Hide password" : "Show password"}
-                disabled={inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || inputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
               >
                 {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
@@ -471,7 +469,7 @@ export default function PasswordChangeForm({
                   setConfirmPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={placeholderLabel}
                 className={`border rounded-lg px-3 py-2.5 pr-14 text-sm focus:outline-none focus:ring-1 transition-all duration-300 ease-out w-full bg-slate-800/60 text-slate-100 placeholder:text-slate-500 ${
                   confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)
@@ -525,7 +523,7 @@ export default function PasswordChangeForm({
                   setConfirmPassword(truncated)
                 }}
                 maxLength={effectiveMaxLength}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
                 placeholder={`Confirm your new password (${placeholderLabel})`}
                 className="min-w-0 flex-1 border-0 bg-transparent px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:text-slate-600"
               />
@@ -535,7 +533,7 @@ export default function PasswordChangeForm({
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="inline-flex w-12 shrink-0 appearance-none items-center justify-center border-0 bg-transparent text-slate-500 transition-colors hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus-visible:outline-none disabled:opacity-60"
                 aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                disabled={confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
+                disabled={!policyReady || confirmInputLocked || (timeoutUntil !== null && Date.now() < timeoutUntil)}
               >
                 {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
@@ -564,9 +562,19 @@ export default function PasswordChangeForm({
 
   const FormFields = (
     <>
+      {policyStatus !== "ready" ? (
+        <div className={isSection ? "rounded-lg border border-amber-500/30 bg-amber-900/20 p-3 text-sm text-amber-300" : "rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"}>
+          <span>{policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}</span>
+          {policyStatus === "error" ? (
+            <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold underline">
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {InputsGrid}
 
-      {!isSection && newPassword ? (
+      {!isSection && newPassword && policyReady ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="space-y-2">
             <div className="space-y-1.5">
@@ -677,6 +685,7 @@ export default function PasswordChangeForm({
           type="submit"
           disabled={
             loading ||
+            !policyReady ||
             !passwordValidation.valid ||
             newPassword !== confirmPassword ||
             (requireCurrentPassword ? !currentPassword : false) ||
