@@ -158,6 +158,7 @@
     "20260820030000_add_nrms_partnership_lifecycle": "9f8586e254c5a0a138ece611b4df24bc771fe1448ea879d1bb6e933ec5422210",
     "20260820040000_harden_nrms_agent_connections": "f7c729142bf620adc32120fefec7160377dc75748d66d28283de4e86702f5f49",
     "20260821010000_add_agent_guest_manifest": "2c5d161ee174220eb1caf4cc5635344879ebdd7df2e14493ede6b3fa855efb17",
-    "20260821020000_add_agent_invoice_workflow": "af3494a25e690b304a5cca64c96c606aad9b0e4d22ca103b94e2c20a774a4046"
+    "20260821020000_add_agent_invoice_workflow": "af3494a25e690b304a5cca64c96c606aad9b0e4d22ca103b94e2c20a774a4046",
+    "20260821030000_add_agent_payment_declaration_detail": "5c596271431bf2a21ee7516425d6bdaac08dd547b4e2d7bc52c320655a61f529"
   }
 }
