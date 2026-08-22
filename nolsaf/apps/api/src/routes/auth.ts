@@ -9,7 +9,7 @@ import { sendMail, SECURITY_EMAIL_FROM } from '../lib/mailer.js';
 import { getPasswordResetEmail, getLoginAlertEmail, getPasswordChangedConfirmationEmail, getVerificationCodeEmail } from '../lib/authEmailTemplates.js';
 import { sendSms } from '../lib/sms.js';
 import { addPasswordToHistory, getPasswordChangeCooldownRemaining, isPasswordReused, recordPasswordChangeSuccess } from '../lib/security.js';
-import { validatePasswordWithSettings } from '../lib/securitySettings.js';
+import { getPublicPasswordPolicy, validatePasswordWithSettings } from '../lib/securitySettings.js';
 import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
 import { signUserJwt, setAuthCookie, clearAuthCookie } from '../lib/sessionManager.js';
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
@@ -28,6 +28,12 @@ import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRoleP
 import { beginAdminMfaChallenge } from './auth.adminMfa.js';
 
 const router = Router();
+
+router.get('/password-policy', async (_req, res) => {
+  const policy = await getPublicPasswordPolicy();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ policy });
+});
 
 // Onboarding profile accepts multipart form fields but not binary files.
 const upload = multer({

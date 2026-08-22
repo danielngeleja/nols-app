@@ -2,6 +2,12 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, Lock, AlertCircle, CheckCircle2, ArrowLeft, Check } from 'lucide-react';
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  fetchPasswordPolicy,
+  validatePasswordAgainstPolicy,
+  type PasswordPolicy,
+} from "@/lib/passwordPolicy";
 
 export default function ResetPasswordPage() {
   const search = useSearchParams();
@@ -27,12 +33,16 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
-  const [clientReasons, setClientReasons] = useState<string[]>([]);
-  const [strengthScore, setStrengthScore] = useState<number>(0);
-  const [strengthLabel, setStrengthLabel] = useState<string>("");
+  const [passwordPolicy, setPasswordPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const clientValidation = validatePasswordAgainstPolicy(password, passwordPolicy);
+  const clientReasons = clientValidation.reasons;
+  const strengthScore = clientValidation.requirements.filter((requirement) => requirement.pass).length;
+  const strengthMaximum = clientValidation.requirements.length;
+  const strengthLabel = clientValidation.valid ? "Strong" : strengthScore >= Math.max(1, strengthMaximum - 2) ? "Needs improvement" : "Weak";
 
   useEffect(() => {
     if (!token || !id) {
@@ -40,37 +50,21 @@ export default function ResetPasswordPage() {
     }
   }, [token, id]);
 
-  const computeStrength = (pw: string) => {
-    const checks = [
-      { ok: pw.length >= 8, label: 'At least 8 characters' },
-      { ok: /[a-z]/.test(pw), label: 'Include a lowercase letter' },
-      { ok: /[A-Z]/.test(pw), label: 'Include an uppercase letter' },
-      { ok: /\d/.test(pw), label: 'Include a number' },
-      { ok: /[^A-Za-z0-9]/.test(pw), label: 'Include a special character' },
-    ];
-    const score = checks.reduce((s, c) => s + (c.ok ? 1 : 0), 0);
-    const missing = checks.filter((c) => !c.ok).map((c) => c.label);
-    let label = '';
-    if (score <= 2) label = 'Weak';
-    else if (score === 3) label = 'Fair';
-    else if (score === 4) label = 'Strong';
-    else label = 'Very strong';
-    return { score, missing, label };
-  };
-
   useEffect(() => {
-    const { score, missing, label } = computeStrength(password);
-    setStrengthScore(score);
-    setClientReasons(missing);
-    setStrengthLabel(label);
-  }, [password]);
+    const controller = new AbortController();
+    fetchPasswordPolicy(controller.signal).then(setPasswordPolicy).catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setReasons([]);
     if (!token || !id) return setError("Missing token or id.");
-    if (password.length < 8) return setError("Password must be at least 8 characters.");
+    if (!clientValidation.valid) {
+      setReasons(clientValidation.reasons);
+      return setError("Password does not meet all requirements.");
+    }
     if (password !== confirm) return setError("Passwords do not match.");
 
     setLoading(true);
@@ -237,6 +231,7 @@ export default function ResetPasswordPage() {
                     className="w-full max-w-full px-3 pr-10 py-2.5 text-sm bg-slate-950 text-slate-100 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all shadow-sm hover:shadow-md placeholder:text-slate-500 box-border"
                     placeholder="New password"
                     autoComplete="new-password"
+                    maxLength={passwordPolicy.maxLength}
                   />
                   <button
                     type="button"
@@ -252,17 +247,15 @@ export default function ResetPasswordPage() {
                 {password && (
                   <div className="mt-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800 min-w-0">
                     <div className="flex gap-1 mb-2 min-w-0">
-                      {[0,1,2,3,4].map((i) => (
+                      {clientValidation.requirements.map((requirement, i) => (
                         <div 
-                          key={i} 
+                          key={requirement.id}
                           className={`h-2 flex-1 min-w-0 rounded transition-all ${
                             i < strengthScore 
-                              ? strengthScore <= 2 
+                              ? !clientValidation.valid && strengthScore <= Math.max(2, strengthMaximum / 2)
                                 ? 'bg-red-400' 
-                                : strengthScore === 3 
+                                : !clientValidation.valid
                                 ? 'bg-amber-400' 
-                                : strengthScore === 4
-                                ? 'bg-emerald-500'
                                 : 'bg-emerald-600'
                               : 'bg-slate-800'
                           }`} 
@@ -275,7 +268,7 @@ export default function ResetPasswordPage() {
                         strengthScore === 3 ? 'text-amber-400' : 
                         'text-emerald-400'
                       }`}>
-                        {strengthLabel} {password ? `(${strengthScore}/5)` : ''}
+                        {strengthLabel} {password ? `(${strengthScore}/${strengthMaximum})` : ''}
                       </span>
                       {clientReasons.length > 0 && (
                         <span className="text-slate-500 flex-shrink-0 ml-2">
@@ -304,6 +297,7 @@ export default function ResetPasswordPage() {
                     className="w-full max-w-full px-3 pr-10 py-2.5 text-sm bg-slate-950 text-slate-100 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all shadow-sm hover:shadow-md placeholder:text-slate-500 box-border"
                     placeholder="Confirm password"
                     autoComplete="new-password"
+                    maxLength={passwordPolicy.maxLength}
                   />
                   <button
                     type="button"
@@ -320,7 +314,7 @@ export default function ResetPasswordPage() {
                     Passwords do not match
                   </p>
                 )}
-                {confirm && password === confirm && password.length >= 8 && (
+                {confirm && password === confirm && clientValidation.valid && (
                   <p className="text-xs text-emerald-400 flex items-center gap-1">
                     <Check className="w-3 h-3" />
                     Passwords match
@@ -331,7 +325,7 @@ export default function ResetPasswordPage() {
               <div className="flex items-center justify-between pt-2 min-w-0 gap-3">
                 <button
                   type="submit"
-                  disabled={loading || !token || !id || password.length < 8 || password !== confirm}
+                  disabled={loading || !token || !id || !clientValidation.valid || password !== confirm}
                   className="flex-1 min-w-0 px-6 py-2.5 bg-[#02665e] hover:bg-[#014e47] text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-md box-border"
                 >
                   {loading ? (

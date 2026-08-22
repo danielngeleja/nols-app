@@ -10,8 +10,6 @@ export default function AdminPasswordPage() {
       backHref="/admin/profile"
       roleLabel="ADMIN"
       variant="page"
-      minLength={8}
-      maxLength={12}
       requireCurrentPassword
       submitLabel="Update Password"
     />

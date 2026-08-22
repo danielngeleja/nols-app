@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import PasswordField from "../PasswordField";
 
 export default function OwnerRegisterPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordValid, setPasswordValid] = useState(false);
   const [tin, setTin] = useState("");
   const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,10 +56,7 @@ export default function OwnerRegisterPage() {
           <input className="input w-full" value={phone} onChange={(e)=>setPhone(e.target.value)} />
         </label>
 
-        <label className="block text-sm">
-          <span className="block mb-1">Password</span>
-          <input type="password" className="input w-full" value={password} onChange={(e)=>setPassword(e.target.value)} />
-        </label>
+        <PasswordField value={password} onChange={setPassword} onValidityChange={setPasswordValid} />
 
         <label className="block text-sm">
           <span className="block mb-1">Business TIN (optional)</span>
@@ -71,7 +70,7 @@ export default function OwnerRegisterPage() {
 
         {message && <div className="text-sm text-gray-700">{message}</div>}
 
-        <button className="btn btn-solid w-full" disabled={loading}>{loading ? 'Creating…' : 'Create owner account'}</button>
+        <button className="btn btn-solid w-full" disabled={loading || !passwordValid}>{loading ? 'Creating…' : 'Create owner account'}</button>
       </form>
     </div>
   );

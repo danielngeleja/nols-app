@@ -7,7 +7,7 @@ import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/aut
 import { audit } from "../lib/audit.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
-import { validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
+import { PASSWORD_MAX_LENGTH, validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
 import { validatePasswordWithSettings } from "../lib/securitySettings.js";
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
@@ -314,7 +314,7 @@ function maskSensitiveDestination(value: unknown): string {
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8).max(12), // DoS protection: 8-12 characters
+  newPassword: z.string().min(8).max(PASSWORD_MAX_LENGTH),
 }).strict();
 
 // DoS protection: Track password change attempts and cooldowns
@@ -1707,10 +1707,9 @@ const changePassword: RequestHandler = async (req, res) => {
     const { currentPassword, newPassword } = validationResult.data;
     const userId = getUserId(req as AuthedRequest);
 
-    // DoS protection: Enforce 8-12 character limit
-    if (newPassword.length < 8 || newPassword.length > 12) {
-      return sendError(res, 400, "Password must be between 8 and 12 characters", { 
-        reasons: ['Password length must be between 8 and 12 characters to prevent DoS attacks'] 
+    if (newPassword.length < 8 || newPassword.length > PASSWORD_MAX_LENGTH) {
+      return sendError(res, 400, `Password must be between 8 and ${PASSWORD_MAX_LENGTH} characters`, {
+        reasons: [`Password length must be between 8 and ${PASSWORD_MAX_LENGTH} characters`]
       });
     }
 
@@ -1780,7 +1779,7 @@ const changePassword: RequestHandler = async (req, res) => {
       });
     }
 
-    // Validate password strength (but with 8-12 limit already enforced)
+    // Validate against the active SystemSetting password policy.
     const { valid, reasons } = await validatePasswordWithSettings(newPassword, user.role || null);
     if (!valid) {
       return sendError(res, 400, "Password does not meet strength requirements", { reasons });

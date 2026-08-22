@@ -77,25 +77,26 @@ function ask(rl: readline.Interface, question: string): Promise<string> {
 interface PasswordCheck { label: string; pass: boolean; }
 
 function checkPasswordStrength(pw: string): PasswordCheck[] {
+  const acceptedSpecialCharacters = "!@#$%^&*()-_=+[]{};:'\"\\|,<.>/?`~";
   return [
-    { label: "At least 12 characters long",              pass: pw.length >= 12 },
+    { label: "Between 12 and 128 characters long",      pass: pw.length >= 12 && pw.length <= 128 },
     { label: "Contains an uppercase letter (A–Z)",       pass: /[A-Z]/.test(pw) },
     { label: "Contains a lowercase letter (a–z)",       pass: /[a-z]/.test(pw) },
     { label: "Contains a digit (0–9)",                  pass: /[0-9]/.test(pw) },
-    { label: "Contains a special character (!@#$…)",    pass: /[^A-Za-z0-9]/.test(pw) },
-    { label: "Does not start or end with a space",      pass: pw === pw.trim() },
+    { label: "Contains a special character (!@#$…)",    pass: Array.from(pw).some((character) => acceptedSpecialCharacters.includes(character)) },
+    { label: "Does not contain spaces",                 pass: !/\s/.test(pw) },
   ];
 }
 
 function printPasswordRequirements(): void {
   console.log("\n  Password requirements:");
   console.log("  ──────────────────────────────────────────────");
-  console.log("  ✔  At least 12 characters long");
+  console.log("  ✔  Between 12 and 128 characters long");
   console.log("  ✔  At least one uppercase letter  (A–Z)");
   console.log("  ✔  At least one lowercase letter  (a–z)");
   console.log("  ✔  At least one digit             (0–9)");
   console.log("  ✔  At least one special character (!@#$%^&*…)");
-  console.log("  ✔  Must not start or end with a space");
+  console.log("  ✔  Must not contain spaces");
   console.log("  ──────────────────────────────────────────────\n");
 }
 

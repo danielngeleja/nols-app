@@ -117,7 +117,7 @@ export default function SystemSettingsPage(){
     emailEnabled: true,
     smsEnabled: false,
     requireAdmin2FA: true,
-    minPasswordLength: 10,
+    minPasswordLength: 8,
     requirePasswordUppercase: false,
     requirePasswordLowercase: false,
     requirePasswordNumber: false,
@@ -295,8 +295,8 @@ export default function SystemSettingsPage(){
         break;
       case 'minPasswordLength':
         const minLen = Number(value);
-        if (isNaN(minLen) || minLen < 6 || minLen > 128) {
-          return 'Password length must be between 6 and 128 characters';
+        if (isNaN(minLen) || minLen < 8 || minLen > 128) {
+          return 'Password length must be between 8 and 128 characters';
         }
         break;
       case 'sessionIdleMinutes':
@@ -340,7 +340,7 @@ export default function SystemSettingsPage(){
     // Validate with actual values (using defaults if not set)
     const valuesToValidate = {
       ipAllowlist: s.ipAllowlist || '',
-      minPasswordLength: s.minPasswordLength ?? 10,
+      minPasswordLength: s.minPasswordLength ?? 8,
       sessionIdleMinutes: s.sessionIdleMinutes ?? 60,
       maxSessionDurationHours: s.maxSessionDurationHours ?? 24,
       apiRateLimitPerMinute: s.apiRateLimitPerMinute ?? 100,
@@ -407,7 +407,7 @@ export default function SystemSettingsPage(){
       emailEnabled: Boolean(s.emailEnabled),
       smsEnabled: Boolean(s.smsEnabled),
       requireAdmin2FA: Boolean(s.requireAdmin2FA),
-      minPasswordLength: Number(s.minPasswordLength || 10),
+      minPasswordLength: Number(s.minPasswordLength || 8),
       requirePasswordUppercase: Boolean(s.requirePasswordUppercase ?? false),
       requirePasswordLowercase: Boolean(s.requirePasswordLowercase ?? false),
       requirePasswordNumber: Boolean(s.requirePasswordNumber ?? false),
@@ -1300,10 +1300,10 @@ export default function SystemSettingsPage(){
                   <input
                     id="minPasswordLength"
                     type="number"
-                    min={6}
+                    min={8}
                     max={128}
                     className={`${inputClass} ${validationErrors.minPasswordLength ? "border-red-300" : ""}`}
-                    value={(s?.minPasswordLength ?? 10) as any}
+                    value={(s?.minPasswordLength ?? 8) as any}
                     onChange={e=>setS(prev=>({...(prev||{}), minPasswordLength: Number(e.target.value)}))}
                   />
                   {validationErrors.minPasswordLength && <p className="mt-1 text-xs text-red-600">{validationErrors.minPasswordLength}</p>}

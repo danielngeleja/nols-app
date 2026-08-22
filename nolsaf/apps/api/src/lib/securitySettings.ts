@@ -1,5 +1,10 @@
 import { prisma } from "@nolsaf/prisma";
-import { validatePasswordStrength } from "./security.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH_FLOOR,
+  PASSWORD_SPECIAL_CHARACTERS,
+  validatePasswordStrength,
+} from "./security.js";
 
 type SessionRole = 'ADMIN' | 'OWNER' | 'DRIVER' | 'AGENT' | 'USER' | 'CUSTOMER';
 
@@ -161,8 +166,15 @@ export async function getPasswordValidationOptions() {
         requirePasswordSpecial: true,
       },
     });
+    const configuredMinLength = Number(settings?.minPasswordLength);
+    const minLength = Number.isInteger(configuredMinLength)
+      && configuredMinLength >= PASSWORD_MIN_LENGTH_FLOOR
+      && configuredMinLength <= PASSWORD_MAX_LENGTH
+      ? configuredMinLength
+      : PASSWORD_MIN_LENGTH_FLOOR;
     return {
-      minLength: settings?.minPasswordLength ?? 8,
+      minLength,
+      maxLength: PASSWORD_MAX_LENGTH,
       requireUpper: settings?.requirePasswordUppercase ?? false,
       requireLower: settings?.requirePasswordLowercase ?? false,
       requireNumber: settings?.requirePasswordNumber ?? false,
@@ -172,13 +184,23 @@ export async function getPasswordValidationOptions() {
     console.error('Failed to fetch password validation options from SystemSetting:', err);
     // Return safe defaults
     return {
-      minLength: 8,
+      minLength: PASSWORD_MIN_LENGTH_FLOOR,
+      maxLength: PASSWORD_MAX_LENGTH,
       requireUpper: false,
       requireLower: false,
       requireNumber: false,
       requireSpecial: false,
     };
   }
+}
+
+export async function getPublicPasswordPolicy() {
+  const options = await getPasswordValidationOptions();
+  return {
+    ...options,
+    noSpaces: true,
+    specialCharacters: PASSWORD_SPECIAL_CHARACTERS,
+  };
 }
 
 /**

@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import PasswordField from "./PasswordField";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordValid, setPasswordValid] = useState(false);
   const [role, setRole] = useState<"CUSTOMER" | "OWNER" | "DRIVER">("CUSTOMER");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -60,14 +62,11 @@ export default function RegisterPage() {
           <input className="input w-full" value={phone} onChange={(e)=>setPhone(e.target.value)} />
         </label>
 
-        <label className="block text-sm">
-          <span className="block mb-1">Password</span>
-          <input type="password" className="input w-full" value={password} onChange={(e)=>setPassword(e.target.value)} />
-        </label>
+        <PasswordField value={password} onChange={setPassword} onValidityChange={setPasswordValid} />
 
         {message && <div className="text-sm text-gray-700">{message}</div>}
 
-        <button className="btn btn-solid w-full" disabled={loading}>{loading ? 'Creating…' : 'Create account'}</button>
+        <button className="btn btn-solid w-full" disabled={loading || !passwordValid}>{loading ? 'Creating…' : 'Create account'}</button>
       </form>
     </div>
   );

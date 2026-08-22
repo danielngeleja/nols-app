@@ -10,6 +10,7 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { activateAgentFromInvite } from "../lib/nrmsAgentInvite.js";
 import { signUserJwt, setAuthCookie } from "../lib/sessionManager.js";
 import { validatePasswordWithSettings } from "../lib/securitySettings.js";
+import { PASSWORD_MAX_LENGTH } from "../lib/security.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import crypto from "node:crypto";
 
@@ -17,7 +18,7 @@ export const router = Router();
 
 const activateSchema = z.object({
   token: z.string().trim().min(10).max(2048),
-  password: z.string().min(15).max(200),
+  password: z.string().min(15).max(PASSWORD_MAX_LENGTH),
 });
 const limitAgentActivation = rateLimit({
   windowMs: 15 * 60_000,
@@ -41,7 +42,7 @@ router.use((_req, res, next) => {
 
 router.post("/activate", limitAgentActivation as RequestHandler, (async (req, res: Response) => {
   const parsed = activateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Enter a password of at least 15 characters" });
+  if (!parsed.success) return res.status(400).json({ error: `Enter a password between 15 and ${PASSWORD_MAX_LENGTH} characters` });
   try {
     const strength = await validatePasswordWithSettings(parsed.data.password, "NRMS_AGENT");
     if (!strength.valid) {

@@ -43,7 +43,6 @@ export default function AccountSecurityPanel({ variant = "page", roleLabelOverri
   }, [])
 
   const roleUpper = String(roleLabelOverride || me?.role || "").toUpperCase()
-  const isPrivileged = roleUpper === "ADMIN" || roleUpper === "OWNER"
 
   return (
     <div className={`w-full ${embedded ? "space-y-4" : "space-y-6"}`}>
@@ -82,9 +81,6 @@ export default function AccountSecurityPanel({ variant = "page", roleLabelOverri
         apiUrl="/api/account/password/change"
         variant="section"
         roleLabel={roleUpper || "ACCOUNT"}
-        minLength={isPrivileged ? 12 : 8}
-        maxLength={12}
-        exactLength={isPrivileged ? 12 : undefined}
         requireCurrentPassword
         submitLabel="Update Password"
       />

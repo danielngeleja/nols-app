@@ -1,9 +1,16 @@
 "use client";
 // Public landing for the one-time agent invite link (/nrms/agent/activate?t=...).
 // The invited agent sets their own password and is signed straight into the portal.
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  fetchPasswordPolicy,
+  validatePasswordAgainstPolicy,
+  withMinimumLength,
+  type PasswordPolicy,
+} from "@/lib/passwordPolicy";
 import { CheckCircle2, Handshake, Loader2, Lock } from "lucide-react";
 
 function ActivateInner() {
@@ -14,8 +21,17 @@ function ActivateInner() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [serverPolicy, setServerPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
 
-  const valid = token.length > 10 && password.length >= 15 && password.length <= 200 && password === confirm;
+  const passwordPolicy = withMinimumLength(serverPolicy, 15);
+  const passwordValidation = validatePasswordAgainstPolicy(password, passwordPolicy);
+  const valid = token.length > 10 && passwordValidation.valid && password === confirm;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchPasswordPolicy(controller.signal).then(setServerPolicy).catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const submit = async () => {
     setSaving(true); setError(null);
@@ -55,11 +71,16 @@ function ActivateInner() {
             {error && <div className="mt-3 rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
             <div className="mt-4 flex flex-col gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">Password
-                <input type="password" autoComplete="new-password" minLength={15} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 15 characters" className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
+                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`At least ${passwordPolicy.minLength} characters`} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
               </label>
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">Confirm password
-                <input type="password" autoComplete="new-password" minLength={15} maxLength={200} value={confirm} onChange={(e) => setConfirm(e.target.value)} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
+                <input type="password" autoComplete="new-password" minLength={passwordPolicy.minLength} maxLength={passwordPolicy.maxLength} value={confirm} onChange={(e) => setConfirm(e.target.value)} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400" />
               </label>
+              {password && !passwordValidation.valid && (
+                <ul className="m-0 space-y-1 pl-4 text-[11px] text-amber-700">
+                  {passwordValidation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              )}
               {confirm && password !== confirm && <p className="m-0 text-[11px] text-red-600">Passwords do not match.</p>}
               <button type="button" onClick={() => void submit()} disabled={!valid || saving} className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} Activate and sign in
