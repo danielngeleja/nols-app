@@ -221,6 +221,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     if: github.ref == 'refs/heads/main'
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -229,11 +232,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub (if configured)
-        if: secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
+        if: env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != ''
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
 
       - name: Build API Docker image
         uses: docker/build-push-action@v5
