@@ -56,6 +56,13 @@ model User {
   district          String?   @db.VarChar(120)
   emailVerifiedAt   DateTime?
   phoneVerifiedAt   DateTime?
+  /// Registration is COMPLETE only after full name, email, and phone are stored.
+  /// OTP verification remains a separate per-channel concern.
+  registrationStatus String    @default("INCOMPLETE") @db.VarChar(30)
+  /// Origin that first created the account: WEB, TRAVELLER_APP, DRIVER_APP,
+  /// PARTNERS_APP, LEGACY, or UNKNOWN.
+  registrationSource String    @default("UNKNOWN") @db.VarChar(30)
+  profileCompletedAt DateTime?
   /// Security anchor for contact-channel changes. A recently replaced channel
   /// cannot immediately authorize another contact or payout destination change.
   emailChangedAt    DateTime?
@@ -353,6 +360,8 @@ model User {
   disbursementBatchesAuthorized DisbursementBatch[]        @relation("DisbursementBatchAuthorizedBy")
 
   @@index([role])
+  @@index([role, registrationStatus])
+  @@index([registrationSource])
   @@index([email])
   @@index([phone])
   @@index([suspendedAt])

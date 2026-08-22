@@ -552,8 +552,8 @@ export default function RegisterPage() {
           : { email: registerEmail.trim().toLowerCase() };
       const resp = await fetch('/api/auth/send-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...destination, role }),
+        headers: { 'Content-Type': 'application/json', 'X-NoLSAF-Client': 'WEB' },
+        body: JSON.stringify({ ...destination, role, registrationSource: 'WEB' }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -594,8 +594,8 @@ export default function RegisterPage() {
       // Verify OTP with API
       const resp = await fetch('/api/auth/verify-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...destination, otp, role }),
+        headers: { 'Content-Type': 'application/json', 'X-NoLSAF-Client': 'WEB' },
+        body: JSON.stringify({ ...destination, otp, role, registrationSource: 'WEB' }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -605,16 +605,13 @@ export default function RegisterPage() {
       saveAuthToken(data.token);
       setStep('done');
       const nextPath = safeNextPath(nextParamRaw);
-      if (nextPath?.startsWith('/public/booking/payment')) {
-        setTimeout(() => {
-          window.location.href = nextPath;
-        }, 900);
-        return;
-      }
-      // Include referral code in URL if present
-      const onboardUrl = referralCode 
-        ? `/account/onboard/${role}?ref=${encodeURIComponent(referralCode)}`
-        : `/account/onboard/${role}`;
+      // OTP verification creates an authenticated, incomplete account. Always
+      // finish identity onboarding before checkout or any role dashboard.
+      const onboardParams = new URLSearchParams();
+      if (referralCode) onboardParams.set('ref', referralCode);
+      if (nextPath) onboardParams.set('next', nextPath);
+      const query = onboardParams.toString();
+      const onboardUrl = `/account/onboard/${role}${query ? `?${query}` : ''}`;
       setTimeout(() => router.push(onboardUrl), 900);
     } catch (err: any) {
       setError(err?.message || 'OTP verification failed');

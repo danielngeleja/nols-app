@@ -18,8 +18,14 @@ const api = apiClient;
 type UserDetail = {
   id: number;
   name: string | null;
-  email: string;
+  displayName?: string;
+  bookingGuestName?: string | null;
+  identityNameSource?: "ACCOUNT" | "BOOKING" | "MISSING";
+  email: string | null;
   phone: string | null;
+  registrationStatus?: "COMPLETE" | "INCOMPLETE";
+  registrationSource?: string;
+  profileCompletedAt?: string | null;
   role: string;
   createdAt: string;
   emailVerifiedAt: string | null;
@@ -30,6 +36,17 @@ type UserDetail = {
   _count: {
     bookings: number;
   };
+};
+
+type CustomerActivity = {
+  type: string;
+  id: number;
+  title: string;
+  status: string;
+  amount?: number;
+  currency?: string;
+  rating?: number;
+  createdAt: string;
 };
 
 type Booking = {
@@ -60,6 +77,8 @@ type Booking = {
 type UserDetailResponse = {
   user?: UserDetail | null;
   bookings?: Booking[];
+  activities?: CustomerActivity[];
+  activityCounts?: Record<string, number>;
   stats?: {
     booking: {
       total: number;
@@ -92,7 +111,7 @@ export default function AdminUserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [tab, setTab] = useState<"overview" | "bookings">("overview");
+  const [tab, setTab] = useState<"overview" | "bookings" | "activity">("overview");
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [showSuspendForm, setShowSuspendForm] = useState(false);
@@ -106,6 +125,7 @@ export default function AdminUserDetailPage() {
   const [bookingSortDir, setBookingSortDir] = useState<"asc" | "desc">("desc");
 
   const bookings = data?.bookings ?? [];
+  const activities = data?.activities ?? [];
 
   const sortedBookings = useMemo(() => {
     const next = [...bookings];
@@ -389,7 +409,7 @@ export default function AdminUserDetailPage() {
               <div className="h-8 w-px bg-gray-300" />
               <div className="flex-1">
                 <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
-                  {user.name || `User #${user.id}`}
+                  {user.displayName || user.name || `User #${user.id}`}
                 </h1>
                 <p className="text-sm text-gray-500 mt-1">User ID: {user.id}</p>
               </div>
@@ -407,7 +427,7 @@ export default function AdminUserDetailPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Email</p>
-                      <p className="text-sm font-semibold text-gray-900 truncate">{user.email}</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate">{user.email || 'Email missing'}</p>
                     </div>
                   </div>
 
@@ -721,6 +741,19 @@ export default function AdminUserDetailPage() {
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600" />
                 )}
               </button>
+              <button
+                onClick={() => setTab("activity")}
+                className={`px-6 py-4 font-semibold text-sm transition-all duration-200 border-b-2 relative ${
+                  tab === "activity"
+                    ? "border-emerald-600 text-emerald-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                All Activity
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${tab === "activity" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"}`}>
+                  {activities.length}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -736,15 +769,25 @@ export default function AdminUserDetailPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div className="p-5 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
                       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Name</div>
-                      <div className="text-lg font-bold text-gray-900">{user.name || "N/A"}</div>
+                      <div className="text-lg font-bold text-gray-900">{user.displayName || user.name || "Incomplete profile"}</div>
+                      {user.identityNameSource === 'BOOKING' && (
+                        <div className="mt-1 text-xs font-medium text-orange-700">Shown from booking guest details; account name is missing.</div>
+                      )}
                     </div>
                     <div className="p-5 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
                       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Email</div>
-                      <div className="text-lg font-bold text-gray-900 break-all">{user.email}</div>
+                      <div className="text-lg font-bold text-gray-900 break-all">{user.email || 'Missing'}</div>
                     </div>
                     <div className="p-5 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
                       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phone</div>
                       <div className="text-lg font-bold text-gray-900">{user.phone || "N/A"}</div>
+                    </div>
+                    <div className="p-5 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
+                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Registration</div>
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${user.registrationStatus === 'COMPLETE' ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'}`}>
+                        {user.registrationStatus === 'COMPLETE' ? 'Complete' : 'Incomplete'}
+                      </span>
+                      <div className="mt-2 text-xs font-medium text-gray-500">Source: {(user.registrationSource || 'UNKNOWN').replaceAll('_', ' ')}</div>
                     </div>
                     <div className="p-5 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
                       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Role</div>
@@ -808,6 +851,39 @@ export default function AdminUserDetailPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {tab === "activity" && (
+              <div className="space-y-4">
+                {activities.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <Activity className="mx-auto mb-4 h-10 w-10 text-gray-300" />
+                    <p className="font-semibold text-gray-700">No recorded activity</p>
+                    <p className="mt-1 text-sm text-gray-500">Bookings, tours, transport, reviews, saved properties, and cancellation requests will appear here.</p>
+                  </div>
+                ) : (
+                  activities.map((item) => (
+                    <div key={`${item.type}-${item.id}`} className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{item.type.replaceAll('_', ' ')}</span>
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">{String(item.status || 'RECORDED').replaceAll('_', ' ')}</span>
+                        </div>
+                        <div className="mt-2 truncate font-semibold text-gray-900">{item.title}</div>
+                        <div className="mt-1 text-xs text-gray-500">{new Date(item.createdAt).toLocaleString()}</div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        {typeof item.amount === 'number' && item.amount > 0 && (
+                          <div className="font-bold text-gray-900">{item.amount.toLocaleString()} {item.currency || 'TZS'}</div>
+                        )}
+                        {typeof item.rating === 'number' && (
+                          <div className="font-bold text-amber-600">{item.rating}/5 rating</div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
 

@@ -151,17 +151,32 @@ describe("account authentication lifecycle", () => {
       .send({
         email,
         name: "Auth Lifecycle Test",
+        phone: "+255700000001",
         password: originalPassword,
         role: "traveller",
+        registrationSource: "WEB",
       })
       .expect(201);
 
-    expect(created.body).toMatchObject({ ok: true, id: 1, email, role: "CUSTOMER" });
+    expect(created.body).toMatchObject({
+      ok: true,
+      id: 1,
+      email,
+      role: "CUSTOMER",
+      registrationStatus: "COMPLETE",
+      registrationSource: "WEB",
+    });
     expect(authState.passwordHistory).toHaveBeenCalledTimes(1);
 
     const duplicate = await request(app)
       .post("/api/auth/register")
-      .send({ email, password: originalPassword, role: "traveller" })
+      .send({
+        email,
+        name: "Duplicate Auth Lifecycle Test",
+        phone: "+255700000002",
+        password: originalPassword,
+        role: "traveller",
+      })
       .expect(409);
 
     expect(duplicate.body.error).toBe("email_already_in_use");

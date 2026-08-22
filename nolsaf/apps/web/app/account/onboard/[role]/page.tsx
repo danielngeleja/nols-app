@@ -70,6 +70,10 @@ export default function OnboardRole() {
   // Get referral code from URL
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const referralCode = searchParams?.get('ref') || null;
+  const rawNextPath = searchParams?.get('next') || null;
+  const nextPath = rawNextPath && rawNextPath.startsWith('/') && !rawNextPath.startsWith('//')
+    ? rawNextPath
+    : null;
   // driver fields
   
   const [plateNumber, setPlateNumber] = useState('');
@@ -166,7 +170,7 @@ export default function OnboardRole() {
         const hasEmail = Boolean(String(me?.email ?? '').trim());
         const hasPhone = Boolean(String(me?.phone ?? '').trim());
         if (requestedRole !== 'DRIVER' && hasDisplayName && hasEmail && hasPhone) {
-          router.replace(getDefaultRouteForRole(requestedRole));
+          router.replace(requestedRole === 'TRAVELLER' && nextPath ? nextPath : getDefaultRouteForRole(requestedRole));
           return;
         }
 
@@ -211,7 +215,7 @@ export default function OnboardRole() {
     return () => {
       alive = false;
     };
-  }, [requestedRole, router]);
+  }, [requestedRole, router, nextPath]);
 
   const IdIcon: any = (props: any) => (
     <svg suppressHydrationWarning viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -408,6 +412,7 @@ export default function OnboardRole() {
       fd.append('name', name);
       fd.append('email', email);
       fd.append('phone', accountPhone);
+      fd.append('registrationSource', 'WEB');
       if (needsPasswordSetup && password.trim()) fd.append('password', password);
       if (referralCode) {
         fd.append('referralCode', referralCode);
@@ -437,6 +442,7 @@ export default function OnboardRole() {
       // field, which caused /account to redirect straight back here.
       let persistedPhone = String(saveResponse.data?.user?.phone || '').trim();
       let persistedEmail = String(saveResponse.data?.user?.email || '').trim().toLowerCase();
+      let persistedRegistrationStatus = String(saveResponse.data?.user?.registrationStatus || '').toUpperCase();
       if (
         !persistedPhone ||
         normalizePhone(persistedPhone) !== normalizePhone(accountPhone.trim()) ||
@@ -448,9 +454,11 @@ export default function OnboardRole() {
           const savedAccount = meResponse.data?.data ?? meResponse.data;
           persistedPhone = String(savedAccount?.phone || '').trim();
           persistedEmail = String(savedAccount?.email || '').trim().toLowerCase();
+          persistedRegistrationStatus = String(savedAccount?.registrationStatus || '').toUpperCase();
         } catch {
           persistedPhone = '';
           persistedEmail = '';
+          persistedRegistrationStatus = '';
         }
       }
 
@@ -472,13 +480,18 @@ export default function OnboardRole() {
         window.setTimeout(() => emailRef.current?.focus(), 80);
         return;
       }
+      if (persistedRegistrationStatus !== 'COMPLETE') {
+        setError('Your registration is not complete yet. Confirm your full name, email, and phone, then try again.');
+        setStepIndex(1);
+        return;
+      }
 
       setSuccess(role === 'driver' ? 'Application submitted for professional review.' : 'Profile saved');
       // navigate to role dashboard or public account area
       setTimeout(() => {
         if (role === 'driver') router.push('/driver');
         else if (role === 'owner') router.push('/owner');
-        else router.push('/account');
+        else router.push(nextPath || '/account');
       }, 800);
     } catch (err: any) {
       const apiErr = (err as any)?.response?.data;

@@ -94,14 +94,17 @@ export default function AccountIndex() {
       setUser(apiUser);
       setForm(apiUser);
 
-      // If a traveller hasn't completed their profile (no name set), send them to onboard
+      // OTP verification alone is not a completed traveller registration.
+      // Require the same canonical identity fields used by API and mobile.
       const data = apiUser;
       const role = String(data?.role || '').toUpperCase();
       const isCustomer = role === 'CUSTOMER' || role === 'USER' || role === 'TRAVELLER' || role === '';
       const hasName = !!(data?.name || data?.fullName);
+      const hasEmail = Boolean(String(data?.email || '').trim());
       const hasPhone = Boolean(String(data?.phone || '').trim());
       const hasPassword = data?.hasPassword !== false;
-      if (isCustomer && (!hasName || !hasPhone || !hasPassword) && typeof window !== 'undefined') {
+      const registrationComplete = data?.registrationStatus === 'COMPLETE' || (hasName && hasEmail && hasPhone);
+      if (isCustomer && (!registrationComplete || !hasPassword) && typeof window !== 'undefined') {
         window.location.href = '/account/onboard/traveller';
         return;
       }

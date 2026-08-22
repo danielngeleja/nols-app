@@ -93,14 +93,14 @@ function buildBookingWhereForUser(user: { id: number; phone?: string | null; ema
 
 /*
  * GET /admin/users
- * Query: { page?: string, perPage?: string, q?: string, role?: string, status?: "ACTIVE"|"SUSPENDED" }
+ * Query: { page?: string, perPage?: string, q?: string, role?: string, status?: "ACTIVE"|"SUSPENDED", registrationStatus?: "COMPLETE"|"INCOMPLETE" }
  */
 router.get('/', async (req, res) => {
   try {
     // Explicitly set Content-Type to JSON
     res.setHeader('Content-Type', 'application/json');
     
-    const { page = '1', perPage = '25', q, role, status } = req.query as any;
+    const { page = '1', perPage = '25', q, role, status, registrationStatus } = req.query as any;
     const p = Math.max(1, Number(page) || 1);
     const pp = Math.max(1, Math.min(200, Number(perPage) || 25));
 
@@ -129,6 +129,9 @@ router.get('/', async (req, res) => {
         ];
       }
     }
+    if (registrationStatus === 'COMPLETE' || registrationStatus === 'INCOMPLETE') {
+      baseWhere.registrationStatus = registrationStatus;
+    }
 
     const where: any = { ...baseWhere };
     if (role) where.role = String(role);
@@ -150,13 +153,31 @@ router.get('/', async (req, res) => {
           createdAt: true,
           emailVerifiedAt: true,
           phoneVerifiedAt: true,
+          registrationStatus: true,
+          registrationSource: true,
+          profileCompletedAt: true,
           twoFactorEnabled: true,
           suspendedAt: true,
           isDisabled: true,
           _count: {
             select: {
               bookings: true,
+              tourBookings: true,
+              groupBookings: true,
+              transportBookingsAsCustomer: true,
+              propertyReviews: true,
+              savedProperties: true,
             },
+          },
+          bookings: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { guestName: true, createdAt: true },
+          },
+          tourBookings: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { guestName: true, createdAt: true },
           },
         },
       }),
@@ -176,8 +197,27 @@ router.get('/', async (req, res) => {
 
     // For customers, get booking stats
     const usersWithStats = await Promise.all(users.map(async (user: typeof users[0]) => {
+      const bookingGuestName = String(user.bookings?.[0]?.guestName || user.tourBookings?.[0]?.guestName || '').trim() || null;
+      const accountName = String(user.name || '').trim() || null;
+      const displayName = accountName || bookingGuestName || 'Incomplete profile';
+      const baseUser = {
+        ...user,
+        bookings: undefined,
+        tourBookings: undefined,
+        displayName,
+        bookingGuestName,
+        identityNameSource: accountName ? 'ACCOUNT' : bookingGuestName ? 'BOOKING' : 'MISSING',
+        activityCounts: {
+          accommodationBookings: user._count.bookings,
+          tourBookings: user._count.tourBookings,
+          groupBookings: user._count.groupBookings,
+          transportBookings: user._count.transportBookingsAsCustomer,
+          reviews: user._count.propertyReviews,
+          savedProperties: user._count.savedProperties,
+        },
+      };
       if (user.role !== 'CUSTOMER') {
-        return { ...user, bookingCount: 0, totalSpent: 0, lastBookingDate: null };
+        return { ...baseUser, bookingCount: 0, activityCount: 0, totalSpent: 0, lastBookingDate: null };
       }
 
       const bookingWhere = buildBookingWhereForUser({ id: user.id, phone: user.phone, email: user.email });
@@ -202,11 +242,28 @@ router.get('/', async (req, res) => {
         select: { createdAt: true },
       });
 
+      const accommodationBookingCount = Math.max(user._count.bookings, bookingCount);
+
       return {
-        ...user,
-        bookingCount,
+        ...baseUser,
+        bookingCount:
+          accommodationBookingCount +
+          user._count.tourBookings +
+          user._count.groupBookings +
+          user._count.transportBookingsAsCustomer,
+        activityCount:
+          accommodationBookingCount +
+          user._count.tourBookings +
+          user._count.groupBookings +
+          user._count.transportBookingsAsCustomer +
+          user._count.propertyReviews +
+          user._count.savedProperties,
         totalSpent: Number((totalSpentAgg as any)?._sum?.totalAmount || 0),
-        lastBookingDate: lastBooking?.createdAt || null,
+        lastBookingDate: [
+          lastBooking?.createdAt,
+          user.bookings?.[0]?.createdAt,
+          user.tourBookings?.[0]?.createdAt,
+        ].filter(Boolean).sort((a: any, b: any) => new Date(b).getTime() - new Date(a).getTime())[0] || null,
       };
     }));
 
@@ -235,6 +292,15 @@ router.get('/summary', async (req, res) => {
     // Customers with verified phone
     const verifiedPhoneCount = await prisma.user.count({
       where: { role: "CUSTOMER", phoneVerifiedAt: { not: null } },
+    });
+    const verifiedCustomerCount = await prisma.user.count({
+      where: {
+        role: "CUSTOMER",
+        OR: [{ emailVerifiedAt: { not: null } }, { phoneVerifiedAt: { not: null } }],
+      },
+    });
+    const incompleteRegistrationCount = await prisma.user.count({
+      where: { role: "CUSTOMER", registrationStatus: "INCOMPLETE" },
     });
 
     // Customers with 2FA enabled
@@ -319,22 +385,41 @@ router.get('/summary', async (req, res) => {
     }).catch(() => 0);
 
     // Active customers (made at least one booking)
-    const activeCustomers = customersWithBookings;
+    const [totalTourBookings, totalTransportBookings, activeCustomers] = await Promise.all([
+      prisma.tourBooking.count({ where: { customerId: { not: null } } }).catch(() => 0),
+      prisma.transportBooking.count({ where: { userId: { not: null } } }).catch(() => 0),
+      prisma.user.count({
+        where: {
+          role: "CUSTOMER",
+          OR: [
+            { bookings: { some: {} } },
+            { groupBookings: { some: {} } },
+            { tourBookings: { some: {} } },
+            { transportBookingsAsCustomer: { some: {} } },
+          ],
+        },
+      }),
+    ]);
 
     // Average bookings per customer
     const avgBookingsPerCustomer = activeCustomers > 0
-      ? Math.round((totalBookings + totalGroupBookings) / activeCustomers)
+      ? Math.round((totalBookings + totalGroupBookings + totalTourBookings + totalTransportBookings) / activeCustomers)
       : 0;
 
     res.json({
       totalCustomers,
       verifiedEmailCount,
       verifiedPhoneCount,
+      verifiedCustomerCount,
+      incompleteRegistrationCount,
       twoFactorEnabledCount,
       newCustomersLast7Days,
       newCustomersLast30Days,
       recentCustomers,
-      totalBookings,
+      totalBookings: totalBookings + totalGroupBookings + totalTourBookings + totalTransportBookings,
+      totalAccommodationBookings: totalBookings,
+      totalTourBookings,
+      totalTransportBookings,
       confirmedBookings,
       checkedInBookings,
       completedBookings,
@@ -381,6 +466,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
           createdAt: true,
           emailVerifiedAt: true,
           phoneVerifiedAt: true,
+          registrationStatus: true,
+          registrationSource: true,
+          profileCompletedAt: true,
           twoFactorEnabled: true,
           suspendedAt: true,
           isDisabled: true,
@@ -412,6 +500,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
         user.suspendedAt = null;
         user.isDisabled = null;
         user._count = { bookings: 0 };
+        user.registrationStatus = 'INCOMPLETE';
+        user.registrationSource = 'UNKNOWN';
+        user.profileCompletedAt = null;
       }
     }
 
@@ -503,6 +594,33 @@ router.get('/:id', asyncHandler(async (req, res) => {
       }
     }
 
+    // Customer activity used to be fragmented across independent Admin modules.
+    // Load each product fail-soft so one optional module cannot hide the user.
+    const [tourBookings, transportBookings, groupBookings, reviews, savedProperties, cancellationRequests] = await Promise.all([
+      prisma.tourBooking.findMany({ where: { customerId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, bookingCode: true, title: true, destination: true, status: true, paymentStatus: true, grossAmount: true, currency: true, guestName: true, createdAt: true } }).catch(() => []),
+      prisma.transportBooking.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, status: true, fromRegion: true, toRegion: true, vehicleType: true, amount: true, currency: true, scheduledDate: true, createdAt: true } }).catch(() => []),
+      prisma.groupBooking.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, status: true, groupType: true, toRegion: true, headcount: true, totalAmount: true, createdAt: true } }).catch(() => []),
+      prisma.propertyReview.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, rating: true, title: true, isPublished: true, isHidden: true, createdAt: true, property: { select: { id: true, title: true } } } }).catch(() => []),
+      prisma.savedProperty.findMany({ where: { userId: id }, orderBy: { savedAt: 'desc' }, take: 50, select: { id: true, savedAt: true, sharedAt: true, property: { select: { id: true, title: true } } } }).catch(() => []),
+      prisma.cancellationRequest.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, bookingCode: true, status: true, reason: true, createdAt: true } }).catch(() => []),
+    ]);
+
+    const activities = [
+      ...bookings.map((item: any) => ({ type: 'ACCOMMODATION_BOOKING', id: item.id, title: item.property?.title || `Stay booking #${item.id}`, status: item.status, amount: Number(item.totalAmount || 0), currency: 'TZS', createdAt: item.createdAt })),
+      ...tourBookings.map((item: any) => ({ type: 'TOUR_BOOKING', id: item.id, title: item.title || item.bookingCode, status: item.status, amount: Number(item.grossAmount || 0), currency: item.currency || 'TZS', createdAt: item.createdAt })),
+      ...transportBookings.map((item: any) => ({ type: 'TRANSPORT_BOOKING', id: item.id, title: [item.fromRegion, item.toRegion].filter(Boolean).join(' → ') || `Transport booking #${item.id}`, status: item.status, amount: Number(item.amount || 0), currency: item.currency || 'TZS', createdAt: item.createdAt })),
+      ...groupBookings.map((item: any) => ({ type: 'GROUP_BOOKING', id: item.id, title: `${item.groupType || 'Group'} trip to ${item.toRegion}`, status: item.status, amount: Number(item.totalAmount || 0), currency: 'TZS', createdAt: item.createdAt })),
+      ...reviews.map((item: any) => ({ type: 'PROPERTY_REVIEW', id: item.id, title: item.property?.title || item.title || `Review #${item.id}`, status: item.isHidden ? 'HIDDEN' : item.isPublished ? 'PUBLISHED' : 'PENDING', rating: item.rating, createdAt: item.createdAt })),
+      ...savedProperties.map((item: any) => ({ type: 'SAVED_PROPERTY', id: item.id, title: item.property?.title || `Saved property #${item.id}`, status: item.sharedAt ? 'SAVED_AND_SHARED' : 'SAVED', createdAt: item.savedAt })),
+      ...cancellationRequests.map((item: any) => ({ type: 'CANCELLATION_REQUEST', id: item.id, title: `Cancellation for ${item.bookingCode}`, status: item.status, createdAt: item.createdAt })),
+    ].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const accountName = String(user.name || '').trim() || null;
+    const bookingGuestName = String(bookings.find((item: any) => item.guestName)?.guestName || tourBookings.find((item: any) => item.guestName)?.guestName || '').trim() || null;
+    user.displayName = accountName || bookingGuestName || 'Incomplete profile';
+    user.bookingGuestName = bookingGuestName;
+    user.identityNameSource = accountName ? 'ACCOUNT' : bookingGuestName ? 'BOOKING' : 'MISSING';
+
     // Get booking stats
     stage = 'compute_stats';
     const bookingStats = {
@@ -541,6 +659,16 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const responsePayload = {
       user,
       bookings,
+      activities,
+      activityCounts: {
+        accommodationBookings: bookings.length,
+        tourBookings: tourBookings.length,
+        transportBookings: transportBookings.length,
+        groupBookings: groupBookings.length,
+        reviews: reviews.length,
+        savedProperties: savedProperties.length,
+        cancellationRequests: cancellationRequests.length,
+      },
       stats: {
         booking: bookingStats,
         revenue: {
@@ -592,6 +720,16 @@ router.get('/:id', asyncHandler(async (req, res) => {
       {
         user: fallbackUser,
         bookings: [],
+        activities: [],
+        activityCounts: {
+          accommodationBookings: 0,
+          tourBookings: 0,
+          transportBookings: 0,
+          groupBookings: 0,
+          reviews: 0,
+          savedProperties: 0,
+          cancellationRequests: 0,
+        },
         stats: {
           booking: { total: 0, confirmed: 0, checkedIn: 0, checkedOut: 0, canceled: 0 },
           revenue: { total: 0, invoiceCount: 0 },

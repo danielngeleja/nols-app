@@ -24,6 +24,18 @@ router.get("/", async (_req, res) => {
       where: { role: "CUSTOMER", phoneVerifiedAt: { not: null } },
     });
 
+    // A customer verified through both channels is still one verified customer.
+    const verifiedCustomerCount = await prisma.user.count({
+      where: {
+        role: "CUSTOMER",
+        OR: [{ emailVerifiedAt: { not: null } }, { phoneVerifiedAt: { not: null } }],
+      },
+    });
+
+    const incompleteRegistrationCount = await prisma.user.count({
+      where: { role: "CUSTOMER", registrationStatus: "INCOMPLETE" },
+    });
+
     // Customers with 2FA enabled
     const twoFactorEnabledCount = await prisma.user.count({
       where: { role: "CUSTOMER", twoFactorEnabled: true },
@@ -41,6 +53,8 @@ router.get("/", async (_req, res) => {
         emailVerifiedAt: true,
         phoneVerifiedAt: true,
         twoFactorEnabled: true,
+        registrationStatus: true,
+        registrationSource: true,
       },
       orderBy: { createdAt: "desc" },
       take: RECENT_CUSTOMERS_LIMIT,
@@ -105,23 +119,43 @@ router.get("/", async (_req, res) => {
       where: { userId: { not: null }, arrTransport: true },
     }).catch(() => 0);
 
-    // Active customers (made at least one booking)
-    const activeCustomers = customersWithBookings;
+    const [totalTourBookings, totalTransportBookings] = await Promise.all([
+      prisma.tourBooking.count({ where: { customerId: { not: null } } }).catch(() => 0),
+      prisma.transportBooking.count({ where: { userId: { not: null } } }).catch(() => 0),
+    ]);
+
+    // Active means activity in any customer-facing product, not only stays.
+    const activeCustomers = await prisma.user.count({
+      where: {
+        role: "CUSTOMER",
+        OR: [
+          { bookings: { some: {} } },
+          { groupBookings: { some: {} } },
+          { tourBookings: { some: {} } },
+          { transportBookingsAsCustomer: { some: {} } },
+        ],
+      },
+    });
 
     // Average bookings per customer
     const avgBookingsPerCustomer = activeCustomers > 0
-      ? Math.round((totalBookings + totalGroupBookings) / activeCustomers)
+      ? Math.round((totalBookings + totalGroupBookings + totalTourBookings + totalTransportBookings) / activeCustomers)
       : 0;
 
     res.json({
       totalCustomers,
       verifiedEmailCount,
       verifiedPhoneCount,
+      verifiedCustomerCount,
+      incompleteRegistrationCount,
       twoFactorEnabledCount,
       newCustomersLast7Days,
       newCustomersLast30Days,
       recentCustomers,
-      totalBookings,
+      totalBookings: totalBookings + totalGroupBookings + totalTourBookings + totalTransportBookings,
+      totalAccommodationBookings: totalBookings,
+      totalTourBookings,
+      totalTransportBookings,
       confirmedBookings,
       checkedInBookings,
       completedBookings,

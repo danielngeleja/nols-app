@@ -26,6 +26,7 @@ import { getRedis } from '../lib/redis.js';
 import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
 import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
 import { beginAdminMfaChallenge } from './auth.adminMfa.js';
+import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
 
 const router = Router();
 
@@ -806,6 +807,10 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
 // Rate limited: 10 verification attempts per destination per 15 minutes
 router.post('/verify-otp', limitOtpVerify, async (req, res) => {
   const { otp, role, loginApp } = req.body || {};
+  const registrationSource = resolveRegistrationSource({
+    bodySource: req.body?.registrationSource,
+    headerSource: req.headers['x-nolsaf-client'],
+  });
   if (!otp) return res.status(400).json({ message: 'otp required' });
 
   const resolved = resolveOtpDestination(req.body);
@@ -975,7 +980,7 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
   try {
     const existing = await prisma.user.findFirst({
       where: destinationWhere,
-      select: { id: true, role: true, email: true, phone: true, passwordHash: true },
+      select: { id: true, role: true, email: true, phone: true, passwordHash: true, registrationSource: true },
     });
     if (existing) {
       const existingRole = normalizeSignupRole(existing.role);
@@ -983,8 +988,13 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
       if (canResumeRegistration) {
         const resumedUser = await prisma.user.update({
           where: { id: existing.id },
-          data: { [verifiedAtField]: new Date() },
-          select: { id: true, role: true, email: true, phone: true },
+          data: {
+            [verifiedAtField]: new Date(),
+            ...(existing.registrationSource === 'UNKNOWN' && registrationSource !== 'UNKNOWN'
+              ? { registrationSource }
+              : {}),
+          },
+          select: { id: true, role: true, email: true, phone: true, registrationStatus: true, registrationSource: true },
         });
         const token = await signUserJwt({
           id: resumedUser.id,
@@ -1002,6 +1012,8 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
             phone: resumedUser.phone,
             email: resumedUser.email,
             role: resumedUser.role,
+            registrationStatus: resumedUser.registrationStatus,
+            registrationSource: resumedUser.registrationSource,
           },
         });
       }
@@ -1031,12 +1043,30 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
     const user = await prisma.user.upsert({
       where: destinationWhere as any,
       update: { [verifiedAtField]: new Date() },
-      create: { ...destinationWhere, role: safeRole, [verifiedAtField]: new Date() } as any,
-      select: { id: true, role: true, email: true, phone: true },
+      create: {
+        ...destinationWhere,
+        role: safeRole,
+        [verifiedAtField]: new Date(),
+        registrationStatus: 'INCOMPLETE',
+        registrationSource,
+      } as any,
+      select: { id: true, role: true, email: true, phone: true, registrationStatus: true, registrationSource: true },
     });
     const token = await signUserJwt({ id: user.id, role: user.role, email: user.email });
     await setAuthCookie(res, token, user.role);
-    return res.json({ ok: true, message: "verified", token, user: { id: user.id, phone: user.phone, email: user.email, role: user.role } });
+    return res.json({
+      ok: true,
+      message: "verified",
+      token,
+      user: {
+        id: user.id,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+        registrationStatus: user.registrationStatus,
+        registrationSource: user.registrationSource,
+      },
+    });
   } catch (e: any) {
     if (e?.code === 'P2002') {
       const target = Array.isArray(e?.meta?.target) ? e.meta.target.map(String) : [String(e?.meta?.target || '')];
@@ -1555,21 +1585,32 @@ router.post("/logout", maybeAuth, async (req, res) => {
 
 /**
  * POST /api/auth/register
- * Body: { email, name?, phone?, password, role?: 'CUSTOMER'|'OWNER'|'DRIVER'|'USER'|'TRAVELLER' }
+ * Body: { email, name, phone, password, role?: 'CUSTOMER'|'OWNER'|'DRIVER'|'USER'|'TRAVELLER' }
  * NOTE: ADMIN creation is explicitly forbidden here. Registration must be DB-backed (no stub fallback).
  */
 router.post('/register', limitRegisterAttempts, async (req, res) => {
   const { email, name, phone, password, role, referralCode, tin, address, vehicleMake, vehiclePlate, licenseNumber } = req.body as any;
 
   const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanName = String(name || '').trim();
   if (!cleanEmail || !cleanEmail.includes('@')) return res.status(400).json({ error: 'invalid email' });
+  if (!cleanName) return res.status(400).json({ error: 'name_required', message: 'Full name is required.' });
   if (!password || String(password).length < 1) return res.status(400).json({ error: 'password required' });
 
   const desiredRole = normalizeSignupRole(role) || 'CUSTOMER';
   if (desiredRole === 'RESET') return res.status(400).json({ error: 'invalid role' });
 
   const normalizedPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
-  if (phone && !normalizedPhone) return res.status(400).json({ error: 'invalid_phone' });
+  if (!normalizedPhone || !isPhoneValidForAuth(normalizedPhone)) {
+    return res.status(400).json({
+      error: phone ? 'invalid_phone' : 'phone_required',
+      message: phone && normalizedPhone ? getPhoneValidationMessage(normalizedPhone) : 'A valid phone number is required.',
+    });
+  }
+  const registrationSource = resolveRegistrationSource({
+    bodySource: req.body?.registrationSource,
+    headerSource: req.headers['x-nolsaf-client'],
+  });
 
   // Get Socket.IO instance from app
   const io: any = (req as any).app?.get?.('io');
@@ -1655,10 +1696,13 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
     const created = await prisma.user.create({
       data: {
         email: cleanEmail,
-        name: name ?? null,
-        phone: normalizedPhone ?? null,
+        name: cleanName,
+        phone: normalizedPhone,
         role: desiredRole,
         passwordHash: pwHash,
+        registrationStatus: 'COMPLETE',
+        registrationSource,
+        profileCompletedAt: new Date(),
         ...(desiredRole === 'OWNER'
           ? {
               tin: typeof tin === 'string' ? tin : null,
@@ -1676,7 +1720,16 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
         referredBy: referredBy as any,
         referralCode: referralCode || null,
       } as any,
-      select: { id: true, email: true, name: true, phone: true, role: true }
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        role: true,
+        registrationStatus: true,
+        registrationSource: true,
+        profileCompletedAt: true,
+      }
     });
 
     try {
@@ -1728,7 +1781,15 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
       }
     }
 
-    return res.status(201).json({ ok: true, id: created.id, email: created.email, role: created.role });
+    return res.status(201).json({
+      ok: true,
+      id: created.id,
+      email: created.email,
+      role: created.role,
+      registrationStatus: created.registrationStatus,
+      registrationSource: created.registrationSource,
+      profileCompletedAt: created.profileCompletedAt,
+    });
   } catch (err: any) {
     if (err?.code === 'P2002') {
       const target = (err?.meta?.target || []) as any;
@@ -1763,6 +1824,10 @@ router.post('/profile', upload.none(), async (req, res) => {
   try {
     // Parse form data (multer handles multipart/form-data)
     const body = req.body;
+    const registrationSource = resolveRegistrationSource({
+      bodySource: body?.registrationSource,
+      headerSource: req.headers['x-nolsaf-client'],
+    });
     const {
       role,
       name,
@@ -1828,6 +1893,9 @@ router.post('/profile', upload.none(), async (req, res) => {
     let currentPhone: string | null = null;
     let currentEmailVerifiedAt: Date | null = null;
     let currentPhoneVerifiedAt: Date | null = null;
+    let currentName: string | null = null;
+    let currentRegistrationSource = 'UNKNOWN';
+    let currentProfileCompletedAt: Date | null = null;
     try {
       const dbUser = await prisma.user.findUnique({
         where: { id: userId },
@@ -1838,6 +1906,10 @@ router.post('/profile', upload.none(), async (req, res) => {
           phone: true,
           emailVerifiedAt: true,
           phoneVerifiedAt: true,
+          name: true,
+          fullName: true,
+          registrationSource: true,
+          profileCompletedAt: true,
           passwordHash: true,
           kycStatus: true,
         } as any,
@@ -1848,6 +1920,9 @@ router.post('/profile', upload.none(), async (req, res) => {
       currentPhone = (dbUser as any)?.phone ?? null;
       currentEmailVerifiedAt = (dbUser as any)?.emailVerifiedAt ?? null;
       currentPhoneVerifiedAt = (dbUser as any)?.phoneVerifiedAt ?? null;
+      currentName = String((dbUser as any)?.name || (dbUser as any)?.fullName || '').trim() || null;
+      currentRegistrationSource = String((dbUser as any)?.registrationSource || 'UNKNOWN');
+      currentProfileCompletedAt = (dbUser as any)?.profileCompletedAt ?? null;
       const requested = normalizeSignupRole(role);
       // Normalize DB roles too (e.g. USER/TRAVELLER should be treated as CUSTOMER)
       dbRole = normalizeSignupRole(dbUser.role) || String(dbUser.role || '').trim().toUpperCase();
@@ -1896,6 +1971,10 @@ router.post('/profile', upload.none(), async (req, res) => {
 
     const cleanEmail = email ? String(email).trim().toLowerCase() : null;
     const cleanPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
+    const cleanName = name ? String(name).trim() : null;
+    if (!currentName && !cleanName) {
+      return res.status(400).json({ error: 'name_required', message: 'Full name is required.' });
+    }
     if (!currentEmail && !cleanEmail) {
       return res.status(400).json({ error: 'email_required', message: 'Email address is required.' });
     }
@@ -1988,13 +2067,18 @@ router.post('/profile', upload.none(), async (req, res) => {
       const hasField = (field: string) => !metaHasEntries || Object.prototype.hasOwnProperty.call(meta, field);
 
       const dataToUpdate: any = {
-        name: name ? String(name) : undefined,
+        name: cleanName || undefined,
         email: cleanEmail || undefined,
         phone:
           cleanPhone &&
           (!currentPhone || (!currentPhoneVerifiedAt && normalizePhoneForAuth(currentPhone) !== cleanPhone))
             ? cleanPhone
             : undefined,
+        registrationStatus: 'COMPLETE',
+        profileCompletedAt: currentProfileCompletedAt || new Date(),
+        ...(currentRegistrationSource === 'UNKNOWN' && registrationSource !== 'UNKNOWN'
+          ? { registrationSource }
+          : {}),
       };
 
       // Allow setting a password during onboarding so users can login with email/password.
@@ -2111,7 +2195,16 @@ router.post('/profile', upload.none(), async (req, res) => {
       updatedUser = await prisma.user.update({
         where: { id: userId },
         data: dataToUpdate,
-        select: { id: true, email: true, phone: true, name: true, role: true }
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          role: true,
+          registrationStatus: true,
+          registrationSource: true,
+          profileCompletedAt: true,
+        }
       });
 
       // After a successful resubmit, write an audit log entry so admin can see it
@@ -2148,7 +2241,7 @@ router.post('/profile', upload.none(), async (req, res) => {
       if (badField) {
         try {
           const retryData: any = {
-            name: name ? String(name) : undefined,
+            name: cleanName || undefined,
             email: cleanEmail || undefined,
             phone:
               cleanPhone &&
@@ -2179,12 +2272,26 @@ router.post('/profile', upload.none(), async (req, res) => {
                 : undefined,
             referredBy: referredBy as any,
             referralCode: referralCode || null,
+            registrationStatus: 'COMPLETE',
+            profileCompletedAt: currentProfileCompletedAt || new Date(),
+            ...(currentRegistrationSource === 'UNKNOWN' && registrationSource !== 'UNKNOWN'
+              ? { registrationSource }
+              : {}),
           };
           delete retryData[badField];
           updatedUser = await prisma.user.update({
             where: { id: userId },
             data: retryData as any,
-            select: { id: true, email: true, phone: true, name: true, role: true },
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              name: true,
+              role: true,
+              registrationStatus: true,
+              registrationSource: true,
+              profileCompletedAt: true,
+            },
           });
         } catch (e2: any) {
           throw e2;
