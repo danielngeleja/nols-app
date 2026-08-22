@@ -35,6 +35,15 @@ import DatePicker from '../../components/ui/DatePicker';
 
 type TrustPartnerBrand = { name: string; logoUrl?: string; href?: string };
 
+const DESTINATION_IMAGES: Record<string, { src: string; position: string }> = {
+  "Dar es Salaam": { src: "/assets/five_star.jpg", position: "center 58%" },
+  Nairobi: { src: "/assets/Apartments.jpg", position: "center" },
+  Zanzibar: { src: "/assets/villa.jpg", position: "center 62%" },
+  Arusha: { src: "/assets/Toursite.jpeg", position: "center" },
+  Mwanza: { src: "/assets/hotel.jpg", position: "center 68%" },
+  Dodoma: { src: "/assets/Bungalow.jpg", position: "center" },
+};
+
 function TrustedBySectionWithData({
   brands,
   loading,
@@ -1636,24 +1645,29 @@ export default function Page() {
             })}
           </div>
 
-          {/* ── Featured Destinations — left-aligned editorial heading ── */}
+          {/* ── Featured Destinations ── */}
           <motion.div
-            className="mt-14 sm:mt-16 relative"
+            className="relative mt-14 flex flex-col gap-6 sm:mt-16 sm:flex-row sm:items-end sm:justify-between"
             transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
           >
-            {/* Gradient top accent */}
-            <div className="h-[3px] w-16 rounded-full bg-gradient-to-r from-[#02b4f5] to-[#02665e] mb-6" aria-hidden />
+            <div>
+              <div className="mb-5 h-1 w-12 rounded-full bg-[#087f69]" aria-hidden />
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Explore East Africa</p>
+              <h2 className="text-3xl font-extrabold leading-[1.08] tracking-[-0.035em] text-slate-950 sm:text-4xl lg:text-[2.75rem]">
+                Featured destinations
+              </h2>
+              <p className="mt-3 max-w-[58ch] text-sm leading-relaxed text-slate-500 sm:text-[15px]">
+                Explore verified stays across East Africa&apos;s leading travel cities.
+              </p>
+            </div>
 
-            <p className="text-[11px] font-semibold tracking-[0.14em] uppercase text-slate-400 mb-3">East Africa</p>
-
-            <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold tracking-tight leading-[1.1] text-slate-900">
-              Featured <span className="text-[#02665e]">Destinations</span>
-            </h2>
-
-            <p className="mt-3 max-w-[52ch] text-sm sm:text-[15px] leading-relaxed text-slate-500">
-              Cities with strong availability {" "}
-              <span className="font-medium text-slate-700">designed for fast filtering and confident booking.</span>
-            </p>
+            <Link
+              href="/public/properties?page=1"
+              className="group/all inline-flex w-fit items-center gap-2 rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 no-underline shadow-sm transition-[color,border-color,box-shadow] duration-300 hover:border-slate-300 hover:text-[#087f69] hover:no-underline hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f69]/40 focus-visible:ring-offset-4"
+            >
+              View all stays
+              <ChevronRight className="h-4 w-4 transition-transform duration-300 group-hover/all:translate-x-1" aria-hidden />
+            </Link>
           </motion.div>
 
             <div
@@ -1666,96 +1680,57 @@ export default function Page() {
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={`featured-slide-${featuredSlide}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: prefersReducedMotion ? 0 : 0.4, ease: "easeInOut" }}
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5"
+                  initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -8 }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: [0.22, 1, 0.36, 1] }}
+                  className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4"
                 >
                   {(featuredDestinationSlides[featuredSlide] || featuredDestinationSlides[0] || []).map((d, idx) => {
                     const filterParam = d.filterParam === "region" ? "region" : "city";
                     const href = `/public/properties?${filterParam}=${encodeURIComponent(d.city)}&page=1`;
                     const total = featuredCityCounts[d.city];
 
-                    // Each city gets a unique palette — no two adjacent cards share the same
-                    const palettes = [
-                      { from: '#0c4a6e', to: '#0369a1', glow: 'rgba(3,105,161,0.45)', line: '#38bdf8', tag: 'rgba(56,189,248,0.18)', tagText: '#7dd3fc', tagBorder: 'rgba(56,189,248,0.30)' },
-                      { from: '#134e4a', to: '#0f766e', glow: 'rgba(15,118,110,0.45)', line: '#2dd4bf', tag: 'rgba(45,212,191,0.18)', tagText: '#5eead4', tagBorder: 'rgba(45,212,191,0.30)' },
-                      { from: '#1e1b4b', to: '#3730a3', glow: 'rgba(55,48,163,0.45)', line: '#818cf8', tag: 'rgba(129,140,248,0.18)', tagText: '#a5b4fc', tagBorder: 'rgba(129,140,248,0.30)' },
-                      { from: '#3b0764', to: '#6b21a8', glow: 'rgba(107,33,168,0.45)', line: '#c084fc', tag: 'rgba(192,132,252,0.18)', tagText: '#d8b4fe', tagBorder: 'rgba(192,132,252,0.30)' },
-                    ];
-                    const p = palettes[idx % palettes.length];
+                    const image = DESTINATION_IMAGES[d.city] || DESTINATION_IMAGES["Dar es Salaam"];
 
                     return (
                       <Link
                         key={`${d.city}-${idx}`}
                         href={href}
                         aria-label={`Browse stays in ${d.city}`}
-                        className="group/card relative block no-underline rounded-[24px] overflow-hidden
-                          transition-transform duration-500 ease-out
-                          hover:-translate-y-2"
-                        style={{ willChange: 'transform' }}
+                        className="group/card relative block min-h-[220px] overflow-hidden rounded-xl bg-slate-200 no-underline shadow-[0_5px_18px_rgba(15,23,42,0.08)] ring-1 ring-slate-950/[0.07] transition-[transform,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f69] focus-visible:ring-offset-4 sm:aspect-[5/3] sm:min-h-0"
                       >
-                        {/* Card body */}
-                        <div className="relative h-full overflow-hidden rounded-[24px] ring-1 ring-white/12"
-                          style={{ background: `linear-gradient(160deg, ${p.from} 0%, ${p.to} 100%)`, boxShadow: `0 12px 40px ${p.glow}, 0 2px 0 rgba(255,255,255,0.08) inset` }}>
+                        <NextImage
+                          src={image.src}
+                          alt=""
+                          fill
+                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                          className="object-cover saturate-[0.94] transition-[transform,filter] duration-700 ease-out group-hover/card:scale-[1.03] group-hover/card:saturate-100"
+                          style={{ objectPosition: image.position }}
+                        />
+                        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/5 to-black/75" />
 
-                          {/* Dot-grid texture */}
-                          <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.04]"
-                            style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                        <div className="absolute inset-0 z-10 flex flex-col p-4 sm:p-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <span className="inline-flex min-h-7 items-center rounded border border-white/40 bg-white/90 px-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-800 shadow-sm backdrop-blur-md">
+                              {d.country}
+                            </span>
 
-                          {/* Soft radial bloom top-right */}
-                          <div aria-hidden className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-25 blur-3xl"
-                            style={{ background: p.line }} />
+                            <span className="inline-flex min-h-7 items-center gap-1.5 text-[11px] font-semibold text-white drop-shadow-md">
+                              {featuredCitiesLoading ? (
+                                <span className="inline-block h-2.5 w-8 animate-pulse rounded-sm bg-white/30" aria-hidden />
+                              ) : (
+                                <span className="tabular-nums font-bold">{typeof total === "number" ? total.toLocaleString() : "—"}</span>
+                              )}
+                              <span className="text-white/85">stays</span>
+                            </span>
+                          </div>
 
-                          {/* Thin coloured left-edge accent bar */}
-                          <div aria-hidden className="absolute left-0 top-6 bottom-6 w-[3px] rounded-full opacity-60"
-                            style={{ background: `linear-gradient(to bottom, transparent, ${p.line}, transparent)` }} />
-
-                          <div className="relative z-10 flex flex-col gap-4 p-5 sm:p-6">
-
-                            {/* Row 1 — country + stays count */}
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-[0.12em] uppercase rounded-full px-2.5 py-1"
-                                style={{ background: p.tag, color: p.tagText, border: `1px solid ${p.tagBorder}` }}>
-                                <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: p.line }} aria-hidden />
-                                {d.country}
-                              </span>
-
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/60">
-                                {featuredCitiesLoading ? (
-                                  <span className="inline-block h-3 w-8 rounded bg-white/15 animate-pulse" aria-hidden />
-                                ) : (
-                                  <span className="tabular-nums font-bold text-white/90">{typeof total === "number" ? total.toLocaleString() : "—"}</span>
-                                )}
-                                <span>stays</span>
-                              </span>
-                            </div>
-
-                            {/* Row 2 — city name */}
-                            <div>
-                              <h3 className="text-2xl sm:text-[26px] font-black tracking-tight leading-tight text-white">
-                                {d.city}
-                              </h3>
-                              <p className="mt-2 text-[13px] leading-relaxed text-white/60 max-w-[34ch]">
-                                {d.tagline}
-                              </p>
-                            </div>
-
-                            {/* Row 3 — bottom action row */}
-                            <div className="flex items-center justify-between mt-1 pt-4"
-                              style={{ borderTop: `1px solid rgba(255,255,255,0.09)` }}>
-                              <span className="text-[11px] font-semibold tracking-wide"
-                                style={{ color: p.tagText }}>
-                                Verified listings
-                              </span>
-                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full transition-all duration-300
-                                group-hover/card:scale-110"
-                                style={{ background: p.tag, border: `1px solid ${p.tagBorder}` }}
-                                aria-hidden>
-                                <ChevronRight className="w-3.5 h-3.5" style={{ color: p.tagText }} />
-                              </span>
-                            </div>
+                          <div className="mt-auto flex items-end justify-between gap-3">
+                            <h3 className="text-[24px] font-extrabold leading-none tracking-[-0.03em] text-white drop-shadow-sm sm:text-[26px]">
+                              {d.city}
+                            </h3>
+                            <ChevronRight className="mb-0.5 h-4 w-4 flex-none text-white/80 transition-transform duration-300 group-hover/card:translate-x-0.5" aria-hidden />
                           </div>
                         </div>
                       </Link>
@@ -1763,10 +1738,30 @@ export default function Page() {
                   })}
                 </motion.div>
               </AnimatePresence>
+
+              {featuredDestinationSlides.length > 1 && (
+                <div className="mt-6 flex items-center justify-center gap-2" aria-label="Featured destination pages">
+                  {featuredDestinationSlides.map((_, slideIndex) => {
+                    const active = slideIndex === featuredSlide;
+                    return (
+                      <button
+                        key={`featured-dot-${slideIndex}`}
+                        type="button"
+                        onClick={() => setFeaturedSlide(slideIndex)}
+                        aria-label={`Show destination page ${slideIndex + 1}`}
+                        aria-current={active ? "true" : undefined}
+                        className={`h-1.5 rounded-full transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f69]/50 focus-visible:ring-offset-4 ${
+                          active ? "w-8 bg-[#087f69]" : "w-2.5 bg-slate-300 hover:bg-slate-400"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-          <ScrollReveal direction="up" distance={40} className="mt-12">
-            <div className="relative overflow-hidden rounded-[34px] bg-[#090c12] ring-1 ring-white/12 shadow-[0_30px_90px_rgba(2,6,23,0.32)]">
+          <ScrollReveal direction="up" distance={28} className="mt-10">
+            <div className="relative overflow-hidden rounded-2xl bg-[#090c12] ring-1 ring-white/12 shadow-[0_20px_60px_rgba(2,6,23,0.24)]">
               <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-[#02665e]" />
               <div
                 aria-hidden
@@ -1789,21 +1784,21 @@ export default function Page() {
                 aria-hidden
                 className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#090c12] via-[#090c12]/88 to-transparent"
               />
-              <div className="relative p-5 sm:p-8 lg:p-10">
-                <div className="mx-auto flex min-h-[620px] max-w-7xl flex-col items-center justify-between text-center">
-                  <div className="mx-auto max-w-3xl pt-8 sm:pt-10">
+              <div className="relative p-5 sm:p-6 lg:p-8">
+                <div className="mx-auto max-w-7xl text-center">
+                  <div className="mx-auto max-w-[680px] pt-2 sm:pt-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
                       Trust Infrastructure
                     </p>
-                    <h2 className="mx-auto mt-5 max-w-[13ch] text-4xl font-black leading-[0.96] tracking-tight text-white drop-shadow-[0_14px_32px_rgba(0,0,0,0.45)] sm:text-5xl lg:text-6xl">
+                    <h2 className="mx-auto mt-[16px] text-[36px] font-black leading-none tracking-[-0.035em] text-white drop-shadow-[0_14px_32px_rgba(0,0,0,0.45)] sm:whitespace-nowrap sm:text-[44px] lg:text-[50px]">
                       Protected travel flow
                     </h2>
-                    <p className="mx-auto mt-5 max-w-[58ch] text-sm font-medium leading-relaxed text-white/80 sm:text-base">
+                    <p className="mx-auto mt-[16px] max-w-[48ch] text-[15px] font-medium leading-[1.65] text-white/80">
                       Verified stays, tour operators, transport, payments, confirmation codes, and support are linked into one accountable travel trail from search to arrival.
                     </p>
                   </div>
 
-                  <div className="relative my-8 flex h-48 w-48 items-center justify-center sm:h-56 sm:w-56">
+                  <div className="relative mx-auto my-6 flex h-32 w-32 items-center justify-center sm:my-7 sm:h-36 sm:w-36">
                     <div aria-hidden className="absolute inset-0 rounded-full bg-[#02665e]/18 blur-3xl" />
                     <svg viewBox="0 0 220 240" className="relative h-full w-full drop-shadow-[0_26px_34px_rgba(0,0,0,0.34)]" role="img" aria-label="NoLSAF trust shield">
                       <path d="M110 12 198 48v74c0 58-38 92-88 112-50-20-88-54-88-112V48L110 12Z" fill="rgba(255,255,255,0.055)" stroke="rgba(2,102,94,0.92)" strokeWidth="2" />
@@ -1818,7 +1813,7 @@ export default function Page() {
                   </div>
 
                   <div className="w-full overflow-visible">
-                    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-3 overflow-visible sm:grid-cols-2 lg:grid-cols-5">
+                    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-2.5 overflow-visible sm:grid-cols-2 lg:grid-cols-5">
                       {[
                         { title: "Verified stays", desc: "Checked properties", Icon: Home, href: "/public/properties?page=1" },
                         { title: "Tour trail", desc: "Timeline supported", Icon: Users, href: "/public/tour-packages" },
@@ -1829,19 +1824,15 @@ export default function Page() {
                         <Link
                           key={title}
                           href={href}
-                          className="group relative flex min-h-[106px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-white/13 bg-white/[0.055] px-3.5 py-4 text-center no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_18px_34px_rgba(0,0,0,0.22)] transition-all duration-300 hover:z-10 hover:-translate-y-1 hover:scale-[1.035] hover:border-[#02665e]/60 hover:bg-white/[0.085] hover:no-underline active:scale-[1.02] focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[#02665e]/45"
+                          className="group relative flex min-h-[88px] flex-col items-center justify-center overflow-hidden rounded-xl border border-white/13 bg-white/[0.05] px-3 py-3.5 text-center no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_24px_rgba(0,0,0,0.16)] transition-[transform,border-color,background-color,box-shadow] duration-500 ease-out hover:z-10 hover:-translate-y-0.5 hover:border-[#02665e]/55 hover:bg-white/[0.075] hover:no-underline hover:shadow-[0_14px_28px_rgba(0,0,0,0.20)] focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[#02665e]/45"
                         >
-                          <span className="pointer-events-none absolute left-3 top-3 h-1 w-1 rounded-full bg-white/35" aria-hidden />
-                          <span className="pointer-events-none absolute right-3 top-3 h-1 w-1 rounded-full bg-white/35" aria-hidden />
-                          <span className="pointer-events-none absolute bottom-3 left-3 h-1 w-1 rounded-full bg-white/20" aria-hidden />
-                          <span className="pointer-events-none absolute bottom-3 right-3 h-1 w-1 rounded-full bg-white/20" aria-hidden />
                           <span className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[#02665e]/70 to-transparent" aria-hidden />
-                          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[#02665e]/40 bg-[#02665e]/14 text-white shadow-[0_14px_28px_rgba(2,102,94,0.14)] transition-transform duration-300 group-hover:scale-110">
+                          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#02665e]/35 bg-[#02665e]/12 text-white shadow-[0_8px_18px_rgba(2,102,94,0.12)] transition-colors duration-500 group-hover:bg-[#02665e]/20">
                             <Icon className="h-4 w-4" aria-hidden />
                           </span>
-                          <span className="mt-2.5 min-w-0">
-                            <span className="block text-[13px] font-black tracking-tight text-white">{title}</span>
-                            <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.10em] text-white/60">{desc}</span>
+                          <span className="mt-2 min-w-0">
+                            <span className="block text-[12px] font-black tracking-tight text-white">{title}</span>
+                            <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-[0.09em] text-white/55">{desc}</span>
                           </span>
                         </Link>
                       ))}
