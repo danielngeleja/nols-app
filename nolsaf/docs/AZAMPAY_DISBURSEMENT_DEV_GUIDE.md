@@ -1,5 +1,10 @@
 # AzamPay Disbursement API: Developer Implementation Guide
 
+Document type: provider design and historical implementation log. Any migration
+status or approval note below is contextual, not a competing delivery policy.
+Current environment boundaries and release order are governed by
+[`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md).
+
 Source: `NoLSAF AzamPay Disbursement Developer.pptx` (Desktop/DAILY READINGS/NoLSAF Financial 2026), converted to Markdown for the development flow. Prepared for NoLS AFRICA COMPANY LIMITED, technical reference dated 07 August 2026.
 
 Stack target: Node.js + TypeScript + Express, sandbox-first.

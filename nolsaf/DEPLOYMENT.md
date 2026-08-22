@@ -1,8 +1,11 @@
 # Deployment (Vercel + AWS Elastic Beanstalk + AWS RDS)
 
-For production-stability gates, immutable migration rules, physical schema
-verification, Redis/worker topology, and the AWS release sequence, follow
-[`docs/PRODUCTION_STABILITY_RUNBOOK.md`](docs/PRODUCTION_STABILITY_RUNBOOK.md).
+The authoritative end-to-end path is
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+For production-stability gates and the executable AWS sequence, follow
+[`docs/PRODUCTION_STABILITY_RUNBOOK.md`](docs/PRODUCTION_STABILITY_RUNBOOK.md)
+and [`API_DEPLOYMENT_GUIDE.md`](API_DEPLOYMENT_GUIDE.md). This overview cannot
+override those documents.
 
 ## Release policy
 
@@ -78,8 +81,8 @@ Common optional:
 If you run a separate staging frontend/domain, add it too:
 - `CORS_ORIGIN=https://prod.example.com,https://staging.example.com`
 
-The staging API must use an isolated staging database such as Aiven or
-PlanetScale staging. It must never use the AWS production RDS connection string.
+The active staging API uses the isolated Aiven staging database. It must never
+use the AWS production RDS connection string.
 
 Notes:
 - Socket.IO origin checks are in `apps/api/src/index.ts` and use `WEB_ORIGIN`, `APP_ORIGIN`, and `CORS_ORIGIN`.
@@ -102,14 +105,15 @@ If you need authenticated Socket.IO connections from the browser:
 
 ## Database migrations (production)
 
-Use migrations in production (do **not** use `prisma db push --accept-data-loss`).
+Do not run the generic `npm run prisma:migrate` command manually against
+production. A schema-bearing release uses the exact approved `main` artifact
+from the single designated migration runner in `API_DEPLOYMENT_GUIDE.md`, before
+dependent API code is deployed. Never use `prisma db push`, `migrate dev`, or
+`migrate reset` on a shared database.
 
-From repo root `nolsaf/`:
-- `npm run prisma:migrate`
-
-Recommended operational pattern on Render:
-- Run `npm run prisma:migrate` as a **pre-deploy / release step** (preferred)
-- Or run it manually before switching traffic
+The Render staging service may run standard `migrate deploy` as its configured
+pre-deploy step because its environment is restricted to the isolated Aiven
+staging URL. That staging automation is not a production procedure.
 
 Migration directory names are immutable once applied to a shared environment.
 Never rename, reorder, or delete an applied migration. Add a new forward-only
@@ -124,8 +128,8 @@ copy-ready AWS production runbook. It covers:
 
 - staging QA and promotion to `main`;
 - RDS snapshot creation and verification;
-- Elastic Beanstalk bundle validation and deployment;
-- production-safe Prisma migrations over EB SSH;
+- exact-commit Prisma migration through one EB-hosted runner;
+- schema-first Elastic Beanstalk bundle deployment;
 - post-deployment health checks;
 - failed-migration recovery and snapshot-clone testing;
 - application rollback and troubleshooting.

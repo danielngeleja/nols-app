@@ -1,5 +1,10 @@
 # Sales Partner Workspace: Onboarding, Attribution, Earnings, Payouts
 
+Document type: product design and historical implementation log. Migration
+status statements below describe the moment they were written and are not
+release instructions. Current delivery status and environment actions are
+governed by [`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md).
+
 Status: APPROVED, PHASE 1 IN PROGRESS. Schema and entitlement layer are written and typecheck clean. No migration has been generated and none will be: Daniel applies schema changes himself. Progress is logged in section 19. This document is the agreed scope; it is edited here first and only then implemented.
 Owner: Daniel
 Written: 2026-07-26

@@ -1,7 +1,9 @@
 # 2026-07-29 production-stability recovery checklist
 
-Status: local recovery changes implemented; staging, snapshot-clone, and
-production actions not authorized and not performed.
+Status: local recovery and staging validation completed. An explicitly
+authorized disposable production-snapshot clone was validated and deleted on
+2026-08-22. Production application and database changes remain blocked pending
+the repaired staging and clone gates.
 
 ## Evidence baseline
 
@@ -72,7 +74,22 @@ production actions not authorized and not performed.
 - [x] Require an exact sanitized disposable-target acknowledgement.
 - [x] Compare `_prisma_migrations` checksums, migration status, and physical
   schema; do not rely on status alone.
-- [ ] Capture real staging and clone results in the release ticket.
+- [x] Capture staging checksum, status, and zero physical-diff results at
+  migration head `20260821030000_add_agent_payment_declaration_detail`.
+- [x] Restore the authorized 2026-08-22 production snapshot to a private,
+  disposable clone; apply the eight staging-proven pending migrations; run data
+  preflights; and delete the clone after validation.
+- [x] Confirm the clone's only physical difference after migration was seven
+  foreign-key names. Their columns, referenced keys, `ON DELETE`, and
+  `ON UPDATE` rules already matched `prisma/schema.prisma`.
+- [x] Record the three successful production-clone checksum aliases exactly.
+  Retained EB bundles did not preserve the applied SQL, so the aliases are
+  environment-observed rather than Git-proven.
+- [ ] Apply `20260822120000_reconcile_nrms_financial_fk_names` on staging and
+  require checksum, status, and zero physical-diff agreement.
+- [ ] Restore a fresh disposable production-snapshot clone, apply the same
+  migration head, and require checksum, status, and zero physical diff before
+  any production approval.
 
 ## 5. Redis and workers
 
