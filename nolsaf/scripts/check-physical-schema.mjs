@@ -51,19 +51,29 @@ const acceptedHistoricalMigrationHashes = {
   clone: new Map([
     [
       "20260714130000_reconcile_legacy_database_drift",
-      new Set(["ade4652df64117199630a40ad5e5a1a92e597929ba8639e78e3668175002c071b"]),
+      new Set(["ade4652df6411719630a40ad5e5a1a92e597929ba8639e78e3668175002c071b"]),
     ],
     [
       "20260714195920",
-      new Set(["0eecd7471f2c4b9ffda1e86be50cfb8f330e3a37781c585656bcf124c07b2d843"]),
+      new Set(["0eecd7471f2c4b9fda1e86be50cfb8f330e3a37781c585656bcf124c07b2d843"]),
     ],
     [
       "20260720130000_add_platform_restriction_cases",
-      new Set(["967481159ca53ff33941e8d5f4dce39d552865d64abcbd7db7b0eed4e4e105b98"]),
+      new Set(["967481159ca53ff3941e8d5f4dce39d552865d64abcbd7db7b0eed4e4e105b98"]),
     ],
   ]),
   local: new Map(),
 };
+
+for (const [environmentName, migrations] of Object.entries(acceptedHistoricalMigrationHashes)) {
+  for (const [migrationName, checksums] of migrations) {
+    for (const checksum of checksums) {
+      if (!/^[a-f0-9]{64}$/.test(checksum)) {
+        fail(`Invalid ${environmentName} checksum alias for ${migrationName}`);
+      }
+    }
+  }
+}
 
 const targetArgument = process.argv.find((value) => value.startsWith("--target="));
 const target = targetArgument?.slice("--target=".length);
