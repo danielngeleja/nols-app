@@ -23,6 +23,8 @@ import publicPickupPointsRouter from "./public.pickupPoints";
 import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
+import publicPropertySharesRouter from "./public.propertyShares.js";
+import publicTrustVerificationRouter from "./public.trustVerification.js";
 import publicReportsRouter from "./public.reports";
 import publicServiceAvailabilityRouter from "./public.service-availability";
 import publicSupportRouter from "./public.support";
@@ -53,6 +55,10 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/reports", publicReportsRouter);
   app.use("/api/public/group-stays/receipt", publicGroupStayReceiptRouter);
   app.use("/api/public/pickup-points", publicPickupPointsRouter);
+  // Mounted on its own path so share tokens never collide with the
+  // /:idOrSlug matcher inside the properties router.
+  app.use("/api/public/verify", publicTrustVerificationRouter);
+  app.use("/api/public/property-shares", publicPropertySharesRouter);
   app.use("/api/public/properties", publicPropertiesRouter);
   app.use("/api/public/tourism-sites", publicTourismSitesRouter);
   app.use("/api/public/nolscope", publicNolScopeRouter);

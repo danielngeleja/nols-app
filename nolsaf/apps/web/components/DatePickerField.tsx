@@ -115,8 +115,17 @@ export default function DatePickerField({
       belowTop + estimatedHeight <= window.innerHeight - viewportPadding
         ? belowTop
         : Math.max(viewportPadding, aboveTop);
-    // Keep the calendar centered horizontally and fully inside short viewports.
-    const left = Math.max(16, (window.innerWidth - width) / 2);
+    // Anchor to the field that opened it. This used to centre the calendar in
+    // the viewport regardless of the trigger, so a field sitting to one side
+    // opened its calendar somewhere else entirely.
+    //
+    // Preferred position is left-aligned with the trigger; if that would run
+    // past the right edge, it shifts back just enough to fit. On narrow screens
+    // the panel is nearly viewport-wide, so this naturally resolves to centred.
+    const viewportRight = window.innerWidth - viewportPadding;
+    let left = rect.left;
+    if (left + width > viewportRight) left = viewportRight - width;
+    left = Math.max(viewportPadding, left);
     setPanelPos({ top, left, width });
   }, [twoMonths]);
 

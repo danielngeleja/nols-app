@@ -9,6 +9,7 @@ import DatePickerField from "@/components/DatePickerField";
 import apiClient from "@/lib/apiClient";
 import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
 import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
+import { readShareToken, clearShareToken } from "@/lib/propertyShareToken";
 import * as Icons from 'lucide-react';
 import { User, Mail, UserCircle, Globe, CreditCard, FileText, Upload, CheckCircle2, Truck, MapPin, Phone, ChevronDown, AlertCircle, ChevronLeft, ChevronRight, Loader2, Car, X, Clock, Building2, UserCircle2, ArrowLeft, Star, Shield, Lock, AlertTriangle, Calendar, Check } from 'lucide-react';
 
@@ -417,6 +418,12 @@ export default function OnboardRole() {
       if (referralCode) {
         fd.append('referralCode', referralCode);
       }
+      // A shared property listing is tracked separately from a referral invite,
+      // so both can travel with the same signup without competing.
+      const shareToken = readShareToken();
+      if (shareToken) {
+        fd.append('shareToken', shareToken);
+      }
       if (role === 'driver') {
       fd.append('gender', gender || '');
       fd.append('nationality', nationality || '');
@@ -485,6 +492,10 @@ export default function OnboardRole() {
         setStepIndex(1);
         return;
       }
+
+      // The token has now been handed to the server. Clearing it stops a later
+      // signup on the same browser from being credited to the same share.
+      clearShareToken();
 
       setSuccess(role === 'driver' ? 'Application submitted for professional review.' : 'Profile saved');
       // navigate to role dashboard or public account area

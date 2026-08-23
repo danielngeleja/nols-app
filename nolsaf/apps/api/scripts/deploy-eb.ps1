@@ -27,6 +27,7 @@ $EbLockScript = "$ApiDir\scripts\prepare-eb-package-lock.mjs"
 $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\bin\tsc"
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
+$RedisCaCertPath = "$ApiDir\certs\redis_ca.pem"
 
 $RuntimeArtifacts = @(
     [PSCustomObject]@{
@@ -175,7 +176,8 @@ try {
         "$SchemaDir\schema.prisma",
         $PkgLockPath,
         $EbLockArtifact,
-        "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh"
+        "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh",
+        $RedisCaCertPath
     )
     $requiredFiles += @($RuntimeArtifacts | ForEach-Object { $_.Destination })
     foreach ($requiredFile in $requiredFiles) {

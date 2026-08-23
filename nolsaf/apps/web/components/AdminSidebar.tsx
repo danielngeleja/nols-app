@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Item = {
@@ -230,6 +230,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/pickup-points", label: "Pickup Points", Icon: MapPin },
   { href: "/admin/management/podcasts", label: "Podcasts", Icon: Play },
   { href: "/admin/management/trust-partners", label: "Trust Partners", Icon: Award },
+  { href: "/admin/management/trust-verification", label: "Trust & Verification", Icon: BadgeCheck },
   { href: "/admin/management/nolscope", label: "NoLScope Rates", Icon: Calculator },
   { href: "/admin/management/currency", label: "Currency Rates", Icon: Coins },
   { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },

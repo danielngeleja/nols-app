@@ -167,6 +167,17 @@ export const limitCodeSearch = rateLimit({
   legacyHeaders: false,
 });
 
+/** Exact public-channel checks are deliberately bounded to discourage bulk
+ * enumeration while allowing normal recipients to correct formatting errors. */
+export const limitPublicTrustChannelVerify = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Please wait a moment and try again." },
+  keyGenerator: (req) => `trust-channel:${req.ip || req.socket?.remoteAddress || "unknown"}`,
+});
+
 // Rate limiter for cancellation lookups (prevents brute-force / DoS on code validation).
 // Keyed by authenticated userId so each account is budgeted independently;
 // falls back to IP for unauthenticated traffic (should not reach here in practice).

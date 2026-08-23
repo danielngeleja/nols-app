@@ -27,6 +27,7 @@ import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
 import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
 import { beginAdminMfaChallenge } from './auth.adminMfa.js';
 import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
+import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
 
 const router = Router();
 
@@ -1732,6 +1733,10 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
       }
     });
 
+    // A forwarded property listing is a different thing from a referral invite,
+    // so it records against the share rather than overwriting `referredBy`.
+    await attributePropertyShare((req.body as any)?.shareToken, created.id);
+
     try {
       await addPasswordToHistory(created.id, pwHash);
     } catch {
@@ -2300,6 +2305,10 @@ router.post('/profile', upload.none(), async (req, res) => {
         throw e;
       }
     }
+
+    // Accounts created by OTP finish here rather than at register, so the share
+    // token has to be attributed on this path too.
+    await attributePropertyShare((req.body as any)?.shareToken, userId);
 
     if (newPasswordHash) {
       try {

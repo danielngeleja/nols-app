@@ -939,7 +939,7 @@ export default function DriverProfile() {
                       <p className="text-[8px] font-black uppercase tracking-[0.25em] text-emerald-400 mt-0.5">{(form.isVipDriver ?? me.isVipDriver) ? "✶ Premium Certified" : "NoLSAF Certified Driver"}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                      <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">ID No.</p><p className="text-[10px] font-black text-white mt-0">NLS-{String(me.id).padStart(4,"0")}-{new Date().getFullYear()}</p></div>
+                      <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">ID No.</p><p className="text-[10px] font-black text-white mt-0">{me.driverVerificationCode || "Not issued"}</p></div>
                       <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Plate No.</p><p className="text-[10px] font-black text-white mt-0 truncate">{form.plateNumber || form.vehiclePlate || me.plateNumber || me.vehiclePlate || "\u2014"}</p></div>
                       <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Vehicle</p><p className="text-[10px] font-black text-white mt-0 truncate">{[form.vehicleMake||me.vehicleMake, form.vehicleType||me.vehicleType].filter(Boolean).join(" \u00b7 ") || "\u2014"}</p></div>
                       <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Region</p><p className="text-[10px] font-black text-white mt-0 truncate">{form.operationArea||form.region||me.operationArea||me.region||"Tanzania"}</p></div>
@@ -948,7 +948,7 @@ export default function DriverProfile() {
                           <svg width="100%" height="28" viewBox="0 0 210 28" preserveAspectRatio="xMidYMid meet" aria-hidden style={{ display: "block" }}>
                             {(()=>{ const p=[1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,1,3,1,2,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,3,1,2,1,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,1,3,1,2,1,1,3,1,2,1,1,3,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; p.forEach((w,i)=>{ if(i%2===0){r.push(<rect key={i} x={x} y={1} width={w} height={26} fill="#1a1a1a"/>);} x+=w; }); return r; })()}
                           </svg>
-                          <p style={{ textAlign:"center", fontFamily:"monospace", fontSize:"5.5px", letterSpacing:"0.28em", color:"#444", marginTop:"1px", lineHeight:1 }}>NLS-{String(me.id).padStart(4,"0")}-{new Date().getFullYear()}</p>
+                          <p style={{ textAlign:"center", fontFamily:"monospace", fontSize:"5.5px", letterSpacing:"0.28em", color:"#444", marginTop:"1px", lineHeight:1 }}>{me.driverVerificationCode || "Not issued"}</p>
                         </div>
                       </div>
                     </div>
@@ -1005,7 +1005,7 @@ export default function DriverProfile() {
                         <svg className="flex-1" height="16" viewBox="0 0 130 16" preserveAspectRatio="xMidYMid meet" aria-hidden style={{background:"rgba(255,255,255,0.12)",borderRadius:"2px"}}>
                           {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
                         </svg>
-                        <p className="text-[7px] font-mono tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NLS-{String(me.id).padStart(4,"0")}</p>
+                        <p className="text-[7px] font-mono tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>{me.driverVerificationCode || "Not issued"}</p>
                       </div>
                     </div>
                   </div>

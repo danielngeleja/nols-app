@@ -8,6 +8,7 @@ import customerPlanRequestsRouter from "./customer.planRequests";
 import customerReferralsRouter from "./customer.referrals";
 import customerRidesRouter from "./customer.rides";
 import customerSavedPropertiesRouter from "./customer.savedProperties";
+import customerPropertySharesRouter from "./customer.propertyShares.js";
 import customerTourBookingsRouter from "./customer.tourBookings";
 
 export function registerCustomerRoutes(app: Express): void {
@@ -17,6 +18,7 @@ export function registerCustomerRoutes(app: Express): void {
   app.use("/api/customer/group-stays", customerGroupStaysRouter as RequestHandler);
   app.use("/api/customer/notifications", customerNotificationsRouter as RequestHandler);
   app.use("/api/customer/nrms", customerNrmsRouter as RequestHandler);
+  app.use("/api/customer/property-shares", customerPropertySharesRouter as RequestHandler);
   app.use("/api/customer/saved-properties", customerSavedPropertiesRouter as RequestHandler);
   app.use("/api/customer/plan-requests", customerPlanRequestsRouter as RequestHandler);
   app.use("/api/customer/referrals", customerReferralsRouter as RequestHandler);

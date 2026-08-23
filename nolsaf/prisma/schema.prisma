@@ -215,6 +215,15 @@ model User {
   // Referral withdrawals (as driver)
   referralWithdrawals ReferralWithdrawal[] @relation("DriverWithdrawals")
 
+  // Attributable property shares
+  propertySharesSent     PropertyShare[] @relation("UserPropertyShares")
+
+  // Trust and verification stewardship
+  companyVerificationApprovals  CompanyVerification[]    @relation("CompanyVerificationEvidenceApprovals")
+  companyVerificationPublishes  CompanyVerification[]    @relation("CompanyVerificationPublications")
+  officialChannelConfirmations  OfficialCompanyChannel[] @relation("OfficialCompanyChannelConfirmations")
+  propertySharesJoinedVia PropertyShare[] @relation("PropertyShareRegistrations")
+
   // Driver reminders (for drivers)
   driverReminders DriverReminder[]
 
@@ -486,6 +495,7 @@ model Property {
   verification       PropertyVerification?
   reviews            PropertyReview[]
   savedBy            SavedProperty[]
+  propertyShares     PropertyShare[]
   availabilityBlocks PropertyAvailabilityBlock[]
 
   // NRMS (normalized room inventory + operational reservations)
@@ -618,6 +628,7 @@ model Booking {
   invoices             Invoice[]
   reviews              PropertyReview[]
   referralEarnings     ReferralEarning[]
+  propertyShares       PropertyShare[]
   cancellationRequests CancellationRequest[]
   tripEstimates        TripEstimate[]
 
@@ -1750,6 +1761,117 @@ model TrustPartner {
   @@index([isActive])
   @@index([displayOrder])
   @@map("trust_partners")
+}
+
+/// Corporate verification record shown on the public /verify page.
+///
+/// This is an anti-impersonation surface, so the model is built to make an
+/// unapproved claim impossible to publish rather than merely discouraged:
+/// `status` and `visibility` are independent, and the API refuses to serve a
+/// public record that has no `evidenceApprovedAt` and approver.
+///
+/// Records are archived, never deleted, once published. A withdrawn claim has
+/// to leave a trail, because "this was on the page last week" is exactly the
+/// question an investigation asks.
+model CompanyVerification {
+  id Int @id @default(autoincrement())
+
+  /// Stable machine key, e.g. BRELA_COMPANY_REGISTRATION, DUNS_NUMBER.
+  key String @unique @db.VarChar(80)
+
+  /// Grouping for the public page: IDENTITY, REGISTRATION, COMPLIANCE.
+  category    String  @db.VarChar(40)
+  displayName String  @db.VarChar(160)
+
+  /// The independent body that issued this, e.g. BRELA. Never implied to
+  /// endorse NoLSAF, only to have issued the record.
+  authorityName   String? @db.VarChar(160)
+  authorityDomain String? @db.VarChar(160)
+  jurisdiction    String? @db.VarChar(120)
+
+  /// Preserved in the approved display format; `registrationNumberNormalized`
+  /// exists so search never forces the display value to be mangled.
+  registrationNumber           String? @db.VarChar(120)
+  registrationNumberNormalized String? @db.VarChar(120)
+
+  publicSummary String? @db.Text
+
+  /// DRAFT, PENDING, UNDER_REVIEW, VERIFIED, ACTIVE, EXPIRED, WITHDRAWN.
+  status String @default("DRAFT") @db.VarChar(30)
+  /// PRIVATE or PUBLIC. Public alone is not enough to appear: the record must
+  /// also be published and evidence-approved.
+  visibility String @default("PRIVATE") @db.VarChar(20)
+
+  /// Independent lookup URL. Null until an official URL is confirmed, in which
+  /// case the card shows the authority name without a link rather than
+  /// guessing a destination.
+  externalVerificationUrl String? @db.VarChar(500)
+
+  issuedAt      DateTime?
+  expiresAt     DateTime?
+  lastCheckedAt DateTime?
+
+  /// Set only when a human approved the underlying evidence.
+  evidenceApprovedAt   DateTime?
+  evidenceApprovedById Int?
+  evidenceNote         String?   @db.VarChar(1000)
+
+  publishedAt   DateTime?
+  publishedById Int?
+
+  sortOrder Int @default(0)
+
+  createdById Int?
+  updatedById Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  archivedAt  DateTime?
+
+  evidenceApprovedBy User? @relation("CompanyVerificationEvidenceApprovals", fields: [evidenceApprovedById], references: [id], onDelete: SetNull)
+  publishedBy        User? @relation("CompanyVerificationPublications", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@index([visibility, publishedAt, sortOrder])
+  @@index([status, expiresAt])
+  @@index([category, sortOrder])
+  @@index([registrationNumberNormalized])
+  @@map("company_verifications")
+}
+
+/// An authorised public channel: the canonical list people check a suspicious
+/// message against. Personal employee numbers and unofficial messaging
+/// accounts must never be published here.
+model OfficialCompanyChannel {
+  id Int @id @default(autoincrement())
+
+  /// WEBSITE, EMAIL, PHONE, ADDRESS, SOCIAL.
+  channelType String  @db.VarChar(30)
+  label       String  @db.VarChar(160)
+  /// The domain, address, number, or handle exactly as it should be shown.
+  value       String  @db.VarChar(500)
+  /// Optional link target where the channel is reachable, e.g. https or mailto.
+  href        String? @db.VarChar(500)
+  notes       String? @db.VarChar(500)
+
+  /// Same gate as a verification record: confirmed by a human before it can
+  /// ever appear as an authorised channel.
+  confirmedAt   DateTime?
+  confirmedById Int?
+
+  visibility  String    @default("PRIVATE") @db.VarChar(20)
+  publishedAt DateTime?
+  sortOrder   Int       @default(0)
+
+  createdById Int?
+  updatedById Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  archivedAt  DateTime?
+
+  confirmedBy User? @relation("OfficialCompanyChannelConfirmations", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@index([visibility, publishedAt, sortOrder])
+  @@index([channelType, sortOrder])
+  @@map("official_company_channels")
 }
 
 // =========================================================
@@ -3269,6 +3391,64 @@ model SavedProperty {
   @@index([savedAt])
   @@index([sharedAt])
   @@map("savedproperty")
+}
+
+/// Attributable property share.
+///
+/// `SavedProperty.sharedAt` records only that a share happened. This model
+/// carries the token that makes a share traceable: who sent it, through which
+/// channel, whether anyone opened it, and whether an opener went on to register
+/// or book. Rows predating this table have no token and stay unattributable
+/// rather than being counted as zero-performing shares.
+///
+/// Engagement is stored as counters, not one row per open. A row per open would
+/// retain visitor IP and user agent for people who never registered and never
+/// consented, for no reporting benefit.
+model PropertyShare {
+  id Int @id @default(autoincrement())
+
+  /// Opaque token carried in the share URL as `?s=<token>`.
+  token String @unique @db.VarChar(24)
+
+  /// Customer who shared the property.
+  sharerId Int
+  /// Property that was shared.
+  propertyId Int
+
+  /// Where the link was sent: WHATSAPP, COPY_LINK, NATIVE, SMS, EMAIL.
+  channel String? @db.VarChar(20)
+
+  /// Aggregate engagement. Opens by the sharer are not counted.
+  openCount     Int       @default(0)
+  firstOpenedAt DateTime?
+  lastOpenedAt  DateTime?
+
+  /// Attribution, written once when a recipient registers.
+  registeredUserId Int?
+  registeredAt     DateTime?
+
+  /// Attribution, written once when that recipient books this property.
+  bookingId   Int?
+  convertedAt DateTime?
+
+  /// Set when a sharer or an admin kills the link. A revoked token still
+  /// resolves for reporting but stops attributing.
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sharer         User     @relation("UserPropertyShares", fields: [sharerId], references: [id], onDelete: Cascade)
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  registeredUser User?    @relation("PropertyShareRegistrations", fields: [registeredUserId], references: [id], onDelete: SetNull)
+  booking        Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([sharerId, createdAt])
+  @@index([propertyId])
+  @@index([registeredUserId])
+  @@index([bookingId])
+  @@index([createdAt])
+  @@map("property_share")
 }
 
 // =========================================================

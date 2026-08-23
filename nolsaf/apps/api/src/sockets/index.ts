@@ -3,6 +3,7 @@ import type { Server as HttpServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
+import { getRedisTlsOptions } from "../lib/redisTls.js";
 import { prisma } from "@nolsaf/prisma";
 import { monitorSocketSessionPolicy, socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
 import { touchActiveUser } from "../lib/activePresence.js";
@@ -99,6 +100,7 @@ async function configureSocketRedisAdapter(io: SocketServer): Promise<void> {
   }
 
   const pubClient = new Redis(redisUrl, {
+    ...getRedisTlsOptions(redisUrl),
     lazyConnect: true,
     maxRetriesPerRequest: null,
   });

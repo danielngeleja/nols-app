@@ -17,6 +17,7 @@ import type { ComponentType } from "react";
 
 import { useParams, useRouter } from "next/navigation";
 import { fetchAccountSession } from "@/lib/accountSession";
+import { captureShareToken, createShareLink } from "@/lib/propertyShareToken";
 
 import {
   MapPin,
@@ -1697,6 +1698,15 @@ export default function PublicPropertyDetailPage() {
   const params = useParams();
   const router = useRouter();
   const slug = String((params as any)?.slug ?? "");
+
+  // A visitor arriving on ?s=<token> came through someone's shared link. Record
+  // the open once per session and remember the token so a registration later in
+  // the month still credits the person who shared it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = new URLSearchParams(window.location.search).get("s");
+    if (token) captureShareToken(token);
+  }, []);
   // Currency display context — presentation only, never affects charges.
   const [property, setProperty] = useState<PublicPropertyDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2366,23 +2376,21 @@ export default function PublicPropertyDetailPage() {
                           style={{ maxWidth: "none" }}
                         >
                           <div className="p-3 grid gap-2">
+                          {/* Every entry mints a tracked link first, so the token
+                              is in the URL the recipient actually receives. The
+                              social links open after the link is ready, which is
+                              why they are buttons rather than plain anchors. */}
                           <button
                             type="button"
                             onClick={async () => {
-                              const url = window.location.href;
+                              setShowShareMenu(false);
+                              const url = property?.id
+                                ? await createShareLink(property.id, "COPY_LINK", window.location.href)
+                                : window.location.href;
                               navigator.clipboard.writeText(url).then(() => {
                                 setCopyLinkSuccess(true);
                                 setTimeout(() => setCopyLinkSuccess(false), 2000);
                               });
-                              setShowShareMenu(false);
-                              if (property?.id && isFavorite) {
-                                try {
-                                  await fetch(`/api/customer/saved-properties/${property.id}/share`, {
-                                    method: "POST",
-                                    credentials: "include",
-                                  });
-                                } catch (e) { /* Silently fail */ }
-                              }
                             }}
                             className="group w-full flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-800 transition-colors duration-200 hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                           >
@@ -2391,77 +2399,74 @@ export default function PublicPropertyDetailPage() {
                             </span>
                             <span className={copyLinkSuccess ? "font-semibold text-[#02665e]" : ""}>{copyLinkSuccess ? "Link copied!" : "Copy link"}</span>
                           </button>
-                          <a
-                            href={`mailto:?subject=${encodeURIComponent(property.title)}&body=${encodeURIComponent(window.location.href)}`}
-                            onClick={async () => {
-                              setShowShareMenu(false);
-                              if (property?.id && isFavorite) {
-                                try {
-                                  await fetch(`/api/customer/saved-properties/${property.id}/share`, { method: "POST", credentials: "include" });
-                                } catch (e) { /* Silently fail */ }
-                              }
-                            }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-amber-200/60 bg-amber-50/70 px-3 py-2.5 text-sm font-medium text-amber-900 transition-colors duration-200 hover:bg-amber-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 no-underline"
-                          >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-amber-900/10">
-                              <Mail className="w-4 h-4 flex-shrink-0 text-amber-700 transition-colors duration-200" />
-                            </span>
-                            <span>Email</span>
-                          </a>
-                          <a
-                            href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`}
-                            target="_blank" rel="noopener noreferrer"
-                            onClick={async () => {
-                              setShowShareMenu(false);
-                              if (property?.id && isFavorite) {
-                                try {
-                                  await fetch(`/api/customer/saved-properties/${property.id}/share`, { method: "POST", credentials: "include" });
-                                } catch (e) { /* Silently fail */ }
-                              }
-                            }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-blue-200/60 bg-blue-50/70 px-3 py-2.5 text-sm font-medium text-blue-900 transition-colors duration-200 hover:bg-blue-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 no-underline"
-                          >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-blue-900/10">
-                              <Facebook className="w-4 h-4 flex-shrink-0 text-blue-700 transition-colors duration-200" />
-                            </span>
-                            <span>Facebook</span>
-                          </a>
-                          <a
-                            href={`https://wa.me/?text=${encodeURIComponent(`${property.title} - ${window.location.href}`)}`}
-                            target="_blank" rel="noopener noreferrer"
-                            onClick={async () => {
-                              setShowShareMenu(false);
-                              if (property?.id && isFavorite) {
-                                try {
-                                  await fetch(`/api/customer/saved-properties/${property.id}/share`, { method: "POST", credentials: "include" });
-                                } catch (e) { /* Silently fail */ }
-                              }
-                            }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-emerald-200/60 bg-emerald-50/70 px-3 py-2.5 text-sm font-medium text-emerald-900 transition-colors duration-200 hover:bg-emerald-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 no-underline"
-                          >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-emerald-900/10">
-                              <MessageSquare className="w-4 h-4 flex-shrink-0 text-emerald-700 transition-colors duration-200" />
-                            </span>
-                            <span>WhatsApp</span>
-                          </a>
-                          <a
-                            href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(property.title)}`}
-                            target="_blank" rel="noopener noreferrer"
-                            onClick={async () => {
-                              setShowShareMenu(false);
-                              if (property?.id && isFavorite) {
-                                try {
-                                  await fetch(`/api/customer/saved-properties/${property.id}/share`, { method: "POST", credentials: "include" });
-                                } catch (e) { /* Silently fail */ }
-                              }
-                            }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-sky-200/60 bg-sky-50/70 px-3 py-2.5 text-sm font-medium text-sky-900 transition-colors duration-200 hover:bg-sky-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 no-underline"
-                          >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-sky-900/10">
-                              <Twitter className="w-4 h-4 flex-shrink-0 text-sky-700 transition-colors duration-200" />
-                            </span>
-                            <span>Twitter</span>
-                          </a>
+                          {([
+                            {
+                              key: "EMAIL" as const,
+                              label: "Email",
+                              icon: Mail,
+                              className: "border-amber-200/60 bg-amber-50/70 text-amber-900 hover:bg-amber-100/70",
+                              iconClass: "text-amber-700",
+                              ringClass: "ring-amber-900/10",
+                              build: (url: string) => `mailto:?subject=${encodeURIComponent(property.title)}&body=${encodeURIComponent(url)}`,
+                              newTab: false,
+                            },
+                            {
+                              key: "FACEBOOK" as const,
+                              label: "Facebook",
+                              icon: Facebook,
+                              className: "border-blue-200/60 bg-blue-50/70 text-blue-900 hover:bg-blue-100/70",
+                              iconClass: "text-blue-700",
+                              ringClass: "ring-blue-900/10",
+                              build: (url: string) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+                              newTab: true,
+                            },
+                            {
+                              key: "WHATSAPP" as const,
+                              label: "WhatsApp",
+                              icon: MessageSquare,
+                              className: "border-emerald-200/60 bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100/70",
+                              iconClass: "text-emerald-700",
+                              ringClass: "ring-emerald-900/10",
+                              build: (url: string) => `https://wa.me/?text=${encodeURIComponent(`${property.title} - ${url}`)}`,
+                              newTab: true,
+                            },
+                            {
+                              key: "TWITTER" as const,
+                              label: "Twitter",
+                              icon: Twitter,
+                              className: "border-sky-200/60 bg-sky-50/70 text-sky-900 hover:bg-sky-100/70",
+                              iconClass: "text-sky-700",
+                              ringClass: "ring-sky-900/10",
+                              build: (url: string) => `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(property.title)}`,
+                              newTab: true,
+                            },
+                          ]).map((target) => {
+                            const TargetIcon = target.icon;
+                            return (
+                              <button
+                                key={target.key}
+                                type="button"
+                                onClick={async () => {
+                                  setShowShareMenu(false);
+                                  const url = property?.id
+                                    ? await createShareLink(property.id, target.key, window.location.href)
+                                    : window.location.href;
+                                  const destination = target.build(url);
+                                  if (target.newTab) {
+                                    window.open(destination, "_blank", "noopener,noreferrer");
+                                  } else {
+                                    window.location.href = destination;
+                                  }
+                                }}
+                                className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 ${target.className}`}
+                              >
+                                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ${target.ringClass}`}>
+                                  <TargetIcon className={`w-4 h-4 flex-shrink-0 transition-colors duration-200 ${target.iconClass}`} />
+                                </span>
+                                <span>{target.label}</span>
+                              </button>
+                            );
+                          })}
                           </div>
                         </div>
                       </>

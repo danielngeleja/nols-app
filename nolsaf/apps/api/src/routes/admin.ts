@@ -71,6 +71,7 @@ import adminUpdatesRouter from "./admin.updates";
 import adminUsersSummaryRouter from "./admin.users.summary";
 import adminUsersTransportBookingsRouter from "./admin.users.transportBookings";
 import adminUsersRouter from "./admin.users";
+import adminTrustVerificationRouter from "./admin.trustVerification.js";
 
 export function registerAdminGuards(app: Express): void {
   // Optional but recommended: protect all admin endpoints behind IP allowlist (no-op unless configured).
@@ -161,6 +162,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/users/transport-bookings", adminUsersTransportBookingsRouter);
   app.use("/api/admin/users/transport-bookings", adminUsersTransportBookingsRouter as RequestHandler);
   app.use("/admin/users", adminUsersRouter);
+  app.use("/api/admin/trust-verification", adminTrustVerificationRouter as RequestHandler);
   app.use("/api/admin/users", adminUsersRouter as RequestHandler);
   app.use("/admin/help-owners", adminHelpOwnersRouter);
   app.use("/api/admin/help-owners", adminHelpOwnersRouter as RequestHandler);
