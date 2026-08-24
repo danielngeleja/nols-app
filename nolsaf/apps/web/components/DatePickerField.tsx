@@ -52,19 +52,24 @@ function formatDisplay(iso?: string, display: "date" | "month" | "day-month" = "
   return `${day2} ${monthLabel} ${y}`;
 }
 
-function PopoverPositioner({ open, computePos }: { open: boolean; computePos: () => void }) {
+function PopoverPositioner({ open, computePos, measure }: { open: boolean; computePos: () => void; measure: () => void }) {
   useEffect(() => {
     if (!open) return;
     if (typeof window === "undefined") return;
 
     computePos();
+    // The panel is in the DOM by now, so replace the height guess with the real
+    // one. Without this a trigger low on the page is positioned from an
+    // estimate, and the calendar lands at the top of the viewport instead of
+    // beside the field that opened it.
+    measure();
     window.addEventListener("resize", computePos);
     window.addEventListener("scroll", computePos, true);
     return () => {
       window.removeEventListener("resize", computePos);
       window.removeEventListener("scroll", computePos, true);
     };
-  }, [open, computePos]);
+  }, [open, computePos, measure]);
 
   return null;
 }
@@ -84,7 +89,9 @@ export default function DatePickerField({
 }: Props) {
   const isDark = variant === "dark";
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [panelHeight, setPanelHeight] = useState<number | null>(null);
   const [twoMonths, setTwoMonths] = useState(false);
 
   useEffect(() => {
@@ -108,13 +115,17 @@ export default function DatePickerField({
       ? Math.min(720, Math.max(320, window.innerWidth - 32))
       : Math.min(320, window.innerWidth - 32);
     const viewportPadding = 16;
-    const estimatedHeight = Math.min(twoMonths ? 470 : 430, window.innerHeight - viewportPadding * 2);
+    const panelSize = Math.min(panelHeight ?? (twoMonths ? 470 : 430), window.innerHeight - viewportPadding * 2);
     const belowTop = rect.bottom + 8;
-    const aboveTop = rect.top - estimatedHeight - 8;
+    const aboveTop = rect.top - panelSize - 8;
+    // Below the trigger when it fits, above it when that fits, and otherwise
+    // pinned to whichever edge keeps the calendar closest to its own field.
     const top =
-      belowTop + estimatedHeight <= window.innerHeight - viewportPadding
+      belowTop + panelSize <= window.innerHeight - viewportPadding
         ? belowTop
-        : Math.max(viewportPadding, aboveTop);
+        : aboveTop >= viewportPadding
+          ? aboveTop
+          : Math.max(viewportPadding, Math.min(belowTop, window.innerHeight - viewportPadding - panelSize));
     // Anchor to the field that opened it. This used to centre the calendar in
     // the viewport regardless of the trigger, so a field sitting to one side
     // opened its calendar somewhere else entirely.
@@ -127,7 +138,12 @@ export default function DatePickerField({
     if (left + width > viewportRight) left = viewportRight - width;
     left = Math.max(viewportPadding, left);
     setPanelPos({ top, left, width });
-  }, [twoMonths]);
+  }, [twoMonths, panelHeight]);
+
+  const measure = useCallback(() => {
+    const height = panelRef.current?.getBoundingClientRect().height ?? 0;
+    if (height > 0) setPanelHeight((current) => (current === height ? current : height));
+  }, []);
 
   const pretty = formatDisplay(value, display);
   const isSm = size === "sm";
@@ -137,7 +153,7 @@ export default function DatePickerField({
       {({ open, close }) => {
         return (
           <>
-            <PopoverPositioner open={open} computePos={computePos} />
+            <PopoverPositioner open={open} computePos={computePos} measure={measure} />
 
             <Popover.Button
               ref={buttonRef}
@@ -190,12 +206,16 @@ export default function DatePickerField({
                     leaveTo="opacity-0 translate-y-1"
                   >
                     <Popover.Panel
+                      ref={panelRef}
                       static
                       className="fixed z-[10000] nolsaf-date-popper"
                       style={{
                         ...(panelPos
                           ? { top: panelPos.top, left: panelPos.left, width: panelPos.width }
-                          : { top: 0, left: "50%", transform: "translateX(-50%)", width: twoMonths ? Math.min(720, Math.max(320, window.innerWidth - 32)) : Math.min(320, window.innerWidth - 32) }),
+                          // Hidden rather than parked at the top of the screen:
+                          // one frame with no measurement is what made the
+                          // calendar flash in the wrong place.
+                          : { top: 0, left: 0, width: twoMonths ? Math.min(720, Math.max(320, window.innerWidth - 32)) : Math.min(320, window.innerWidth - 32), visibility: "hidden" as const }),
                         maxHeight: "calc(100dvh - 32px)",
                         overflowY: "auto",
                       }}

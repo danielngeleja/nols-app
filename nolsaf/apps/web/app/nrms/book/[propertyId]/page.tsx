@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
-import { BadgeCheck, BedDouble, CalendarDays, Check, CheckCircle2, ChevronRight, Loader2, Minus, Plus, ShieldCheck, Users, Wallet } from "lucide-react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BadgeCheck, BedDouble, CalendarDays, Check, CheckCircle2, ChevronRight, Instagram, Loader2, Mail, MessageCircle, Minus, Phone, Plus, ShieldCheck, Users, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import NrmsPoweredByFooter from "@/components/nrms/NrmsPoweredByFooter";
@@ -11,9 +11,17 @@ const dayOffset = (offset: number) => { const value = new Date(); value.setDate(
 const addDay = (iso: string) => { const value = new Date(`${iso}T00:00:00.000Z`); value.setUTCDate(value.getUTCDate() + 1); return value.toISOString().slice(0, 10); };
 const money = (value: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 0 }).format(value);
 const boxStyle = `#nrms-book *{box-sizing:border-box}#nrms-book input[type=checkbox]{appearance:none;-webkit-appearance:none;width:1.05rem;height:1.05rem;flex:0 0 auto;margin-top:1px;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer;position:relative;transition:border-color .15s,background-color .15s}#nrms-book input[type=checkbox]:hover{border-color:#059669}#nrms-book input[type=checkbox]:checked{background:#059669;border-color:#059669}#nrms-book input[type=checkbox]:checked::after{content:"";position:absolute;left:5px;top:1.5px;width:4px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}`;
+const directSources = ["DIRECT", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "EMAIL", "TELEGRAM", "QR", "OTHER"] as const;
+type DirectSource = typeof directSources[number];
+const browserSource = (): DirectSource => {
+  if (typeof window === "undefined") return "DIRECT";
+  const value = String(new URLSearchParams(window.location.search).get("source") || "DIRECT").toUpperCase();
+  return directSources.includes(value as DirectSource) ? value as DirectSource : "OTHER";
+};
 
 export default function DirectBookingPage({ params }: { params: Promise<{ propertyId: string }> }) {
   const { propertyId } = use(params);
+  const [source] = useState<DirectSource>(browserSource);
   const [search, setSearch] = useState({ checkIn: dayOffset(1), checkOut: dayOffset(2), adults: "2", children: "0" });
   const [quote, setQuote] = useState<any>(null);
   const [selected, setSelected] = useState<any>(null);
@@ -22,17 +30,47 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
   const [hold, setHold] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inquiryBusy, setInquiryBusy] = useState(false);
+  const [inquiryFeedback, setInquiryFeedback] = useState<string | null>(null);
+  const [sessionRef] = useState(() => typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `nrms-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const opened = useRef(false);
+
+  const recordEvent = useCallback(async (event: "PAGE_OPEN" | "ROOM_SELECTED" | "INSTAGRAM_CLICK" | "WHATSAPP_CLICK" | "PHONE_CLICK" | "EMAIL_CLICK") => {
+    try { await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/events`, { event, source }); } catch { /* Contact and booking actions must continue when analytics is unavailable. */ }
+  }, [propertyId, source]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setSelected(null);
-    try { const response = await apiClient.get(`/api/public/nrms/guest/direct/${propertyId}`, { params: search }); setQuote(response.data); }
+    try { const response = await apiClient.get(`/api/public/nrms/guest/direct/${propertyId}`, { params: { ...search, source } }); setQuote(response.data); }
     catch (requestError: any) { setQuote(null); setError(requestError?.response?.data?.error || "Live rates are unavailable."); }
     finally { setLoading(false); }
-  }, [propertyId, search]);
+  }, [propertyId, search, source]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!opened.current) { opened.current = true; void recordEvent("PAGE_OPEN"); } }, [recordEvent]);
 
   const validGuest = useMemo(() => guest.fullName.trim().length >= 2 && guest.phone.trim().length >= 7 && accepted, [accepted, guest]);
   const remainingBalance = selected ? Math.max(0, Number(selected.total || 0) - Number(selected.depositAmount || 0)) : 0;
+  const contactMessage = useMemo(() => {
+    const property = quote?.property?.title || "the hotel";
+    const room = selected?.roomType?.name ? ` I am interested in ${selected.roomType.name}.` : "";
+    const stay = ` ${search.adults} guest${Number(search.adults) === 1 ? "" : "s"}, ${search.checkIn} to ${search.checkOut}.`;
+    const hello = quote?.contact?.preferredLanguage === "SW" ? "Habari" : quote?.contact?.preferredLanguage === "EN" ? "Hello" : "Habari / Hello";
+    return `${hello} ${property}.${stay}${room} Please help me with this stay.`;
+  }, [quote, search, selected]);
+  const canRequestReception = guest.fullName.trim().length >= 2 && (guest.phone.trim().length >= 7 || guest.email.includes("@"));
+  const captureInquiry = useCallback(async (channel: "WEB" | "INSTAGRAM" | "WHATSAPP" | "PHONE" | "EMAIL", message?: string) => {
+    if (channel === "WEB") setInquiryBusy(true);
+    try {
+      const response = await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/inquiries`, {
+        sessionRef, channel, source, guestName: guest.fullName.trim() || null, guestPhone: guest.phone.trim() || null, guestEmail: guest.email.trim() || null,
+        checkIn: search.checkIn, checkOut: search.checkOut, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected?.roomType?.id ?? null,
+        message: message || null,
+      });
+      if (channel === "WEB") setInquiryFeedback(`Reception request sent · ${response.data?.inquiry?.reference || "received"}. ${response.data?.acknowledgement?.message || "Reception will contact you shortly."}`);
+    } catch (requestError: any) {
+      if (channel === "WEB") setInquiryFeedback(requestError?.response?.data?.error || "Reception could not receive the request. Please use another contact option.");
+    } finally { if (channel === "WEB") setInquiryBusy(false); }
+  }, [guest, propertyId, search, selected, sessionRef, source]);
   const setCheckIn = (iso: string) => setSearch((current) => ({ ...current, checkIn: iso, checkOut: current.checkOut > iso ? current.checkOut : addDay(iso) }));
   const setAdults = (next: number) => setSearch((current) => ({ ...current, adults: String(Math.min(20, Math.max(1, next))) }));
 
@@ -40,7 +78,7 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
     if (!selected || !validGuest) return;
     setLoading(true); setError(null);
     try {
-      const response = await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/hold`, { ...search, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected.roomType.id, ratePlanId: selected.ratePlan?.id ?? null, guest: { fullName: guest.fullName, phone: guest.phone, email: guest.email || null, nationality: guest.nationality || null }, termsAccepted: true });
+      const response = await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/hold`, { ...search, source, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected.roomType.id, ratePlanId: selected.ratePlan?.id ?? null, guest: { fullName: guest.fullName, phone: guest.phone, email: guest.email || null, nationality: guest.nationality || null }, termsAccepted: true });
       setHold(response.data.hold);
     } catch (requestError: any) { setError(requestError?.response?.data?.error || "The room could not be held."); }
     finally { setLoading(false); }
@@ -174,7 +212,7 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
             {quote?.quotes?.length ? quote.quotes.map((item: any) => {
               const active = selected === item;
               return (
-                <button type="button" key={`${item.roomType.id}-${item.ratePlan?.id || 0}`} onClick={() => setSelected(item)} aria-pressed={active} className={`w-full overflow-hidden rounded-xl border bg-white text-left shadow-sm transition ${active ? "border-emerald-600 ring-2 ring-emerald-100" : "border-neutral-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"}`}>
+                <button type="button" key={`${item.roomType.id}-${item.ratePlan?.id || 0}`} onClick={() => { setSelected(item); void recordEvent("ROOM_SELECTED"); }} aria-pressed={active} className={`w-full overflow-hidden rounded-xl border bg-white text-left shadow-sm transition ${active ? "border-emerald-600 ring-2 ring-emerald-100" : "border-neutral-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"}`}>
                   <div className="flex min-w-0 gap-3.5 p-4 sm:p-5">
                     <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${active ? "border-emerald-200 bg-emerald-100 text-emerald-800" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}><BedDouble className="h-5 w-5" /></span>
                     <div className="min-w-0 self-center">
@@ -203,6 +241,23 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
 
         <aside className="min-w-0">
           <section className="sticky top-5 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            {quote?.contact && <div className="mb-5 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-950 text-white">
+              <div className="border-b border-white/10 p-4">
+                <p className="m-0 text-[9px] font-bold uppercase tracking-[.16em] text-emerald-300">Need help deciding?</p>
+                <h2 className="mb-0 mt-1.5 text-base font-bold">Talk to reception</h2>
+                <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-400">{quote.contact.greeting || "Ask about a room, arrival details or anything you need before reserving."}</p>
+                {quote.contact.contactHours && <p className="mb-0 mt-2 text-[10px] font-semibold text-neutral-300">Available: {quote.contact.contactHours}</p>}
+              </div>
+              <div className="grid gap-2 p-3">
+                {quote.contact.instagramUsername && <a href={`https://ig.me/m/${encodeURIComponent(String(quote.contact.instagramUsername).replace(/^@/, ""))}`} target="_blank" rel="noreferrer" onClick={() => { void recordEvent("INSTAGRAM_CLICK"); void captureInquiry("INSTAGRAM"); }} className="inline-flex min-h-11 items-center justify-between gap-3 rounded-lg bg-[linear-gradient(110deg,#7c3aed,#db2777,#f97316)] px-3.5 text-xs font-bold text-white no-underline hover:text-white"><span className="inline-flex items-center gap-2"><Instagram className="h-4 w-4" />Message on Instagram</span><ChevronRight className="h-4 w-4" /></a>}
+                {quote.contact.whatsappPhone && <a href={`https://wa.me/${String(quote.contact.whatsappPhone).replace(/\D/g, "")}?text=${encodeURIComponent(contactMessage)}`} target="_blank" rel="noreferrer" onClick={() => { void recordEvent("WHATSAPP_CLICK"); void captureInquiry("WHATSAPP"); }} className="inline-flex min-h-11 items-center justify-between gap-3 rounded-lg bg-[#25D366] px-3.5 text-xs font-bold text-white no-underline hover:text-white"><span className="inline-flex items-center gap-2"><MessageCircle className="h-4 w-4" />Continue on WhatsApp</span><ChevronRight className="h-4 w-4" /></a>}
+                {quote.contact.receptionPhone && <a href={`tel:${quote.contact.receptionPhone}`} onClick={() => { void recordEvent("PHONE_CLICK"); void captureInquiry("PHONE"); }} className="inline-flex min-h-11 items-center justify-between gap-3 rounded-lg bg-sky-700 px-3.5 text-xs font-bold text-white no-underline hover:text-white"><span className="inline-flex items-center gap-2"><Phone className="h-4 w-4" />Call reception</span><span className="text-[10px] text-sky-100">{quote.contact.receptionPhone}</span></a>}
+                {quote.contact.receptionEmail && <a href={`mailto:${quote.contact.receptionEmail}?subject=${encodeURIComponent(`Stay enquiry · ${quote.property.title}`)}&body=${encodeURIComponent(contactMessage)}`} onClick={() => { void recordEvent("EMAIL_CLICK"); void captureInquiry("EMAIL"); }} className="inline-flex min-h-11 items-center justify-between gap-3 rounded-lg bg-white/10 px-3.5 text-xs font-bold text-white no-underline hover:bg-white/15 hover:text-white"><span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" />Email reservations</span><ChevronRight className="h-4 w-4" /></a>}
+                <button type="button" disabled={!canRequestReception || inquiryBusy} onClick={() => void captureInquiry("WEB", "Please contact me about this stay and the selected availability.")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white px-3.5 text-xs font-bold text-neutral-950 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-neutral-500">{inquiryBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4 text-emerald-700" />}Request reception follow-up</button>
+                {!canRequestReception && <p className="m-0 px-1 text-[9px] leading-4 text-neutral-500">Enter your name and phone or email below to request a direct follow-up.</p>}
+                {inquiryFeedback && <p className={`m-0 rounded-lg px-3 py-2 text-[10px] leading-4 ${inquiryFeedback.startsWith("Reception request sent") ? "bg-emerald-400/15 text-emerald-200" : "bg-red-400/15 text-red-200"}`}>{inquiryFeedback}</p>}
+              </div>
+            </div>}
             <h2 className="m-0 text-base font-bold text-neutral-950">Guest details</h2>
             <p className="mb-0 mt-1 text-xs text-neutral-500">Select a room, then create a secure 30-minute hold.</p>
             <div className="mt-5 grid gap-4">

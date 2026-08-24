@@ -32,6 +32,8 @@ import { generatePaymentReceiptPdf } from "../lib/pdfDocuments.js";
 import QRCode from "qrcode";
 import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
+import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
+import { materialiseAgentBookingRooms, repairSplitAgencyBooking, type MaterialiseOutcome } from "../lib/nrmsAgentGroupMaterialise.js";
 import {
   attachAgentToProperty,
   authorizeHeldAgentBookingApproval,
@@ -487,7 +489,8 @@ router.get("/property/:propertyId/requests", (async (req: AuthedRequest, res: Re
         select: {
           id: true, status: true, checkIn: true, checkOut: true, adults: true, children: true, roomsRequested: true, roomTypeId: true,
           currency: true, quotedTotal: true, holdExpiresAt: true, decidedAt: true, decisionReason: true, notes: true, createdAt: true,
-          incidentalBilling: true, guestManifestStatus: true, guestManifestSubmittedAt: true, guestManifestReviewedAt: true, guestManifestReviewNote: true,
+          incidentalBilling: true, incidentalScope: true, incidentalCategories: true, incidentalCapAmount: true, incidentalCapBasis: true,
+          guestManifestStatus: true, guestManifestSubmittedAt: true, guestManifestReviewedAt: true, guestManifestReviewNote: true,
           guests: { select: { id: true, fullName: true, documentKey: true } },
           link: { select: { bookingMode: true, agentAccount: { select: { id: true, legalName: true } } } },
         },
@@ -508,6 +511,7 @@ router.get("/property/:propertyId/requests", (async (req: AuthedRequest, res: Re
       manifest: {
         status: r.guestManifestStatus,
         incidentalBilling: r.incidentalBilling,
+        incidentalCover: describeIncidentalCover(r),
         guestsAdded: r.guests.filter((guest) => Boolean(guest.fullName)).length,
         requiredGuests: r.adults + r.children,
         documentsUploaded: r.guests.filter((guest) => Boolean(guest.documentKey)).length,
@@ -532,7 +536,13 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
       include: {
         guests: { orderBy: [{ roomNumber: "asc" }, { isLead: "desc" }, { id: "asc" }] },
         link: { select: { agentAccount: { select: { legalName: true, tradingName: true, primaryUserId: true } } } },
-        masterFolio: { include: agentInvoiceInclude() },
+        masterFolio: {
+          include: {
+            ...agentInvoiceInclude(),
+            // Set once the manifest is verified and the rooms are split out.
+            block: { select: { id: true, reference: true, status: true, groupId: true } },
+          },
+        },
         reservation: {
           select: {
             id: true, status: true, receiptNumber: true, amountPaid: true, totalAmount: true,
@@ -544,6 +554,24 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
     const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, request.propertyId);
     if (!active) return;
     res.setHeader("Cache-Control", "private, no-store");
+    // Once the booking is split, each party has a real stay of its own. The
+    // manifest reads them back so the desk can see a room number appear against
+    // the traveller it belongs to, without leaving this page.
+    const groupId = request.masterFolio?.block?.groupId ?? null;
+    const stays = groupId
+      ? await prisma.reservation.findMany({
+          where: { groupId },
+          orderBy: [{ externalRef: "asc" }, { id: "asc" }],
+          select: {
+            id: true, status: true, externalRef: true,
+            guestProfile: { select: { fullName: true } },
+            allocations: {
+              where: { status: "ACTIVE" },
+              select: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } },
+            },
+          },
+        })
+      : [];
     const latestInvoice = request.masterFolio?.proFormas.find((invoice) => !invoice.supersededAt) ?? request.masterFolio?.proFormas[0] ?? null;
     const received = request.masterFolio?.payments.filter((payment) => !payment.voidedAt).reduce((sum, payment) => sum + Number(payment.amount), 0) ?? 0;
     const bookingTotal = Number(request.quotedTotal);
@@ -570,9 +598,28 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
           payments: request.masterFolio?.payments.filter((payment) => !payment.voidedAt).map((payment) => ({ id: payment.id, amount: Number(payment.amount), method: payment.method, reference: payment.reference, receiptNumber: payment.receiptNumber, createdAt: payment.createdAt })) ?? [],
         },
       },
+      // Present once the verified manifest has been split into per-room stays,
+      // so the review page can hand the desk over to the group workspace.
+      rooms: request.masterFolio?.block
+        ? {
+            blockId: request.masterFolio.block.id,
+            blockReference: request.masterFolio.block.reference,
+            blockStatus: request.masterFolio.block.status,
+            groupId: request.masterFolio.block.groupId,
+            stays: stays.map((stay) => ({
+              reservationId: stay.id,
+              reference: stay.externalRef,
+              status: stay.status,
+              guestName: stay.guestProfile?.fullName ?? null,
+              roomCode: stay.allocations[0]?.roomUnit?.code ?? null,
+              roomTypeName: stay.allocations[0]?.roomType?.name ?? null,
+            })),
+          }
+        : null,
       manifest: {
         status: request.guestManifestStatus,
         incidentalBilling: request.incidentalBilling,
+        incidentalCover: describeIncidentalCover(request),
         requiredGuests: request.adults + request.children,
         guestsAdded: request.guests.filter((guest) => Boolean(guest.fullName)).length,
         submittedAt: request.guestManifestSubmittedAt,
@@ -581,6 +628,7 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
       },
       guests: request.guests.map((guest) => ({
         id: guest.id,
+        reservationId: guest.reservationId,
         roomNumber: guest.roomNumber,
         guestType: guest.guestType,
         isLead: guest.isLead,
@@ -600,6 +648,61 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
   } catch (err) {
     console.error("[owner.nrms.agents] manifest load failed", err);
     res.status(500).json({ error: "Failed to load the guest manifest" });
+  }
+}) as RequestHandler);
+
+// Split a verified manifest into one stay per room. Verification does this by
+// itself now, so this exists for bookings verified before that shipped, and for
+// a manifest whose split was skipped because it had no named travellers yet.
+const MATERIALISE_MESSAGES: Record<string, string> = {
+  ALREADY_MATERIALISED: "This booking is already split into individual stays",
+  NO_RESERVATION: "This booking has no reservation to split",
+  RESERVATION_NOT_CONFIRMED: "Only a confirmed booking can be split into rooms",
+  NO_ACTIVE_ALLOCATIONS: "This booking is no longer holding any rooms",
+  MASTER_FOLIO_MISSING: "Issue and settle the agency invoice before splitting this booking into room stays",
+  NIGHTS_ALREADY_BILLED: "This stay has already started billing nights, so it cannot be split now",
+  NO_NAMED_TRAVELLERS: "No traveller has been named on this manifest yet",
+};
+
+router.post("/requests/:requestId/rooms", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const requestId = Number(req.params.requestId);
+    if (!Number.isInteger(requestId) || requestId <= 0) return res.status(400).json({ error: "Invalid booking request" });
+    const request = await prisma.nrmsAgentBookingRequest.findUnique({
+      where: { id: requestId },
+      select: { id: true, propertyId: true, guestManifestStatus: true },
+    });
+    if (!request) return res.status(404).json({ error: "Booking request not found" });
+    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, request.propertyId);
+    if (!active) return;
+    if (request.guestManifestStatus !== "VERIFIED") {
+      return res.status(409).json({ error: "Verify the traveller manifest before splitting the booking into rooms", code: "MANIFEST_NOT_VERIFIED" });
+    }
+
+    const outcome = await prisma.$transaction(
+      async (tx: any) => materialiseAgentBookingRooms(tx, { requestId: request.id, ownerId: req.user!.id, actorId: req.user!.id }),
+      { maxWait: 5000, timeout: 30000 },
+    );
+    if (!outcome.ok) {
+      // Already split is not a failure. It is the case that needs re-checking,
+      // because a booking split before the double-charge was found still has
+      // the duplicate room lines that reopened its settled bill.
+      if (outcome.skipped === "ALREADY_MATERIALISED") {
+        const repair = await prisma.$transaction(
+          async (tx: any) => repairSplitAgencyBooking(tx, request.id),
+          { maxWait: 5000, timeout: 30000 },
+        );
+        if (!repair.ok) return res.status(409).json({ error: MATERIALISE_MESSAGES[outcome.skipped], code: outcome.skipped });
+        await audit(req, "NRMS_AGENT_BOOKING_ROOMS_RECHECK", "NRMS_AGENT_BOOKING_REQUEST", null, { reservations: repair.reservations, folioStatus: repair.folioStatus }, request.id);
+        return res.json({ ok: true, repaired: true, reservations: repair.reservations, folioStatus: repair.folioStatus });
+      }
+      return res.status(409).json({ error: MATERIALISE_MESSAGES[outcome.skipped] ?? "This booking cannot be split into rooms", code: outcome.skipped });
+    }
+    await audit(req, "NRMS_AGENT_BOOKING_SPLIT_ROOMS", "NRMS_AGENT_BOOKING_REQUEST", null, { blockId: outcome.blockId, groupId: outcome.groupId, created: outcome.reservationIds.length }, request.id);
+    res.status(201).json({ ok: true, groupId: outcome.groupId, blockId: outcome.blockId, created: outcome.reservationIds.length, unnamed: outcome.roomsLeftUnnamed });
+  } catch (err) {
+    console.error("[owner.nrms.agents] room split failed", err);
+    res.status(500).json({ error: "The booking could not be split into rooms" });
   }
 }) as RequestHandler);
 
@@ -633,33 +736,24 @@ router.post("/requests/:requestId/manifest/review", (async (req: AuthedRequest, 
     }
 
     const now = new Date();
-    await prisma.$transaction(async (tx: any) => {
+    // Returned out of the transaction rather than captured, so the response
+    // reads the outcome the committed transaction actually produced.
+    const materialised = await prisma.$transaction(async (tx: any): Promise<MaterialiseOutcome | null> => {
+      let outcome: MaterialiseOutcome | null = null;
       if (data.action === "VERIFY") {
-        await tx.nrmsAgentBookingGuest.updateMany({ where: { bookingRequestId: request.id }, data: { status: "ACCEPTED", reviewNote: null } });
-        // Attach the verified lead traveller to the ordinary NRMS reservation.
-        // From this point the stay participates in the same guest/profile,
-        // service, checkout and post-stay flows as a direct reservation.
-        if (request.reservationId) {
-          const reservation = await tx.reservation.findUnique({ where: { id: request.reservationId }, select: { guestProfileId: true } });
-          if (reservation && !reservation.guestProfileId) {
-            const lead = request.guests.find((guest) => guest.isLead) ?? request.guests.find((guest) => guest.guestType === "ADULT");
-            if (lead) {
-              const profile = await tx.guestProfile.create({
-                data: {
-                  propertyId: request.propertyId,
-                  ownerId: req.user!.id,
-                  fullName: lead.fullName!,
-                  phone: lead.phone || null,
-                  email: lead.email || null,
-                  nationality: lead.nationality || null,
-                  notes: `Verified agent guest manifest · booking request #${request.id}`,
-                },
-                select: { id: true },
-              });
-              await tx.reservation.update({ where: { id: request.reservationId }, data: { guestProfileId: profile.id } });
-            }
-          }
+        // Verification is where anonymous rooms become named stays, so the
+        // placeholder reservation is split into one reservation per party and
+        // party is handed to the group workspace. This is atomic: a manifest
+        // must never say VERIFIED while its occupants still point at an
+        // anonymous placeholder.
+        outcome = await materialiseAgentBookingRooms(tx, { requestId: request.id, ownerId: req.user!.id, actorId: req.user!.id });
+        if (!outcome.ok) {
+          throw new Error(`AGENT_MANIFEST_MATERIALISE:${outcome.skipped}`);
         }
+        // Materialisation locks request -> property -> occupants. Keep that
+        // global order here as well so a manual repair cannot deadlock a
+        // simultaneous verification transaction.
+        await tx.nrmsAgentBookingGuest.updateMany({ where: { bookingRequestId: request.id }, data: { status: "ACCEPTED", reviewNote: null } });
       } else {
         await tx.nrmsAgentBookingGuest.updateMany({ where: { bookingRequestId: request.id }, data: { status: "ACCEPTED", reviewNote: null } });
         for (const issue of data.guestIssues) {
@@ -676,9 +770,21 @@ router.post("/requests/:requestId/manifest/review", (async (req: AuthedRequest, 
         },
       });
       if (changed.count !== 1) throw new Error("AGENT_MANIFEST_REVIEW_RACE");
-      if (request.reservationId) {
-        await tx.reservationEvent.create({ data: { reservationId: request.reservationId, type: data.action === "VERIFY" ? "AGENT_MANIFEST_VERIFIED" : "AGENT_MANIFEST_RETURNED", actorId: req.user!.id, data: { bookingRequestId: request.id, note: data.note ?? null, issueCount: data.guestIssues.length } } });
+      // The verified manifest is recorded on whichever stays now carry it: the
+      // per-room reservations after a split, or the single reservation when the
+      // booking stayed on the old path.
+      const eventTargets = outcome?.ok ? outcome.reservationIds : (request.reservationId ? [request.reservationId] : []);
+      if (eventTargets.length) {
+        await tx.reservationEvent.createMany({
+          data: eventTargets.map((reservationId) => ({
+            reservationId,
+            type: data.action === "VERIFY" ? "AGENT_MANIFEST_VERIFIED" : "AGENT_MANIFEST_RETURNED",
+            actorId: req.user!.id,
+            data: { bookingRequestId: request.id, note: data.note ?? null, issueCount: data.guestIssues.length },
+          })),
+        });
       }
+      return outcome;
     });
     const agentUserId = request.link?.agentAccount?.primaryUserId;
     if (agentUserId) {
@@ -689,10 +795,23 @@ router.post("/requests/:requestId/manifest/review", (async (req: AuthedRequest, 
         transition: data.action === "VERIFY" ? "VERIFIED" : "CHANGES_REQUESTED",
       });
     }
-    res.json({ ok: true, status: data.action === "VERIFY" ? "VERIFIED" : "CHANGES_REQUESTED" });
+    res.json({
+      ok: true,
+      status: data.action === "VERIFY" ? "VERIFIED" : "CHANGES_REQUESTED",
+      rooms: materialised?.ok
+        ? { groupId: materialised.groupId, blockId: materialised.blockId, created: materialised.reservationIds.length, unnamed: materialised.roomsLeftUnnamed }
+        : null,
+    });
   } catch (err) {
     if (err instanceof Error && err.message === "AGENT_MANIFEST_REVIEW_RACE") {
       return res.status(409).json({ error: "This manifest changed before the decision was saved. Reload it and review the current version.", code: "MANIFEST_REVIEW_RACE" });
+    }
+    if (err instanceof Error && err.message.startsWith("AGENT_MANIFEST_MATERIALISE:")) {
+      const code = err.message.slice("AGENT_MANIFEST_MATERIALISE:".length);
+      return res.status(409).json({
+        error: MATERIALISE_MESSAGES[code] ?? "The room stays could not be created, so the manifest was not verified",
+        code,
+      });
     }
     console.error("[owner.nrms.agents] manifest review failed", err);
     res.status(500).json({ error: "The guest manifest decision could not be saved" });
@@ -793,6 +912,20 @@ router.post("/requests/:requestId/invoices", (async (req: AuthedRequest, res: Re
     const requestId = Number(req.params.requestId);
     const owned = await loadOwnedAgentCommercialRequest(req, res, requestId);
     if (!owned) return;
+    // Once the booking is split, the placeholder reservation is cancelled and
+    // the agency's room line has been re-cut per stay. Re-running the invoice
+    // would restore the aggregate line on top of those, charging the rooms
+    // twice, so the revision has to come from the block instead.
+    const split = await prisma.nrmsMasterFolio.findUnique({
+      where: { agentBookingRequestId: requestId },
+      select: { blockId: true, block: { select: { reference: true } } },
+    });
+    if (split?.blockId) {
+      return res.status(409).json({
+        error: `This booking is split into individual stays. Revise the agency bill from group block ${split.block?.reference ?? ""}`.trim(),
+        code: "BOOKING_SPLIT_INTO_ROOMS",
+      });
+    }
     if (owned.request.status !== "CONFIRMED" || owned.request.reservation?.status !== "CONFIRMED") {
       return res.status(409).json({ error: "Approve the booking request before generating its invoice", code: "BOOKING_REVIEW_REQUIRED" });
     }
@@ -948,14 +1081,35 @@ router.post("/requests/:requestId/payments/confirm", (async (req: AuthedRequest,
     if (!latest?.payerMarkedPaidAt) return res.status(409).json({ error: "The agency has not declared this invoice paid yet", code: "AGENCY_PAYMENT_DECLARATION_REQUIRED" });
     const data = parsed.data;
     const result = await prisma.$transaction(async (tx: any) => {
+      // Serialize the balance check and insert. Idempotency protects retries;
+      // this row lock also protects two genuinely concurrent requests carrying
+      // different keys from both spending the same outstanding balance.
+      await tx.$executeRawUnsafe(
+        "SELECT id FROM `nrms_master_folio` WHERE id = ? FOR UPDATE",
+        owned.request.masterFolio!.id,
+      );
       const duplicate = await tx.nrmsMasterFolioPayment.findUnique({ where: { masterFolioId_idempotencyKey: { masterFolioId: owned.request.masterFolio!.id, idempotencyKey: data.idempotencyKey } } });
-      if (duplicate) return { payment: duplicate, status: owned.request.masterFolio!.status, idempotent: true };
+      if (duplicate) {
+        const current = await tx.nrmsMasterFolio.findUnique({ where: { id: owned.request.masterFolio!.id }, select: { status: true } });
+        return { payment: duplicate, status: current?.status ?? owned.request.masterFolio!.status, idempotent: true };
+      }
       const totals = await getMasterFolioTotals(tx, owned.request.masterFolio!.id);
       if (totals.balance <= 0.005) throw new Error("NRMS_MASTER_PAYMENT_COMPLETE");
       if (data.amount > totals.balance + 0.005) throw new Error(`NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:${totals.balance}`);
-      const payment = await tx.nrmsMasterFolioPayment.create({ data: { masterFolioId: owned.request.masterFolio!.id, amount: data.amount, currency: owned.request.currency, method: data.method, reference: data.reference ? sanitizeText(data.reference) : latest.payerPaymentReference, idempotencyKey: data.idempotencyKey, receiptNumber: buildMasterPaymentReceiptNumber(owned.request.masterFolio!.id), note: data.note ? sanitizeText(data.note) : null, recordedById: req.user!.id } });
+      const reference = data.reference ? sanitizeText(data.reference) : latest.payerPaymentReference;
+      if (reference) {
+        const referenceDuplicate = await tx.nrmsMasterFolioPayment.findFirst({
+          where: { masterFolioId: owned.request.masterFolio!.id, reference, voidedAt: null },
+          select: { id: true },
+        });
+        if (referenceDuplicate) throw new Error("NRMS_MASTER_PAYMENT_REFERENCE_DUPLICATE");
+      }
+      const payment = await tx.nrmsMasterFolioPayment.create({ data: { masterFolioId: owned.request.masterFolio!.id, amount: data.amount, currency: owned.request.currency, method: data.method, reference, idempotencyKey: data.idempotencyKey, receiptNumber: buildMasterPaymentReceiptNumber(owned.request.masterFolio!.id), note: data.note ? sanitizeText(data.note) : null, recordedById: req.user!.id } });
       const totalsAfter = await refreshMasterFolioStatus(tx, owned.request.masterFolio!.id);
-      if (owned.request.reservationId) await tx.reservation.update({ where: { id: owned.request.reservationId }, data: { amountPaid: totalsAfter.paid } });
+      // The folio is the only ledger for agency money. Mirroring its total onto
+      // the reservation used to be how the front desk saw a paid agency stay,
+      // and it made the same payment appear twice wherever a view added the
+      // reservation's own amountPaid to the folio. Views now read the folio.
       return { payment, status: totalsAfter.status, idempotent: false };
     });
     if (result.status === "SETTLED" || result.status === "CREDIT") {
@@ -967,6 +1121,7 @@ router.post("/requests/:requestId/payments/confirm", (async (req: AuthedRequest,
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") return res.status(409).json({ error: "This invoice is already fully paid", code: "PAYMENT_COMPLETE" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:")) return res.status(400).json({ error: "The received amount cannot exceed the outstanding invoice balance", code: "PAYMENT_EXCEEDS_BALANCE", balance: Number(err.message.split(":")[1]) });
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_REFERENCE_DUPLICATE") return res.status(409).json({ error: "A payment with this property reference is already recorded on the agency folio", code: "PAYMENT_REFERENCE_DUPLICATE" });
     console.error("[owner.nrms.agents] received payment failed", err);
     res.status(500).json({ error: "The received payment could not be recorded" });
   }

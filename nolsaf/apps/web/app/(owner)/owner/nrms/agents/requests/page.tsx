@@ -8,12 +8,13 @@ import apiClient from "@/lib/apiClient";
 import { BedDouble, CheckCircle2, Clock, Inbox, Loader2, Users, X, XCircle } from "lucide-react";
 import { useNrms } from "../../_components/NrmsProvider";
 
+type IncidentalCover = { billing: string | null; scope: string | null; categories: string[]; capAmount: number | null; capBasis: string | null; headline: string; detail: string };
 type Request = {
   id: number; status: string; agency: { legalName: string; reference: string } | null; bookingMode: string | null;
   roomType: string | null; checkIn: string; checkOut: string; adults: number; children: number; rooms: number;
   currency: string; total: number; holdExpiresAt: string | null; decidedAt: string | null; decisionReason: string | null;
   notes: string | null; createdAt: string;
-  manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; guestsAdded: number; requiredGuests: number; documentsUploaded: number; reviewNote: string | null };
+  manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; incidentalCover: IncidentalCover; guestsAdded: number; requiredGuests: number; documentsUploaded: number; reviewNote: string | null };
 };
 
 const money = (n: number) => Math.round(n).toLocaleString();
@@ -174,7 +175,7 @@ export default function AgentRequestsPage() {
                         <p className="m-0 flex items-center gap-1.5 text-[13px] font-bold text-neutral-800"><Users className="h-4 w-4 text-neutral-400" /> {r.adults + r.children} travellers</p><p className="m-0 mt-1 text-[11px] text-neutral-500">{r.adults} adult{r.adults === 1 ? "" : "s"}{r.children ? ` · ${r.children} child${r.children === 1 ? "" : "ren"}` : ""}</p>
                       </ActivityCell>
                       <ActivityCell label="Guest readiness">
-                        {r.status === "CONFIRMED" ? <><div className="flex flex-wrap items-center gap-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.manifest.status === "VERIFIED" ? "bg-emerald-50 text-emerald-700" : r.manifest.status === "SUBMITTED" ? "bg-blue-50 text-blue-700" : r.manifest.status === "CHANGES_REQUESTED" ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-600"}`}>{manifestLabel}</span><span className="text-[11px] font-bold text-neutral-700">{r.manifest.guestsAdded}/{r.manifest.requiredGuests}</span></div><p className="m-0 mt-1 text-[11px] text-neutral-500">Extras: {r.manifest.incidentalBilling === "AGENCY" ? "agency covers" : "guests settle"}</p></> : <p className="m-0 text-[12px] text-neutral-500">{r.decisionReason || "No guest manifest required"}</p>}
+                        {r.status === "CONFIRMED" ? <><div className="flex flex-wrap items-center gap-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.manifest.status === "VERIFIED" ? "bg-emerald-50 text-emerald-700" : r.manifest.status === "SUBMITTED" ? "bg-blue-50 text-blue-700" : r.manifest.status === "CHANGES_REQUESTED" ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-600"}`}>{manifestLabel}</span><span className="text-[11px] font-bold text-neutral-700">{r.manifest.guestsAdded}/{r.manifest.requiredGuests}</span></div><p className="m-0 mt-1 text-[11px] text-neutral-500" title={r.manifest.incidentalCover?.detail ?? ""}>Extras: {r.manifest.incidentalCover?.headline ?? "not declared"}</p></> : <p className="m-0 text-[12px] text-neutral-500">{r.decisionReason || "No guest manifest required"}</p>}
                       </ActivityCell>
                       <ActivityCell label="Booking total" className="xl:text-right"><p className="m-0 text-[14px] font-extrabold text-neutral-900">{r.currency} {money(r.total)}</p><span className="text-[10px] text-neutral-400">total stay value</span></ActivityCell>
                       <ActivityCell label="Action" className="xl:text-right">

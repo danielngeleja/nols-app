@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   Loader2,
   Plus,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { useNrms } from "./_components/NrmsProvider";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
+import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type Reservation = {
   id: number;
@@ -117,8 +119,7 @@ function sameDay(a: Date, b: Date): boolean {
 
 function roomsLabel(r: Reservation): string {
   const active = (r.allocations ?? []).filter((a) => a.status === "ACTIVE");
-  const label = active.map((a) => a.roomUnitCode ?? a.roomTypeName).filter(Boolean).join(", ");
-  return label || "Room not assigned";
+  return tallyRoomLabels(active.map((a) => a.roomUnitCode ?? a.roomTypeName), "Room not assigned");
 }
 
 function hasAssignedRoom(r: Reservation): boolean {
@@ -384,9 +385,11 @@ export default function NrmsFrontDeskPage() {
           <OperationList
             title="Checking out"
             count={departures.length}
-            countLabel="due today"
+            countLabel="in queue"
             icon={<ArrowUpFromLine className="h-4 w-4" />}
             tone="blue"
+            overdueCount={departures.filter((reservation) => new Date(reservation.checkOut).getTime() < new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()).length}
+            showStatusColumn
             emptyTitle="No check-outs due today"
             emptyActionHref="/owner/nrms/reservations"
             emptyActionLabel="View reservations"
@@ -404,6 +407,7 @@ export default function NrmsFrontDeskPage() {
                 }}
                 detail={`Due ${shortDate(reservation.checkOut)}`}
                 overdue={new Date(reservation.checkOut).getTime() < new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()}
+                showStatus
               />
             ))}
           </OperationList>
@@ -923,6 +927,8 @@ function OperationList({
   emptyTitle,
   emptyActionHref,
   emptyActionLabel,
+  overdueCount = 0,
+  showStatusColumn = false,
   children,
 }: {
   title: string;
@@ -933,43 +939,81 @@ function OperationList({
   emptyTitle: string;
   emptyActionHref: string;
   emptyActionLabel: string;
+  overdueCount?: number;
+  showStatusColumn?: boolean;
   children: ReactNode;
 }) {
   const colors = tone === "emerald"
     ? {
-        header: "border-emerald-100 bg-emerald-50/55",
-        icon: "border-emerald-100 bg-white text-emerald-700",
+        header: "border-emerald-100 bg-gradient-to-r from-emerald-50 via-emerald-50/70 to-white",
+        icon: "border-transparent bg-emerald-600 text-white shadow-sm shadow-emerald-200 ring-4 ring-emerald-100/80",
         eyebrow: "text-emerald-700",
         count: "text-emerald-700",
         action: "text-emerald-700 hover:text-emerald-800",
         queueLabel: "Arrival queue",
+        live: "bg-emerald-100 text-emerald-800",
+        dot: "bg-emerald-500",
+        chevron: "border-emerald-200 text-emerald-700 hover:border-emerald-300 focus-visible:ring-emerald-500",
+        helper: "Prepare rooms and welcome today’s expected guests.",
       }
     : {
-        header: "border-blue-100 bg-blue-50/55",
-        icon: "border-blue-100 bg-white text-blue-700",
+        header: "border-blue-100 bg-gradient-to-r from-blue-50 via-blue-50/70 to-white",
+        icon: "border-transparent bg-blue-600 text-white shadow-sm shadow-blue-200 ring-4 ring-blue-100/80",
         eyebrow: "text-blue-700",
         count: "text-blue-700",
         action: "text-blue-700 hover:text-blue-800",
         queueLabel: "Departure queue",
+        live: "bg-blue-100 text-blue-800",
+        dot: "bg-blue-500",
+        chevron: "border-blue-200 text-blue-700 hover:border-blue-300 focus-visible:ring-blue-500",
+        helper: overdueCount > 0 ? "Prioritize overdue stays, then complete today’s check-outs." : "Complete today’s check-outs and release rooms promptly.",
       };
   const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  const [collapsed, setCollapsed] = useState(false);
+  const desktopGrid = showStatusColumn
+    ? "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(8rem,0.72fr)_minmax(9rem,0.8fr)_minmax(7rem,0.6fr)_minmax(8rem,0.72fr)_7rem]"
+    : "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem]";
 
   return (
     <article className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_35px_-32px_rgba(15,23,42,0.45)]">
-      <div className={`flex items-center justify-between gap-4 border-b px-5 py-4 ${colors.header}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 ${colors.header}`}>
         <div className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-sm ${colors.icon}`}>{icon}</span>
+          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${colors.icon}`}>{icon}</span>
           <div className="min-w-0">
             <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.14em] ${colors.eyebrow}`}>{colors.queueLabel}</p>
-            <h2 className="mb-0 mt-0.5 truncate text-sm font-bold text-neutral-950">{title}</h2>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <h2 className="m-0 truncate text-[15px] font-extrabold tracking-[-0.01em] text-neutral-950">{title}</h2>
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${colors.live}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} aria-hidden="true" />
+                Live queue
+              </span>
+            </div>
+            <p className="mb-0 mt-0.5 text-[10px] font-medium text-neutral-500">{colors.helper}</p>
           </div>
         </div>
-        <div className="shrink-0 border-l border-neutral-200/70 pl-4 text-right">
-          <strong className={`block text-xl font-bold leading-none tabular-nums ${colors.count}`}>{count}</strong>
-          <span className="mt-1 block text-[10px] font-medium text-neutral-500">{countLabel}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {overdueCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
+              {overdueCount} overdue
+            </span>
+          )}
+          <div className="min-w-24 rounded-xl border border-white/80 bg-white/80 px-3.5 py-2 text-right shadow-sm backdrop-blur-sm">
+            <strong className={`block text-xl font-extrabold leading-none tabular-nums ${colors.count}`}>{count}</strong>
+            <span className="mt-1 block text-[10px] font-medium text-neutral-500">{countLabel}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed((current) => !current)}
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-white/80 shadow-sm transition hover:bg-white hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${colors.chevron}`}
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
+          </button>
         </div>
       </div>
-      {!hasItems ? (
+      {!collapsed && (!hasItems ? (
         <div className="flex items-center gap-3 px-5 py-6">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
           <div className="min-w-0 flex-1">
@@ -981,16 +1025,17 @@ function OperationList({
         </div>
       ) : (
         <div className="min-w-0">
-          <div className="hidden grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem] items-center gap-4 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
+          <div className={`hidden items-center gap-4 border-b border-neutral-200 bg-neutral-50/80 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid ${desktopGrid}`}>
             <span>Guest</span>
             <span>Room</span>
             <span>Schedule</span>
+            {showStatusColumn && <span>Status</span>}
             <span>Account</span>
             <span className="text-right">Action</span>
           </div>
           <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">{children}</ul>
         </div>
-      )}
+      ))}
     </article>
   );
 }
@@ -1003,6 +1048,7 @@ function OperationRow({
   busy,
   onAction,
   overdue = false,
+  showStatus = false,
 }: {
   reservation: Reservation;
   detail: string;
@@ -1011,6 +1057,7 @@ function OperationRow({
   busy: boolean;
   onAction: () => void;
   overdue?: boolean;
+  showStatus?: boolean;
 }) {
   const guestName = reservation.guestProfile?.fullName ?? "Guest";
   const room = roomsLabel(reservation);
@@ -1018,30 +1065,48 @@ function OperationRow({
   const buttonClassName = actionTone === "emerald"
     ? "bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:ring-emerald-600"
     : "bg-neutral-900 text-white hover:bg-neutral-800 focus-visible:ring-neutral-700";
+  const desktopGrid = showStatus
+    ? "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(8rem,0.72fr)_minmax(9rem,0.8fr)_minmax(7rem,0.6fr)_minmax(8rem,0.72fr)_7rem]"
+    : "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem]";
 
   return (
-    <li className="m-0 list-none px-5 py-3.5 transition hover:bg-neutral-50/70">
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem] lg:items-center lg:gap-4">
+    <li className={`group m-0 list-none border-l-[3px] px-5 py-2 transition-colors ${overdue ? "border-l-red-400 bg-red-50/35 hover:bg-red-50/65" : actionTone === "emerald" ? "border-l-emerald-400 bg-emerald-50/25 hover:bg-emerald-50/55" : "border-l-blue-400 bg-blue-50/25 hover:bg-blue-50/55"}`}>
+      <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center lg:gap-4 ${desktopGrid}`}>
         <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-xs font-bold text-neutral-600">
+          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset transition-colors ${overdue ? "bg-red-100/70 text-red-700 ring-red-200" : actionTone === "emerald" ? "bg-emerald-100/70 text-emerald-800 ring-emerald-200" : "bg-blue-100/70 text-blue-800 ring-blue-200"}`}>
             {initials(guestName)}
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
-              {overdue && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Overdue</span>}
             </div>
           </div>
         </div>
-        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
+        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
           <p className={`m-0 truncate text-xs font-semibold ${roomUnassigned ? "text-red-700" : "text-neutral-700"}`}>
             {roomUnassigned && room !== "Room not assigned" ? `${room} · unit unassigned` : room}
           </p>
         </div>
-        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
-          <p className="m-0 truncate text-xs font-medium text-neutral-500">{detail}</p>
+        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
+          <p className={`m-0 truncate text-xs font-medium ${overdue ? "text-red-700" : "text-neutral-500"}`}>{detail}</p>
         </div>
-        <div className="col-start-1 min-w-0 pl-[3.25rem] lg:col-auto lg:p-0">
+        {showStatus && (
+          <div className="col-start-1 flex min-w-0 items-center gap-2 pl-12 lg:col-auto lg:p-0">
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:hidden">Status</span>
+            {overdue ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 shadow-sm shadow-red-100/60">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
+                Overdue
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden="true" />
+                Due today
+              </span>
+            )}
+          </div>
+        )}
+        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
           {hasOutstandingBalance(reservation) ? (
             <span className="inline-flex rounded-md bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">{reservation.currency} {reservation.balance!.toLocaleString()} due</span>
           ) : (
@@ -1052,7 +1117,7 @@ function OperationRow({
           type="button"
           onClick={onAction}
           disabled={busy}
-          className={`col-start-2 row-start-1 inline-flex min-h-9 w-24 shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-3 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 lg:col-auto lg:row-auto lg:justify-self-end ${buttonClassName}`}
+          className={`col-start-2 row-start-1 inline-flex min-h-8 w-24 shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-3 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 lg:col-auto lg:row-auto lg:justify-self-end ${buttonClassName}`}
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {busy ? "Working..." : actionLabel}
@@ -1063,38 +1128,77 @@ function OperationRow({
 }
 
 function AttentionPanel({ items }: { items: AttentionItem[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const overdueCount = items.filter((item) => item.issues.some((issue) => issue.code === "OVERDUE")).length;
+  const balanceCount = items.filter((item) => item.issues.some((issue) => issue.code === "BALANCE")).length;
+  const roomCount = items.filter((item) => item.issues.some((issue) => issue.code === "ROOM")).length;
+
   return (
-    <section className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-[0_12px_28px_-26px_rgba(120,53,15,0.45)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-3 sm:px-5">
+    <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-[0_18px_40px_-30px_rgba(146,64,14,0.5)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200/70 bg-gradient-to-r from-amber-50 via-orange-50/70 to-white px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-white text-amber-700"><CircleAlert className="h-4 w-4" /></span>
-          <div><h2 className="m-0 text-sm font-bold text-neutral-950">Front desk attention</h2><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Resolve these stay controls before the business day closes.</p></div>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-600 text-white shadow-sm shadow-amber-200 ring-4 ring-amber-100/80"><CircleAlert className="h-[18px] w-[18px]" /></span>
+          <div className="min-w-0">
+            <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-amber-700">Attention queue</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <h2 className="m-0 text-[15px] font-extrabold tracking-[-0.01em] text-neutral-950">Front desk attention</h2>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-amber-800">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                Action required
+              </span>
+            </div>
+            <p className="mb-0 mt-0.5 text-[10px] font-medium text-neutral-500">Clear priority stay controls before the business day closes.</p>
+          </div>
         </div>
-        <span className="rounded-md border border-amber-200 bg-white px-2.5 py-1 text-[10px] font-bold text-amber-800">{items.length} {items.length === 1 ? "reservation" : "reservations"}</span>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {overdueCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700"><span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />{overdueCount} overdue</span>}
+          {balanceCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />{balanceCount} balance</span>}
+          {roomCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700"><span className="h-1.5 w-1.5 rounded-full bg-violet-500" aria-hidden="true" />{roomCount} room</span>}
+          <div className="ml-1 min-w-24 rounded-xl border border-white/80 bg-white/80 px-3.5 py-2 text-right shadow-sm backdrop-blur-sm">
+            <strong className="block text-xl font-extrabold leading-none tabular-nums text-amber-700">{items.length}</strong>
+            <span className="mt-1 block text-[10px] font-medium text-neutral-500">{items.length === 1 ? "reservation" : "reservations"}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed((current) => !current)}
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? "Expand" : "Collapse"} front desk attention`}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-white text-neutral-500 shadow-sm transition hover:border-amber-300 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
+          </button>
+        </div>
       </div>
-      <div className="hidden grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] items-center gap-3 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
-        <span>Guest</span>
-        <span>Room</span>
-        <span>Schedule</span>
-        <span>Issues</span>
-        <span className="text-right">Action</span>
-      </div>
-      <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">
-        {items.map((item) => (
-          <li key={item.id} className="m-0 list-none px-5 py-3.5 transition hover:bg-neutral-50/70">
+      {!collapsed && (
+        <>
+          <div className="hidden grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] items-center gap-3 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid">
+            <span>Guest</span>
+            <span>Room</span>
+            <span>Schedule</span>
+            <span>Issues</span>
+            <span className="text-right">Action</span>
+          </div>
+          <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">
+            {items.map((item) => (
+          <li
+            key={item.id}
+            className={`m-0 list-none border-l-[3px] px-5 py-2 transition-colors ${item.issues.some((issue) => issue.code === "OVERDUE") ? "border-l-red-400 bg-red-50/35 hover:bg-red-50/65" : item.issues.some((issue) => issue.code === "BALANCE") ? "border-l-amber-400 bg-amber-50/35 hover:bg-amber-50/65" : "border-l-violet-400 bg-violet-50/30 hover:bg-violet-50/60"}`}
+          >
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] lg:items-center lg:gap-3">
               <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-[10px] font-bold text-white">{initials(item.guest)}</span>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ${item.issues.some((issue) => issue.code === "OVERDUE") ? "bg-red-100/70 text-red-700 ring-red-200" : item.issues.some((issue) => issue.code === "BALANCE") ? "bg-amber-100/70 text-amber-800 ring-amber-200" : "bg-violet-100/70 text-violet-800 ring-violet-200"}`}>{initials(item.guest)}</span>
                 <p className="m-0 min-w-0 truncate text-sm font-bold text-neutral-950">{item.guest}</p>
               </div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-semibold text-neutral-700">{item.room}</p></div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-medium text-neutral-500">check-out {shortDate(item.checkOut)} · {item.source}</p></div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><div className="flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div></div>
-              <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="col-start-2 row-start-1 inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
+              <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="col-start-2 row-start-1 inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
             </div>
           </li>
-        ))}
-      </ul>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

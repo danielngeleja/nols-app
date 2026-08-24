@@ -60,6 +60,14 @@ type Payload = {
   disclaimer: string;
 };
 
+/**
+ * Tailwind preflight is disabled in this app, so the global box model is
+ * content-box and padding adds to an element's width. The ready state opts back
+ * into border-box inside its own style block; the loading and unavailable
+ * states need the same rule or their padded containers overflow the viewport.
+ */
+const BOX_SIZING_RESET = `#verify-page, #verify-page * { box-sizing: border-box; }`;
+
 type VerificationType = "identity" | "records" | "channels";
 type ScanPhase = "idle" | "ready" | "scanning" | "verified";
 
@@ -265,7 +273,8 @@ export default function CorporateVerificationView() {
 
   if (state.status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#041f1c]">
+      <div id="verify-page" className="flex min-h-screen items-center justify-center bg-[#041f1c]">
+        <style>{BOX_SIZING_RESET}</style>
         <div className="text-center">
           <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-300" />
           <p className="m-0 mt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-emerald-100/50">
@@ -278,9 +287,10 @@ export default function CorporateVerificationView() {
 
   if (state.status === "unavailable" || !data) {
     return (
-      <div className="min-h-screen bg-[#041f1c] text-white">
+      <div id="verify-page" className="min-h-screen bg-[#041f1c] text-white">
+        <style>{BOX_SIZING_RESET}</style>
         <PublicHeader />
-        <main className="mx-auto flex max-w-xl flex-col items-center px-4 py-28 text-center">
+        <main className="mx-auto flex w-full max-w-xl flex-col items-center px-4 py-28 text-center">
           <ShieldAlert className="h-10 w-10 text-amber-300" />
           <h1 className="m-0 mt-5 text-xl font-bold">Checkpoint unavailable</h1>
           <p className="m-0 mt-2 text-sm leading-6 text-emerald-50/55">

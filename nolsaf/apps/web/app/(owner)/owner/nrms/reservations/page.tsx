@@ -9,6 +9,7 @@ import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
 import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
+import { tallyRoomLabels } from "@/lib/roomLabels";
 import { useNrms } from "../_components/NrmsProvider";
 import ModalFrame from "../_components/NrmsModalFrame";
 
@@ -86,7 +87,12 @@ type Reservation = {
   chargesTotal: number | null;
   transferredToMaster: number;
   balance: number | null;
+  effectivePaid?: number;
+  supersededByRooms?: boolean;
   agencySettlement: {
+    source: "GROUP" | "AGENT_BOOKING";
+    /** Present only for AGENT_BOOKING: what the agency paid on its own folio. */
+    paidAmount?: number;
     billingMode: string;
     masterFolioReference: string;
     status: string;
@@ -115,6 +121,14 @@ type Reservation = {
   charges?: Charge[];
   outletOrders?: OutletOrder[];
   group: { id: number; reference: string; name: string; status: string } | null;
+  agentBooking: {
+    requestId: number;
+    guestManifestStatus: string;
+    incidentalBilling: string | null;
+    travellerCount: number;
+    agencyName: string | null;
+    leadGuest: { fullName: string | null; phone: string | null; nationality: string | null } | null;
+  } | null;
 };
 
 type GuestSearchResult = {
@@ -556,17 +570,18 @@ export default function NrmsReservationsPage() {
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {reservations.map((reservation) => {
-                  const rooms = (reservation.allocations ?? [])
-                    .map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName)
-                    .filter(Boolean)
-                    .join(", ");
+                  const rooms = tallyRoomLabels((reservation.allocations ?? []).map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName));
+                  const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   const isMarketplace = reservation.bookingId != null;
                   const agencySettlement = reservation.agencySettlement;
                   const agencyBillDue = Boolean(agencySettlement && !agencySettlement.settled);
-                  const effectivePaid = Number(reservation.amountPaid ?? 0) + (agencySettlement?.settled ? Number(reservation.transferredToMaster ?? 0) : 0);
+                  // The API resolves which ledger holds the money for this
+                  // stay. The local sum is only a fallback for an older payload.
+                  const countsTransferSeparately = agencySettlement?.settled && agencySettlement.source !== "AGENT_BOOKING";
+                  const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + (countsTransferSeparately ? Number(reservation.transferredToMaster ?? 0) : 0));
                   return (
                     <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
                       <td className="px-3 py-3.5 text-center">
@@ -580,17 +595,20 @@ export default function NrmsReservationsPage() {
                           className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
                         />
                       </td>
-                      <td className="px-4 py-3.5">
-                        <div className="font-bold text-neutral-900">{reservation.guestProfile?.fullName ?? "Guest"}</div>
-                        {reservation.group && <Link href="/owner/nrms/groups" className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-emerald-700 no-underline hover:underline">{reservation.group.name}</Link>}
+                      {/* Two lines, never more. A long name and a long agency
+                          each used to wrap, dragging every row taller. */}
+                      <td className="max-w-[15rem] px-4 py-3.5">
+                        <div className="truncate font-bold text-neutral-900" title={reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}>{reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}</div>
+                        {reservation.group && <Link href="/owner/nrms/groups" title={reservation.group.name} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-emerald-700 no-underline hover:underline">{reservation.group.name}</Link>}
+                        {reservation.agentBooking && <Link href={`/owner/nrms/agents/requests/${reservation.agentBooking.requestId}/guests`} title={reservation.agentBooking.agencyName ?? "Agency booking"} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-teal-700 no-underline hover:underline">{reservation.agentBooking.agencyName ?? "Agency booking"}</Link>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-600">
-                        {reservation.guestProfile?.phone ?? "—"}
+                        {reservation.guestProfile?.phone ?? agentLead?.phone ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-neutral-600">
-                        {reservation.guestProfile?.nationality ?? "—"}
+                        {reservation.guestProfile?.nationality ?? agentLead?.nationality ?? "—"}
                       </td>
-                      <td className="px-4 py-3.5">
+                      <td className="whitespace-nowrap px-4 py-3.5">
                         <div className="font-semibold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</div>
                         <div className="mt-0.5 text-xs text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</div>
                       </td>
@@ -607,7 +625,7 @@ export default function NrmsReservationsPage() {
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
                       </td>
                       <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
-                        {isMarketplace ? "NoLSAF managed" : (
+                        {reservation.supersededByRooms ? <span className="text-neutral-400">On the room stays</span> : isMarketplace ? "NoLSAF managed" : (
                           <>
                             <span className="block">{money(effectivePaid, reservation.currency)}</span>
                             {agencySettlement && (
@@ -623,14 +641,14 @@ export default function NrmsReservationsPage() {
                           title={paymentMethod.title}
                           className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
                         >
-                          {isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
+                          {reservation.supersededByRooms ? "Split into rooms" : isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
                         </span>
                       </td>
                       <td
                         title={agencySettlement ? `${agencySettlement.masterFolioReference} · ${agencySettlement.settled ? "settled" : "payment outstanding"}` : undefined}
                         className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 || agencyBillDue ? "text-amber-700" : "text-emerald-700"}`}
                       >
-                        {isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
+                        {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
@@ -1657,15 +1675,18 @@ function ReservationDetailModal({
           <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-3">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2">
               <div className="min-w-0">
-                <div className="truncate font-bold text-neutral-900">{r.guestProfile?.fullName ?? "Guest"}</div>
+                {/* An agency stay is billed to the agency, so the drawer leads
+                    with the agency and keeps the traveller underneath. */}
+                <div className="truncate font-bold text-neutral-900">{r.agentBooking?.agencyName ?? r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest"}</div>
                 <div className="mt-0.5 text-[11px] text-neutral-500">
+                  {r.agentBooking ? <>{r.guestProfile?.fullName ?? r.agentBooking.leadGuest?.fullName ?? "Travellers on the manifest"} · </> : null}
                   {fmtDate(r.checkIn)} to {fmtDate(r.checkOut)} · {SOURCE_LABEL[r.source] ?? r.source} · {r.adults} adult{r.adults === 1 ? "" : "s"}
                 </div>
               </div>
               {r.allocations && r.allocations.length > 0 && (
                 <div className="border-l border-neutral-200 pl-5">
                   <div className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">Room</div>
-                  <div className="mt-0.5 text-xs font-semibold text-neutral-700">{r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`).join(", ") || "None active"}</div>
+                  <div className="mt-0.5 text-xs font-semibold text-neutral-700">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
                 </div>
               )}
             </div>

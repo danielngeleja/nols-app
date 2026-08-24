@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { AlertTriangle, ArrowLeftRight, BedDouble, Building2, CalendarClock, Check, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, ReceiptText, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BedDouble, Building2, CalendarClock, Check, CircleDollarSign, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, ReceiptText, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsRoomingListModal from "./NrmsRoomingListModal";
 
@@ -108,7 +108,9 @@ export type GroupBlock = {
   chargeRegister: Array<{
     id: string;
     occurredAt: string;
-    sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE";
+    // FOLIO_ADJUSTMENT belongs to the booking rather than to one room: a
+    // commercial discount is the common case.
+    sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE" | "FOLIO_ADJUSTMENT";
     sourceReference: string;
     category: string;
     description: string;
@@ -292,12 +294,15 @@ function GroupChargeRegister({ block }: { block: GroupBlock }) {
             </thead>
             <tbody className="divide-y divide-neutral-100">
               {rows.map((row) => {
-                const SourceIcon = row.sourceType === "ROOM" ? BedDouble : ReceiptText;
+                // A folio adjustment belongs to the whole booking rather than to
+                // a room or an outlet, so it carries its own mark.
+                const SourceIcon = row.sourceType === "ROOM" ? BedDouble : row.sourceType === "FOLIO_ADJUSTMENT" ? CircleDollarSign : ReceiptText;
+                const sourceTone = row.sourceType === "ROOM" ? "bg-sky-50 text-sky-700" : row.sourceType === "FOLIO_ADJUSTMENT" ? "bg-emerald-50 text-emerald-700" : "bg-violet-50 text-violet-700";
                 return (
                   <tr key={row.id} className={row.settlementStatus === "VOIDED" ? "bg-neutral-50 opacity-60" : "hover:bg-neutral-50/80"}>
                     <td className="px-3 py-3 align-top">
                       <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${row.sourceType === "ROOM" ? "bg-sky-50 text-sky-700" : "bg-violet-50 text-violet-700"}`}><SourceIcon className="h-3.5 w-3.5" /></span>
+                        <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${sourceTone}`}><SourceIcon className="h-3.5 w-3.5" /></span>
                         <div className="min-w-0">
                           <p className="m-0 text-[11px] font-bold text-neutral-900">{row.sourceReference}</p>
                           {(row.outlet || row.orderStatus) && <p className="m-0 mt-0.5 text-[9px] font-semibold text-neutral-500">{[row.outlet, row.orderStatus?.replace(/_/g, " ").toLowerCase()].filter(Boolean).join(" · ")}</p>}

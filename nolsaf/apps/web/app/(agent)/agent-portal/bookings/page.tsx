@@ -75,7 +75,7 @@ export default function AgentBookingsPage() {
       {bookings === null ? (
         <div className="flex items-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
       ) : bookings.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-solid border-neutral-200 bg-white p-8 text-center">
+        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-8 text-center">
           <ClipboardList className="mx-auto h-8 w-8 text-neutral-300" />
           <p className="m-0 mt-2 text-[15px] font-bold text-neutral-700">No bookings yet</p>
           <p className="m-0 mt-1 text-[13px] text-neutral-500">Your bookings will show here once you make one.</p>
@@ -115,7 +115,7 @@ export default function AgentBookingsPage() {
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${s.cls}`}><Icon className="h-3 w-3" /> {s.label}</span>
                         {b.status === "CONFIRMED" && b.commercial.settled && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white"><CheckCircle2 className="h-3 w-3" /> Paid</span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800"><CheckCircle2 className="h-3 w-3" /> Paid</span>
                         )}
                         {b.receiptNumber && <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{b.receiptNumber}</span>}
                       </div>
@@ -123,11 +123,12 @@ export default function AgentBookingsPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                     <div className="sm:text-right">
+                      <span className="block text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{invoice ? "Invoice total" : "Estimated total"}</span>
                       <span className="block text-[17px] font-extrabold tabular-nums tracking-tight text-neutral-950">{b.currency} {money(invoice?.quotedTotal ?? b.total)}</span>
                       <span className="block text-[10px] font-semibold text-neutral-400">booked {fmt(b.createdAt)}</span>
                     </div>
                     {b.status === "CONFIRMED" && (
-                      <Link href={`/agent-portal/bookings/${b.id}/guests`} className={`box-border inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid px-3.5 text-[13px] font-bold no-underline transition ${b.manifest.status === "CHANGES_REQUESTED" ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" : primaryAction ? "border-neutral-900 bg-neutral-900 text-white shadow-sm hover:bg-neutral-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50"}`}>{invoice && !b.commercial.settled ? <ReceiptText className="h-4 w-4" /> : <Users className="h-4 w-4" />} {workspaceAction}</Link>
+                      <Link href={`/agent-portal/bookings/${b.id}/guests`} className={`box-border inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid px-3.5 text-[13px] font-bold no-underline transition ${b.manifest.status === "CHANGES_REQUESTED" ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" : primaryAction ? "border-neutral-900 bg-neutral-900 text-white shadow-sm hover:bg-neutral-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50"}`}>{invoice && !b.commercial.settled ? <ReceiptText className="h-4 w-4" /> : workspaceAction === "Open booking" ? <ClipboardList className="h-4 w-4" /> : <Users className="h-4 w-4" />} {workspaceAction}</Link>
                     )}
                     {b.status === "CONFIRMED" && b.commercial.settled && (
                       <Link href={`/api/agent-portal/bookings/${b.id}/voucher`} target="_blank" rel="noreferrer" className="box-border inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 text-[13px] font-bold text-neutral-700 no-underline transition hover:border-neutral-400 hover:bg-neutral-50"><FileText className="h-4 w-4" /> Voucher</Link>

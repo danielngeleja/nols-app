@@ -6,6 +6,7 @@ import {
   AlertTriangle, BarChart3, BedDouble, Check, CheckCircle2, ClipboardCheck, CloudOff, CreditCard,
   Gauge, Gift, Info, Layers3, Loader2, MessageSquareText, Plus, RefreshCw, Save,
   Sparkles, Star, Wrench, ChevronLeft, ChevronRight, X, Tag, Coins, Percent,
+  Instagram, Phone, Mail, Clock3,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
@@ -13,16 +14,23 @@ import ShareBookingButton from "@/components/ShareBookingButton";
 import { useNrms } from "../_components/NrmsProvider";
 
 type Tab = "rates" | "readiness" | "service" | "guest" | "portfolio" | "growth";
+type GuestContact = {
+  enabled: boolean; instagramUsername: string | null; whatsappPhone: string | null; receptionPhone: string | null;
+  receptionEmail: string | null; contactHours: string | null; preferredLanguage: "EN" | "SW" | "EN_SW"; greeting: string | null;
+};
 type Dashboard = {
   ratePlans: any[]; restrictions: any[]; onboarding: any | null; serviceCases: any[]; paymentRequests: any[];
   journeys: any[]; forecast: any | null; recommendations: any[]; loyalty: any[]; reviews: any[]; portfolios: any[];
   roomTypes: any[]; roomUnits: any[]; eligibleReservations: any[]; ownerProperties: any[];
+  guestContact: GuestContact;
+  directConversion: { periodDays: number; events: Record<string, number>; sources: Record<string, number> };
   reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }> } | null;
 };
 type OfflineMutation = { clientMutationId: string; action: "SERVICE_CASE_CREATE" | "SERVICE_CASE_STATUS" | "ROOM_HOUSEKEEPING_STATUS"; targetId?: number; baseVersion?: number; payload: Record<string, unknown> };
 
 const inputClass = "box-border min-h-10 w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100 disabled:bg-neutral-100";
 const buttonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border-0 bg-[#075e54] px-4 text-xs font-bold text-white transition hover:bg-[#064b43] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500";
+const emptyGuestContact: GuestContact = { enabled: false, instagramUsername: null, whatsappPhone: null, receptionPhone: null, receptionEmail: null, contactHours: null, preferredLanguage: "EN_SW", greeting: null };
 
 function money(value: unknown, currency = "TZS") { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 0 }).format(Number(value || 0)); }
 function shortDate(value: string) { return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
@@ -196,6 +204,7 @@ export default function NrmsControlsPage() {
   const [season, setSeason] = useState({ ratePlanId: "", name: "", startDate: "", endDate: "", adjustmentType: "OFFSET", adjustment: "0", minStay: "" });
   const [service, setService] = useState({ title: "", category: "MAINTENANCE", priority: "NORMAL", roomUnitId: "", description: "" });
   const [journey, setJourney] = useState({ name: "", trigger: "PRE_ARRIVAL", offsetMinutes: "-1440", channel: "SMS", message: "Hello {{guest}}, we look forward to welcoming you to {{property}}." });
+  const [guestContact, setGuestContact] = useState<GuestContact>(emptyGuestContact);
   const [payment, setPayment] = useState({ reservationId: "", kind: "DEPOSIT", amount: "", dueAt: "" });
   const [portfolio, setPortfolio] = useState({ name: "", propertyIds: [] as number[] });
   const [loyaltyPage, setLoyaltyPage] = useState(1); const [reviewPage, setReviewPage] = useState(1);
@@ -223,6 +232,7 @@ export default function NrmsControlsPage() {
   }, [load, selectedPropertyId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (data?.guestContact) setGuestContact(data.guestContact); }, [data?.guestContact]);
   useEffect(() => { const sync = () => { setOnline(navigator.onLine); if (selectedPropertyId) setQueued(readQueue(selectedPropertyId).length); if (navigator.onLine) void replay(); }; sync(); window.addEventListener("online", sync); window.addEventListener("offline", sync); return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); }; }, [replay, selectedPropertyId]);
 
   const act = async (key: string, request: () => Promise<unknown>, success: string): Promise<boolean> => { setBusy(key); setError(null); setMessage(null); try { await request(); setMessage(success); await load(); return true; } catch (requestError: any) { setError(requestError?.response?.data?.error || "The action could not be completed."); return false; } finally { setBusy(null); } };
@@ -250,6 +260,7 @@ export default function NrmsControlsPage() {
     await act("service", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/service-cases`, payload), "Service case opened.");
   };
   const updateCase = (item: any, status: string) => act(`case-${item.id}`, () => apiClient.patch(`/api/owner/nrms/market-readiness/${selectedPropertyId}/service-cases/${item.id}`, { version: item.version, status }), `Case ${status.toLowerCase().replaceAll("_", " ")}.`);
+  const saveGuestContact = () => act("guest-contact", () => apiClient.put(`/api/owner/nrms/market-readiness/${selectedPropertyId}/guest-contact`, guestContact), guestContact.enabled ? "Guest contact channels are now live on the booking page." : "Public guest contact channels were saved but remain hidden.");
   const progress = useMemo(() => { const checks = data?.onboarding?.checks ?? []; return checks.length ? Math.round(checks.filter((item: any) => item.status === "VERIFIED").length / checks.length * 100) : 0; }, [data]);
   const loyaltyView = useMemo(() => paged(data?.loyalty ?? [], loyaltyPage), [data, loyaltyPage]);
   const reviewView = useMemo(() => paged(data?.reviews ?? [], reviewPage), [data, reviewPage]);
@@ -392,7 +403,44 @@ export default function NrmsControlsPage() {
       </Section>
     </div>}
 
-    {tab === "guest" && <div className="grid items-start gap-5 xl:grid-cols-2">
+    {tab === "guest" && <div className="space-y-5">
+      <Section title="Guest contact and conversion" copy="Give direct-booking visitors a real path to reception. These property contacts never fall back to the owner's personal account.">
+        <div className="grid items-start gap-5 xl:grid-cols-[1.25fr_.75fr]">
+          <div>
+            <label className="flex items-start justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+              <span><span className="block text-sm font-bold text-emerald-950">Publish reception channels</span><span className="mt-1 block text-xs leading-5 text-emerald-800/70">Guests will only see the channels completed below.</span></span>
+              <input type="checkbox" checked={guestContact.enabled} onChange={(event) => setGuestContact({ ...guestContact, enabled: event.target.checked })} aria-label="Publish reception channels" />
+            </label>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Label><span className="flex items-center gap-1.5"><Instagram className="h-3.5 w-3.5 text-fuchsia-600" />Instagram username</span><input className={inputClass} value={guestContact.instagramUsername || ""} onChange={(event) => setGuestContact({ ...guestContact, instagramUsername: event.target.value })} placeholder="hotel.username" /></Label>
+              <Label><span className="flex items-center gap-1.5"><MessageSquareText className="h-3.5 w-3.5 text-emerald-600" />WhatsApp Business</span><input type="tel" className={inputClass} value={guestContact.whatsappPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, whatsappPhone: event.target.value })} placeholder="+255712345678" /></Label>
+              <Label><span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-sky-600" />Reception telephone</span><input type="tel" className={inputClass} value={guestContact.receptionPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionPhone: event.target.value })} placeholder="+255712345678" /></Label>
+              <Label><span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-amber-600" />Reception email</span><input type="email" className={inputClass} value={guestContact.receptionEmail || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionEmail: event.target.value })} placeholder="reservations@hotel.com" /></Label>
+              <Label><span className="flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5 text-neutral-500" />Contact hours</span><input className={inputClass} value={guestContact.contactHours || ""} onChange={(event) => setGuestContact({ ...guestContact, contactHours: event.target.value })} placeholder="Daily, 06:00–23:00 EAT" /></Label>
+              <Label>Preferred greeting language<select className={inputClass} value={guestContact.preferredLanguage} onChange={(event) => setGuestContact({ ...guestContact, preferredLanguage: event.target.value as GuestContact["preferredLanguage"] })}><option value="EN_SW">English and Swahili</option><option value="SW">Swahili</option><option value="EN">English</option></select></Label>
+              <label className="grid gap-1.5 text-xs font-bold text-neutral-700 sm:col-span-2">Welcome message<textarea className={`${inputClass} min-h-24 py-3`} value={guestContact.greeting || ""} onChange={(event) => setGuestContact({ ...guestContact, greeting: event.target.value })} placeholder="Karibu. View live rooms or contact reception for help with your stay." /></label>
+            </div>
+            <button type="button" className={`${buttonClass} mt-5`} disabled={busy === "guest-contact"} onClick={() => void saveGuestContact()}>{busy === "guest-contact" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save guest channels</button>
+          </div>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-neutral-200 bg-neutral-950 p-4 text-white">
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[.15em] text-emerald-300">Public contact preview</p>
+              <h3 className="mb-0 mt-2 text-base font-bold">Talk to {selectedProperty?.title || "reception"}</h3>
+              <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-400">{guestContact.greeting || "Choose the channel that is most convenient for you."}</p>
+              <div className="mt-4 grid gap-2">
+                {guestContact.instagramUsername && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-[linear-gradient(110deg,#7c3aed,#db2777,#f97316)] px-3 text-xs font-bold"><Instagram className="h-4 w-4" />Instagram · @{guestContact.instagramUsername.replace(/^@/, "")}</span>}
+                {guestContact.whatsappPhone && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-[#25D366] px-3 text-xs font-bold"><MessageSquareText className="h-4 w-4" />WhatsApp reception</span>}
+                {guestContact.receptionPhone && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-sky-700 px-3 text-xs font-bold"><Phone className="h-4 w-4" />Call reception</span>}
+                {!guestContact.instagramUsername && !guestContact.whatsappPhone && !guestContact.receptionPhone && <span className="text-xs text-neutral-400">Add a public channel to complete the preview.</span>}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[["Searches", data?.directConversion?.events?.AVAILABILITY_SEARCH || 0], ["Room choices", data?.directConversion?.events?.ROOM_SELECTED || 0], ["Contact taps", (data?.directConversion?.events?.INSTAGRAM_CLICK || 0) + (data?.directConversion?.events?.WHATSAPP_CLICK || 0) + (data?.directConversion?.events?.PHONE_CLICK || 0)], ["Room holds", data?.directConversion?.events?.HOLD_CREATED || 0]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-neutral-200 bg-neutral-50 p-3"><p className="m-0 text-lg font-bold text-neutral-950">{value}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">{label} · 30 days</p></div>)}
+            </div>
+          </div>
+        </div>
+      </Section>
+      <div className="grid items-start gap-5 xl:grid-cols-2">
       <div className="space-y-5">
         <Section title="Automated guest journey" copy="Templates schedule against booking and stay events. Messages use the existing consent-aware delivery layer."><div className="grid gap-4 sm:grid-cols-2"><Label>Template name<input className={inputClass} value={journey.name} onChange={(event) => setJourney({ ...journey, name: event.target.value })} placeholder="Arrival reminder" /></Label><Label>Trigger<select className={inputClass} value={journey.trigger} onChange={(event) => setJourney({ ...journey, trigger: event.target.value })}><option value="BOOKED">Booked</option><option value="PRE_ARRIVAL">Pre arrival</option><option value="CHECK_IN">Check in</option><option value="PRE_DEPARTURE">Pre departure</option><option value="CHECK_OUT">Check out</option></select></Label><Label>Offset in minutes<input type="number" className={inputClass} value={journey.offsetMinutes} onChange={(event) => setJourney({ ...journey, offsetMinutes: event.target.value })} /></Label><Label>Channel<select className={inputClass} value={journey.channel} onChange={(event) => setJourney({ ...journey, channel: event.target.value })}><option value="SMS">SMS</option><option value="EMAIL">Email</option></select></Label><label className="grid gap-1.5 text-xs font-bold text-neutral-700 sm:col-span-2">Message<textarea className={`${inputClass} min-h-24 py-3`} value={journey.message} onChange={(event) => setJourney({ ...journey, message: event.target.value })} /></label></div><div className="mt-5 flex flex-wrap gap-2"><button className={buttonClass} disabled={!journey.name || busy === "journey"} onClick={() => act("journey", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/journeys`, { ...journey, offsetMinutes: Number(journey.offsetMinutes) }), "Journey template saved.")}><Save className="h-4 w-4" />Save template</button><button className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700" onClick={() => act("schedule", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/journeys/schedule`), "Guest journeys scheduled.")}><Sparkles className="h-4 w-4" />Schedule eligible stays</button></div></Section>
         <Section title="Journey library" copy="Active operational messages and their delivery schedules.">
@@ -402,6 +450,7 @@ export default function NrmsControlsPage() {
       <div className="space-y-5">
         <Section title="Direct guest payment request" copy="NRMS sends the hotel’s own payment instructions. Money received is still recorded immutably on the folio."><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-bold text-neutral-700 sm:col-span-2">Reservation<select className={inputClass} value={payment.reservationId} onChange={(event) => setPayment({ ...payment, reservationId: event.target.value })}><option value="">Select a guest stay</option>{data?.eligibleReservations.map((item) => <option key={item.id} value={item.id}>{item.guestProfile?.fullName || "Guest"} · {item.receiptNumber || `Reservation ${item.id}`}</option>)}</select></label><Label>Request type<select className={inputClass} value={payment.kind} onChange={(event) => setPayment({ ...payment, kind: event.target.value })}><option value="DEPOSIT">Deposit</option><option value="BALANCE">Balance</option><option value="INCIDENTAL">Incidental</option></select></Label><Label>Amount<input type="number" min="1" className={inputClass} value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} /></Label><div className="sm:col-span-2"><DateField label="Due at" aria="Payment due date" value={payment.dueAt} onChange={(iso) => setPayment({ ...payment, dueAt: iso })} /></div></div><button className={`${buttonClass} mt-5`} disabled={!payment.reservationId || !payment.amount || busy === "payment"} onClick={() => act("payment", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/payment-requests`, { reservationId: Number(payment.reservationId), kind: payment.kind, amount: Number(payment.amount), currency: "TZS", dueAt: payment.dueAt ? new Date(payment.dueAt).toISOString() : null }), "Payment request created.")}><CreditCard className="h-4 w-4" />Create request</button></Section>
         <Section title="Payment requests" copy="Status is operational evidence; it never replaces the folio payment record.">{data?.paymentRequests.length ? <div className="space-y-2">{data.paymentRequests.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-3"><div><p className="m-0 text-xs font-bold">{item.reservation.guestProfile?.fullName || item.reservation.receiptNumber}</p><p className="mb-0 mt-1 text-[10px] text-neutral-500">{item.kind.toLowerCase()} · {money(item.amount, item.currency)}</p></div><Status value={item.status} /></div>)}</div> : <Empty>No payment requests.</Empty>}</Section>
+      </div>
       </div>
     </div>}
 

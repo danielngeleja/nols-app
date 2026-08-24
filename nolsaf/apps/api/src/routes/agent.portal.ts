@@ -19,13 +19,15 @@ import { createAgentHold } from "../lib/nrmsAgentInventory.js";
 import { generateAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { notifyOwner } from "../lib/notifications.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
-import { limitNrmsAgentBookingCreate } from "../middleware/rateLimit.js";
-import { auditOrThrow } from "../lib/audit.js";
+import { limitAgentTourRosterLookup, limitNrmsAgentBookingCreate } from "../middleware/rateLimit.js";
+import { audit, auditOrThrow } from "../lib/audit.js";
 import { ACCOMMODATION_WORKSPACE, evaluateAccommodationPortalAccess } from "../lib/nrmsPartnerCapability.js";
 import { attachAgentToProperty, lockAgentPartnership, lockAgentSeatAllocation } from "../lib/nrmsAgentLinks.js";
 import { canBookPartnership } from "../lib/nrmsPartnershipPolicy.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { isAgentTravellerDocumentKey, signedAgentTravellerDocumentUrl } from "../lib/nrmsAgentDocuments.js";
+import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
+import { CHARGE_CATEGORIES } from "../lib/nrmsFolio.js";
 import { agentInvoiceInclude } from "../lib/nrmsAgentInvoice.js";
 import { renderMasterProFormaPdf, serializeProForma } from "../lib/nrmsProForma.js";
 
@@ -76,6 +78,7 @@ const partnershipDiscoverySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(24).default(12),
 }).strict();
 const bookSchema = searchSchema.extend({
+  clientMutationId: z.string().trim().min(16).max(120).regex(/^[A-Za-z0-9._:-]+$/),
   roomTypeId: z.number().int().positive(),
   ratePlanId: z.number().int().positive(),
   rooms: z.number().int().min(1).max(10).default(1),
@@ -98,11 +101,34 @@ const manifestGuestSchema = z.object({
   documentMimeType: z.enum(["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"]).nullable().optional(),
   documentResourceType: z.enum(["image", "raw"]).default("image"),
 });
+// The declaration answers two questions: who settles extras, and how far the
+// agency's cover reaches. A cover with no stated ceiling is unlimited, which is
+// a real commitment, so the shape is validated rather than trusted.
+export const INCIDENTAL_CAP_BASES = ["PER_TRAVELLER_PER_NIGHT", "PER_TRAVELLER_STAY", "BOOKING_TOTAL"] as const;
 const manifestSchema = z.object({
   incidentalBilling: z.enum(["AGENCY", "INDIVIDUAL_GUEST"]),
+  incidentalScope: z.enum(["ALL", "SELECTED"]).nullable().optional(),
+  incidentalCategories: z.array(z.enum(CHARGE_CATEGORIES)).max(CHARGE_CATEGORIES.length).optional(),
+  incidentalCapAmount: z.number().nonnegative().max(999_999_999).nullable().optional(),
+  incidentalCapBasis: z.enum(INCIDENTAL_CAP_BASES).nullable().optional(),
   submit: z.boolean().default(false),
   guests: z.array(manifestGuestSchema).max(40),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.incidentalBilling !== "AGENCY") return;
+  if (!value.incidentalScope) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incidentalScope"], message: "State whether the agency covers every extra or only selected ones" });
+    return;
+  }
+  if (value.incidentalScope === "SELECTED" && !(value.incidentalCategories ?? []).length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incidentalCategories"], message: "Choose at least one category the agency covers" });
+  }
+  if (value.incidentalCapAmount != null && !value.incidentalCapBasis) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incidentalCapBasis"], message: "Say what the spending limit is measured against" });
+  }
+  if (value.incidentalCapAmount == null && value.incidentalCapBasis) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["incidentalCapAmount"], message: "Enter the spending limit, or remove the basis" });
+  }
+});
 // The reference is the only thread the property has to tie a declared payment
 // to a real credit in its account, so it is required rather than advisory.
 // A cash hand-over has no paying account, so the name is required for every
@@ -217,6 +243,7 @@ function manifestSummary(booking: any) {
     guestsAdded,
     documentsUploaded,
     incidentalBilling: booking.incidentalBilling ?? null,
+    incidentalCover: describeIncidentalCover(booking),
     submittedAt: booking.guestManifestSubmittedAt ?? null,
     reviewedAt: booking.guestManifestReviewedAt ?? null,
     reviewNote: booking.guestManifestReviewNote ?? null,
@@ -700,6 +727,41 @@ router.post("/hotels/:linkId/book", limitNrmsAgentBookingCreate as RequestHandle
       if (!bookingPolicy.ok) {
         return { ok: false as const, reason: bookingPolicy.reason, message: bookingPolicy.message };
       }
+
+      // The agency account row is locked above, so this read and the create
+      // below are serialized even when a browser or proxy retries the request.
+      // Returning the original request is safer than asking inventory to guess
+      // whether two identical payloads were intentional.
+      const duplicate = await tx.nrmsAgentBookingRequest.findUnique({
+        where: {
+          linkId_clientMutationId: {
+            linkId: freshLink.id,
+            clientMutationId: parsed.data.clientMutationId,
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+          reservationId: true,
+          quotedTotal: true,
+          currency: true,
+          holdExpiresAt: true,
+          reservation: { select: { status: true } },
+        },
+      });
+      if (duplicate) {
+        return {
+          ok: true as const,
+          reservationId: duplicate.reservationId!,
+          requestId: duplicate.id,
+          status: duplicate.reservation?.status === "CONFIRMED" ? "CONFIRMED" as const : "HELD" as const,
+          holdExpiresAt: duplicate.holdExpiresAt,
+          bookingTotal: Number(duplicate.quotedTotal),
+          currency: duplicate.currency,
+          property: freshLink.property,
+          idempotent: true,
+        };
+      }
       const activeExposure = await tx.nrmsAgentBookingRequest.count({ where: { link: { agentAccountId: ctx.account.id }, status: { in: ["PENDING", "CONFIRMED"] }, checkOut: { gte: new Date() } } });
       if (activeExposure >= 10) return { ok: false as const, reason: "ACTIVE_BOOKING_LIMIT", message: "Settle or complete an existing booking before creating another." };
 
@@ -722,6 +784,7 @@ router.post("/hotels/:linkId/book", limitNrmsAgentBookingCreate as RequestHandle
         // still say INSTANT for legacy rows, but this workflow never bypasses
         // the hotel's booking and invoice decisions.
         link: { id: freshLink.id, propertyId: freshLink.propertyId, ownerId: freshLink.property.ownerId, bookingMode: "REQUEST" },
+        clientMutationId: parsed.data.clientMutationId,
         roomTypeId: parsed.data.roomTypeId,
         ratePlanId: quote.ratePlan.id,
         mealPlan: quote.ratePlan.mealPlan,
@@ -733,7 +796,7 @@ router.post("/hotels/:linkId/book", limitNrmsAgentBookingCreate as RequestHandle
         inventoryLocked: true,
         notes: parsed.data.notes ?? null,
       });
-      return { ...held, bookingTotal, currency: quote.currency, property: freshLink.property };
+      return { ...held, bookingTotal, currency: quote.currency, property: freshLink.property, idempotent: false };
     }, HOLD_TX);
 
     if (!result.ok) {
@@ -741,7 +804,7 @@ router.post("/hotels/:linkId/book", limitNrmsAgentBookingCreate as RequestHandle
       return res.status(code).json({ error: result.message, code: result.reason });
     }
     // Request-to-book needs the hotel's attention before the hold lapses.
-    if (result.status === "HELD") {
+    if (result.status === "HELD" && !result.idempotent) {
       void notifyOwner(ctx.link.property!.ownerId, "nrms_agent_booking_request", {
         agencyName: ctx.account.legalName, propertyTitle: ctx.link.property!.title,
         rooms: parsed.data.rooms, checkIn: parsed.data.checkIn, checkOut: parsed.data.checkOut, requestId: result.requestId,
@@ -756,6 +819,7 @@ router.post("/hotels/:linkId/book", limitNrmsAgentBookingCreate as RequestHandle
       currency: result.currency,
       paymentToken: null,
       paymentDueAt: null,
+      idempotent: result.idempotent,
     });
   } catch (err) {
     console.error("[agent.portal] book failed", err);
@@ -942,6 +1006,7 @@ router.put("/bookings/:requestId/manifest", (async (req: AuthedRequest, res: Res
     }
 
     const nextStatus = data.submit ? "SUBMITTED" : data.guests.length ? "IN_PROGRESS" : "NOT_STARTED";
+    const agencyCovers = data.incidentalBilling === "AGENCY";
     await prisma.$transaction(async (tx: any) => {
       await tx.nrmsAgentBookingGuest.deleteMany({ where: { bookingRequestId: booking.id } });
       if (data.guests.length) {
@@ -971,6 +1036,12 @@ router.put("/bookings/:requestId/manifest", (async (req: AuthedRequest, res: Res
         where: { id: booking.id },
         data: {
           incidentalBilling: data.incidentalBilling,
+          // Guests settling their own extras leaves nothing for the agency to
+          // cover, so the cover fields are cleared rather than left stale.
+          incidentalScope: agencyCovers ? data.incidentalScope ?? "ALL" : null,
+          incidentalCategories: agencyCovers && data.incidentalScope === "SELECTED" ? (data.incidentalCategories ?? []) : null,
+          incidentalCapAmount: agencyCovers ? data.incidentalCapAmount ?? null : null,
+          incidentalCapBasis: agencyCovers && data.incidentalCapAmount != null ? data.incidentalCapBasis ?? null : null,
           guestManifestStatus: nextStatus,
           guestManifestSubmittedAt: data.submit ? new Date() : null,
           guestManifestReviewedAt: null,
@@ -996,6 +1067,126 @@ router.put("/bookings/:requestId/manifest", (async (req: AuthedRequest, res: Res
   } catch (err) {
     console.error("[agent.portal] manifest save failed", err);
     res.status(500).json({ error: "Guest details could not be saved" });
+  }
+}) as RequestHandler);
+
+// ---------------------------------------------------------------------------
+// Import a traveller roster from a tour booking the same account already owns.
+//
+// The tour roster lives in TourBooking.metadata.groupMembers, not in the
+// tour_travelers table (that table is in the schema but no route writes it).
+// Nothing here writes to the manifest: the operator reviews the returned rows
+// in the browser and saves them through the existing manifest endpoint, so the
+// import adds no new write surface.
+// ---------------------------------------------------------------------------
+const tourRosterSchema = z.object({ code: z.string().trim().min(4).max(40) }).strict();
+const ROSTER_DOCUMENT_TYPES = new Set(["PASSPORT", "NATIONAL_ID", "OTHER"]);
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+const rosterText = (value: unknown, max: number) => {
+  const text = sanitizeText(typeof value === "string" ? value : "").trim();
+  return text ? text.slice(0, max) : null;
+};
+const rosterDate = (value: unknown) => {
+  const text = typeof value === "string" ? value.trim().slice(0, 10) : "";
+  return DATE_ONLY.test(text) ? text : null;
+};
+
+/** Age at check-in decides adult or child. Without a birth date the operator
+ * keeps whatever the card already had, so nothing is silently reclassified. */
+function rosterGuestType(dateOfBirth: string | null, checkIn: Date | string) {
+  if (!dateOfBirth) return null;
+  const born = new Date(`${dateOfBirth}T00:00:00.000Z`);
+  const stay = new Date(checkIn);
+  if (Number.isNaN(born.getTime()) || Number.isNaN(stay.getTime())) return null;
+  let age = stay.getUTCFullYear() - born.getUTCFullYear();
+  const monthDelta = stay.getUTCMonth() - born.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && stay.getUTCDate() < born.getUTCDate())) age -= 1;
+  return age < 18 ? "CHILD" : "ADULT";
+}
+
+function mapRosterMember(member: any, checkIn: Date | string) {
+  const documentTypeRaw = String(member?.documentType || "").toUpperCase();
+  const dateOfBirth = rosterDate(member?.dateOfBirth);
+  const documentNumber = rosterText(member?.documentNumber, 100);
+  const nationality = rosterText(member?.nationality, 80);
+  const fullName = rosterText(member?.fullName, 160);
+  // The tour side stores a plain Cloudinary URL, but this manifest serves
+  // identity documents through the protected key service. A URL cannot be
+  // promoted into a key, so the file is reported as "held on the trip" and the
+  // operator re-attaches it here.
+  const documentOnFile = Boolean(rosterText(member?.documentUrl, 1000)) || (Array.isArray(member?.documents) && member.documents.length > 0);
+  const missing: string[] = [];
+  if (!fullName) missing.push("Full legal name");
+  if (!nationality) missing.push("Nationality");
+  if (!dateOfBirth) missing.push("Date of birth");
+  if (!documentNumber) missing.push("Document number");
+  missing.push("Identity document upload");
+  return {
+    sourceId: rosterText(member?.id, 60),
+    fullName,
+    nationality,
+    phone: rosterText(member?.phone, 40),
+    email: rosterText(member?.email, 160),
+    dateOfBirth,
+    documentType: ROSTER_DOCUMENT_TYPES.has(documentTypeRaw) ? documentTypeRaw : null,
+    documentNumber,
+    documentExpiry: rosterDate(member?.documentExpiry),
+    guestType: rosterGuestType(dateOfBirth, checkIn),
+    documentOnFile,
+    permitStatus: rosterText(member?.permitStatus, 40),
+    missing,
+  };
+}
+
+router.post("/bookings/:requestId/manifest/tour-roster", limitAgentTourRosterLookup as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  try {
+    const parsed = tourRosterSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Enter the tour booking code" });
+    const loaded = await loadOwnedAgentBooking(req, res, Number(req.params.requestId));
+    if (!loaded) return;
+    const { booking } = loaded;
+    const code = parsed.data.code.toUpperCase();
+
+    // Ownership, not possession of the code, is what opens the roster. The
+    // caller must be the operator who received the trip, or the customer who
+    // booked it. Anything else is a 404 so the endpoint cannot confirm which
+    // codes are real.
+    const operator = String(req.user?.role || "").toUpperCase() === "AGENT"
+      ? await prisma.agent.findUnique({ where: { userId: req.user!.id }, select: { id: true } })
+      : null;
+    const ownership: any[] = [{ customerId: req.user!.id }];
+    if (operator?.id) ownership.push({ operatorAgentId: operator.id });
+    const tour = await prisma.tourBooking.findFirst({
+      where: { bookingCode: code, OR: ownership },
+      select: { id: true, bookingCode: true, title: true, destination: true, startDate: true, endDate: true, travelerCount: true, metadata: true },
+    });
+    if (!tour) {
+      await audit(req, "NRMS_AGENT_TOUR_ROSTER_LOOKUP_MISS", "TOUR_BOOKING", null, { code, requestId: booking.id }, null);
+      return res.status(404).json({ error: "No tour booking with that code was found in this account", code: "TOUR_NOT_FOUND" });
+    }
+
+    const metadata = tour.metadata && typeof tour.metadata === "object" && !Array.isArray(tour.metadata) ? tour.metadata as Record<string, any> : {};
+    const members = Array.isArray(metadata.groupMembers) ? metadata.groupMembers : [];
+    const travellers = members.map((member: any) => mapRosterMember(member, booking.checkIn)).filter((traveller) => traveller.fullName || traveller.documentNumber);
+
+    await audit(req, "NRMS_AGENT_TOUR_ROSTER_IMPORT", "TOUR_BOOKING", null, { requestId: booking.id, travellers: travellers.length }, tour.id);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({
+      tour: {
+        code: tour.bookingCode,
+        title: tour.title,
+        destination: tour.destination,
+        startDate: tour.startDate,
+        endDate: tour.endDate,
+        travellerCount: tour.travelerCount,
+      },
+      travellers,
+      requiredGuests: Number(booking.adults ?? 0) + Number(booking.children ?? 0),
+    });
+  } catch (err) {
+    console.error("[agent.portal] tour roster import failed", err);
+    res.status(500).json({ error: "The tour roster could not be loaded" });
   }
 }) as RequestHandler);
 

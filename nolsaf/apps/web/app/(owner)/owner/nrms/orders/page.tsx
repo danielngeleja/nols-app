@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Check, ChefHat, ChevronDown, Loader2, MessageSquareText, Minus, Plus, ReceiptText, RefreshCw, ShoppingBasket, Trash2, UtensilsCrossed, Wine } from "lucide-react";
+import { AlertTriangle, Check, ChefHat, Loader2, MessageSquareText, Minus, Plus, ReceiptText, RefreshCw, ShoppingBasket, Trash2, UtensilsCrossed, Wine } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 import OrderHistoryPanel from "../_components/OrderHistoryPanel";
+import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type MenuItem = { id: number; name: string; category: string | null; price: number; status: string; inStock?: boolean; description?: string | null };
 type Outlet = { id: number; name: string; code: string; type: string; currency: string; menuItems: MenuItem[] };
@@ -30,13 +32,17 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function money(value: number, currency: string) { return `${currency} ${value.toLocaleString()}`; }
-function roomLabel(reservation: InHouse) { return reservation.allocations.map((row) => row.roomUnit?.code ?? row.roomType?.name).filter(Boolean).join(", ") || "No room"; }
+function roomLabel(reservation: InHouse) { return tallyRoomLabels(reservation.allocations.map((row) => row.roomUnit?.code ?? row.roomType?.name), "No room"); }
 function orderGuestLabel(order: Order) { return order.reservation ? (order.reservation.guestProfile?.fullName ?? "Guest") : (order.customerLabel || "Walk-in"); }
 function orderRoomLabel(order: Order) { return order.reservation ? roomLabel(order.reservation) : "Walk-in"; }
 function tenderLabel(value?: string | null) { return value ? value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase()) : "Method not classified"; }
 
 export default function NrmsOrdersPage() {
-  const { selectedPropertyId } = useNrms();
+  const { selectedPropertyId, selectedProperty } = useNrms();
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") === "history" ? "history" : "live";
+  const requestedOutletValue = Number(searchParams.get("outlet"));
+  const requestedOutletId = Number.isInteger(requestedOutletValue) && requestedOutletValue > 0 ? requestedOutletValue : null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState("OWNER");
@@ -51,6 +57,7 @@ export default function NrmsOrdersPage() {
   const [settlementMode, setSettlementMode] = useState("ROOM_FOLIO");
   const [note, setNote] = useState("");
   const [cart, setCart] = useState<Record<number, number>>({});
+  const [menuCategory, setMenuCategory] = useState("ALL");
   const [busy, setBusy] = useState<string | null>(null);
   const [reasonAction, setReasonAction] = useState<{ orderId: number } | null>(null);
   const [reason, setReason] = useState("");
@@ -64,7 +71,7 @@ export default function NrmsOrdersPage() {
       const [contextResponse, guestResponse, orderResponse, pointsResponse] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/context`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/in-house`),
-        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=room`),
+        apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders`, { params: { view: "live", scope: "room", ...(requestedOutletId ? { outletId: requestedOutletId } : {}) } }),
         apiClient.get<{ orderPoints: TablePoint[] }>(`/api/nrms/operations/property/${selectedPropertyId}/order-points`),
       ]);
       const nextOutlets: Outlet[] = contextResponse.data?.outlets ?? [];
@@ -81,26 +88,75 @@ export default function NrmsOrdersPage() {
         }
         return next;
       });
-      setOutletId((current) => current && nextOutlets.some((outlet) => outlet.id === current) ? current : nextOutlets[0]?.id ?? "");
+      setOutletId((current) => requestedOutletId && nextOutlets.some((outlet) => outlet.id === requestedOutletId)
+        ? requestedOutletId
+        : current && nextOutlets.some((outlet) => outlet.id === current)
+        ? current
+        : nextOutlets[0]?.id ?? "");
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load outlet operations");
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [selectedPropertyId]);
+  }, [requestedOutletId, selectedPropertyId]);
 
   useEffect(() => {
+    if (view === "history") {
+      setLoading(false);
+      return;
+    }
     void load();
     const refreshTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
     }, 15_000);
     return () => window.clearInterval(refreshTimer);
-  }, [load]);
+  }, [load, view]);
+
+  useEffect(() => {
+    setCart({});
+  }, [requestedOutletId]);
 
   const outlet = outlets.find((item) => item.id === outletId);
+  const outletScoped = requestedOutletId != null && outlet?.id === requestedOutletId;
+  const visibleOutlets = outletScoped ? outlets.filter((item) => item.id === requestedOutletId) : outlets;
   const canCreate = role !== "FRONT_DESK";
+  const serviceRole = selectedProperty?.nrmsAccessRole ?? role;
+  const serviceLabel = serviceRole === "BAR" ? "Bar service" : serviceRole === "RESTAURANT" ? "Restaurant service" : serviceRole === "OUTLET_SUPERVISOR" ? "Outlet service" : "Restaurant & bar";
   const selectedLines = useMemo(() => (outlet?.menuItems ?? []).filter((item) => (cart[item.id] ?? 0) > 0).map((item) => ({ item, quantity: cart[item.id] })), [cart, outlet]);
+  const menuCategories = useMemo(() => Array.from(new Set((outlet?.menuItems ?? []).map((item) => item.category || "Uncategorised"))), [outlet]);
+  const visibleMenuItems = useMemo(() => (outlet?.menuItems ?? []).filter((item) => menuCategory === "ALL" || (item.category || "Uncategorised") === menuCategory), [menuCategory, outlet]);
+  const isBarMenu = outlet?.type === "BAR";
+  const MenuItemIcon = isBarMenu ? Wine : UtensilsCrossed;
+  const menuTone = isBarMenu
+    ? {
+        header: "border-sky-100 bg-gradient-to-r from-sky-50 via-cyan-50/60 to-white",
+        eyebrow: "text-sky-700",
+        filterActive: "border-sky-700 bg-sky-700 text-white shadow-sm shadow-sky-200",
+        filterIdle: "border-neutral-200 bg-white text-neutral-600 hover:border-sky-200 hover:text-sky-800",
+        cardActive: "border-sky-300 bg-gradient-to-br from-sky-50 to-cyan-50/60 shadow-sm shadow-sky-100",
+        cardIdle: "border-neutral-200 bg-gradient-to-br from-white to-sky-50/30 hover:border-sky-200 hover:shadow-sm",
+        icon: "bg-sky-100 text-sky-700 ring-sky-200",
+        price: "text-sky-800",
+        add: "border-sky-200 bg-white text-sky-700 group-hover:bg-sky-700 group-hover:text-white",
+        quantity: "bg-sky-700 text-white",
+      }
+    : {
+        header: "border-emerald-100 bg-gradient-to-r from-emerald-50 via-lime-50/45 to-white",
+        eyebrow: "text-emerald-700",
+        filterActive: "border-emerald-700 bg-emerald-700 text-white shadow-sm shadow-emerald-200",
+        filterIdle: "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200 hover:text-emerald-800",
+        cardActive: "border-emerald-300 bg-gradient-to-br from-emerald-50 to-lime-50/50 shadow-sm shadow-emerald-100",
+        cardIdle: "border-neutral-200 bg-gradient-to-br from-white to-emerald-50/25 hover:border-emerald-200 hover:shadow-sm",
+        icon: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+        price: "text-emerald-800",
+        add: "border-emerald-200 bg-white text-emerald-700 group-hover:bg-emerald-700 group-hover:text-white",
+        quantity: "bg-emerald-700 text-white",
+      };
   const cartTotal = selectedLines.reduce((sum, line) => sum + line.item.price * line.quantity, 0);
+
+  useEffect(() => {
+    setMenuCategory("ALL");
+  }, [outletId]);
 
   const changeQuantity = (id: number, delta: number) => setCart((current) => {
     const quantity = Math.max(0, (current[id] ?? 0) + delta);
@@ -157,10 +213,23 @@ export default function NrmsOrdersPage() {
 
   if (loading) return <div className="flex min-h-72 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading orders…</div>;
 
+  if (view === "history") {
+    return (
+      <div className="mx-auto max-w-[1500px] space-y-4 pb-8">
+        <div>
+          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{serviceLabel}</p>
+          <h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">Room order history</h2>
+          <p className="mb-0 mt-1 text-xs text-neutral-500">Completed, cancelled and voided room orders, kept separate from live outlet operations.</p>
+        </div>
+        {selectedPropertyId && <OrderHistoryPanel propertyId={selectedPropertyId} scope="room" />}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] space-y-4 pb-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{role === "BAR" ? "Bar service" : role === "RESTAURANT" ? "Restaurant service" : role === "OUTLET_SUPERVISOR" ? "Outlet service" : "Restaurant & bar"}</p><h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">Outlet order control</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Itemised service orders for room guests and walk-in customers.</p></div>
+        <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{serviceLabel}</p><h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">{outletScoped ? `${outlet?.name} order control` : "Outlet order control"}</h2><p className="mb-0 mt-1 text-xs text-neutral-500">{outletScoped ? `Create and manage orders for ${outlet?.name} only.` : "Itemised service orders for room guests and walk-in customers."}</p></div>
         <button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50"><RefreshCw className="h-4 w-4" />Refresh</button>
       </div>
 
@@ -169,15 +238,18 @@ export default function NrmsOrdersPage() {
       {outlets.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center"><StoreIcon /><h3 className="mt-3 text-base font-bold text-neutral-900">No outlet configured</h3><p className="mt-1 text-sm text-neutral-500">Create a restaurant or bar under Outlets & menus before recording orders.</p></div>
       ) : (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(25rem,1.1fr)]">
-          <section className="min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(23rem,0.8fr)]">
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div className="border-b border-neutral-200 bg-neutral-50/70 p-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><ReceiptText className="h-4 w-4" /></span>
-                <div className="min-w-0">
-                  <p className="m-0 text-sm font-bold text-neutral-950">Outlet ledger</p>
-                  <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Choose an outlet and add items to the current order.</p>
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><ReceiptText className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-sm font-bold text-neutral-950">Build an order</p>
+                    <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Choose who is being served, then browse an outlet menu.</p>
+                  </div>
                 </div>
+                <span className="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-700">Step 1 · Destination</span>
               </div>
               <label className="mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Serve order to<span className="text-red-500"> *</span><select value={selection} onChange={(event) => setSelection(event.target.value)} className={`mt-1.5 box-border !h-11 w-full min-w-0 rounded-lg border px-3 py-0 text-sm font-semibold normal-case tracking-normal outline-none transition focus:bg-white focus:ring-2 ${selection ? "border-emerald-300 bg-emerald-50/50 text-emerald-900 focus:border-emerald-500 focus:ring-emerald-500/10" : "border-neutral-300 bg-white text-neutral-600 focus:border-emerald-500 focus:ring-emerald-500/10"}`}>
                 <option value="">Select room guest, table or walk-in</option>
@@ -190,45 +262,59 @@ export default function NrmsOrdersPage() {
               <label className="mx-4 mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer name or reference <span className="font-medium normal-case tracking-normal text-neutral-400">(optional)</span><input value={customerLabel} onChange={(event) => setCustomerLabel(event.target.value)} maxLength={120} placeholder="For example, Asha or counter guest" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
             )}
 
-            <div className="m-4 overflow-hidden rounded-xl border border-neutral-200 bg-white">
-              {outlets.map((item) => {
-                const expanded = item.id === outletId;
-                const OutletIcon = item.type === "BAR" ? Wine : UtensilsCrossed;
-                return (
-                  <div key={item.id} className="border-b border-neutral-100 last:border-b-0">
-                    <button type="button" aria-expanded={expanded} onClick={() => { setOutletId(expanded ? "" : item.id); setCart({}); }} className={`box-border flex !min-h-14 w-full min-w-0 items-center gap-3 border-0 px-3.5 py-2.5 text-left transition ${expanded ? "bg-emerald-50/80" : "bg-white hover:bg-neutral-50"}`}>
-                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm ${expanded ? "border-emerald-200 bg-white text-emerald-700" : item.type === "BAR" ? "border-sky-100 bg-sky-50 text-sky-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}><OutletIcon className="h-4 w-4" /></span>
-                      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-950">{item.name}</span><span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[0.08em] text-neutral-400">{item.code} · {item.menuItems.length} {item.menuItems.length === 1 ? "item" : "items"}</span></span>
-                      <span className={`mr-1 hidden rounded-md px-2 py-1 text-[9px] font-bold sm:inline ${expanded ? "bg-white text-emerald-700 shadow-sm" : "bg-neutral-100 text-neutral-500"}`}>{expanded ? "Viewing" : "Open"}</span>
-                      <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180 text-emerald-700" : "text-neutral-400"}`} />
+            <div className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">{outletScoped ? "Outlet workspace" : "Step 2 · Choose outlet"}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Showing only ${outlet?.name} and its menu.` : "Switching outlets clears the current item selection."}</p></div>
+                {outlet && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-700">{outlet.menuItems.length} menu {outlet.menuItems.length === 1 ? "item" : "items"}</span>}
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+                {visibleOutlets.map((item) => {
+                  const selected = item.id === outletId;
+                  const OutletIcon = item.type === "BAR" ? Wine : UtensilsCrossed;
+                  return (
+                    <button key={item.id} type="button" aria-pressed={selected} disabled={outletScoped} onClick={() => { if (!selected) { setOutletId(item.id); setCart({}); } }} className={`box-border flex min-h-16 min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-default ${selected ? "border-emerald-300 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${selected ? "border-emerald-200 bg-white text-emerald-700" : item.type === "BAR" ? "border-sky-100 bg-sky-50 text-sky-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}><OutletIcon className="h-4 w-4" /></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-950">{item.name}</span><span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.08em] text-neutral-400">{item.code} · {item.menuItems.length} {item.menuItems.length === 1 ? "item" : "items"}</span></span>
+                      {selected && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-3 w-3" /></span>}
                     </button>
+                  );
+                })}
+              </div>
 
-                    {expanded && (
-                      <div className="border-t border-emerald-100 bg-white">
-                        {item.menuItems.map((menuItem) => {
-                          const outOfStock = menuItem.inStock === false;
-                          return (
-                            <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : `Add ${menuItem.name} to the order`} className={`box-border flex min-h-14 w-full min-w-0 items-center gap-3 border-0 border-b border-neutral-100 px-4 py-2.5 text-left transition last:border-b-0 disabled:cursor-not-allowed ${outOfStock ? "bg-neutral-50 opacity-60" : "bg-white hover:bg-emerald-50/60 disabled:opacity-50"}`}>
-                              <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-900">{menuItem.name}</span><span className="mt-0.5 block truncate text-[10px] text-neutral-400">{menuItem.category || "Uncategorised"}</span></span>
-                              {outOfStock && <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">Out of stock</span>}
-                              <strong className="shrink-0 text-xs tabular-nums text-emerald-800">{money(menuItem.price, item.currency)}</strong>
-                              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${outOfStock ? "border-neutral-200 bg-neutral-100 text-neutral-400" : "border-emerald-200 bg-emerald-50 text-emerald-800 shadow-sm"}`}><Plus className="h-3.5 w-3.5" /></span>
-                            </button>
-                          );
-                        })}
-                        {item.menuItems.length === 0 && <div className="px-4 py-6 text-center text-xs text-neutral-400">No active items entered for this outlet.</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              <div className={`mt-4 flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 ${menuTone.header}`}>
+                <div className="flex min-w-0 items-center gap-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ${menuTone.eyebrow} ${isBarMenu ? "ring-sky-100" : "ring-emerald-100"}`}><MenuItemIcon className="h-4 w-4" /></span><div className="min-w-0"><p className={`m-0 text-[9px] font-bold uppercase tracking-[0.14em] ${menuTone.eyebrow}`}>Menu</p><h3 className="mb-0 mt-0.5 truncate text-sm font-bold text-neutral-950">{outlet?.name ?? "Select an outlet"}</h3></div></div>
+                {selectedLines.length > 0 && <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[9px] font-bold text-white">{selectedLines.reduce((sum, line) => sum + line.quantity, 0)} in order</span>}
+              </div>
+              {menuCategories.length > 1 && (
+                <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1" aria-label="Menu categories">
+                  <button type="button" onClick={() => setMenuCategory("ALL")} aria-pressed={menuCategory === "ALL"} className={`inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[10px] font-bold transition ${menuCategory === "ALL" ? menuTone.filterActive : menuTone.filterIdle}`}>All <span className="ml-1.5 opacity-70">{outlet?.menuItems.length ?? 0}</span></button>
+                  {menuCategories.map((category) => {
+                    const count = (outlet?.menuItems ?? []).filter((item) => (item.category || "Uncategorised") === category).length;
+                    return <button key={category} type="button" onClick={() => setMenuCategory(category)} aria-pressed={menuCategory === category} className={`inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[10px] font-bold transition ${menuCategory === category ? menuTone.filterActive : menuTone.filterIdle}`}>{category}<span className="ml-1.5 opacity-70">{count}</span></button>;
+                  })}
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-2.5">
+                {visibleMenuItems.map((menuItem) => {
+                  const outOfStock = menuItem.inStock === false;
+                  const quantity = cart[menuItem.id] ?? 0;
+                  return (
+                    <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : `Add ${menuItem.name} to the order`} className={`group relative box-border flex min-h-[5.25rem] min-w-0 items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition duration-200 disabled:cursor-not-allowed ${outOfStock ? "border-neutral-200 bg-neutral-50 opacity-60" : quantity > 0 ? menuTone.cardActive : `${menuTone.cardIdle} disabled:opacity-50`}`}>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${menuTone.icon}`}><MenuItemIcon className="h-[18px] w-[18px]" /></span>
+                      <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-xs font-bold text-neutral-950">{menuItem.name}</span>{quantity > 0 && <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold ${menuTone.quantity}`}>×{quantity}</span>}</span><span className="mt-1 block truncate text-[9px] font-medium text-neutral-400">{menuItem.category || "Uncategorised"}</span><strong className={`mt-2 block text-xs tabular-nums ${menuTone.price}`}>{money(menuItem.price, outlet?.currency ?? "Currency not set")}</strong></span>
+                      {outOfStock ? <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">Out</span> : <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border shadow-sm transition ${menuTone.add}`}><Plus className="h-4 w-4" /></span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {visibleMenuItems.length === 0 && <div className="mt-3 rounded-xl border border-dashed border-neutral-200 px-4 py-8 text-center text-xs text-neutral-400">{(outlet?.menuItems.length ?? 0) === 0 ? "No active items entered for this outlet." : "No active items in this category."}</div>}
             </div>
           </section>
 
-          <section className="min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Current order</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Confirmed orders enter the outlet queue immediately.</p></div><ShoppingBasket className="h-5 w-5 text-emerald-700" /></div>
+          <section className="min-w-0 self-start rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
+            <div className="flex items-center justify-between gap-3"><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-700">Step 3 · Review &amp; confirm</p><h3 className="mb-0 mt-0.5 text-sm font-bold text-neutral-900">Current order</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Confirmed orders enter the outlet queue immediately.</p></div><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShoppingBasket className="h-5 w-5" /></span></div>
             <div className={`mt-3 space-y-2 ${selectedLines.length === 0 ? "min-h-28" : ""}`}>
-              {selectedLines.length === 0 ? <div className="rounded-xl border border-dashed border-neutral-200 py-9 text-center text-xs text-neutral-400">Select menu items to begin.</div> : selectedLines.map(({ item, quantity }) => (
+              {selectedLines.length === 0 ? <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 bg-neutral-50/50 px-4 py-7 text-center"><ShoppingBasket className="h-5 w-5 text-neutral-300" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-500">Your order is empty</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Choose an item from the menu to add it here.</p></div> : selectedLines.map(({ item, quantity }) => (
                 <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-xl bg-neutral-50 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-neutral-800">{item.name}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{money(item.price, outlet?.currency ?? "Currency not set")} each</p></div><div className="flex items-center gap-1"><button type="button" onClick={() => changeQuantity(item.id, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Minus className="h-3 w-3" /></button><span className="w-6 text-center text-xs font-bold">{quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Plus className="h-3 w-3" /></button></div><strong className="w-24 shrink-0 text-right text-xs tabular-nums">{money(item.price * quantity, outlet?.currency ?? "Currency not set")}</strong></div>
               ))}
             </div>
@@ -251,7 +337,7 @@ export default function NrmsOrdersPage() {
       )}
 
       <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · in-room</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Room and in-house guest orders. Table and walk-in orders live in Tables &amp; tabs.</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
+        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · {outletScoped ? outlet?.name : "in-room"}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Only active room and in-house guest orders from ${outlet?.name}.` : "Room and in-house guest orders. Table and walk-in orders live in Tables & tabs."}</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
         <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {orders.map((order) => {
             const tenderRequired = order.status === "SERVING" && order.settlementMode === "OUTLET_PAYMENT";
@@ -290,10 +376,8 @@ export default function NrmsOrdersPage() {
             );
           })}
         </div>
-        {orders.length === 0 && <div className="rounded-xl border border-dashed border-neutral-200 py-10 text-center"><Check className="mx-auto h-5 w-5 text-emerald-600" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-600">No active outlet orders</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Completed orders are stored in the history below.</p></div>}
+        {orders.length === 0 && <div className="rounded-xl border border-dashed border-neutral-200 py-10 text-center"><Check className="mx-auto h-5 w-5 text-emerald-600" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-600">No active outlet orders</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Completed orders are available under Room order history.</p></div>}
       </section>
-
-      {selectedPropertyId && <OrderHistoryPanel propertyId={selectedPropertyId} scope="room" />}
 
       {reasonAction && (
         <div className="fixed inset-0 z-[11000] flex items-center justify-center overflow-y-auto bg-neutral-950/45 p-3 sm:p-4">

@@ -160,6 +160,18 @@ export const limitPublicCareerApply = rateLimit({
   keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
 });
 
+/** A tour booking code travels in vouchers and messages, so it is not a secret.
+ * The roster lookup already answers 404 for any trip the caller does not own;
+ * this keeps a stolen code from being used to sweep for live trips. */
+export const limitAgentTourRosterLookup = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many tour code lookups. Please wait a few minutes and try again." },
+  keyGenerator: (req) => `tour-roster:${(req as any).user?.id ?? req.ip ?? "unknown"}`,
+});
+
 export const limitCodeSearch = rateLimit({
   windowMs: 60_000, // 1 min
   limit: 20,

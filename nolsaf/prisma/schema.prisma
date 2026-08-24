@@ -32,30 +32,30 @@ model SiteUpdate {
 //  USER MODEL - One table for admins, owners, drivers, and customers
 // =========================================================
 model User {
-  id                Int       @id @default(autoincrement())
-  role              String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
+  id                 Int       @id @default(autoincrement())
+  role               String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
   /// NRMS finance segregation: NONE, OPERATOR, or APPROVER. This is separate
   /// from the broad ADMIN role and is required for finance OTP actions.
-  nrmsFinanceRole   String    @default("NONE") @db.VarChar(20)
-  name              String?
+  nrmsFinanceRole    String    @default("NONE") @db.VarChar(20)
+  name               String?
   /// Human-friendly display name (used by newer UI)
-  fullName          String?   @db.VarChar(160)
-  email             String?   @unique
-  phone             String?   @unique
-  passwordHash      String?
+  fullName           String?   @db.VarChar(160)
+  email              String?   @unique
+  phone              String?   @unique
+  passwordHash       String?
   /// Profile avatar image URL (Cloudinary, etc.)
-  avatarUrl         String?   @db.VarChar(500)
+  avatarUrl          String?   @db.VarChar(500)
   /// User timezone (e.g., Africa/Dar_es_Salaam)
-  timezone          String?   @db.VarChar(80)
+  timezone           String?   @db.VarChar(80)
   /// Preferred display currency (ISO 4217, e.g. "TZS"). Presentation only — never the money of record.
-  preferredCurrency String?   @default("TZS") @db.VarChar(3)
+  preferredCurrency  String?   @default("TZS") @db.VarChar(3)
   /// Date of birth (date-only)
-  dateOfBirth       DateTime? @db.Date
+  dateOfBirth        DateTime? @db.Date
   /// Location fields used by driver onboarding/profile UI
-  region            String?   @db.VarChar(120)
-  district          String?   @db.VarChar(120)
-  emailVerifiedAt   DateTime?
-  phoneVerifiedAt   DateTime?
+  region             String?   @db.VarChar(120)
+  district           String?   @db.VarChar(120)
+  emailVerifiedAt    DateTime?
+  phoneVerifiedAt    DateTime?
   /// Registration is COMPLETE only after full name, email, and phone are stored.
   /// OTP verification remains a separate per-channel concern.
   registrationStatus String    @default("INCOMPLETE") @db.VarChar(30)
@@ -65,8 +65,8 @@ model User {
   profileCompletedAt DateTime?
   /// Security anchor for contact-channel changes. A recently replaced channel
   /// cannot immediately authorize another contact or payout destination change.
-  emailChangedAt    DateTime?
-  phoneChangedAt    DateTime?
+  emailChangedAt     DateTime?
+  phoneChangedAt     DateTime?
 
   // Owner / business details
   tin     String? @db.VarChar(50)
@@ -216,13 +216,13 @@ model User {
   referralWithdrawals ReferralWithdrawal[] @relation("DriverWithdrawals")
 
   // Attributable property shares
-  propertySharesSent     PropertyShare[] @relation("UserPropertyShares")
+  propertySharesSent PropertyShare[] @relation("UserPropertyShares")
 
   // Trust and verification stewardship
-  companyVerificationApprovals  CompanyVerification[]    @relation("CompanyVerificationEvidenceApprovals")
-  companyVerificationPublishes  CompanyVerification[]    @relation("CompanyVerificationPublications")
-  officialChannelConfirmations  OfficialCompanyChannel[] @relation("OfficialCompanyChannelConfirmations")
-  propertySharesJoinedVia PropertyShare[] @relation("PropertyShareRegistrations")
+  companyVerificationApprovals CompanyVerification[]    @relation("CompanyVerificationEvidenceApprovals")
+  companyVerificationPublishes CompanyVerification[]    @relation("CompanyVerificationPublications")
+  officialChannelConfirmations OfficialCompanyChannel[] @relation("OfficialCompanyChannelConfirmations")
+  propertySharesJoinedVia      PropertyShare[]          @relation("PropertyShareRegistrations")
 
   // Driver reminders (for drivers)
   driverReminders DriverReminder[]
@@ -306,6 +306,9 @@ model User {
   serviceEnrollments        OwnerServiceEnrollment[]     @relation("OwnerServiceEnrollments")
   nrmsReservationsOwned     Reservation[]                @relation("NrmsReservationOwner")
   nrmsReservationsCreated   Reservation[]                @relation("NrmsReservationCreator")
+  nrmsGuestInquiriesOwned   NrmsGuestInquiry[]           @relation("NrmsGuestInquiryOwner")
+  nrmsGuestInquiriesAssigned NrmsGuestInquiry[]          @relation("NrmsGuestInquiryAssignee")
+  nrmsMessagingConnections  NrmsMessagingConnection[]    @relation("NrmsMessagingConnectionOwner")
   nrmsReservationGroups     NrmsReservationGroup[]       @relation("NrmsReservationGroupOwner")
   nrmsGroupBlocksOwned      NrmsGroupBlock[]             @relation("NrmsGroupBlockOwner")
   nrmsGroupBlocksCreated    NrmsGroupBlock[]             @relation("NrmsGroupBlockCreator")
@@ -463,6 +466,11 @@ model Property {
   /// touches NoLSAF rails. Array of { label, value, name? }.
   nrmsGuestPayInstructions Json?
 
+  /// Public, property-specific reception channels used by the direct booking
+  /// page. Kept separate from the owner's personal User phone/email. Shape is
+  /// validated at the API boundary; see nrmsGuestContact.ts.
+  nrmsGuestContactSettings Json?
+
   /// Which verified-stay review categories this property asks departing guests
   /// about. Array of keys from NRMS_REVIEW_CATEGORIES, chosen by the owner so a
   /// property without a restaurant is never asked to rate one. Null means the
@@ -526,6 +534,8 @@ model Property {
   nrmsRateRestrictions    NrmsRateRestriction[]
   nrmsOnboardingRuns      NrmsOnboardingRun[]
   nrmsServiceCases        NrmsServiceCase[]
+  nrmsGuestInquiries      NrmsGuestInquiry[]
+  nrmsMessagingConnections NrmsMessagingConnection[]
   nrmsOfflineMutations    NrmsOfflineMutation[]
   nrmsExpenses            NrmsExpense[]
   nrmsPortfolioLinks      NrmsPortfolioProperty[]
@@ -1780,8 +1790,8 @@ model CompanyVerification {
   key String @unique @db.VarChar(80)
 
   /// Grouping for the public page: IDENTITY, REGISTRATION, COMPLIANCE.
-  category    String  @db.VarChar(40)
-  displayName String  @db.VarChar(160)
+  category    String @db.VarChar(40)
+  displayName String @db.VarChar(160)
 
   /// The independent body that issued this, e.g. BRELA. Never implied to
   /// endorse NoLSAF, only to have issued the record.
@@ -1797,7 +1807,7 @@ model CompanyVerification {
   publicSummary String? @db.Text
 
   /// DRAFT, PENDING, UNDER_REVIEW, VERIFIED, ACTIVE, EXPIRED, WITHDRAWN.
-  status String @default("DRAFT") @db.VarChar(30)
+  status     String @default("DRAFT") @db.VarChar(30)
   /// PRIVATE or PUBLIC. Public alone is not enough to appear: the record must
   /// also be published and evidence-approved.
   visibility String @default("PRIVATE") @db.VarChar(20)
@@ -3411,7 +3421,7 @@ model PropertyShare {
   token String @unique @db.VarChar(24)
 
   /// Customer who shared the property.
-  sharerId Int
+  sharerId   Int
   /// Property that was shared.
   propertyId Int
 
@@ -4094,6 +4104,7 @@ model RoomType {
   groupBlockRooms     NrmsGroupBlockRoom[]
   calendarFeeds       ChannelCalendarFeed[]
   agentRateAccess     NrmsAgentRateAccess[]
+  guestInquiries      NrmsGuestInquiry[]
 
   @@unique([propertyId, name])
   @@index([propertyId, status])
@@ -4293,16 +4304,21 @@ model GuestSmsAnnualQuota {
 /// terminal alternatives CANCELLED, NO_SHOW, EXPIRED. HELD consumes inventory
 /// until holdExpiresAt; CANCELLED/EXPIRED/NO_SHOW do not (doc 6.4).
 model Reservation {
-  id                  Int  @id @default(autoincrement())
-  propertyId          Int
-  ownerId             Int
-  guestProfileId      Int?
-  groupId             Int?
+  id                                Int  @id @default(autoincrement())
+  propertyId                        Int
+  ownerId                           Int
+  guestProfileId                    Int?
+  groupId                           Int?
   /// 1:1 link to the marketplace booking when source is NOLSAF
-  bookingId           Int? @unique
+  bookingId                         Int? @unique
   /// Set when this reservation was booked by an approved travel agent through
   /// the B2B agent portal. Carries both the agency and the hotel context.
-  agentPropertyLinkId Int?
+  agentPropertyLinkId               Int?
+  /// Set on the real per-room stays created after an agent manifest is
+  /// verified. The booking request's legacy reservationId continues to point
+  /// at the anonymous inventory placeholder for audit history; this field is
+  /// the durable one-to-many operational handover.
+  materializedAgentBookingRequestId Int?
 
   source      String  @default("WALK_IN") @db.VarChar(20) // NOLSAF, WALK_IN, PHONE, DIRECT, AIRBNB, BOOKING_COM, EXPEDIA, OTHER
   /// Commercial attribution (doc 7.10): NOLSAF_MARKETPLACE, OWNER_DIRECT, EXTERNAL_RECORDED
@@ -4349,14 +4365,16 @@ model Reservation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  property            Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  owner               User                     @relation("NrmsReservationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  guestProfile        GuestProfile?            @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
-  group               NrmsReservationGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  booking             Booking?                 @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-  createdBy           User?                    @relation("NrmsReservationCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  agentPropertyLink   NrmsAgentPropertyLink?   @relation(fields: [agentPropertyLinkId], references: [id], onDelete: SetNull)
-  agentBookingRequest NrmsAgentBookingRequest? @relation("NrmsAgentBookingRequestReservation")
+  property                        Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner                           User                     @relation("NrmsReservationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  guestProfile                    GuestProfile?            @relation(fields: [guestProfileId], references: [id], onDelete: SetNull)
+  group                           NrmsReservationGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  booking                         Booking?                 @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdBy                       User?                    @relation("NrmsReservationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  agentPropertyLink               NrmsAgentPropertyLink?   @relation(fields: [agentPropertyLinkId], references: [id], onDelete: SetNull)
+  agentBookingRequest             NrmsAgentBookingRequest? @relation("NrmsAgentBookingRequestReservation")
+  materializedAgentBookingRequest NrmsAgentBookingRequest? @relation("NrmsAgentBookingMaterializedReservations", fields: [materializedAgentBookingRequestId], references: [id], onDelete: SetNull)
+  agentBookingGuests              NrmsAgentBookingGuest[]  @relation("NrmsAgentBookingGuestReservation")
 
   allocations               ReservationRoomAllocation[]
   events                    ReservationEvent[]
@@ -4374,6 +4392,7 @@ model Reservation {
   paymentRequests           NrmsGuestPaymentRequest[]
   reviewRequests            NrmsReviewRequest[]
   journeyDeliveries         NrmsJourneyDelivery[]
+  guestInquiry              NrmsGuestInquiry?
   /// Legacy availability block this reservation was migrated from (doc 10.2)
   legacyBlock               PropertyAvailabilityBlock?  @relation("BlockMigratedReservation")
 
@@ -4386,6 +4405,7 @@ model Reservation {
   @@index([source])
   @@index([status, holdExpiresAt])
   @@index([agentPropertyLinkId])
+  @@index([materializedAgentBookingRequestId, status], map: "reservation_materializedAgentBookingRequestId_status_idx")
   @@map("reservation")
 }
 
@@ -4600,8 +4620,8 @@ model NrmsMasterFolio {
   id                    Int  @id @default(autoincrement())
   blockId               Int? @unique
   agentBookingRequestId Int? @unique
-  propertyId Int
-  ownerId    Int
+  propertyId            Int
+  ownerId               Int
 
   reference        String @unique @db.VarChar(40)
   /// SPLIT or MASTER. Snapshotted on first pickup and frozen afterwards.
@@ -4624,14 +4644,14 @@ model NrmsMasterFolio {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  block               NrmsGroupBlock?            @relation(fields: [blockId], references: [id], onDelete: Cascade)
-  agentBookingRequest NrmsAgentBookingRequest?   @relation(fields: [agentBookingRequestId], references: [id], onDelete: Cascade)
-  property  Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  owner     User                      @relation("NrmsMasterFolioOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  items     NrmsMasterFolioItem[]
-  payments  NrmsMasterFolioPayment[]
-  refunds   NrmsMasterFolioRefund[]
-  proFormas NrmsMasterFolioProForma[]
+  block               NrmsGroupBlock?           @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  agentBookingRequest NrmsAgentBookingRequest?  @relation(fields: [agentBookingRequestId], references: [id], onDelete: Cascade)
+  property            Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner               User                      @relation("NrmsMasterFolioOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  items               NrmsMasterFolioItem[]
+  payments            NrmsMasterFolioPayment[]
+  refunds             NrmsMasterFolioRefund[]
+  proFormas           NrmsMasterFolioProForma[]
 
   @@index([propertyId, status])
   @@index([ownerId, createdAt])
@@ -6218,9 +6238,13 @@ model NrmsAgentRateAccess {
 /// Owner-reviewed agent booking request. A PENDING row holds inventory via a
 /// short-lived allocation until the hotel decides or holdExpiresAt passes.
 model NrmsAgentBookingRequest {
-  id         Int @id @default(autoincrement())
-  linkId     Int
-  propertyId Int
+  id               Int     @id @default(autoincrement())
+  linkId           Int
+  propertyId       Int
+  /// Stable browser mutation identifier. Scoped to the hotel partnership so a
+  /// network retry returns the original hold instead of consuming inventory a
+  /// second time.
+  clientMutationId String? @db.VarChar(120)
 
   /// PENDING, CONFIRMED, DECLINED, EXPIRED, CANCELLED.
   status String @default("PENDING") @db.VarChar(20)
@@ -6252,6 +6276,23 @@ model NrmsAgentBookingRequest {
   /// AGENCY or INDIVIDUAL_GUEST. Required for new agent bookings.
   incidentalBilling String? @db.VarChar(30)
 
+  /// How far the agency's cover reaches when it pays: ALL for every extra the
+  /// hotel sells, SELECTED for the categories named in `incidentalCategories`.
+  /// Null while the travellers settle their own extras.
+  incidentalScope String? @db.VarChar(20)
+
+  /// Charge categories the agency absorbs when the scope is SELECTED, drawn
+  /// from NRMS_CHARGE_CATEGORIES. Empty or null under any other scope.
+  incidentalCategories Json?
+
+  /// Optional ceiling on the agency's cover. Anything above it stays the
+  /// traveller's own bill, so the desk knows where to stop.
+  incidentalCapAmount Decimal? @db.Decimal(12, 2)
+
+  /// What the cap is measured against: PER_TRAVELLER_PER_NIGHT,
+  /// PER_TRAVELLER_STAY or BOOKING_TOTAL. Required whenever a cap is set.
+  incidentalCapBasis String? @db.VarChar(30)
+
   /// NOT_STARTED, IN_PROGRESS, SUBMITTED, CHANGES_REQUESTED, VERIFIED.
   /// Payment secures inventory independently; VERIFIED is the check-in gate.
   guestManifestStatus       String    @default("NOT_STARTED") @db.VarChar(30)
@@ -6263,11 +6304,13 @@ model NrmsAgentBookingRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  link        NrmsAgentPropertyLink   @relation(fields: [linkId], references: [id], onDelete: Cascade)
-  reservation Reservation?            @relation("NrmsAgentBookingRequestReservation", fields: [reservationId], references: [id], onDelete: SetNull)
-  guests      NrmsAgentBookingGuest[]
-  masterFolio NrmsMasterFolio?
+  link                     NrmsAgentPropertyLink   @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  reservation              Reservation?            @relation("NrmsAgentBookingRequestReservation", fields: [reservationId], references: [id], onDelete: SetNull)
+  materializedReservations Reservation[]           @relation("NrmsAgentBookingMaterializedReservations")
+  guests                   NrmsAgentBookingGuest[]
+  masterFolio              NrmsMasterFolio?
 
+  @@unique([linkId, clientMutationId], map: "nrms_agent_booking_request_linkId_clientMutationId_key")
   @@index([linkId, status])
   @@index([propertyId, status])
   @@index([status, holdExpiresAt])
@@ -6281,6 +6324,9 @@ model NrmsAgentBookingRequest {
 model NrmsAgentBookingGuest {
   id               Int     @id @default(autoincrement())
   bookingRequestId Int
+  /// The exact per-room stay this traveller occupies after manifest
+  /// verification. Several travellers may share the same reservation.
+  reservationId    Int?
   roomNumber       Int
   guestType        String  @db.VarChar(10) // ADULT, CHILD
   isLead           Boolean @default(false)
@@ -6305,9 +6351,11 @@ model NrmsAgentBookingGuest {
   updatedAt DateTime @updatedAt
 
   bookingRequest NrmsAgentBookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  reservation    Reservation?            @relation("NrmsAgentBookingGuestReservation", fields: [reservationId], references: [id], onDelete: SetNull)
 
   @@index([bookingRequestId, status])
   @@index([bookingRequestId, roomNumber])
+  @@index([reservationId])
   @@map("nrms_agent_booking_guest")
 }
 
@@ -6532,6 +6580,111 @@ model NrmsServiceCaseEvent {
 
   @@index([serviceCaseId, createdAt])
   @@map("nrms_service_case_event")
+}
+
+/// One property-scoped pre-booking conversation or channel handoff. Social
+/// provider identifiers are nullable until the Meta/WhatsApp adapters are
+/// connected; WEB requests are already actionable without either provider.
+model NrmsGuestInquiry {
+  id                     Int       @id @default(autoincrement())
+  propertyId             Int
+  ownerId                Int
+  reference              String    @unique @db.VarChar(40)
+  sessionRef             String?   @db.VarChar(100)
+  channel                String    @db.VarChar(20) // WEB, INSTAGRAM, WHATSAPP, PHONE, EMAIL
+  source                 String    @default("DIRECT") @db.VarChar(20)
+  externalConversationId String?   @db.VarChar(191)
+  guestName              String?   @db.VarChar(160)
+  guestHandle            String?   @db.VarChar(160)
+  guestPhone             String?   @db.VarChar(40)
+  guestEmail             String?   @db.VarChar(160)
+  intent                 String    @default("AVAILABILITY") @db.VarChar(30)
+  status                 String    @default("NEW") @db.VarChar(20) // NEW, OPEN, WAITING_GUEST, RESOLVED, CONVERTED, CLOSED
+  checkIn                DateTime? @db.Date
+  checkOut               DateTime? @db.Date
+  adults                 Int       @default(1)
+  children               Int       @default(0)
+  roomTypeId             Int?
+  reservationId          Int?      @unique
+  assignedToId           Int?
+  autoAcknowledgedAt     DateTime?
+  firstResponseAt        DateTime?
+  lastMessageAt          DateTime?
+  convertedAt            DateTime?
+  closedAt               DateTime?
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  property    Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner       User               @relation("NrmsGuestInquiryOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  roomType    RoomType?          @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  reservation Reservation?       @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  assignedTo  User?              @relation("NrmsGuestInquiryAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages    NrmsGuestMessage[]
+
+  @@unique([propertyId, sessionRef, channel], map: "nrms_guest_inquiry_property_session_channel_key")
+  @@index([propertyId, status, lastMessageAt, createdAt], map: "nrms_guest_inquiry_property_status_activity_idx")
+  @@index([propertyId, channel, createdAt], map: "nrms_guest_inquiry_property_channel_created_idx")
+  @@index([assignedToId, status])
+  @@index([externalConversationId])
+  @@map("nrms_guest_inquiry")
+}
+
+/// Provider-neutral transcript. providerMessageId makes webhook retries
+/// idempotent once Instagram/WhatsApp delivery is enabled.
+model NrmsGuestMessage {
+  id                Int      @id @default(autoincrement())
+  inquiryId         Int
+  direction         String   @db.VarChar(20) // INBOUND, OUTBOUND, SYSTEM, INTERNAL
+  channel           String   @db.VarChar(20)
+  providerMessageId String?  @unique @db.VarChar(191)
+  senderName        String?  @db.VarChar(160)
+  body              String   @db.Text
+  deliveryStatus    String   @default("RECORDED") @db.VarChar(20)
+  sentById          Int?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+
+  inquiry NrmsGuestInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId, createdAt])
+  @@index([sentById, createdAt])
+  @@map("nrms_guest_message")
+}
+
+/// A hotel's own Instagram Professional or WhatsApp Business connection.
+/// Tokens are AES-GCM encrypted before persistence and never returned by APIs.
+model NrmsMessagingConnection {
+  id                   Int       @id @default(autoincrement())
+  propertyId           Int
+  ownerId              Int
+  provider             String    @db.VarChar(20) // INSTAGRAM, WHATSAPP
+  status               String    @default("PENDING") @db.VarChar(24) // PENDING, CONNECTED, REAUTH_REQUIRED, ERROR, DISCONNECTED
+  externalBusinessId   String?   @db.VarChar(191)
+  externalAccountId    String?   @db.VarChar(191)
+  phoneNumberId        String?   @db.VarChar(191)
+  displayName          String?   @db.VarChar(160)
+  accessTokenEncrypted String?   @db.Text
+  tokenExpiresAt       DateTime?
+  scopes               Json?
+  metadata             Json?
+  webhookSubscribedAt  DateTime?
+  lastWebhookAt        DateTime?
+  lastOutboundAt       DateTime?
+  lastError             String?   @db.VarChar(1000)
+  version               Int       @default(1)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner    User     @relation("NrmsMessagingConnectionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, provider], map: "nrms_messaging_connection_property_provider_key")
+  @@unique([provider, externalAccountId], map: "nrms_messaging_connection_provider_account_key")
+  @@index([provider, phoneNumberId])
+  @@index([status, tokenExpiresAt])
+  @@map("nrms_messaging_connection")
 }
 
 /// Idempotency inbox for offline-capable operational mutations. Conflicts are

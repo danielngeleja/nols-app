@@ -43,6 +43,8 @@ export type AgentQuoteSnapshot = {
 
 export type CreateAgentHoldInput = {
   link: AgentLinkContext;
+  /** Stable per-attempt key supplied by the agent client. */
+  clientMutationId: string;
   roomTypeId: number;
   ratePlanId: number | null;
   mealPlan?: string | null;
@@ -150,6 +152,7 @@ export async function createAgentHold(tx: any, input: CreateAgentHoldInput): Pro
     data: {
       linkId: input.link.id,
       propertyId: input.link.propertyId,
+      clientMutationId: input.clientMutationId,
       status: instant ? "CONFIRMED" : "PENDING",
       checkIn: input.checkIn,
       checkOut: input.checkOut,
