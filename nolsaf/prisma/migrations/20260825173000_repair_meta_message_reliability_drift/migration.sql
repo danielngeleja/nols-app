@@ -3,11 +3,65 @@
 -- there, but nrms_meta_webhook_job is physically absent. Do not rewrite or
 -- resolve historical migration rows; restore the required schema idempotently.
 
-ALTER TABLE `nrms_guest_message`
-  ADD COLUMN IF NOT EXISTS `attemptCount` INTEGER NOT NULL DEFAULT 0 AFTER `deliveryStatus`,
-  ADD COLUMN IF NOT EXISTS `nextAttemptAt` DATETIME(3) NULL AFTER `attemptCount`,
-  ADD COLUMN IF NOT EXISTS `lastAttemptAt` DATETIME(3) NULL AFTER `nextAttemptAt`,
-  ADD COLUMN IF NOT EXISTS `errorMessage` VARCHAR(1000) NULL AFTER `lastAttemptAt`;
+SET @__nolsaf_has_attempt_count := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'nrms_guest_message'
+    AND COLUMN_NAME = 'attemptCount'
+);
+SET @__nolsaf_sql := IF(
+  @__nolsaf_has_attempt_count = 0,
+  'ALTER TABLE `nrms_guest_message` ADD COLUMN `attemptCount` INTEGER NOT NULL DEFAULT 0 AFTER `deliveryStatus`',
+  'SELECT ''skip: nrms guest-message attemptCount already exists'''
+);
+PREPARE __nolsaf_stmt FROM @__nolsaf_sql;
+EXECUTE __nolsaf_stmt;
+DEALLOCATE PREPARE __nolsaf_stmt;
+
+SET @__nolsaf_has_next_attempt_at := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'nrms_guest_message'
+    AND COLUMN_NAME = 'nextAttemptAt'
+);
+SET @__nolsaf_sql := IF(
+  @__nolsaf_has_next_attempt_at = 0,
+  'ALTER TABLE `nrms_guest_message` ADD COLUMN `nextAttemptAt` DATETIME(3) NULL AFTER `attemptCount`',
+  'SELECT ''skip: nrms guest-message nextAttemptAt already exists'''
+);
+PREPARE __nolsaf_stmt FROM @__nolsaf_sql;
+EXECUTE __nolsaf_stmt;
+DEALLOCATE PREPARE __nolsaf_stmt;
+
+SET @__nolsaf_has_last_attempt_at := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'nrms_guest_message'
+    AND COLUMN_NAME = 'lastAttemptAt'
+);
+SET @__nolsaf_sql := IF(
+  @__nolsaf_has_last_attempt_at = 0,
+  'ALTER TABLE `nrms_guest_message` ADD COLUMN `lastAttemptAt` DATETIME(3) NULL AFTER `nextAttemptAt`',
+  'SELECT ''skip: nrms guest-message lastAttemptAt already exists'''
+);
+PREPARE __nolsaf_stmt FROM @__nolsaf_sql;
+EXECUTE __nolsaf_stmt;
+DEALLOCATE PREPARE __nolsaf_stmt;
+
+SET @__nolsaf_has_error_message := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'nrms_guest_message'
+    AND COLUMN_NAME = 'errorMessage'
+);
+SET @__nolsaf_sql := IF(
+  @__nolsaf_has_error_message = 0,
+  'ALTER TABLE `nrms_guest_message` ADD COLUMN `errorMessage` VARCHAR(1000) NULL AFTER `lastAttemptAt`',
+  'SELECT ''skip: nrms guest-message errorMessage already exists'''
+);
+PREPARE __nolsaf_stmt FROM @__nolsaf_sql;
+EXECUTE __nolsaf_stmt;
+DEALLOCATE PREPARE __nolsaf_stmt;
 
 SET @__nolsaf_has_delivery_retry_idx := (
   SELECT COUNT(*) FROM information_schema.STATISTICS
