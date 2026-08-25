@@ -27,8 +27,9 @@ type Dashboard = {
   reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }> } | null;
 };
 type OfflineMutation = { clientMutationId: string; action: "SERVICE_CASE_CREATE" | "SERVICE_CASE_STATUS" | "ROOM_HOUSEKEEPING_STATUS"; targetId?: number; baseVersion?: number; payload: Record<string, unknown> };
-type MetaConnection = { provider: "INSTAGRAM" | "WHATSAPP"; status: string; displayName: string | null; externalAccountId: string | null; tokenExpiresAt: string | null; webhookSubscribedAt: string | null; lastWebhookAt: string | null; lastOutboundAt: string | null; lastError: string | null; version: number };
+type MetaConnection = { provider: "INSTAGRAM" | "WHATSAPP"; status: string; displayName: string | null; externalAccountId: string | null; phoneRegistrationComplete?: boolean | null; tokenExpiresAt: string | null; webhookSubscribedAt: string | null; lastWebhookAt: string | null; lastOutboundAt: string | null; lastError: string | null; version: number };
 type MetaConnectionState = { connections: MetaConnection[]; readiness: { instagramOAuthConfigured: boolean; whatsappEmbeddedSignupConfigured: boolean; webhookConfigured: boolean; whatsappAppId: string | null; whatsappConfigId: string | null; graphVersion: string } };
+type WhatsAppRegistrationDraft = { mode: "NEW"; authorizationCode: string; wabaId: string; phoneNumberId: string } | { mode: "EXISTING" };
 
 const inputClass = "box-border min-h-10 w-full min-w-0 rounded-lg border-2 border-neutral-400 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100 disabled:bg-neutral-100";
 const buttonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border-0 bg-[#075e54] px-4 text-xs font-bold text-white transition hover:bg-[#064b43] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500";
@@ -206,6 +207,27 @@ function loadMetaSdk(appId: string, graphVersion: string): Promise<any> {
   });
   return metaSdkPromise;
 }
+function WhatsAppRegistrationDialog({ busy, pin, confirmPin, onPin, onConfirmPin, onCancel, onConfirm }: { busy: boolean; pin: string; confirmPin: string; onPin: (value: string) => void; onConfirmPin: (value: string) => void; onCancel: () => void; onConfirm: () => void }) {
+  const valid = /^\d{6}$/.test(pin) && pin === confirmPin;
+  const digits = (value: string) => value.replace(/\D/g, "").slice(0, 6);
+  return <div className="fixed inset-0 z-[110] flex items-center justify-center bg-neutral-950/50 p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy) onCancel(); }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="whatsapp-registration-title" className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <header className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-4">
+        <div className="flex min-w-0 items-start gap-3"><span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><MessageSquareText className="h-4 w-4" /></span><div><h2 id="whatsapp-registration-title" className="m-0 text-base font-bold text-neutral-950">Register this WhatsApp phone</h2><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Create the six-digit two-step verification PIN Meta requires before Cloud API messaging can start.</p></div></div>
+        <button type="button" aria-label="Close WhatsApp registration" disabled={busy} onClick={onCancel} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-neutral-500 hover:bg-neutral-100"><X className="h-4 w-4" /></button>
+      </header>
+      <form onSubmit={(event) => { event.preventDefault(); if (valid && !busy) onConfirm(); }}>
+        <div className="space-y-4 px-5 py-5">
+          <label className="grid gap-1.5 text-xs font-bold text-neutral-700">Six-digit PIN<input type="password" inputMode="numeric" autoComplete="new-password" maxLength={6} value={pin} onChange={(event) => onPin(digits(event.target.value))} className={`${inputClass} font-mono tracking-[.35em]`} placeholder="••••••" /></label>
+          <label className="grid gap-1.5 text-xs font-bold text-neutral-700">Confirm PIN<input type="password" inputMode="numeric" autoComplete="new-password" maxLength={6} value={confirmPin} onChange={(event) => onConfirmPin(digits(event.target.value))} className={`${inputClass} font-mono tracking-[.35em]`} placeholder="••••••" /></label>
+          {confirmPin.length === 6 && pin !== confirmPin && <p className="m-0 text-xs font-semibold text-red-700">The two PIN entries do not match.</p>}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[11px] leading-5 text-amber-950"><strong>Save this PIN securely.</strong> NoLSAF sends it to Meta for registration but does not store it. The hotel may need it again when changing or migrating this WhatsApp number.</div>
+        </div>
+        <footer className="flex items-center justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-5 py-3"><button type="button" disabled={busy} onClick={onCancel} className="min-h-10 rounded-md border border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700">Cancel</button><button type="submit" disabled={!valid || busy} className="inline-flex min-h-10 items-center gap-2 rounded-md border-0 bg-[#075e54] px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Register phone</button></footer>
+      </form>
+    </section>
+  </div>;
+}
 
 export default function NrmsControlsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
@@ -222,6 +244,8 @@ export default function NrmsControlsPage() {
   const [guestContact, setGuestContact] = useState<GuestContact>(emptyGuestContact);
   const [metaConnections, setMetaConnections] = useState<MetaConnectionState | null>(null);
   const [metaConnectionStatus, setMetaConnectionStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [whatsappRegistration, setWhatsappRegistration] = useState<WhatsAppRegistrationDraft | null>(null);
+  const [whatsappPin, setWhatsappPin] = useState(""); const [whatsappPinConfirmation, setWhatsappPinConfirmation] = useState("");
   const [payment, setPayment] = useState({ reservationId: "", kind: "DEPOSIT", amount: "", dueAt: "" });
   const [portfolio, setPortfolio] = useState({ name: "", propertyIds: [] as number[] });
   const [loyaltyPage, setLoyaltyPage] = useState(1); const [reviewPage, setReviewPage] = useState(1);
@@ -316,10 +340,26 @@ export default function NrmsControlsPage() {
       });
       const code = new Promise<string>((resolve, reject) => sdk.login((response: any) => response?.authResponse?.code ? resolve(String(response.authResponse.code)) : reject(new Error("Meta did not authorize WhatsApp signup")), { config_id: readiness.whatsappConfigId, response_type: "code", override_default_response_type: true, extras: { setup: {} } }));
       const [authorizationCode, selectedAssets] = await Promise.all([code, assets]);
-      await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/whatsapp/connect`, { code: authorizationCode, ...selectedAssets });
-      setMessage("WhatsApp Business is connected to this property. Incoming messages can now enter Reception inquiries."); await loadMetaConnections();
+      setWhatsappPin(""); setWhatsappPinConfirmation("");
+      setWhatsappRegistration({ mode: "NEW", authorizationCode, ...selectedAssets });
+      setMessage("WhatsApp account selected. Create its six-digit registration PIN to finish the connection.");
     } catch (requestError: any) { setError(requestError?.response?.data?.error || requestError?.message || "WhatsApp connection could not be completed."); }
     finally { removeListener(); setBusy(null); }
+  };
+  const openWhatsAppRegistration = () => { setWhatsappPin(""); setWhatsappPinConfirmation(""); setError(null); setMessage(null); setWhatsappRegistration({ mode: "EXISTING" }); };
+  const completeWhatsAppRegistration = async () => {
+    const draft = whatsappRegistration; if (!draft || !selectedPropertyId || !/^\d{6}$/.test(whatsappPin) || whatsappPin !== whatsappPinConfirmation) return;
+    setBusy("meta-whatsapp-register"); setError(null); setMessage(null);
+    try {
+      if (draft.mode === "NEW") await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/whatsapp/connect`, { code: draft.authorizationCode, wabaId: draft.wabaId, phoneNumberId: draft.phoneNumberId, pin: whatsappPin });
+      else await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/whatsapp/register`, { pin: whatsappPin });
+      setWhatsappRegistration(null); setWhatsappPin(""); setWhatsappPinConfirmation("");
+      setMessage("WhatsApp Business is registered and connected to this property. Incoming messages can now enter Reception inquiries."); await loadMetaConnections();
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "WhatsApp phone registration could not be completed.");
+      if (draft.mode === "NEW" && requestError?.response?.data?.code === "WHATSAPP_PHONE_REGISTRATION_FAILED") setWhatsappRegistration(null);
+      await loadMetaConnections();
+    } finally { setBusy(null); }
   };
   const disconnectWhatsApp = () => act("meta-whatsapp", () => apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/WHATSAPP/disconnect`), "WhatsApp was disconnected from this property.").then(() => loadMetaConnections());
   const progress = useMemo(() => { const checks = data?.onboarding?.checks ?? []; return checks.length ? Math.round(checks.filter((item: any) => item.status === "VERIFIED").length / checks.length * 100) : 0; }, [data]);
@@ -346,6 +386,7 @@ export default function NrmsControlsPage() {
       onCancel={() => setRestrictionConfirmation(null)}
       onConfirm={() => void confirmRestrictionAction()}
     />}
+    {whatsappRegistration && <WhatsAppRegistrationDialog busy={busy === "meta-whatsapp-register"} pin={whatsappPin} confirmPin={whatsappPinConfirmation} onPin={setWhatsappPin} onConfirmPin={setWhatsappPinConfirmation} onCancel={() => { if (busy !== "meta-whatsapp-register") setWhatsappRegistration(null); }} onConfirm={() => void completeWhatsAppRegistration()} />}
     <header className="relative overflow-visible rounded-2xl border-2 border-slate-300 bg-[linear-gradient(115deg,#ffffff_0%,#ffffff_55%,#ecfdf5_100%)] shadow-[0_8px_24px_rgba(15,23,42,0.08)]">
       <div className="grid gap-5 px-5 py-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="flex min-w-0 items-center gap-4">
@@ -524,14 +565,15 @@ export default function NrmsControlsPage() {
               })()}
               {(() => {
                 const connection = metaConnections?.connections.find((item) => item.provider === "WHATSAPP");
-                const connected = connection?.status === "CONNECTED";
+                const registrationRequired = Boolean(connection?.externalAccountId && !connection.phoneRegistrationComplete && ["PENDING", "CONNECTED", "ERROR"].includes(connection.status));
+                const connected = connection?.status === "CONNECTED" && connection.phoneRegistrationComplete === true;
                 const ready = Boolean(metaConnections?.readiness.whatsappEmbeddedSignupConfigured);
                 const checking = metaConnectionStatus === "loading";
                 const unavailable = metaConnectionStatus === "unavailable";
-                const statusLabel = connected ? "Connected" : checking ? "Checking availability" : ready ? "Ready to connect" : unavailable ? "Status unavailable" : "Platform setup required";
-                return <div className={`mt-3 grid gap-4 rounded-2xl border-2 p-4 shadow-[0_5px_16px_rgba(15,23,42,0.07)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${connected ? "border-emerald-400 bg-emerald-50/60" : ready ? "border-emerald-400 bg-white" : "border-neutral-300 bg-white"}`}>
-                  <div className="flex min-w-0 items-start gap-3"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${connected ? "bg-[#128C7E] text-white shadow-sm" : "bg-white text-emerald-700 ring-1 ring-neutral-200"}`}><MessageSquareText className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">WhatsApp inbox</p><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${connected ? "bg-emerald-100 text-emerald-800" : ready ? "bg-emerald-50 text-emerald-700" : "bg-white text-neutral-600 ring-1 ring-neutral-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : ready ? "bg-emerald-500" : checking ? "animate-pulse bg-neutral-400" : "bg-amber-500"}`} />{statusLabel}</span></div><p className="mb-0 mt-1.5 text-[10px] leading-4 text-neutral-500">{connected ? `${connection?.displayName || "WhatsApp Business"} is securely routed to ${selectedProperty?.title || "this property"}.` : ready ? "Connect the hotel's WhatsApp Business account and phone number to receive guest conversations in NRMS." : unavailable ? "Connection status could not be checked. The public WhatsApp contact link is not affected." : "Automated WhatsApp inbox sync is awaiting activation by the NoLSAF platform team."}</p>{connection?.lastError && <p className="mb-0 mt-1 text-[10px] font-semibold text-amber-800">This connection needs attention. Reconnect the account or contact support.</p>}</div></div>
-                  {connected ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void disconnectWhatsApp()} className="min-h-9 rounded-lg border border-red-300 bg-white px-3 text-[10px] font-bold text-red-700 transition hover:bg-red-50">Disconnect</button> : ready ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void connectWhatsApp()} className={buttonClass}>{busy === "meta-whatsapp" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}Connect account</button> : <span className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 text-[10px] font-bold text-neutral-600 shadow-sm">{checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}{checking ? "Checking" : "Admin setup"}</span>}
+                const statusLabel = connected ? "Connected" : registrationRequired ? "Registration required" : checking ? "Checking availability" : ready ? "Ready to connect" : unavailable ? "Status unavailable" : "Platform setup required";
+                return <div className={`mt-3 grid gap-4 rounded-2xl border-2 p-4 shadow-[0_5px_16px_rgba(15,23,42,0.07)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${connected ? "border-emerald-400 bg-emerald-50/60" : registrationRequired ? "border-amber-400 bg-amber-50/60" : ready ? "border-emerald-400 bg-white" : "border-neutral-300 bg-white"}`}>
+                   <div className="flex min-w-0 items-start gap-3"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${connected ? "bg-[#128C7E] text-white shadow-sm" : "bg-white text-emerald-700 ring-1 ring-neutral-200"}`}><MessageSquareText className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">WhatsApp inbox</p><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${connected ? "bg-emerald-100 text-emerald-800" : registrationRequired ? "bg-amber-100 text-amber-900" : ready ? "bg-emerald-50 text-emerald-700" : "bg-white text-neutral-600 ring-1 ring-neutral-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : registrationRequired ? "bg-amber-500" : ready ? "bg-emerald-500" : checking ? "animate-pulse bg-neutral-400" : "bg-amber-500"}`} />{statusLabel}</span></div><p className="mb-0 mt-1.5 text-[10px] leading-4 text-neutral-500">{connected ? `${connection?.displayName || "WhatsApp Business"} is securely routed to ${selectedProperty?.title || "this property"}.` : registrationRequired ? "Finish Meta phone registration with the hotel's six-digit PIN before messaging can start." : ready ? "Connect the hotel's WhatsApp Business account and phone number to receive guest conversations in NRMS." : unavailable ? "Connection status could not be checked. The public WhatsApp contact link is not affected." : "Automated WhatsApp inbox sync is awaiting activation by the NoLSAF platform team."}</p>{connection?.lastError && <p className="mb-0 mt-1 text-[10px] font-semibold text-amber-800">This connection needs attention. Reconnect the account or contact support.</p>}</div></div>
+                  {registrationRequired ? <div className="flex flex-wrap gap-2"><button type="button" disabled={busy === "meta-whatsapp-register"} onClick={openWhatsAppRegistration} className={buttonClass}><MessageSquareText className="h-4 w-4" />Finish registration</button><button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void disconnectWhatsApp()} className="min-h-9 rounded-lg border border-red-300 bg-white px-3 text-[10px] font-bold text-red-700 transition hover:bg-red-50">Disconnect</button></div> : connected ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void disconnectWhatsApp()} className="min-h-9 rounded-lg border border-red-300 bg-white px-3 text-[10px] font-bold text-red-700 transition hover:bg-red-50">Disconnect</button> : ready ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void connectWhatsApp()} className={buttonClass}>{busy === "meta-whatsapp" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}Connect account</button> : <span className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 text-[10px] font-bold text-neutral-600 shadow-sm">{checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}{checking ? "Checking" : "Admin setup"}</span>}
                 </div>;
               })()}
               {metaConnectionStatus === "ready" && (!metaConnections?.readiness.instagramOAuthConfigured || !metaConnections?.readiness.whatsappEmbeddedSignupConfigured) && <div className="mt-3 flex items-start gap-3 rounded-xl border-2 border-sky-300 bg-sky-50/80 px-4 py-3 text-sky-950 shadow-[0_4px_12px_rgba(14,116,144,0.07)]"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-sky-700 ring-1 ring-sky-300"><Info className="h-3.5 w-3.5" /></span><div><p className="m-0 text-[11px] font-bold">Messaging automation is being prepared</p><p className="mb-0 mt-1 text-[10px] leading-4 text-sky-800">Guests can still use the published Instagram and WhatsApp contact links. Automated incoming messages will appear in Reception inquiries after the NoLSAF connection service is activated.</p></div></div>}

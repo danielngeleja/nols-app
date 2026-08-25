@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { instagramOAuthConfig, signNrmsMetaOAuthState } from "../lib/nrmsMetaOAuth.js";
-import { encrypt } from "../lib/crypto.js";
+import { decrypt, encrypt } from "../lib/crypto.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -15,9 +15,10 @@ async function access(req: AuthedRequest, res: Response, propertyId: number) {
 
 const publicConnection = (connection: any) => connection ? {
   provider: connection.provider,
-  status: connection.status,
+  status: connection.provider === "WHATSAPP" && connection.status === "CONNECTED" && !connection.metadata?.phoneRegisteredAt ? "PENDING" : connection.status,
   displayName: connection.displayName,
   externalAccountId: connection.externalAccountId,
+  phoneRegistrationComplete: connection.provider === "WHATSAPP" ? Boolean(connection.metadata?.phoneRegisteredAt) : null,
   tokenExpiresAt: connection.tokenExpiresAt,
   webhookSubscribedAt: connection.webhookSubscribedAt,
   lastWebhookAt: connection.lastWebhookAt,
@@ -52,7 +53,17 @@ const whatsappConnectSchema = z.object({
   code: z.string().trim().min(8).max(4000),
   wabaId: z.string().trim().regex(/^\d+$/).max(191),
   phoneNumberId: z.string().trim().regex(/^\d+$/).max(191),
+  pin: z.string().trim().regex(/^\d{6}$/, "A six-digit WhatsApp registration PIN is required"),
 });
+const whatsappRegistrationSchema = z.object({ pin: z.string().trim().regex(/^\d{6}$/, "A six-digit WhatsApp registration PIN is required") });
+
+async function registerWhatsAppPhone(graphVersion: string, phoneNumberId: string, accessToken: string, pin: string) {
+  return metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/register`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", pin }),
+  }));
+}
 
 router.post("/property/:propertyId/whatsapp/connect", (async (req: AuthedRequest, res: Response) => {
   const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
@@ -67,20 +78,44 @@ router.post("/property/:propertyId/whatsapp/connect", (async (req: AuthedRequest
     const phones = await metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${parsed.data.wabaId}/phone_numbers?${phoneQuery.toString()}`));
     const phone = Array.isArray(phones.data) ? phones.data.find((item: any) => String(item.id) === parsed.data.phoneNumberId) : null;
     if (!phone) return res.status(400).json({ error: "The selected WhatsApp phone number does not belong to the selected business account" });
+    try {
+      await registerWhatsAppPhone(graphVersion, parsed.data.phoneNumberId, accessToken, parsed.data.pin);
+    } catch (registrationError) {
+      console.error("[owner.nrms.messaging] WhatsApp phone registration failed", registrationError);
+      return res.status(502).json({ error: "Meta could not register this phone number. Confirm the six-digit PIN or restart WhatsApp setup.", code: "WHATSAPP_PHONE_REGISTRATION_FAILED" });
+    }
     const subscribeQuery = new URLSearchParams({ access_token: accessToken });
     const subscription = await metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${parsed.data.wabaId}/subscribed_apps?${subscribeQuery.toString()}`, { method: "POST" }));
     if (subscription.success === false) throw new Error("WhatsApp webhook subscription was rejected");
     const expiresIn = Number(token.expires_in || 0);
     const connection = await prisma.nrmsMessagingConnection.upsert({
       where: { propertyId_provider: { propertyId, provider: "WHATSAPP" } },
-      update: { ownerId: allowed.ownerId, status: "CONNECTED", externalBusinessId: parsed.data.wabaId, externalAccountId: parsed.data.wabaId, phoneNumberId: parsed.data.phoneNumberId, displayName: String(phone.verified_name || phone.display_phone_number || "WhatsApp Business"), accessTokenEncrypted: encrypt(accessToken), tokenExpiresAt: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, ...(token.scope ? { scopes: String(token.scope).split(",") } : {}), webhookSubscribedAt: new Date(), lastError: null, version: { increment: 1 } },
-      create: { propertyId, ownerId: allowed.ownerId, provider: "WHATSAPP", status: "CONNECTED", externalBusinessId: parsed.data.wabaId, externalAccountId: parsed.data.wabaId, phoneNumberId: parsed.data.phoneNumberId, displayName: String(phone.verified_name || phone.display_phone_number || "WhatsApp Business"), accessTokenEncrypted: encrypt(accessToken), tokenExpiresAt: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, ...(token.scope ? { scopes: String(token.scope).split(",") } : {}), webhookSubscribedAt: new Date() },
+      update: { ownerId: allowed.ownerId, status: "CONNECTED", externalBusinessId: parsed.data.wabaId, externalAccountId: parsed.data.wabaId, phoneNumberId: parsed.data.phoneNumberId, displayName: String(phone.verified_name || phone.display_phone_number || "WhatsApp Business"), accessTokenEncrypted: encrypt(accessToken), tokenExpiresAt: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, ...(token.scope ? { scopes: String(token.scope).split(",") } : {}), metadata: { phoneRegisteredAt: new Date().toISOString() }, webhookSubscribedAt: new Date(), lastError: null, version: { increment: 1 } },
+      create: { propertyId, ownerId: allowed.ownerId, provider: "WHATSAPP", status: "CONNECTED", externalBusinessId: parsed.data.wabaId, externalAccountId: parsed.data.wabaId, phoneNumberId: parsed.data.phoneNumberId, displayName: String(phone.verified_name || phone.display_phone_number || "WhatsApp Business"), accessTokenEncrypted: encrypt(accessToken), tokenExpiresAt: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, ...(token.scope ? { scopes: String(token.scope).split(",") } : {}), metadata: { phoneRegisteredAt: new Date().toISOString() }, webhookSubscribedAt: new Date() },
     });
     res.status(201).json({ connection: publicConnection(connection) });
   } catch (error) {
     console.error("[owner.nrms.messaging] WhatsApp connection failed", error);
     const prismaCode = typeof error === "object" && error && "code" in error ? String((error as any).code) : "";
     res.status(prismaCode === "P2002" ? 409 : 502).json({ error: prismaCode === "P2002" ? "This WhatsApp Business account is already connected to another property" : "WhatsApp connection could not be verified" });
+  }
+}) as RequestHandler);
+
+router.post("/property/:propertyId/whatsapp/register", (async (req: AuthedRequest, res: Response) => {
+  const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
+  const parsed = whatsappRegistrationSchema.safeParse(req.body ?? {}); if (!parsed.success) return res.status(400).json({ error: "Enter a valid six-digit WhatsApp registration PIN" });
+  const connection = await prisma.nrmsMessagingConnection.findFirst({ where: { propertyId, provider: "WHATSAPP", status: { in: ["PENDING", "CONNECTED", "ERROR"] } } });
+  if (!connection?.phoneNumberId || !connection.accessTokenEncrypted) return res.status(409).json({ error: "Reconnect the WhatsApp account before registering its phone number", code: "WHATSAPP_RECONNECT_REQUIRED" });
+  try {
+    const accessToken = decrypt(connection.accessTokenEncrypted, { log: false });
+    await registerWhatsAppPhone(String(process.env.META_GRAPH_API_VERSION || "v23.0"), connection.phoneNumberId, accessToken, parsed.data.pin);
+    const existingMetadata = connection.metadata && typeof connection.metadata === "object" && !Array.isArray(connection.metadata) ? connection.metadata as Record<string, unknown> : {};
+    const updated = await prisma.nrmsMessagingConnection.update({ where: { id: connection.id }, data: { status: "CONNECTED", metadata: { ...existingMetadata, phoneRegisteredAt: new Date().toISOString() }, lastError: null, version: { increment: 1 } } });
+    res.json({ connection: publicConnection(updated) });
+  } catch (error) {
+    console.error("[owner.nrms.messaging] WhatsApp phone registration failed", error);
+    await prisma.nrmsMessagingConnection.update({ where: { id: connection.id }, data: { status: "PENDING", lastError: "WhatsApp phone registration was not completed", version: { increment: 1 } } }).catch(() => undefined);
+    res.status(502).json({ error: "Meta could not register this phone number. Confirm the six-digit PIN or restart WhatsApp setup.", code: "WHATSAPP_PHONE_REGISTRATION_FAILED" });
   }
 }) as RequestHandler);
 
