@@ -918,6 +918,21 @@ function CompactStat({ label, value, helper, tone }: { label: string; value: num
   );
 }
 
+/**
+ * Queue row layout, shared by the header strip and every row so the two can
+ * never drift apart.
+ *
+ * Two things had to change. The columns switched to a grid at `lg` (1024px)
+ * while demanding roughly 950px plus the workspace sidebar, so on any laptop
+ * the Action column fell outside the card's `overflow-hidden` and the button
+ * was clipped. The breakpoint is now `xl`, and the minimum track widths are
+ * small enough that the grid genuinely fits inside it.
+ */
+const QUEUE_GRID_WITH_STATUS =
+  "xl:grid-cols-[minmax(10rem,1.4fr)_minmax(5.5rem,0.7fr)_minmax(6.5rem,0.85fr)_minmax(6rem,0.6fr)_minmax(6.5rem,0.75fr)_6.5rem]";
+const QUEUE_GRID =
+  "xl:grid-cols-[minmax(10rem,1.4fr)_minmax(6rem,0.8fr)_minmax(7rem,0.95fr)_minmax(6.5rem,0.75fr)_6.5rem]";
+
 function OperationList({
   title,
   count,
@@ -945,61 +960,61 @@ function OperationList({
 }) {
   const colors = tone === "emerald"
     ? {
-        header: "border-emerald-100 bg-gradient-to-r from-emerald-50 via-emerald-50/70 to-white",
-        icon: "border-transparent bg-emerald-600 text-white shadow-sm shadow-emerald-200 ring-4 ring-emerald-100/80",
+        header: "bg-gradient-to-r from-emerald-50 via-emerald-50/70 to-white shadow-[inset_0_-1px_0_0_#d1fae5]",
+        icon: "bg-emerald-600 text-white shadow-sm shadow-emerald-200 ring-4 ring-emerald-100/80",
         eyebrow: "text-emerald-700",
         count: "text-emerald-700",
         action: "text-emerald-700 hover:text-emerald-800",
         queueLabel: "Arrival queue",
         live: "bg-emerald-100 text-emerald-800",
         dot: "bg-emerald-500",
-        chevron: "border-emerald-200 text-emerald-700 hover:border-emerald-300 focus-visible:ring-emerald-500",
+        chevron: "ring-emerald-200 text-emerald-700 hover:ring-emerald-300 focus-visible:ring-emerald-500",
         helper: "Prepare rooms and welcome today’s expected guests.",
       }
     : {
-        header: "border-blue-100 bg-gradient-to-r from-blue-50 via-blue-50/70 to-white",
-        icon: "border-transparent bg-blue-600 text-white shadow-sm shadow-blue-200 ring-4 ring-blue-100/80",
+        header: "bg-gradient-to-r from-blue-50 via-blue-50/70 to-white shadow-[inset_0_-1px_0_0_#dbeafe]",
+        icon: "bg-blue-600 text-white shadow-sm shadow-blue-200 ring-4 ring-blue-100/80",
         eyebrow: "text-blue-700",
         count: "text-blue-700",
         action: "text-blue-700 hover:text-blue-800",
         queueLabel: "Departure queue",
         live: "bg-blue-100 text-blue-800",
         dot: "bg-blue-500",
-        chevron: "border-blue-200 text-blue-700 hover:border-blue-300 focus-visible:ring-blue-500",
+        chevron: "ring-blue-200 text-blue-700 hover:ring-blue-300 focus-visible:ring-blue-500",
         helper: overdueCount > 0 ? "Prioritize overdue stays, then complete today’s check-outs." : "Complete today’s check-outs and release rooms promptly.",
       };
   const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
   const [collapsed, setCollapsed] = useState(false);
-  const desktopGrid = showStatusColumn
-    ? "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(8rem,0.72fr)_minmax(9rem,0.8fr)_minmax(7rem,0.6fr)_minmax(8rem,0.72fr)_7rem]"
-    : "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem]";
+  const desktopGrid = showStatusColumn ? QUEUE_GRID_WITH_STATUS : QUEUE_GRID;
 
   return (
-    <article className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_35px_-32px_rgba(15,23,42,0.45)]">
-      <div className={`flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 ${colors.header}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${colors.icon}`}>{icon}</span>
+    <article className="min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-neutral-200 shadow-[0_14px_35px_-32px_rgba(15,23,42,0.45)]">
+      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 ${colors.header}`}>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${colors.icon}`}>{icon}</span>
           <div className="min-w-0">
             <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.14em] ${colors.eyebrow}`}>{colors.queueLabel}</p>
-            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="m-0 truncate text-[15px] font-extrabold tracking-[-0.01em] text-neutral-950">{title}</h2>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${colors.live}`}>
+              <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${colors.live}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} aria-hidden="true" />
                 Live queue
               </span>
             </div>
-            <p className="mb-0 mt-0.5 text-[10px] font-medium text-neutral-500">{colors.helper}</p>
+            {/* The helper sentence is guidance, not data: it is the first thing
+                to go when the header has to share a narrow row. */}
+            <p className="mb-0 mt-0.5 hidden text-[10px] font-medium text-neutral-500 sm:block">{colors.helper}</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {overdueCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 ring-1 ring-red-200">
               <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
               {overdueCount} overdue
             </span>
           )}
-          <div className="min-w-24 rounded-xl border border-white/80 bg-white/80 px-3.5 py-2 text-right shadow-sm backdrop-blur-sm">
-            <strong className={`block text-xl font-extrabold leading-none tabular-nums ${colors.count}`}>{count}</strong>
+          <div className="min-w-20 rounded-xl bg-white/80 px-3 py-1.5 text-right shadow-sm ring-1 ring-white/80 backdrop-blur-sm sm:min-w-24 sm:px-3.5 sm:py-2">
+            <strong className={`block text-lg font-extrabold leading-none tabular-nums sm:text-xl ${colors.count}`}>{count}</strong>
             <span className="mt-1 block text-[10px] font-medium text-neutral-500">{countLabel}</span>
           </div>
           <button
@@ -1007,14 +1022,14 @@ function OperationList({
             onClick={() => setCollapsed((current) => !current)}
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-white/80 shadow-sm transition hover:bg-white hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${colors.chevron}`}
+            className={`flex h-9 w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-white/80 shadow-sm ring-1 transition hover:bg-white hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${colors.chevron}`}
           >
             <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
           </button>
         </div>
       </div>
       {!collapsed && (!hasItems ? (
-        <div className="flex items-center gap-3 px-5 py-6">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-6 sm:px-5">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
           <div className="min-w-0 flex-1">
             <p className="m-0 text-sm font-bold text-neutral-800">{emptyTitle}</p>
@@ -1025,7 +1040,7 @@ function OperationList({
         </div>
       ) : (
         <div className="min-w-0">
-          <div className={`hidden items-center gap-4 border-b border-neutral-200 bg-neutral-50/80 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:grid ${desktopGrid}`}>
+          <div className={`hidden items-center gap-3 bg-neutral-50/80 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-5 xl:grid ${desktopGrid}`}>
             <span>Guest</span>
             <span>Room</span>
             <span>Schedule</span>
@@ -1033,7 +1048,7 @@ function OperationList({
             <span>Account</span>
             <span className="text-right">Action</span>
           </div>
-          <ul role="list" className="m-0 list-none divide-y divide-neutral-100 p-0">{children}</ul>
+          <ul role="list" className="m-0 list-none p-0">{children}</ul>
         </div>
       ))}
     </article>
@@ -1065,62 +1080,64 @@ function OperationRow({
   const buttonClassName = actionTone === "emerald"
     ? "bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:ring-emerald-600"
     : "bg-neutral-900 text-white hover:bg-neutral-800 focus-visible:ring-neutral-700";
-  const desktopGrid = showStatus
-    ? "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(8rem,0.72fr)_minmax(9rem,0.8fr)_minmax(7rem,0.6fr)_minmax(8rem,0.72fr)_7rem]"
-    : "lg:grid-cols-[minmax(13rem,1.35fr)_minmax(9rem,0.8fr)_minmax(10rem,0.95fr)_minmax(8rem,0.75fr)_7rem]";
+  const desktopGrid = showStatus ? QUEUE_GRID_WITH_STATUS : QUEUE_GRID;
+  // Left accent and row rule in one inset shadow: with preflight disabled a
+  // `border-l-[3px]` sets a width against border-style: none and draws nothing,
+  // and a second `shadow-*` class would replace the first rather than add to it.
+  const rowSkin = overdue
+    ? "bg-red-50/35 hover:bg-red-50/65 shadow-[inset_3px_0_0_0_#f87171,inset_0_-1px_0_0_#fee2e2]"
+    : actionTone === "emerald"
+      ? "bg-emerald-50/25 hover:bg-emerald-50/55 shadow-[inset_3px_0_0_0_#34d399,inset_0_-1px_0_0_#d1fae5]"
+      : "bg-blue-50/25 hover:bg-blue-50/55 shadow-[inset_3px_0_0_0_#60a5fa,inset_0_-1px_0_0_#dbeafe]";
 
   return (
-    <li className={`group m-0 list-none border-l-[3px] px-5 py-2 transition-colors ${overdue ? "border-l-red-400 bg-red-50/35 hover:bg-red-50/65" : actionTone === "emerald" ? "border-l-emerald-400 bg-emerald-50/25 hover:bg-emerald-50/55" : "border-l-blue-400 bg-blue-50/25 hover:bg-blue-50/55"}`}>
-      <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center lg:gap-4 ${desktopGrid}`}>
-        <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
+    <li className={`group m-0 list-none px-4 py-2.5 transition-colors sm:px-5 xl:py-2 ${rowSkin}`}>
+      <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 xl:items-center xl:gap-3 ${desktopGrid}`}>
+        <div className="col-start-1 flex min-w-0 items-center gap-3 xl:col-auto">
           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset transition-colors ${overdue ? "bg-red-100/70 text-red-700 ring-red-200" : actionTone === "emerald" ? "bg-emerald-100/70 text-emerald-800 ring-emerald-200" : "bg-blue-100/70 text-blue-800 ring-blue-200"}`}>
             {initials(guestName)}
           </span>
-          <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
-            </div>
-          </div>
+          <p className="m-0 min-w-0 truncate text-sm font-bold text-neutral-950" title={guestName}>{guestName}</p>
         </div>
-        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
-          <p className={`m-0 truncate text-xs font-semibold ${roomUnassigned ? "text-red-700" : "text-neutral-700"}`}>
+
+        {/* Below xl the four data cells share one wrapping line under the guest
+            name instead of stacking into four near-empty rows. */}
+        <div className="col-start-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 pl-12 xl:contents">
+          <p className={`m-0 min-w-0 max-w-full truncate text-xs font-semibold xl:col-auto ${roomUnassigned ? "text-red-700" : "text-neutral-700"}`}>
             {roomUnassigned && room !== "Room not assigned" ? `${room} · unit unassigned` : room}
           </p>
-        </div>
-        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
-          <p className={`m-0 truncate text-xs font-medium ${overdue ? "text-red-700" : "text-neutral-500"}`}>{detail}</p>
-        </div>
-        {showStatus && (
-          <div className="col-start-1 flex min-w-0 items-center gap-2 pl-12 lg:col-auto lg:p-0">
-            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400 lg:hidden">Status</span>
-            {overdue ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 shadow-sm shadow-red-100/60">
+          <span className="text-neutral-300 xl:hidden" aria-hidden="true">·</span>
+          <p className={`m-0 min-w-0 max-w-full truncate text-xs font-medium xl:col-auto ${overdue ? "text-red-700" : "text-neutral-500"}`}>{detail}</p>
+
+          {showStatus && (
+            overdue ? (
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 shadow-sm shadow-red-100/60 ring-1 ring-red-200 xl:col-auto xl:justify-self-start">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
                 Overdue
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 ring-1 ring-blue-200 xl:col-auto xl:justify-self-start">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-500" aria-hidden="true" />
                 Due today
               </span>
-            )}
-          </div>
-        )}
-        <div className="col-start-1 min-w-0 pl-12 lg:col-auto lg:p-0">
+            )
+          )}
+
           {hasOutstandingBalance(reservation) ? (
-            <span className="inline-flex rounded-md bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700">{reservation.currency} {reservation.balance!.toLocaleString()} due</span>
+            <span className="inline-flex shrink-0 rounded-md bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 xl:col-auto xl:justify-self-start">{reservation.currency} {reservation.balance!.toLocaleString()} due</span>
           ) : (
-            <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">Paid in full</span>
+            <span className="inline-flex shrink-0 rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 xl:col-auto xl:justify-self-start">Paid in full</span>
           )}
         </div>
+
         <button
           type="button"
           onClick={onAction}
           disabled={busy}
-          className={`col-start-2 row-start-1 inline-flex min-h-8 w-24 shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-3 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 lg:col-auto lg:row-auto lg:justify-self-end ${buttonClassName}`}
+          className={`col-start-2 row-start-1 inline-flex min-h-9 w-[5.5rem] shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-2 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-24 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
         >
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {busy ? "Working..." : actionLabel}
+          {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+          <span className="truncate">{busy ? "Working..." : actionLabel}</span>
         </button>
       </div>
     </li>

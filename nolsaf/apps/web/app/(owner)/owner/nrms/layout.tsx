@@ -33,6 +33,7 @@ import {
   MessageSquareText,
   Package,
   QrCode,
+  Radar,
   ReceiptText,
   Scale,
   ShoppingBasket,
@@ -62,6 +63,7 @@ const PRIMARY_TABS = [
   { href: "/owner/nrms", label: "Front desk", icon: DoorOpen, exact: true },
   { href: "/owner/nrms/reservations", label: "Reservations", icon: ClipboardList },
   { href: "/owner/nrms/orders", label: "Orders", icon: ShoppingBasket },
+  { href: "/owner/nrms/sales-channels", label: "Sales channels", icon: Radar },
   { href: "/owner/nrms/performance", label: "Performance", icon: TrendingUp },
   { href: "/owner/nrms/analytics", label: "Revenue", icon: BarChart3 },
   { href: "/owner/nrms/reports", label: "Reports", icon: FileText },
@@ -146,6 +148,9 @@ const NAV_GROUPS: NavGroup[] = [
               { href: "/owner/nrms/controls?section=growth", label: "Growth", icon: Gauge },
             ],
           },
+          // Performance across every selling route. Sits directly above the two
+          // setup screens it reports on, so tuning a channel is one click away.
+          { href: "/owner/nrms/sales-channels", label: "Sales channels", icon: Radar },
           {
             href: "/owner/nrms/channels",
             label: "OTA channels",
@@ -243,6 +248,8 @@ function roleCanSee(href: string, role: string) {
   // of that handover can open it, plus the manager who covers for either.
   if (href === "/owner/nrms/breakfast") return ["OWNER", "MANAGER", "FRONT_DESK", "RESTAURANT"].includes(role);
   if (role === "OWNER") return true;
+  // Sales channels stays owner-only, like Revenue and Reports: its API is
+  // requireRole("OWNER") and it exposes commission and net payout figures.
   if (role === "MANAGER") return ["/owner/nrms/inquiries", "/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/finance"].includes(href);
   if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock"].includes(href);
   if (role === "FRONT_DESK") return ["/owner/nrms/inquiries", "/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/housekeeping", "/owner/nrms/finance"].includes(href);

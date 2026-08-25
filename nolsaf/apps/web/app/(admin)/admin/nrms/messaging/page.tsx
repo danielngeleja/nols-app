@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Activity, AlertTriangle, ArrowLeft, CheckCircle2, Instagram, Loader2,
+  Activity, AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, Instagram, Loader2,
   MessageCircle, RefreshCw, ScanSearch, Search, ShieldAlert, Unplug, Wifi, X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -48,6 +48,21 @@ type Diagnostic = {
   evidence: Record<string, string | number | boolean | null>;
 };
 
+type FailureGroup = {
+  key: string;
+  provider: string;
+  source: "WEBHOOK" | "OUTBOUND";
+  propertyId: number | null;
+  propertyTitle: string | null;
+  error: string;
+  errorCode: string;
+  count: number;
+  maxAttempts: number;
+  lastSeenAt: string;
+  itemLabels: string[];
+  eventKinds: string[];
+};
+
 const STATUS_STYLE: Record<string, string> = {
   CONNECTED: "border-emerald-200 bg-emerald-50 text-emerald-700",
   PENDING: "border-amber-200 bg-amber-50 text-amber-700",
@@ -69,6 +84,37 @@ function ownerName(connection: Connection) {
   return connection.property.owner.fullName || connection.property.owner.name || connection.property.owner.email || `Owner #${connection.property.owner.id}`;
 }
 
+function errorCode(value: string | null | undefined) {
+  const raw = String(value || "UNKNOWN_FAILURE").trim();
+  return raw.split(":", 1)[0] || "UNKNOWN_FAILURE";
+}
+
+function failureCopy(code: string, provider: string) {
+  const channel = provider === "WHATSAPP" ? "WhatsApp" : provider === "INSTAGRAM" ? "Instagram" : "Meta";
+  const known: Record<string, { title: string; guidance: string }> = {
+    META_CONNECTION_NOT_FOUND: {
+      title: `${channel} connection not found`,
+      guidance: `No active ${channel} connection matches these events. Confirm the account is connected, then retry the affected items.`,
+    },
+    META_CONVERSATION_NOT_CONNECTED: {
+      title: "Guest conversation is not connected",
+      guidance: "The reply has no valid Meta recipient. Open the property connection and confirm the guest conversation before retrying.",
+    },
+    META_CONNECTION_TOKEN_MISSING: {
+      title: `${channel} authorization is missing`,
+      guidance: `The saved ${channel} connection has no usable access token. Ask the property owner to reconnect the account.`,
+    },
+    META_SEND_FAILED: {
+      title: `${channel} rejected the reply`,
+      guidance: "Meta did not accept the outgoing message. Review the technical response, connection status and messaging window before retrying.",
+    },
+  };
+  return known[code] ?? {
+    title: `${channel} processing failure`,
+    guidance: "Review the technical details, diagnose the affected connection and retry only after the cause has been corrected.",
+  };
+}
+
 export default function AdminMetaMessagingPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +129,7 @@ export default function AdminMetaMessagingPage() {
   const [diagnosingId, setDiagnosingId] = useState<number | null>(null);
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
   const [diagnosticConnection, setDiagnosticConnection] = useState<Connection | null>(null);
+  const [expandedFailure, setExpandedFailure] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,6 +151,69 @@ export default function AdminMetaMessagingPage() {
         .some((value) => String(value || "").toLowerCase().includes(q));
     });
   }, [data, provider, query, status]);
+
+  const failureGroups = useMemo<FailureGroup[]>(() => {
+    const groups = new Map<string, FailureGroup>();
+    const add = (item: Omit<FailureGroup, "count" | "maxAttempts" | "lastSeenAt" | "itemLabels" | "eventKinds"> & { attempts: number; seenAt: string; itemLabel: string; eventKind: string }) => {
+      const existing = groups.get(item.key);
+      if (existing) {
+        existing.count += 1;
+        existing.maxAttempts = Math.max(existing.maxAttempts, item.attempts);
+        if (new Date(item.seenAt).getTime() > new Date(existing.lastSeenAt).getTime()) existing.lastSeenAt = item.seenAt;
+        if (!existing.itemLabels.includes(item.itemLabel)) existing.itemLabels.push(item.itemLabel);
+        if (!existing.eventKinds.includes(item.eventKind)) existing.eventKinds.push(item.eventKind);
+        return;
+      }
+      groups.set(item.key, {
+        key: item.key,
+        provider: item.provider,
+        source: item.source,
+        propertyId: item.propertyId,
+        propertyTitle: item.propertyTitle,
+        error: item.error,
+        errorCode: item.errorCode,
+        count: 1,
+        maxAttempts: item.attempts,
+        lastSeenAt: item.seenAt,
+        itemLabels: [item.itemLabel],
+        eventKinds: [item.eventKind],
+      });
+    };
+
+    for (const job of data?.failures.webhookJobs ?? []) {
+      const code = errorCode(job.lastError);
+      add({
+        key: ["WEBHOOK", job.provider, job.propertyId ?? "unmatched", code].join(":"),
+        provider: job.provider,
+        source: "WEBHOOK",
+        propertyId: job.propertyId,
+        propertyTitle: null,
+        error: job.lastError || "No error detail recorded",
+        errorCode: code,
+        attempts: job.attemptCount,
+        seenAt: job.updatedAt,
+        itemLabel: `Webhook #${job.id}`,
+        eventKind: job.eventKind,
+      });
+    }
+    for (const message of data?.failures.outboundMessages ?? []) {
+      const code = errorCode(message.errorMessage);
+      add({
+        key: ["OUTBOUND", message.channel, message.inquiry.propertyId, code].join(":"),
+        provider: message.channel,
+        source: "OUTBOUND",
+        propertyId: message.inquiry.propertyId,
+        propertyTitle: message.inquiry.property.title,
+        error: message.errorMessage || "No error detail recorded",
+        errorCode: code,
+        attempts: message.attemptCount,
+        seenAt: message.createdAt,
+        itemLabel: `Reply #${message.id} · ${message.inquiry.reference}`,
+        eventKind: "REPLY",
+      });
+    }
+    return [...groups.values()].sort((left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime());
+  }, [data]);
 
   function openControl(next: Control) {
     setControl(next);
@@ -155,7 +265,29 @@ export default function AdminMetaMessagingPage() {
 
   return (
     <div id="admin-meta-messaging" className="mx-auto w-full min-w-0 max-w-7xl space-y-5 px-4 py-6 2xl:max-w-[1720px]">
-      <style>{`#admin-meta-messaging, #admin-meta-messaging * { box-sizing: border-box; }`}</style>
+      <style>{`
+        #admin-meta-messaging, #admin-meta-messaging * { box-sizing: border-box; }
+
+        /* Diagnostic checks use a deliberate row/column matrix instead of a long card stack. */
+        #admin-meta-messaging [aria-labelledby="meta-diagnostic-title"] > div {
+          max-width: 56rem;
+        }
+        #admin-meta-messaging [aria-labelledby="meta-diagnostic-title"] .space-y-2 {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.625rem;
+        }
+        #admin-meta-messaging [aria-labelledby="meta-diagnostic-title"] .space-y-2 > div {
+          height: 100%;
+          margin-top: 0;
+        }
+        @media (min-width: 640px) {
+          #admin-meta-messaging [aria-labelledby="meta-diagnostic-title"] .space-y-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-rows: minmax(5.25rem, auto);
+          }
+        }
+      `}</style>
       <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link>
 
       <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
@@ -200,15 +332,67 @@ export default function AdminMetaMessagingPage() {
         </div>
       </section>
 
-      {(failedJobs + failedOutbound) > 0 && <section className="overflow-hidden rounded-2xl border border-red-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-        <SectionHeader icon={ShieldAlert} title="Failures requiring intervention" subtitle="Dead webhook jobs and permanently failed replies" tone="red" right={<CountPill count={failedJobs + failedOutbound} singular="failure" plural="failures" />} />
-        <div className="grid gap-3 bg-red-50/40 p-3 lg:grid-cols-2 sm:p-4">
-          {data?.failures.webhookJobs.map((job) => <div key={`job-${job.id}`} className="rounded-xl border border-red-100 bg-white p-3.5"><div className="flex items-start justify-between gap-3"><div><p className="m-0 text-xs font-bold text-neutral-900">{job.provider} webhook #{job.id}</p><p className="mb-0 mt-1 text-[11px] text-neutral-500">Property #{job.propertyId || "unmatched"} · {job.eventKind} · {job.attemptCount} attempts</p></div>{job.propertyId && <button type="button" onClick={() => openControl({ kind: "REPLAY", propertyId: job.propertyId!, propertyTitle: `Property #${job.propertyId}` })} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-bold text-red-700">Retry property</button>}</div><p className="mb-0 mt-2 line-clamp-2 text-[11px] leading-4 text-red-700">{job.lastError || "No error detail recorded"}</p></div>)}
-          {data?.failures.outboundMessages.map((message) => <div key={`message-${message.id}`} className="rounded-xl border border-red-100 bg-white p-3.5"><div className="flex items-start justify-between gap-3"><div><p className="m-0 text-xs font-bold text-neutral-900">{message.channel} reply · {message.inquiry.reference}</p><p className="mb-0 mt-1 text-[11px] text-neutral-500">{message.inquiry.property.title} · {message.attemptCount} attempts</p></div><button type="button" onClick={() => openControl({ kind: "REPLAY", propertyId: message.inquiry.propertyId, propertyTitle: message.inquiry.property.title })} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-bold text-red-700">Retry property</button></div><p className="mb-0 mt-2 line-clamp-2 text-[11px] leading-4 text-red-700">{message.errorMessage || "No error detail recorded"}</p></div>)}
+      {(failedJobs + failedOutbound) > 0 && <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]" aria-labelledby="meta-failures-title">
+        <div className="flex flex-col gap-3 border-b border-neutral-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600"><ShieldAlert className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="meta-failures-title" className="m-0 text-sm font-bold text-neutral-950">Intervention queue</h2>
+                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">{failedJobs + failedOutbound} blocked {failedJobs + failedOutbound === 1 ? "item" : "items"}</span>
+              </div>
+              <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-500">Repeated jobs are combined by root cause. Correct the cause before retrying.</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 text-[10px] font-bold text-neutral-500">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5">{failureGroups.length} root {failureGroups.length === 1 ? "cause" : "causes"}</span>
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5">{new Set(failureGroups.map((group) => group.propertyId ?? "unmatched")).size} affected {failureGroups.length === 1 ? "scope" : "scopes"}</span>
+          </div>
+        </div>
+
+        <div className="divide-y divide-neutral-100">
+          {failureGroups.map((group) => {
+            const copy = failureCopy(group.errorCode, group.provider);
+            const isExpanded = expandedFailure === group.key;
+            const scope = group.propertyTitle || (group.propertyId ? `Property #${group.propertyId}` : "Unmatched Meta account");
+            return <article key={group.key} className="px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-red-500 ring-4 ring-red-50" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <h3 className="m-0 text-xs font-bold text-neutral-900">{copy.title}</h3>
+                      <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-600">{group.provider}</span>
+                      <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-600">{group.source === "WEBHOOK" ? "Inbound" : "Outbound"}</span>
+                      {group.count > 1 && <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">{group.count} combined</span>}
+                    </div>
+                    <p className="mb-0 mt-1 text-[11px] font-semibold text-neutral-600">{scope}</p>
+                    <p className="mb-0 mt-1 max-w-3xl text-[11px] leading-4 text-neutral-500">{copy.guidance}</p>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-neutral-400">
+                      <span>{group.maxAttempts} retry {group.maxAttempts === 1 ? "attempt" : "attempts"}</span>
+                      <span>Last seen {shortDate(group.lastSeenAt)}</span>
+                      <span>{group.eventKinds.join(", ")}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 pl-5 lg:pl-0">
+                  {group.propertyId ? <button type="button" onClick={() => openControl({ kind: "REPLAY", propertyId: group.propertyId!, propertyTitle: scope })} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-red-700 transition hover:bg-red-50"><RefreshCw className="h-3 w-3" /> Retry affected</button> : <a href="#property-connections" className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-neutral-700 no-underline transition hover:bg-neutral-50">Review connections</a>}
+                  <button type="button" onClick={() => setExpandedFailure(isExpanded ? null : group.key)} aria-expanded={isExpanded} className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-[10px] font-bold text-neutral-600 transition hover:bg-neutral-100">Technical details <ChevronDown className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-180" : ""}`} /></button>
+                </div>
+              </div>
+              {isExpanded && <div className="ml-5 mt-3 rounded-xl border border-neutral-200 bg-neutral-950 p-3 text-[10px] leading-5 text-neutral-300 sm:ml-6">
+                <dl className="m-0 grid gap-x-4 gap-y-1 sm:grid-cols-[7rem_1fr]">
+                  <dt className="text-neutral-500">Error code</dt><dd className="m-0 break-all font-mono text-red-300">{group.errorCode}</dd>
+                  <dt className="text-neutral-500">Provider detail</dt><dd className="m-0 break-words font-mono">{group.error}</dd>
+                  <dt className="text-neutral-500">Affected items</dt><dd className="m-0 break-words">{group.itemLabels.join(" · ")}</dd>
+                </dl>
+              </div>}
+            </article>;
+          })}
         </div>
       </section>}
 
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+      <section id="property-connections" className="min-w-0 scroll-mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={MessageCircle} title="Property connections" subtitle="No access tokens or secrets are exposed to this console" right={<CountPill count={filtered.length} singular="connection" plural="connections" />} />
         <div className="flex flex-col gap-2.5 border-b border-neutral-100 px-4 py-3 sm:flex-row">
           <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search property, owner or Meta account" className="block min-h-9 w-full rounded-lg border border-neutral-200 py-1.5 pl-9 pr-3 text-xs outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" /></div>
