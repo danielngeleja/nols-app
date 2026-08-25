@@ -14,6 +14,7 @@ import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
+import { startNrmsMetaMessagingWorker } from "./nrmsMetaMessaging.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
@@ -113,6 +114,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();
     startNrmsGuestAutomationWorker();
+    startNrmsMetaMessagingWorker();
     startSalesCommissionLifecycleWorker();
     startAuditRetentionWorker();
     // Fallback for missed/delayed AzamPay disbursement callbacks: polls

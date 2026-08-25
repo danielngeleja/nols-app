@@ -303,55 +303,55 @@ model User {
   tripEstimates TripEstimate[]
 
   // NRMS (NoLSAF Rooms Management System)
-  serviceEnrollments        OwnerServiceEnrollment[]     @relation("OwnerServiceEnrollments")
-  nrmsReservationsOwned     Reservation[]                @relation("NrmsReservationOwner")
-  nrmsReservationsCreated   Reservation[]                @relation("NrmsReservationCreator")
-  nrmsGuestInquiriesOwned   NrmsGuestInquiry[]           @relation("NrmsGuestInquiryOwner")
-  nrmsGuestInquiriesAssigned NrmsGuestInquiry[]          @relation("NrmsGuestInquiryAssignee")
-  nrmsMessagingConnections  NrmsMessagingConnection[]    @relation("NrmsMessagingConnectionOwner")
-  nrmsReservationGroups     NrmsReservationGroup[]       @relation("NrmsReservationGroupOwner")
-  nrmsGroupBlocksOwned      NrmsGroupBlock[]             @relation("NrmsGroupBlockOwner")
-  nrmsGroupBlocksCreated    NrmsGroupBlock[]             @relation("NrmsGroupBlockCreator")
-  nrmsMasterFoliosOwned     NrmsMasterFolio[]            @relation("NrmsMasterFolioOwner")
-  nrmsMasterPaymentsMade    NrmsMasterFolioPayment[]     @relation("NrmsMasterPaymentRecordedBy")
-  nrmsMasterRefundsMade     NrmsMasterFolioRefund[]      @relation("NrmsMasterRefundRecordedBy")
-  nrmsProFormasCreated      NrmsMasterFolioProForma[]    @relation("NrmsProFormaCreatedBy")
-  nrmsProFormasSent         NrmsMasterFolioProForma[]    @relation("NrmsProFormaSentBy")
-  nrmsManualBanksOwned      NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankOwner")
-  nrmsManualBanksAccepted   NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankPolicyAcceptedBy")
-  nrmsRoomingListsMade      NrmsRoomingList[]            @relation("NrmsRoomingListCreator")
-  nrmsRoomingListsReviewed  NrmsRoomingList[]            @relation("NrmsRoomingListReviewer")
-  nrmsReservationGroupsMade NrmsReservationGroup[]       @relation("NrmsReservationGroupCreator")
-  nrmsGuestProfiles         GuestProfile[]               @relation("NrmsGuestProfileOwner")
-  roomUnitStatusChanges     RoomUnitStatusHistory[]      @relation("RoomUnitStatusChangedBy")
-  nrmsReservationEvents     ReservationEvent[]           @relation("NrmsReservationEventActor")
-  nrmsPaymentsRecorded      ExternalPaymentRecord[]      @relation("NrmsPaymentRecordedBy")
-  nrmsChargesPosted         ReservationCharge[]          @relation("NrmsChargePostedBy")
-  nrmsExpensesRecorded      NrmsExpense[]                @relation("NrmsExpenseRecordedBy")
-  nrmsStaffMemberships      NrmsStaffMembership[]        @relation("NrmsStaffUser")
-  nrmsHkTasksAssigned       NrmsHousekeepingTask[]       @relation("NrmsHkTaskAssignedTo")
-  nrmsHkTasksCreated        NrmsHousekeepingTask[]       @relation("NrmsHkTaskCreatedBy")
-  nrmsHkTasksCompleted      NrmsHousekeepingTask[]       @relation("NrmsHkTaskCompletedBy")
-  nrmsOrdersCreated         NrmsOutletOrder[]            @relation("NrmsOrderCreatedBy")
-  nrmsOrdersConfirmed       NrmsOutletOrder[]            @relation("NrmsOrderConfirmedBy")
-  nrmsOrdersSettled         NrmsOutletOrder[]            @relation("NrmsOrderSettledBy")
-  nrmsTipsReceived          NrmsOutletOrder[]            @relation("NrmsOrderTipRecipient")
-  nrmsTipsConfirmed         NrmsOutletOrder[]            @relation("NrmsOrderTipConfirmedBy")
-  nrmsBusinessDaysOpened    NrmsBusinessDay[]            @relation("NrmsBusinessDayOpenedBy")
-  nrmsBusinessDaysClosed    NrmsBusinessDay[]            @relation("NrmsBusinessDayClosedBy")
-  nrmsNightAuditsStarted    NrmsNightAuditRun[]          @relation("NrmsNightAuditStartedBy")
-  nrmsNightAuditsClosed     NrmsNightAuditRun[]          @relation("NrmsNightAuditClosedBy")
-  nrmsCashierShifts         NrmsCashierShift[]           @relation("NrmsCashierShiftUser")
-  nrmsCashierApprovals      NrmsCashierShift[]           @relation("NrmsCashierShiftApprovedBy")
-  nrmsCashierSignOffs       NrmsCashierShift[]           @relation("NrmsCashierShiftSignedOffBy")
-  nrmsPaygAccounts          OwnerPaygAccount[]           @relation("NrmsPaygAccountOwner")
-  nrmsAgentAccounts         NrmsAgentAccount[]           @relation("NrmsAgentPrimaryUser")
-  guestSmsPreferences       GuestSmsPreference[]         @relation("GuestSmsPreferenceOwner")
-  guestSmsCampaigns         GuestSmsCampaign[]           @relation("GuestSmsCampaignOwner")
-  guestSmsAnnualQuotas      GuestSmsAnnualQuota[]        @relation("GuestSmsAnnualQuotaOwner")
-  channelMappingsCreated    ChannelPropertyMapping[]     @relation("ChannelPropertyMappingCreatedBy")
-  channelCredentialsCreated ChannelCredentialVersion[]   @relation("ChannelCredentialCreatedBy")
-  channelIssuesResolved     ChannelReconciliationIssue[] @relation("ChannelIssueResolvedBy")
+  serviceEnrollments         OwnerServiceEnrollment[]     @relation("OwnerServiceEnrollments")
+  nrmsReservationsOwned      Reservation[]                @relation("NrmsReservationOwner")
+  nrmsReservationsCreated    Reservation[]                @relation("NrmsReservationCreator")
+  nrmsGuestInquiriesOwned    NrmsGuestInquiry[]           @relation("NrmsGuestInquiryOwner")
+  nrmsGuestInquiriesAssigned NrmsGuestInquiry[]           @relation("NrmsGuestInquiryAssignee")
+  nrmsMessagingConnections   NrmsMessagingConnection[]    @relation("NrmsMessagingConnectionOwner")
+  nrmsReservationGroups      NrmsReservationGroup[]       @relation("NrmsReservationGroupOwner")
+  nrmsGroupBlocksOwned       NrmsGroupBlock[]             @relation("NrmsGroupBlockOwner")
+  nrmsGroupBlocksCreated     NrmsGroupBlock[]             @relation("NrmsGroupBlockCreator")
+  nrmsMasterFoliosOwned      NrmsMasterFolio[]            @relation("NrmsMasterFolioOwner")
+  nrmsMasterPaymentsMade     NrmsMasterFolioPayment[]     @relation("NrmsMasterPaymentRecordedBy")
+  nrmsMasterRefundsMade      NrmsMasterFolioRefund[]      @relation("NrmsMasterRefundRecordedBy")
+  nrmsProFormasCreated       NrmsMasterFolioProForma[]    @relation("NrmsProFormaCreatedBy")
+  nrmsProFormasSent          NrmsMasterFolioProForma[]    @relation("NrmsProFormaSentBy")
+  nrmsManualBanksOwned       NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankOwner")
+  nrmsManualBanksAccepted    NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankPolicyAcceptedBy")
+  nrmsRoomingListsMade       NrmsRoomingList[]            @relation("NrmsRoomingListCreator")
+  nrmsRoomingListsReviewed   NrmsRoomingList[]            @relation("NrmsRoomingListReviewer")
+  nrmsReservationGroupsMade  NrmsReservationGroup[]       @relation("NrmsReservationGroupCreator")
+  nrmsGuestProfiles          GuestProfile[]               @relation("NrmsGuestProfileOwner")
+  roomUnitStatusChanges      RoomUnitStatusHistory[]      @relation("RoomUnitStatusChangedBy")
+  nrmsReservationEvents      ReservationEvent[]           @relation("NrmsReservationEventActor")
+  nrmsPaymentsRecorded       ExternalPaymentRecord[]      @relation("NrmsPaymentRecordedBy")
+  nrmsChargesPosted          ReservationCharge[]          @relation("NrmsChargePostedBy")
+  nrmsExpensesRecorded       NrmsExpense[]                @relation("NrmsExpenseRecordedBy")
+  nrmsStaffMemberships       NrmsStaffMembership[]        @relation("NrmsStaffUser")
+  nrmsHkTasksAssigned        NrmsHousekeepingTask[]       @relation("NrmsHkTaskAssignedTo")
+  nrmsHkTasksCreated         NrmsHousekeepingTask[]       @relation("NrmsHkTaskCreatedBy")
+  nrmsHkTasksCompleted       NrmsHousekeepingTask[]       @relation("NrmsHkTaskCompletedBy")
+  nrmsOrdersCreated          NrmsOutletOrder[]            @relation("NrmsOrderCreatedBy")
+  nrmsOrdersConfirmed        NrmsOutletOrder[]            @relation("NrmsOrderConfirmedBy")
+  nrmsOrdersSettled          NrmsOutletOrder[]            @relation("NrmsOrderSettledBy")
+  nrmsTipsReceived           NrmsOutletOrder[]            @relation("NrmsOrderTipRecipient")
+  nrmsTipsConfirmed          NrmsOutletOrder[]            @relation("NrmsOrderTipConfirmedBy")
+  nrmsBusinessDaysOpened     NrmsBusinessDay[]            @relation("NrmsBusinessDayOpenedBy")
+  nrmsBusinessDaysClosed     NrmsBusinessDay[]            @relation("NrmsBusinessDayClosedBy")
+  nrmsNightAuditsStarted     NrmsNightAuditRun[]          @relation("NrmsNightAuditStartedBy")
+  nrmsNightAuditsClosed      NrmsNightAuditRun[]          @relation("NrmsNightAuditClosedBy")
+  nrmsCashierShifts          NrmsCashierShift[]           @relation("NrmsCashierShiftUser")
+  nrmsCashierApprovals       NrmsCashierShift[]           @relation("NrmsCashierShiftApprovedBy")
+  nrmsCashierSignOffs        NrmsCashierShift[]           @relation("NrmsCashierShiftSignedOffBy")
+  nrmsPaygAccounts           OwnerPaygAccount[]           @relation("NrmsPaygAccountOwner")
+  nrmsAgentAccounts          NrmsAgentAccount[]           @relation("NrmsAgentPrimaryUser")
+  guestSmsPreferences        GuestSmsPreference[]         @relation("GuestSmsPreferenceOwner")
+  guestSmsCampaigns          GuestSmsCampaign[]           @relation("GuestSmsCampaignOwner")
+  guestSmsAnnualQuotas       GuestSmsAnnualQuota[]        @relation("GuestSmsAnnualQuotaOwner")
+  channelMappingsCreated     ChannelPropertyMapping[]     @relation("ChannelPropertyMappingCreatedBy")
+  channelCredentialsCreated  ChannelCredentialVersion[]   @relation("ChannelCredentialCreatedBy")
+  channelIssuesResolved      ChannelReconciliationIssue[] @relation("ChannelIssueResolvedBy")
 
   // Sales partner workspace. Access is an entitlement on the ordinary user
   // account; User.role is never changed to grant it.
@@ -507,44 +507,44 @@ model Property {
   availabilityBlocks PropertyAvailabilityBlock[]
 
   // NRMS (normalized room inventory + operational reservations)
-  roomTypes               RoomType[]
-  roomUnits               RoomUnit[]
-  nrmsReservations        Reservation[]
-  nrmsReservationGroups   NrmsReservationGroup[]
-  nrmsGroupBlocks         NrmsGroupBlock[]
-  nrmsMasterFolios        NrmsMasterFolio[]
-  nrmsProFormaBankAccount NrmsProFormaBankAccount?
-  guestProfiles           GuestProfile[]
-  nrmsPaygAccount         OwnerPaygAccount?
-  nrmsUsageEvents         NrmsUsageEvent[]
-  nrmsSmsCampaigns        GuestSmsCampaign[]
-  nrmsOutlets             NrmsOutlet[]
-  nrmsStaff               NrmsStaffMembership[]
-  nrmsOutletOrders        NrmsOutletOrder[]
-  nrmsBusinessDays        NrmsBusinessDay[]
-  nrmsNightAudits         NrmsNightAuditRun[]
-  nrmsCashierShifts       NrmsCashierShift[]
-  nrmsLedgerTransactions  NrmsLedgerTransaction[]
-  nrmsHousekeepingTasks   NrmsHousekeepingTask[]
-  nrmsOrderPoints         NrmsOrderPoint[]
-  nrmsIntegritySignals    NrmsIntegritySignal[]
-  nrmsPublicMetrics       NrmsPublicMetric[]
-  channelConnections      ChannelConnection[]
-  nrmsRatePlans           NrmsRatePlan[]
-  nrmsRateRestrictions    NrmsRateRestriction[]
-  nrmsOnboardingRuns      NrmsOnboardingRun[]
-  nrmsServiceCases        NrmsServiceCase[]
-  nrmsGuestInquiries      NrmsGuestInquiry[]
+  roomTypes                RoomType[]
+  roomUnits                RoomUnit[]
+  nrmsReservations         Reservation[]
+  nrmsReservationGroups    NrmsReservationGroup[]
+  nrmsGroupBlocks          NrmsGroupBlock[]
+  nrmsMasterFolios         NrmsMasterFolio[]
+  nrmsProFormaBankAccount  NrmsProFormaBankAccount?
+  guestProfiles            GuestProfile[]
+  nrmsPaygAccount          OwnerPaygAccount?
+  nrmsUsageEvents          NrmsUsageEvent[]
+  nrmsSmsCampaigns         GuestSmsCampaign[]
+  nrmsOutlets              NrmsOutlet[]
+  nrmsStaff                NrmsStaffMembership[]
+  nrmsOutletOrders         NrmsOutletOrder[]
+  nrmsBusinessDays         NrmsBusinessDay[]
+  nrmsNightAudits          NrmsNightAuditRun[]
+  nrmsCashierShifts        NrmsCashierShift[]
+  nrmsLedgerTransactions   NrmsLedgerTransaction[]
+  nrmsHousekeepingTasks    NrmsHousekeepingTask[]
+  nrmsOrderPoints          NrmsOrderPoint[]
+  nrmsIntegritySignals     NrmsIntegritySignal[]
+  nrmsPublicMetrics        NrmsPublicMetric[]
+  channelConnections       ChannelConnection[]
+  nrmsRatePlans            NrmsRatePlan[]
+  nrmsRateRestrictions     NrmsRateRestriction[]
+  nrmsOnboardingRuns       NrmsOnboardingRun[]
+  nrmsServiceCases         NrmsServiceCase[]
+  nrmsGuestInquiries       NrmsGuestInquiry[]
   nrmsMessagingConnections NrmsMessagingConnection[]
-  nrmsOfflineMutations    NrmsOfflineMutation[]
-  nrmsExpenses            NrmsExpense[]
-  nrmsPortfolioLinks      NrmsPortfolioProperty[]
-  nrmsForecastSnapshots   NrmsForecastSnapshot[]
-  nrmsPricingGuidance     NrmsPricingRecommendation[]
-  nrmsLoyaltyAccounts     NrmsLoyaltyAccount[]
-  nrmsReviewRequests      NrmsReviewRequest[]
-  nrmsJourneyTemplates    NrmsJourneyTemplate[]
-  nrmsAgentLinks          NrmsAgentPropertyLink[]
+  nrmsOfflineMutations     NrmsOfflineMutation[]
+  nrmsExpenses             NrmsExpense[]
+  nrmsPortfolioLinks       NrmsPortfolioProperty[]
+  nrmsForecastSnapshots    NrmsForecastSnapshot[]
+  nrmsPricingGuidance      NrmsPricingRecommendation[]
+  nrmsLoyaltyAccounts      NrmsLoyaltyAccount[]
+  nrmsReviewRequests       NrmsReviewRequest[]
+  nrmsJourneyTemplates     NrmsJourneyTemplate[]
+  nrmsAgentLinks           NrmsAgentPropertyLink[]
 
   // Sales partner attribution and earnings generated by this property
   salesLeadConversions SalesLead[]                @relation("SalesLeadConvertedProperty")
@@ -6638,23 +6638,56 @@ model NrmsGuestInquiry {
 /// Provider-neutral transcript. providerMessageId makes webhook retries
 /// idempotent once Instagram/WhatsApp delivery is enabled.
 model NrmsGuestMessage {
-  id                Int      @id @default(autoincrement())
+  id                Int       @id @default(autoincrement())
   inquiryId         Int
-  direction         String   @db.VarChar(20) // INBOUND, OUTBOUND, SYSTEM, INTERNAL
-  channel           String   @db.VarChar(20)
-  providerMessageId String?  @unique @db.VarChar(191)
-  senderName        String?  @db.VarChar(160)
-  body              String   @db.Text
-  deliveryStatus    String   @default("RECORDED") @db.VarChar(20)
+  direction         String    @db.VarChar(20) // INBOUND, OUTBOUND, SYSTEM, INTERNAL
+  channel           String    @db.VarChar(20)
+  providerMessageId String?   @unique @db.VarChar(191)
+  senderName        String?   @db.VarChar(160)
+  body              String    @db.Text
+  deliveryStatus    String    @default("RECORDED") @db.VarChar(20)
+  attemptCount      Int       @default(0)
+  nextAttemptAt     DateTime?
+  lastAttemptAt     DateTime?
+  errorMessage      String?   @db.VarChar(1000)
   sentById          Int?
   metadata          Json?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   inquiry NrmsGuestInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
 
   @@index([inquiryId, createdAt])
   @@index([sentById, createdAt])
+  @@index([deliveryStatus, nextAttemptAt, createdAt], map: "nrms_guest_message_delivery_retry_idx")
   @@map("nrms_guest_message")
+}
+
+/// Durable, provider-neutral inbox for normalized Meta webhook events. The
+/// HTTP endpoint only verifies and persists events; a leader-elected worker
+/// performs business processing, retries transient failures, and retains dead
+/// jobs for deliberate replay instead of losing guest messages.
+model NrmsMetaWebhookJob {
+  id           Int       @id @default(autoincrement())
+  dedupeKey    String    @unique @db.VarChar(191)
+  propertyId   Int?
+  provider     String    @db.VarChar(20)
+  accountId    String    @db.VarChar(191)
+  eventKind    String    @db.VarChar(20)
+  payload      Json
+  status       String    @default("PENDING") @db.VarChar(20) // PENDING, PROCESSING, RETRY, COMPLETED, DEAD
+  attemptCount Int       @default(0)
+  availableAt  DateTime  @default(now())
+  lockedAt     DateTime?
+  completedAt  DateTime?
+  lastError    String?   @db.VarChar(1000)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, availableAt, createdAt], map: "nrms_meta_webhook_job_ready_idx")
+  @@index([status, completedAt], map: "nrms_meta_webhook_job_completed_idx")
+  @@index([propertyId, status, createdAt], map: "nrms_meta_webhook_job_property_status_idx")
+  @@index([provider, accountId, createdAt], map: "nrms_meta_webhook_job_account_idx")
+  @@map("nrms_meta_webhook_job")
 }
 
 /// A hotel's own Instagram Professional or WhatsApp Business connection.
@@ -6676,10 +6709,10 @@ model NrmsMessagingConnection {
   webhookSubscribedAt  DateTime?
   lastWebhookAt        DateTime?
   lastOutboundAt       DateTime?
-  lastError             String?   @db.VarChar(1000)
-  version               Int       @default(1)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  lastError            String?   @db.VarChar(1000)
+  version              Int       @default(1)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   owner    User     @relation("NrmsMessagingConnectionOwner", fields: [ownerId], references: [id], onDelete: Cascade)

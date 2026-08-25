@@ -528,6 +528,28 @@ function getIo(): SocketServer | null {
 }
 
 /**
+ * Notify every active owner/front-desk session for one property. Recipients
+ * are resolved from persisted access instead of trusting a client-supplied
+ * room name, so sockets cannot subscribe themselves to another hotel.
+ */
+export async function emitNrmsInboxUpdate(
+  propertyId: number,
+  event: { reason: string; inquiryId?: number | null },
+): Promise<void> {
+  const io = getIo();
+  if (!io) return;
+  const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { ownerId: true } });
+  if (!property) return;
+  const memberships = await prisma.nrmsStaffMembership.findMany({
+    where: { propertyId, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } },
+    select: { userId: true },
+  });
+  const userIds = new Set([property.ownerId, ...memberships.map((membership) => membership.userId)]);
+  const payload = { propertyId, inquiryId: event.inquiryId ?? null, reason: event.reason, occurredAt: new Date().toISOString() };
+  for (const userId of userIds) io.to(`user:${userId}`).emit("nrms:inbox:update", payload);
+}
+
+/**
  * Immediately terminate every live socket for an account whose authorization
  * changed. With the Redis adapter, fetchSockets reaches every API instance.
  * The periodic database recheck remains the fail-safe when no adapter exists.

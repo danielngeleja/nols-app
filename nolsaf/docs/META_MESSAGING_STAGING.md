@@ -21,11 +21,24 @@ META_WHATSAPP_CONFIG_ID=<Embedded Signup configuration ID>
 META_OAUTH_STATE_SECRET=<a separate random secret of at least 32 bytes>
 ENCRYPTION_KEY=<the existing stable staging encryption key>
 WEB_ORIGIN=<the staging web application origin>
+RUN_BACKGROUND_WORKERS=true
+NRMS_META_MESSAGING_INTERVAL_MS=10000
 ```
 
 Do not reuse the webhook verify token as an app secret, OAuth state secret or
 encryption key. Changing `ENCRYPTION_KEY` after connections exist makes their
 stored access tokens unreadable.
+
+`RUN_BACKGROUND_WORKERS=true` is required on at least one API instance outside
+the test environment. Meta webhooks are acknowledged after durable database
+storage and are then processed by the leader-elected messaging worker. If the
+worker is disabled, the Reception dashboard will correctly show events as
+pending instead of silently losing them.
+
+For more than one API instance, also configure the existing Socket.IO Redis
+adapter (`SOCKET_IO_REDIS_ADAPTER=true` and `SOCKET_IO_REDIS_URL`) so live inbox
+updates reach browser sessions connected to any instance. The 20-second UI
+polling fallback remains active if a socket disconnects.
 
 ## Meta dashboard
 
@@ -44,6 +57,20 @@ The account selected in Meta is then bound only to that property.
 ## Data integrity
 
 - Meta webhook retries are deduplicated by provider message ID.
+- Verified webhook events are stored before Meta receives a success response,
+  retried with exponential backoff and retained for deliberate replay after
+  the retry limit.
+- Outbound replies are recorded as queued before provider transport, recovered
+  after an expired worker claim and visibly marked sent, retrying or failed.
+- Stale receptionist replies fail with a version conflict before a second
+  outbound message can be created.
+- Free-form WhatsApp replies are blocked outside the 24-hour customer-service
+  window and surfaced as requiring an approved template.
+- Inbound image, document, audio, video and other attachment metadata is kept
+  with the transcript. Reception retrieves the private bytes through an
+  authenticated property-scoped proxy; access tokens and temporary Meta URLs
+  are never returned to the browser, provider hosts are allowlisted, and media
+  is capped at 25 MB.
 - Concurrent first messages from one sender share one active inquiry.
 - Resolving, closing or converting an inquiry releases that active identity so
   a later guest conversation can open a fresh inquiry.

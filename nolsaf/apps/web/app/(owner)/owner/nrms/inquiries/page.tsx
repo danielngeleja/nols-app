@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AtSign, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, ExternalLink, Inbox, Instagram, Loader2, Mail, MessageCircle, Phone, Radio, RefreshCw, Search, Send, UserRound, WifiOff } from "lucide-react";
+import { AlertTriangle, AtSign, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, ExternalLink, Inbox, Instagram, Loader2, Mail, MessageCircle, Paperclip, Phone, Radio, RefreshCw, Search, Send, UserRound, WifiOff } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
+import { useSocket } from "@/hooks/useSocket";
 
 type RoomType = { id: number; name: string; baseRate: number; currency: string };
 type Inquiry = {
@@ -15,7 +16,7 @@ type Inquiry = {
   checkIn: string | null; checkOut: string | null; adults: number; children: number; createdAt: string; updatedAt: string; lastMessageAt: string | null; firstResponseAt: string | null;
   roomType: RoomType | null; reservation: { id: number; status: string; receiptNumber: string | null } | null;
   assignedTo: { id: number; name: string | null; fullName: string | null; email: string | null } | null;
-  messages: Array<{ id: number; direction: string; channel: string; senderName: string | null; body: string; deliveryStatus: string; createdAt: string }>;
+  messages: Array<{ id: number; direction: string; channel: string; senderName: string | null; body: string; deliveryStatus: string; attemptCount: number; errorMessage: string | null; createdAt: string; metadata: { attachment?: { type: string; fileName: string | null; mimeType: string | null }; automated?: boolean } | null }>;
 };
 type ConversionReport = {
   periodDays: number;
@@ -24,7 +25,7 @@ type ConversionReport = {
   averageFirstResponseMinutes: number | null;
   sources: Array<{ source: string; visits: number; inquiries: number; responded: number; holds: number; confirmed: number }>;
 };
-type InboxData = { total: number; inquiries: Inquiry[]; assignees: Array<{ id: number; name: string | null; fullName: string | null; email: string | null; role: string }>; roomTypes: RoomType[]; reporting?: ConversionReport; messagingConnections?: Array<{ provider: string; status: string; displayName: string | null; lastWebhookAt: string | null; lastError: string | null }>; metaReadiness?: { appConfigured: boolean; webhookConfigured: boolean; graphVersion: string | null } };
+type InboxData = { total: number; inquiries: Inquiry[]; assignees: Array<{ id: number; name: string | null; fullName: string | null; email: string | null; role: string }>; roomTypes: RoomType[]; reporting?: ConversionReport; messagingConnections?: Array<{ provider: string; status: string; displayName: string | null; lastWebhookAt: string | null; lastError: string | null }>; messagingOperations?: { webhookPending: number; webhookDead: number; outboundRetrying: number; outboundFailed: number; templateRequired: number }; metaReadiness?: { appConfigured: boolean; webhookConfigured: boolean; graphVersion: string | null } };
 
 const inputClass = "box-border min-h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100";
 const statusStyle: Record<string, string> = { NEW: "bg-violet-100 text-violet-800", OPEN: "bg-sky-100 text-sky-800", WAITING_GUEST: "bg-amber-100 text-amber-800", RESOLVED: "bg-emerald-100 text-emerald-800", CONVERTED: "bg-emerald-700 text-white", CLOSED: "bg-neutral-200 text-neutral-600" };
@@ -46,6 +47,7 @@ function conversionPercent(previous: number, current: number) { return previous 
 
 export default function NrmsGuestInquiriesPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
+  const { socket, connected: liveConnected } = useSocket(undefined, { enabled: true, joinDriverRoom: false });
   const [data, setData] = useState<InboxData>({ total: 0, inquiries: [], assignees: [], roomTypes: [] });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [status, setStatus] = useState(""); const [channel, setChannel] = useState(""); const [query, setQuery] = useState("");
@@ -53,15 +55,23 @@ export default function NrmsGuestInquiriesPage() {
   const [response, setResponse] = useState(""); const [responseKind, setResponseKind] = useState<"OUTBOUND" | "INTERNAL">("OUTBOUND");
   const [conversion, setConversion] = useState({ guestName: "", guestPhone: "", guestEmail: "", checkIn: "", checkOut: "", roomTypeId: "", adults: "1" });
 
-  const load = useCallback(async () => {
-    if (!selectedPropertyId) return; setLoading(true); setError(null);
+  const load = useCallback(async (silent = false) => {
+    if (!selectedPropertyId) return; if (!silent) setLoading(true); if (!silent) setError(null);
     try {
       const result = await apiClient.get<InboxData>(`/api/owner/nrms/inquiries/property/${selectedPropertyId}`, { params: { ...(status ? { status } : {}), ...(channel ? { channel } : {}), ...(query.trim() ? { q: query.trim() } : {}) } });
       setData(result.data); setSelectedId((current) => current && result.data.inquiries.some((item) => item.id === current) ? current : result.data.inquiries[0]?.id ?? null);
-    } catch (requestError: any) { setError(requestError?.response?.data?.error || "The reception inbox could not be loaded."); }
-    finally { setLoading(false); }
+    } catch (requestError: any) { if (!silent) setError(requestError?.response?.data?.error || "The reception inbox could not be loaded."); }
+    finally { if (!silent) setLoading(false); }
   }, [channel, query, selectedPropertyId, status]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const refresh = (event?: { propertyId?: number }) => {
+      if (!event?.propertyId || event.propertyId === selectedPropertyId) void load(true);
+    };
+    const timer = window.setInterval(() => void load(true), 20_000);
+    socket?.on("nrms:inbox:update", refresh);
+    return () => { window.clearInterval(timer); socket?.off("nrms:inbox:update", refresh); };
+  }, [load, selectedPropertyId, socket]);
   const selected = data.inquiries.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -75,13 +85,17 @@ export default function NrmsGuestInquiriesPage() {
   const mutate = async (key: string, request: () => Promise<unknown>, success: string) => {
     setBusy(key); setError(null); setNotice(null);
     try { await request(); setNotice(success); await load(); }
-    catch (requestError: any) { setError(requestError?.response?.data?.error || "The inquiry could not be updated."); }
+    catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "The inquiry could not be updated.");
+      if (requestError?.response?.data?.code === "VERSION_CONFLICT") await load(true);
+    }
     finally { setBusy(null); }
   };
   const patchInquiry = (body: Record<string, unknown>, success: string) => selected && mutate("update", () => apiClient.patch(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}`, { version: selected.version, ...body }), success);
   const liveConnection = selected ? data.messagingConnections?.find((item) => item.provider === selected.channel && item.status === "CONNECTED") : null;
   const canSendLive = Boolean(liveConnection && selected?.externalConversationId);
-  const recordResponse = () => selected && response.trim() && mutate("message", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}/messages`, { body: response, direction: responseKind, deliveryMode: responseKind === "OUTBOUND" && canSendLive ? "SEND" : "RECORD" }), responseKind === "INTERNAL" ? "Internal note added." : canSendLive ? `Reply sent through ${label(selected.channel)}.` : "External response recorded.");
+  const recordResponse = () => selected && response.trim() && mutate("message", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}/messages`, { version: selected.version, body: response, direction: responseKind, deliveryMode: responseKind === "OUTBOUND" && canSendLive ? "SEND" : "RECORD" }), responseKind === "INTERNAL" ? "Internal note added." : canSendLive ? `Reply queued securely for ${label(selected.channel)}.` : "External response recorded.");
+  const replayFailures = () => mutate("replay", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/messaging-failures/replay`), "Failed messages queued for another delivery attempt.");
   const selectedRoom = data.roomTypes.find((room) => String(room.id) === conversion.roomTypeId) ?? null;
   const estimatedTotal = selectedRoom && conversion.checkIn && conversion.checkOut ? selectedRoom.baseRate * nights(conversion.checkIn, conversion.checkOut) : 0;
   const conversionReady = Boolean(conversion.guestName.trim().length >= 2 && conversion.guestPhone.trim().length >= 7 && conversion.checkIn && conversion.checkOut && nights(conversion.checkIn, conversion.checkOut) > 0 && selectedRoom);
@@ -112,7 +126,13 @@ export default function NrmsGuestInquiriesPage() {
     connection: data.messagingConnections?.find((item) => item.provider === provider) ?? null,
   })), [data.messagingConnections]);
 
-  return <div className="mx-auto max-w-[1500px] space-y-4 pb-10">
+  return <div className="reception-inbox mx-auto max-w-[1500px] space-y-4 pb-10">
+    <style jsx global>{`
+      .reception-inbox .text-\\[8px\\],
+      .reception-inbox .text-\\[9px\\] { font-size: 0.75rem !important; }
+      .reception-inbox .text-\\[10px\\],
+      .reception-inbox .text-\\[11px\\] { font-size: 0.8125rem !important; }
+    `}</style>
     <header className="rounded-2xl border-2 border-neutral-300 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
       <div className="grid gap-5 px-5 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="flex min-w-0 items-start gap-4">
@@ -132,10 +152,15 @@ export default function NrmsGuestInquiriesPage() {
     </div>
 
     <section className="grid gap-3 rounded-xl border-2 border-slate-300 bg-[linear-gradient(110deg,#ffffff_0%,#f8fafc_100%)] p-3.5 shadow-[0_5px_16px_rgba(15,23,42,0.06)] lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
-      <div className="flex min-w-0 items-center gap-3 px-1"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm"><Radio className="h-4 w-4" /></span><div><h2 className="m-0 text-xs font-bold text-neutral-950">Messaging readiness</h2><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Channel health for incoming reception conversations.</p></div></div>
+      <div className="flex min-w-0 items-center gap-3 px-1"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm"><Radio className="h-4 w-4" /></span><div><h2 className="m-0 text-xs font-bold text-neutral-950">Messaging readiness</h2><p className="mb-0 mt-0.5 text-xs leading-4 text-neutral-500">{liveConnected ? "Live inbox updates connected." : "Polling safely while live updates reconnect."}</p></div></div>
       <span className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-[10px] font-bold shadow-sm ${data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? <CheckCircle2 className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}{data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "Meta webhook ready" : "Meta setup incomplete"}</span>
       {connectionHealth.map(({ provider, connection }) => { const connected = connection?.status === "CONNECTED"; return <span key={provider} className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-[10px] font-bold shadow-sm ${connected ? "border-emerald-300 bg-white text-emerald-800" : "border-slate-300 bg-white text-neutral-600"}`}><ChannelIcon channel={provider} className="h-3.5 w-3.5" /><span>{provider === "INSTAGRAM" ? "Instagram" : "WhatsApp"}</span><span className={`h-1.5 w-1.5 rounded-full ring-2 ring-white ${connected ? "bg-emerald-500" : "bg-neutral-400"}`} /><span>{connected ? connection?.lastWebhookAt ? `Active ${timeAgo(connection.lastWebhookAt)}` : "Connected" : connection?.status ? label(connection.status) : "Not connected"}</span></span>; })}
     </section>
+
+    {data.messagingOperations && (data.messagingOperations.webhookPending + data.messagingOperations.webhookDead + data.messagingOperations.outboundRetrying + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0) && <section className={`flex flex-col gap-3 rounded-xl border-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0 ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"}`} role="status">
+      <div className="flex items-start gap-3"><AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0 ? "text-red-700" : "text-amber-700"}`} /><div><h2 className="m-0 text-sm font-bold text-neutral-950">Message delivery operations</h2><p className="mb-0 mt-1 text-xs leading-5 text-neutral-700">{data.messagingOperations.webhookPending} inbound event(s) processing · {data.messagingOperations.outboundRetrying} outbound reply/replies retrying · {data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed} need intervention{data.messagingOperations.templateRequired ? ` · ${data.messagingOperations.templateRequired} require an approved WhatsApp template` : ""}.</p></div></div>
+      {(data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed > 0) && <button type="button" disabled={busy === "replay"} onClick={() => void replayFailures()} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-red-300 bg-white px-4 text-xs font-bold text-red-800 disabled:opacity-50">{busy === "replay" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}Retry failed messages</button>}
+    </section>}
 
     {data.reporting && <section className="overflow-hidden rounded-2xl border-2 border-slate-300 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.07)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-300 bg-slate-50/80 px-4 py-4 sm:px-5"><div><h2 className="m-0 text-sm font-bold text-neutral-950">Direct conversion funnel</h2><p className="mb-0 mt-1 text-[10px] text-neutral-500">Last {data.reporting.periodDays} days · property-scoped attribution</p></div><span className={`rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm ${data.reporting.averageFirstResponseMinutes == null ? "border-neutral-300 bg-white text-neutral-600" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}>{data.reporting.averageFirstResponseMinutes == null ? "No human responses yet" : `Average human response ${data.reporting.averageFirstResponseMinutes} min`}</span></header>
@@ -209,7 +234,7 @@ export default function NrmsGuestInquiriesPage() {
             <div className="rounded-xl border border-neutral-200">
               <div className="border-b border-neutral-100 px-4 py-3"><h3 className="m-0 text-sm font-bold">Conversation record</h3></div>
               <div className="max-h-80 space-y-3 overflow-y-auto bg-neutral-50/70 p-4">
-                {selected.messages.map((message) => <div key={message.id} className={`flex ${message.direction === "OUTBOUND" ? "justify-end" : "justify-start"}`}><div className={`max-w-[88%] rounded-xl px-3 py-2.5 ${message.direction === "OUTBOUND" ? "bg-emerald-800 text-white" : message.direction === "INTERNAL" ? "border border-amber-200 bg-amber-50 text-amber-950" : "border border-neutral-200 bg-white text-neutral-700"}`}><p className="m-0 text-[9px] font-bold opacity-60">{message.direction === "INTERNAL" ? "Internal note" : message.senderName || label(message.direction)}</p><p className="mb-0 mt-1 whitespace-pre-wrap text-xs leading-5">{message.body}</p><p className="mb-0 mt-1 text-[8px] opacity-50">{new Date(message.createdAt).toLocaleString()}</p></div></div>)}
+                {selected.messages.map((message) => <div key={message.id} className={`flex ${message.direction === "OUTBOUND" ? "justify-end" : "justify-start"}`}><div className={`max-w-[88%] rounded-xl px-3 py-2.5 ${message.direction === "OUTBOUND" ? "bg-emerald-800 text-white" : message.direction === "INTERNAL" ? "border border-amber-200 bg-amber-50 text-amber-950" : "border border-neutral-200 bg-white text-neutral-700"}`}><p className="m-0 text-xs font-bold opacity-70">{message.direction === "INTERNAL" ? "Internal note" : message.senderName || label(message.direction)}</p>{message.metadata?.attachment && <div className="mt-2"><p className="m-0 inline-flex items-center gap-1.5 rounded-md border border-current/20 px-2 py-1 text-xs font-semibold"><Paperclip className="h-3.5 w-3.5" />{message.metadata.attachment.fileName || label(message.metadata.attachment.type)}</p><a href={`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}/messages/${message.id}/media`} target="_blank" rel="noreferrer" className="ml-2 text-xs font-bold text-current underline underline-offset-2">Open attachment</a></div>}<p className="mb-0 mt-1 whitespace-pre-wrap text-sm leading-5">{message.body}</p><div className="mt-1.5 flex flex-wrap items-center justify-end gap-2 text-xs opacity-70"><span>{new Date(message.createdAt).toLocaleString()}</span>{message.direction === "OUTBOUND" && <span className={message.deliveryStatus === "FAILED" ? "font-bold text-red-200" : "font-semibold"}>{label(message.deliveryStatus)}{message.attemptCount > 1 ? ` · attempt ${message.attemptCount}` : ""}</span>}</div>{message.errorMessage && <p className="mb-0 mt-1 max-w-md text-xs font-semibold text-red-100">{message.errorMessage.includes("WHATSAPP_CUSTOMER_WINDOW_CLOSED") ? "WhatsApp requires an approved template because the 24-hour reply window closed." : "Delivery needs another attempt."}</p>}</div></div>)}
               </div>
               {!['RESOLVED', 'CONVERTED', 'CLOSED'].includes(selected.status) && <div className="border-t border-neutral-100 p-3"><div className="mb-2 flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${canSendLive ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`}>{canSendLive ? `${label(selected.channel)} connected · sends live` : "Manual channel · records reply"}</span>{liveConnection?.lastError && <span className="truncate text-[9px] text-red-600" title={liveConnection.lastError}>Last delivery needs attention</span>}</div><div className="flex gap-2"><select className={`${inputClass} w-36 shrink-0`} value={responseKind} onChange={(event) => setResponseKind(event.target.value as typeof responseKind)}><option value="OUTBOUND">{canSendLive ? "Send reply" : "Response made"}</option><option value="INTERNAL">Internal note</option></select><textarea className={`${inputClass} min-h-20 py-2`} value={response} onChange={(event) => setResponse(event.target.value)} placeholder={responseKind === "OUTBOUND" ? canSendLive ? `Write a reply to send on ${label(selected.channel)}…` : "Record what reception replied on the external channel…" : "Add a private handover note…"} /></div><button type="button" disabled={!response.trim() || busy === "message"} onClick={() => void recordResponse()} className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg border-0 bg-emerald-800 px-4 text-xs font-bold text-white disabled:bg-neutral-200">{busy === "message" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{responseKind === "OUTBOUND" && canSendLive ? "Send reply" : "Record update"}</button></div>}
             </div>

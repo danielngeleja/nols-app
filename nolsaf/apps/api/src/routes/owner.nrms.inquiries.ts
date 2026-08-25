@@ -6,9 +6,11 @@ import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { NRMS_BILLING_BLOCKING_STATUSES, nrmsBillingBlockPayload } from "../lib/nrms.js";
 import { createInquiryRoomHold } from "../lib/nrmsInquiryConversion.js";
 import { buildInquiryConversionReport } from "../lib/nrmsInquiryReporting.js";
-import { sendMetaText } from "../lib/nrmsMetaMessaging.js";
+import { isWhatsAppCustomerWindowOpen, replayMetaMessagingFailures } from "../lib/nrmsMetaWebhookJobs.js";
+import { downloadMetaAttachment } from "../lib/nrmsMetaMessaging.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { closesActiveConversation } from "../lib/nrmsMetaConversation.js";
+import { emitNrmsInboxUpdate } from "../sockets/index.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -21,7 +23,7 @@ const updateSchema = z.object({
   assignedToId: z.number().int().positive().nullable().optional(),
   note: z.string().trim().max(1000).nullable().optional(),
 }).refine((value) => value.status !== undefined || value.assignedToId !== undefined || Boolean(value.note), { message: "Nothing to update" });
-const messageSchema = z.object({ body: z.string().trim().min(1).max(4000), direction: z.enum(["OUTBOUND", "INTERNAL"]).default("OUTBOUND"), deliveryMode: z.enum(["SEND", "RECORD"]).default("RECORD") });
+const messageSchema = z.object({ version: z.number().int().positive(), body: z.string().trim().min(1).max(4000), direction: z.enum(["OUTBOUND", "INTERNAL"]).default("OUTBOUND"), deliveryMode: z.enum(["SEND", "RECORD"]).default("RECORD") });
 const convertToHoldSchema = z.object({
   version: z.number().int().positive(),
   guestName: z.string().trim().min(2).max(160),
@@ -96,7 +98,14 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     prisma.nrmsGuestInquiry.findMany({ where: { propertyId, createdAt: { gte: since } }, select: { source: true, createdAt: true, firstResponseAt: true, reservationId: true, reservation: { select: { status: true } } } }),
     prisma.nrmsMessagingConnection.findMany({ where: { propertyId }, select: { provider: true, status: true, displayName: true, tokenExpiresAt: true, lastWebhookAt: true, lastOutboundAt: true, lastError: true, metadata: true } }),
   ]);
-  res.json({ total, page, pageSize, pageCount: Math.ceil(total / pageSize), inquiries: inquiries.map(serializeInquiry), assignees: [owner ? { ...owner, role: "OWNER" } : null, ...memberships.map((item) => ({ ...item.user, role: item.role }))].filter(Boolean), roomTypes: roomTypes.map((room) => ({ ...room, baseRate: Number(room.baseRate) })), reporting: buildInquiryConversionReport(directMetrics, reportInquiries), messagingConnections: messagingConnections.map(({ metadata, ...connection }) => ({ ...connection, status: connection.provider === "WHATSAPP" && connection.status === "CONNECTED" && !(metadata as any)?.phoneRegisteredAt ? "PENDING" : connection.status })), metaReadiness: { appConfigured: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET), webhookConfigured: Boolean(process.env.META_WEBHOOK_VERIFY_TOKEN), graphVersion: process.env.META_GRAPH_API_VERSION || null } });
+  const [webhookPending, webhookDead, outboundRetrying, outboundFailed, templateRequired] = await Promise.all([
+    prisma.nrmsMetaWebhookJob.count({ where: { propertyId, status: { in: ["PENDING", "PROCESSING", "RETRY"] } } }),
+    prisma.nrmsMetaWebhookJob.count({ where: { propertyId, status: "DEAD" } }),
+    prisma.nrmsGuestMessage.count({ where: { inquiry: { propertyId }, direction: "OUTBOUND", deliveryStatus: { in: ["QUEUED", "SENDING", "RETRY"] } } }),
+    prisma.nrmsGuestMessage.count({ where: { inquiry: { propertyId }, direction: "OUTBOUND", deliveryStatus: "FAILED", NOT: { errorMessage: { startsWith: "WHATSAPP_CUSTOMER_WINDOW_CLOSED" } } } }),
+    prisma.nrmsGuestMessage.count({ where: { inquiry: { propertyId }, direction: "OUTBOUND", deliveryStatus: "FAILED", errorMessage: { startsWith: "WHATSAPP_CUSTOMER_WINDOW_CLOSED" } } }),
+  ]);
+  res.json({ total, page, pageSize, pageCount: Math.ceil(total / pageSize), inquiries: inquiries.map(serializeInquiry), assignees: [owner ? { ...owner, role: "OWNER" } : null, ...memberships.map((item) => ({ ...item.user, role: item.role }))].filter(Boolean), roomTypes: roomTypes.map((room) => ({ ...room, baseRate: Number(room.baseRate) })), reporting: buildInquiryConversionReport(directMetrics, reportInquiries), messagingConnections: messagingConnections.map(({ metadata, ...connection }) => ({ ...connection, status: connection.provider === "WHATSAPP" && connection.status === "CONNECTED" && !(metadata as any)?.phoneRegisteredAt ? "PENDING" : connection.status })), messagingOperations: { webhookPending, webhookDead, outboundRetrying, outboundFailed, templateRequired }, metaReadiness: { appConfigured: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET), webhookConfigured: Boolean(process.env.META_WEBHOOK_VERIFY_TOKEN), graphVersion: process.env.META_GRAPH_API_VERSION || null } });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res: Response) => {
@@ -134,6 +143,7 @@ router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res
   });
   if (!changed) return res.status(409).json({ error: "This inquiry changed on another device. Refresh and try again.", code: "VERSION_CONFLICT" });
   const inquiry = await prisma.nrmsGuestInquiry.findUnique({ where: { id: inquiryId }, include: includeInquiry });
+  await emitNrmsInboxUpdate(propertyId, { reason: "inquiry-updated", inquiryId });
   res.json({ inquiry: serializeInquiry(inquiry) });
 }) as RequestHandler);
 
@@ -143,28 +153,67 @@ router.post("/property/:propertyId/:inquiryId/messages", (async (req: AuthedRequ
   const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
   if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
   const now = new Date();
-  let providerMessageId: string | null = null;
-  let deliveryStatus = "RECORDED";
-  if (parsed.data.direction === "OUTBOUND" && parsed.data.deliveryMode === "SEND") {
+  const sendLive = parsed.data.direction === "OUTBOUND" && parsed.data.deliveryMode === "SEND";
+  if (sendLive) {
     if (!["INSTAGRAM", "WHATSAPP"].includes(loaded.inquiry.channel) || !loaded.inquiry.externalConversationId) return res.status(409).json({ error: "This inquiry is not connected to a live social conversation", code: "META_CONVERSATION_NOT_CONNECTED" });
     const connection = await prisma.nrmsMessagingConnection.findFirst({ where: { propertyId, provider: loaded.inquiry.channel, status: "CONNECTED" } });
     if (!connection) return res.status(409).json({ error: `${loaded.inquiry.channel === "WHATSAPP" ? "WhatsApp" : "Instagram"} is not connected for this property`, code: "META_CHANNEL_NOT_CONNECTED" });
-    try {
-      providerMessageId = await sendMetaText(connection, loaded.inquiry.externalConversationId, sanitizeText(parsed.data.body));
-      deliveryStatus = "SENT";
-      await prisma.nrmsMessagingConnection.update({ where: { id: connection.id }, data: { lastOutboundAt: now, lastError: null, version: { increment: 1 } } });
-    } catch (error) {
-      const message = String(error instanceof Error ? error.message : error).slice(0, 1000);
-      await prisma.nrmsMessagingConnection.update({ where: { id: connection.id }, data: { lastError: message, version: { increment: 1 } } });
-      return res.status(502).json({ error: "Meta could not deliver this message. Nothing was recorded as sent.", code: "META_SEND_FAILED" });
+    if (loaded.inquiry.channel === "WHATSAPP" && !(await isWhatsAppCustomerWindowOpen(inquiryId, now))) {
+      return res.status(409).json({ error: "WhatsApp's 24-hour customer-service window is closed. Send an approved template before a free-form reply.", code: "WHATSAPP_TEMPLATE_REQUIRED" });
     }
   }
-  const message = await prisma.$transaction(async (tx) => {
-    const created = await tx.nrmsGuestMessage.create({ data: { inquiryId, channel: loaded.inquiry.channel, direction: parsed.data.direction, body: sanitizeText(parsed.data.body), senderName: req.user!.name ?? req.user!.email ?? "Reception", sentById: req.user!.id, providerMessageId, deliveryStatus } });
-    await tx.nrmsGuestInquiry.update({ where: { id: inquiryId }, data: { status: parsed.data.direction === "OUTBOUND" ? "WAITING_GUEST" : loaded.inquiry.status === "NEW" ? "OPEN" : loaded.inquiry.status, lastMessageAt: now, ...(parsed.data.direction === "OUTBOUND" && !loaded.inquiry.firstResponseAt ? { firstResponseAt: now } : {}), version: { increment: 1 } } });
-    return created;
+  const result = await prisma.$transaction(async (tx) => {
+    const changed = await tx.nrmsGuestInquiry.updateMany({
+      where: { id: inquiryId, propertyId, version: parsed.data.version },
+      data: { status: parsed.data.direction === "OUTBOUND" ? "WAITING_GUEST" : loaded.inquiry.status === "NEW" ? "OPEN" : loaded.inquiry.status, lastMessageAt: now, version: { increment: 1 } },
+    });
+    if (!changed.count) return null;
+    return tx.nrmsGuestMessage.create({
+      data: {
+        inquiryId,
+        channel: loaded.inquiry.channel,
+        direction: parsed.data.direction,
+        body: sanitizeText(parsed.data.body),
+        senderName: req.user!.name ?? req.user!.email ?? "Reception",
+        sentById: req.user!.id,
+        deliveryStatus: sendLive ? "QUEUED" : "RECORDED",
+        nextAttemptAt: sendLive ? now : null,
+      },
+    });
   });
-  res.status(201).json({ message });
+  if (!result) return res.status(409).json({ error: "This inquiry changed while you were replying. Review the latest message before sending.", code: "VERSION_CONFLICT" });
+  await emitNrmsInboxUpdate(propertyId, { reason: sendLive ? "outbound-queued" : "note-added", inquiryId });
+  res.status(sendLive ? 202 : 201).json({ message: result, queued: sendLive });
+}) as RequestHandler);
+
+router.get("/property/:propertyId/:inquiryId/messages/:messageId/media", (async (req: AuthedRequest, res: Response) => {
+  const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId); const messageId = Number(req.params.messageId);
+  const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
+  const message = await prisma.nrmsGuestMessage.findFirst({ where: { id: messageId, inquiryId, direction: "INBOUND" }, select: { channel: true, metadata: true } });
+  const attachment = (message?.metadata as any)?.attachment;
+  if (!message || !attachment) return res.status(404).json({ error: "Message attachment not found" });
+  const connection = await prisma.nrmsMessagingConnection.findFirst({ where: { propertyId, provider: message.channel, status: "CONNECTED" } });
+  if (!connection) return res.status(409).json({ error: "The messaging channel must be connected to retrieve this attachment" });
+  try {
+    const media = await downloadMetaAttachment(connection, attachment);
+    res.setHeader("Content-Type", media.mimeType);
+    res.setHeader("Content-Disposition", `inline; filename="${media.fileName}"`);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.send(media.bytes);
+  } catch (error) {
+    console.error("[owner.nrms.inquiries] media retrieval failed", error);
+    return res.status(502).json({ error: "This attachment could not be retrieved from Meta. Try again shortly." });
+  }
+}) as RequestHandler);
+
+router.post("/property/:propertyId/messaging-failures/replay", (async (req: AuthedRequest, res: Response) => {
+  const propertyId = Number(req.params.propertyId);
+  const allowed = await access(req, res, propertyId); if (!allowed) return;
+  if (allowed.role !== "OWNER" && allowed.role !== "MANAGER") return res.status(403).json({ error: "Only an owner or manager can replay failed messages" });
+  const replayed = await replayMetaMessagingFailures(propertyId);
+  await emitNrmsInboxUpdate(propertyId, { reason: "failures-replayed" });
+  res.json({ replayed });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/:inquiryId/hold", (async (req: AuthedRequest, res: Response) => {
@@ -193,6 +242,7 @@ router.post("/property/:propertyId/:inquiryId/hold", (async (req: AuthedRequest,
       const status = ["INVALID_DATES", "ROOM_TYPE_NOT_FOUND", "ROOM_TYPE_MISMATCH"].includes(result.code) ? 400 : 409;
       return res.status(status).json({ error: result.message, code: result.code });
     }
+    await emitNrmsInboxUpdate(propertyId, { reason: "inquiry-converted", inquiryId });
     return res.status(201).json({ hold: result });
   } catch (error) {
     console.error("[owner.nrms.inquiries] conversion failed", error);

@@ -169,6 +169,7 @@
     "20260824120000_add_nrms_guest_contact_settings": "6cad0f87a8dd91d9db594fd54f3938cacc1d5c77b895df74a2bcb97ed0eceebd",
     "20260824150000_add_nrms_guest_inquiry_inbox": "cf9e4fe1716225f0960958174729a1e6da1d5a89f81bdd14ddbf900c152ca57b",
     "20260825003000_add_nrms_inquiry_ack_and_meta_messaging": "be5d12a071de8da9df90b625d20174ca4bfcbb072f2bd12b194bdcccbd5ce564",
-    "20260825113000_harden_meta_conversation_identity": "50f194b80d53a2eb4057d20560608e56e46ac51d09e84b852790843fe189056c"
+    "20260825113000_harden_meta_conversation_identity": "50f194b80d53a2eb4057d20560608e56e46ac51d09e84b852790843fe189056c",
+    "20260825170000_add_meta_message_reliability": "e948e694c82554d2d1df4293fa229112d2b6a467e8cdbff463faa8c7ba26097d"
   }
 }
