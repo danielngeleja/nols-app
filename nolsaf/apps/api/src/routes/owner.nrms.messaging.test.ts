@@ -43,7 +43,7 @@ describe("property-scoped Meta connection routes", () => {
       id: 12, propertyId: 19, provider: "WHATSAPP", status: "CONNECTED", externalBusinessId: "9001", externalAccountId: "9001",
       phoneNumberId: "8001", accessTokenEncrypted: "encrypted-token", lastWebhookAt: now,
     });
-    mocks.prisma.nrmsWorkerHealth.findUnique.mockResolvedValue({ worker: "meta-messaging", status: "HEALTHY", lastSuccessAt: now, lastError: null });
+    mocks.prisma.nrmsWorkerHealth.findUnique.mockResolvedValue({ worker: "meta-messaging", status: "RUNNING", lastSuccessAt: now, lastError: null });
     mocks.prisma.nrmsMetaWebhookJob.findFirst.mockResolvedValue({ status: "COMPLETED", lastError: null, createdAt: now, completedAt: now });
     mocks.prisma.nrmsGuestMessage.findFirst.mockResolvedValue({ createdAt: now });
     vi.stubEnv("META_WEBHOOK_VERIFY_TOKEN", "verify-token");
