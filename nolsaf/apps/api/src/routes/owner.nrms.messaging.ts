@@ -221,6 +221,10 @@ router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedReques
       checks,
       evidence: {
         reportedCallback,
+        // Routing compares Meta's metadata.phone_number_id against the stored
+        // value, so both are reported: a mismatch is the failure to look for.
+        storedPhoneNumberId: connection?.phoneNumberId ?? null,
+        storedWabaId: connection?.externalBusinessId ?? null,
         connectedPhoneNumber,
         phoneStatus,
         codeVerificationStatus,

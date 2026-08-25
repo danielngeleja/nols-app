@@ -317,11 +317,12 @@ export async function processMetaMessagingJobs(now = new Date()) {
   return { inbound, outbound };
 }
 
-export async function replayMetaMessagingFailures(propertyId: number): Promise<{ webhookJobs: number; outboundMessages: number }> {
+export async function replayMetaMessagingFailures(propertyId?: number): Promise<{ webhookJobs: number; outboundMessages: number }> {
   const now = new Date();
+  const propertyWhere = propertyId ? { propertyId } : {};
   const [webhookJobs, outboundMessages] = await prisma.$transaction([
-    prisma.nrmsMetaWebhookJob.updateMany({ where: { propertyId, status: "DEAD" }, data: { status: "RETRY", attemptCount: 0, availableAt: now, lockedAt: null, completedAt: null, lastError: null } }),
-    prisma.nrmsGuestMessage.updateMany({ where: { inquiry: { propertyId }, direction: "OUTBOUND", deliveryStatus: "FAILED", NOT: { errorMessage: { startsWith: "WHATSAPP_CUSTOMER_WINDOW_CLOSED" } } }, data: { deliveryStatus: "RETRY", attemptCount: 0, nextAttemptAt: now, errorMessage: null } }),
+    prisma.nrmsMetaWebhookJob.updateMany({ where: { ...propertyWhere, status: "DEAD" }, data: { status: "RETRY", attemptCount: 0, availableAt: now, lockedAt: null, completedAt: null, lastError: null } }),
+    prisma.nrmsGuestMessage.updateMany({ where: { ...(propertyId ? { inquiry: { propertyId } } : {}), direction: "OUTBOUND", channel: { in: ["INSTAGRAM", "WHATSAPP"] }, deliveryStatus: "FAILED", NOT: { errorMessage: { startsWith: "WHATSAPP_CUSTOMER_WINDOW_CLOSED" } } }, data: { deliveryStatus: "RETRY", attemptCount: 0, nextAttemptAt: now, errorMessage: null } }),
   ]);
   return { webhookJobs: webhookJobs.count, outboundMessages: outboundMessages.count };
 }
