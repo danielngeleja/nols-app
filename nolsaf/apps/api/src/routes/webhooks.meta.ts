@@ -4,6 +4,7 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { buildInquiryAcknowledgement } from "../lib/nrmsInquiryAcknowledgement.js";
 import { parseMetaWebhook, sendMetaText, verifyMetaWebhookSignature, type MetaInboundMessage } from "../lib/nrmsMetaMessaging.js";
 import { publicNrmsGuestContact } from "../lib/nrmsGuestContact.js";
+import { nrmsMetaConversationKey } from "../lib/nrmsMetaConversation.js";
 
 export const router = Router();
 
@@ -44,56 +45,75 @@ async function receiveMessage(event: MetaInboundMessage) {
   if (existingMessage) return true;
 
   const channel = event.provider;
-  const recentClick = event.provider === "WHATSAPP"
+  const activeConversationKey = nrmsMetaConversationKey(connection.propertyId, channel, event.senderId);
+  const activeInquiry = await prisma.nrmsGuestInquiry.findUnique({ where: { activeConversationKey } });
+  const recentClick = !activeInquiry && event.provider === "WHATSAPP"
     ? await prisma.nrmsGuestInquiry.findFirst({
         where: {
           propertyId: connection.propertyId,
           channel,
           externalConversationId: null,
           guestPhone: { contains: event.senderId.slice(-9) },
-          status: { notIn: ["CONVERTED", "CLOSED"] },
+          status: { notIn: ["RESOLVED", "CONVERTED", "CLOSED"] },
           createdAt: { gte: new Date(Date.now() - 30 * 60_000) },
         },
         orderBy: { createdAt: "desc" },
       })
     : null;
-  const existingInquiry = recentClick ?? await prisma.nrmsGuestInquiry.findFirst({
-    where: { propertyId: connection.propertyId, channel, externalConversationId: event.senderId, status: { notIn: ["CONVERTED", "CLOSED"] } },
-    orderBy: { createdAt: "desc" },
-  });
   const parsedDates = datesFromMessage(event.body);
   const now = new Date();
-  let inquiryId: number;
+  let inquiry = activeInquiry ?? recentClick;
   let newConversation = false;
 
-  if (existingInquiry) {
-    inquiryId = existingInquiry.id;
+  if (recentClick) {
     try {
-      await prisma.$transaction(async (tx) => {
-        await tx.nrmsGuestMessage.create({ data: { inquiryId, direction: "INBOUND", channel, providerMessageId: event.providerMessageId, senderName: event.senderName, body: event.body, deliveryStatus: "DELIVERED", createdAt: event.occurredAt, metadata: { externalSenderId: event.senderId } } });
-        await tx.nrmsGuestInquiry.update({ where: { id: inquiryId }, data: { externalConversationId: event.senderId, guestName: existingInquiry.guestName || event.senderName, guestPhone: existingInquiry.guestPhone || (event.provider === "WHATSAPP" ? event.senderId : null), checkIn: existingInquiry.checkIn || (parsedDates.checkIn ? new Date(`${parsedDates.checkIn}T00:00:00.000Z`) : null), checkOut: existingInquiry.checkOut || (parsedDates.checkOut ? new Date(`${parsedDates.checkOut}T00:00:00.000Z`) : null), status: existingInquiry.status === "WAITING_GUEST" ? "OPEN" : existingInquiry.status, lastMessageAt: event.occurredAt, version: { increment: 1 } } });
+      inquiry = await prisma.nrmsGuestInquiry.update({
+        where: { id: recentClick.id },
+        data: { activeConversationKey, externalConversationId: event.senderId },
       });
-    } catch (error) { if (prismaCode(error) !== "P2002") throw error; }
-  } else {
-    newConversation = true;
-    const inquiry = await prisma.nrmsGuestInquiry.create({
-      data: {
-        propertyId: connection.propertyId,
-        ownerId: connection.ownerId,
-        reference: `INQ-${connection.propertyId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
-        channel,
-        source: channel,
-        externalConversationId: event.senderId,
-        guestName: event.senderName,
-        guestPhone: event.provider === "WHATSAPP" ? event.senderId : null,
-        checkIn: parsedDates.checkIn ? new Date(`${parsedDates.checkIn}T00:00:00.000Z`) : null,
-        checkOut: parsedDates.checkOut ? new Date(`${parsedDates.checkOut}T00:00:00.000Z`) : null,
-        lastMessageAt: event.occurredAt,
-        messages: { create: { direction: "INBOUND", channel, providerMessageId: event.providerMessageId, senderName: event.senderName, body: event.body, deliveryStatus: "DELIVERED", createdAt: event.occurredAt, metadata: { externalSenderId: event.senderId } } },
-      },
-      select: { id: true },
+    } catch (error) {
+      if (prismaCode(error) !== "P2002") throw error;
+      inquiry = await prisma.nrmsGuestInquiry.findUnique({ where: { activeConversationKey } });
+    }
+  }
+
+  if (!inquiry) {
+    try {
+      inquiry = await prisma.nrmsGuestInquiry.create({
+        data: {
+          propertyId: connection.propertyId,
+          ownerId: connection.ownerId,
+          reference: `INQ-${connection.propertyId}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+          channel,
+          source: channel,
+          externalConversationId: event.senderId,
+          activeConversationKey,
+          guestName: event.senderName,
+          guestPhone: event.provider === "WHATSAPP" ? event.senderId : null,
+          checkIn: parsedDates.checkIn ? new Date(`${parsedDates.checkIn}T00:00:00.000Z`) : null,
+          checkOut: parsedDates.checkOut ? new Date(`${parsedDates.checkOut}T00:00:00.000Z`) : null,
+          lastMessageAt: event.occurredAt,
+        },
+      });
+      newConversation = true;
+    } catch (error) {
+      if (prismaCode(error) !== "P2002") throw error;
+      inquiry = await prisma.nrmsGuestInquiry.findUnique({ where: { activeConversationKey } });
+    }
+  }
+
+  if (!inquiry) throw new Error("ACTIVE_META_INQUIRY_NOT_FOUND");
+  const inquiryId = inquiry.id;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.nrmsGuestMessage.create({ data: { inquiryId, direction: "INBOUND", channel, providerMessageId: event.providerMessageId, senderName: event.senderName, body: event.body, deliveryStatus: "DELIVERED", createdAt: event.occurredAt, metadata: { externalSenderId: event.senderId } } });
+      await tx.nrmsGuestInquiry.update({ where: { id: inquiryId }, data: { activeConversationKey, externalConversationId: event.senderId, guestName: inquiry.guestName || event.senderName, guestPhone: inquiry.guestPhone || (event.provider === "WHATSAPP" ? event.senderId : null), checkIn: inquiry.checkIn || (parsedDates.checkIn ? new Date(`${parsedDates.checkIn}T00:00:00.000Z`) : null), checkOut: inquiry.checkOut || (parsedDates.checkOut ? new Date(`${parsedDates.checkOut}T00:00:00.000Z`) : null), status: inquiry.status === "WAITING_GUEST" ? "OPEN" : inquiry.status, lastMessageAt: event.occurredAt, version: { increment: 1 } } });
     });
-    inquiryId = inquiry.id;
+  } catch (error) {
+    // Meta retries the same webhook until it receives 200. The provider message
+    // unique key makes that retry safe while the active conversation key keeps
+    // different simultaneous first messages on this same inquiry.
+    if (prismaCode(error) !== "P2002") throw error;
   }
 
   await prisma.nrmsMessagingConnection.update({ where: { id: connection.id }, data: { lastWebhookAt: now, lastError: null, version: { increment: 1 } } });
@@ -121,10 +141,10 @@ async function receiveMessage(event: MetaInboundMessage) {
 }
 
 router.post("/", (async (req: Request, res: Response) => {
-  const appSecret = String(process.env.META_APP_SECRET || "");
-  if (!appSecret) return res.status(503).json({ error: "Meta webhook is not configured" });
+  const appSecrets = [...new Set([process.env.META_APP_SECRET, process.env.META_INSTAGRAM_APP_SECRET].map((value) => String(value || "")).filter(Boolean))];
+  if (!appSecrets.length) return res.status(503).json({ error: "Meta webhook is not configured" });
   const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}));
-  if (!verifyMetaWebhookSignature(rawBody, req.header("x-hub-signature-256"), appSecret)) return res.sendStatus(401);
+  if (!appSecrets.some((secret) => verifyMetaWebhookSignature(rawBody, req.header("x-hub-signature-256"), secret))) return res.sendStatus(401);
   let payload: unknown;
   try { payload = JSON.parse(rawBody.toString("utf8")); }
   catch { return res.status(400).json({ error: "Invalid Meta webhook payload" }); }

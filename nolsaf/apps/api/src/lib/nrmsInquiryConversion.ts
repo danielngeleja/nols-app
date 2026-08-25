@@ -91,7 +91,7 @@ export async function createInquiryRoomHold(
           propertyId: input.propertyId,
           ownerId: input.ownerId,
           reservationId: null,
-          status: { notIn: ["CONVERTED", "CLOSED"] },
+          status: { notIn: ["RESOLVED", "CONVERTED", "CLOSED"] },
         },
         select: { id: true, reference: true, channel: true, roomTypeId: true, version: true },
       });
@@ -213,11 +213,12 @@ export async function createInquiryRoomHold(
           propertyId: input.propertyId,
           version: input.version,
           reservationId: null,
-          status: { notIn: ["CONVERTED", "CLOSED"] },
+          status: { notIn: ["RESOLVED", "CONVERTED", "CLOSED"] },
         },
         data: {
           reservationId: reservation.id,
           status: "CONVERTED",
+          activeConversationKey: null,
           convertedAt: new Date(),
           lastMessageAt: new Date(),
           version: { increment: 1 },

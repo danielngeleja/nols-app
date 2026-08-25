@@ -6,7 +6,7 @@ import {
   AlertTriangle, BarChart3, BedDouble, Check, CheckCircle2, ClipboardCheck, CloudOff, CreditCard,
   Gauge, Gift, Info, Layers3, Loader2, MessageSquareText, Plus, RefreshCw, Save,
   Sparkles, Star, Wrench, ChevronLeft, ChevronRight, X, Tag, Coins, Percent,
-  Instagram, Phone, Mail, Clock3,
+  Instagram, Phone, Mail, Clock3, Globe2, Eye, EyeOff,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
@@ -27,6 +27,8 @@ type Dashboard = {
   reviewInsights: { responses: number; overall: number | null; categories: Array<{ key: string; label: string; average: number; responses: number }>; selectedCategories: string[]; availableCategories: Array<{ key: string; label: string }> } | null;
 };
 type OfflineMutation = { clientMutationId: string; action: "SERVICE_CASE_CREATE" | "SERVICE_CASE_STATUS" | "ROOM_HOUSEKEEPING_STATUS"; targetId?: number; baseVersion?: number; payload: Record<string, unknown> };
+type MetaConnection = { provider: "INSTAGRAM" | "WHATSAPP"; status: string; displayName: string | null; externalAccountId: string | null; tokenExpiresAt: string | null; webhookSubscribedAt: string | null; lastWebhookAt: string | null; lastOutboundAt: string | null; lastError: string | null; version: number };
+type MetaConnectionState = { connections: MetaConnection[]; readiness: { instagramOAuthConfigured: boolean; whatsappEmbeddedSignupConfigured: boolean; webhookConfigured: boolean; whatsappAppId: string | null; whatsappConfigId: string | null; graphVersion: string } };
 
 const inputClass = "box-border min-h-10 w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100 disabled:bg-neutral-100";
 const buttonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border-0 bg-[#075e54] px-4 text-xs font-bold text-white transition hover:bg-[#064b43] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500";
@@ -192,6 +194,19 @@ function queueKey(propertyId: number) { return `nrms-offline-queue:${propertyId}
 function readQueue(propertyId: number): OfflineMutation[] { try { return JSON.parse(localStorage.getItem(queueKey(propertyId)) || "[]"); } catch { return []; } }
 function cacheKey(propertyId: number) { return `nrms-offline-snapshot:${propertyId}`; }
 
+let metaSdkPromise: Promise<any> | null = null;
+function loadMetaSdk(appId: string, graphVersion: string): Promise<any> {
+  if (typeof window === "undefined") return Promise.reject(new Error("Meta signup requires a browser"));
+  const existing = (window as any).FB; if (existing) { existing.init({ appId, cookie: true, xfbml: false, version: graphVersion }); return Promise.resolve(existing); }
+  if (metaSdkPromise) return metaSdkPromise;
+  metaSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script"); script.async = true; script.defer = true; script.src = "https://connect.facebook.net/en_US/sdk.js";
+    script.onload = () => { const sdk = (window as any).FB; if (!sdk) return reject(new Error("Meta SDK did not load")); sdk.init({ appId, cookie: true, xfbml: false, version: graphVersion }); resolve(sdk); };
+    script.onerror = () => reject(new Error("Meta SDK could not be loaded")); document.head.appendChild(script);
+  });
+  return metaSdkPromise;
+}
+
 export default function NrmsControlsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
   const searchParams = useSearchParams();
@@ -205,6 +220,8 @@ export default function NrmsControlsPage() {
   const [service, setService] = useState({ title: "", category: "MAINTENANCE", priority: "NORMAL", roomUnitId: "", description: "" });
   const [journey, setJourney] = useState({ name: "", trigger: "PRE_ARRIVAL", offsetMinutes: "-1440", channel: "SMS", message: "Hello {{guest}}, we look forward to welcoming you to {{property}}." });
   const [guestContact, setGuestContact] = useState<GuestContact>(emptyGuestContact);
+  const [metaConnections, setMetaConnections] = useState<MetaConnectionState | null>(null);
+  const [metaConnectionStatus, setMetaConnectionStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [payment, setPayment] = useState({ reservationId: "", kind: "DEPOSIT", amount: "", dueAt: "" });
   const [portfolio, setPortfolio] = useState({ name: "", propertyIds: [] as number[] });
   const [loyaltyPage, setLoyaltyPage] = useState(1); const [reviewPage, setReviewPage] = useState(1);
@@ -218,12 +235,25 @@ export default function NrmsControlsPage() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const meta = searchParams.get("meta");
+    if (meta === "connected") setMessage("Instagram is connected to this property. New direct messages can now enter Reception inquiries.");
+    if (meta === "error") setError(`Instagram could not be connected (${searchParams.get("reason") || "connection failed"}).`);
+  }, [searchParams]);
+
+  const loadMetaConnections = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    setMetaConnectionStatus("loading");
+    try { const response = await apiClient.get<MetaConnectionState>(`/api/owner/nrms/messaging/property/${selectedPropertyId}`); setMetaConnections(response.data); setMetaConnectionStatus("ready"); }
+    catch { setMetaConnections(null); setMetaConnectionStatus("unavailable"); }
+  }, [selectedPropertyId]);
+
   const load = useCallback(async () => {
     if (!selectedPropertyId) return; setLoading(true); setError(null);
-    try { const response = await apiClient.get<Dashboard>(`/api/owner/nrms/market-readiness/${selectedPropertyId}`); setData(response.data); localStorage.setItem(cacheKey(selectedPropertyId), JSON.stringify({ savedAt: new Date().toISOString(), data: response.data })); }
+    try { const response = await apiClient.get<Dashboard>(`/api/owner/nrms/market-readiness/${selectedPropertyId}`); setData(response.data); localStorage.setItem(cacheKey(selectedPropertyId), JSON.stringify({ savedAt: new Date().toISOString(), data: response.data })); void loadMetaConnections(); }
     catch (requestError: any) { try { const snapshot = JSON.parse(localStorage.getItem(cacheKey(selectedPropertyId)) || "null"); if (snapshot?.data) { setData(snapshot.data); setMessage(`Showing the last synced hotel snapshot from ${new Date(snapshot.savedAt).toLocaleString()}.`); } else setError(requestError?.response?.data?.error || "Hotel controls could not be loaded."); } catch { setError(requestError?.response?.data?.error || "Hotel controls could not be loaded."); } }
     finally { setLoading(false); }
-  }, [selectedPropertyId]);
+  }, [loadMetaConnections, selectedPropertyId]);
 
   const replay = useCallback(async () => {
     if (!selectedPropertyId || !navigator.onLine) return; const mutations = readQueue(selectedPropertyId); if (!mutations.length) return;
@@ -261,10 +291,43 @@ export default function NrmsControlsPage() {
   };
   const updateCase = (item: any, status: string) => act(`case-${item.id}`, () => apiClient.patch(`/api/owner/nrms/market-readiness/${selectedPropertyId}/service-cases/${item.id}`, { version: item.version, status }), `Case ${status.toLowerCase().replaceAll("_", " ")}.`);
   const saveGuestContact = () => act("guest-contact", () => apiClient.put(`/api/owner/nrms/market-readiness/${selectedPropertyId}/guest-contact`, guestContact), guestContact.enabled ? "Guest contact channels are now live on the booking page." : "Public guest contact channels were saved but remain hidden.");
+  const connectInstagram = async () => {
+    if (!selectedPropertyId) return; setBusy("meta-instagram"); setError(null);
+    try { const response = await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/instagram/connect`); window.location.assign(response.data.authorizeUrl); }
+    catch (requestError: any) { setError(requestError?.response?.data?.error || "Instagram connection could not be started."); setBusy(null); }
+  };
+  const disconnectInstagram = () => act("meta-instagram", () => apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/INSTAGRAM/disconnect`), "Instagram was disconnected from this property.").then(() => loadMetaConnections());
+  const connectWhatsApp = async () => {
+    const readiness = metaConnections?.readiness; if (!selectedPropertyId || !readiness?.whatsappAppId || !readiness.whatsappConfigId) return;
+    setBusy("meta-whatsapp"); setError(null); setMessage(null);
+    let removeListener = () => {};
+    try {
+      const sdk = await loadMetaSdk(readiness.whatsappAppId, readiness.graphVersion);
+      const assets = new Promise<{ wabaId: string; phoneNumberId: string }>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error("WhatsApp signup timed out")), 120_000);
+        const listener = (event: MessageEvent) => {
+          if (!["https://www.facebook.com", "https://web.facebook.com"].includes(event.origin)) return;
+          let payload: any; try { payload = typeof event.data === "string" ? JSON.parse(event.data) : event.data; } catch { return; }
+          if (payload?.type !== "WA_EMBEDDED_SIGNUP") return;
+          if (payload.event === "CANCEL" || payload.event === "ERROR") { window.clearTimeout(timer); reject(new Error("WhatsApp signup was not completed")); return; }
+          if (payload.event === "FINISH" && payload.data?.waba_id && payload.data?.phone_number_id) { window.clearTimeout(timer); resolve({ wabaId: String(payload.data.waba_id), phoneNumberId: String(payload.data.phone_number_id) }); }
+        };
+        window.addEventListener("message", listener); removeListener = () => { window.clearTimeout(timer); window.removeEventListener("message", listener); };
+      });
+      const code = new Promise<string>((resolve, reject) => sdk.login((response: any) => response?.authResponse?.code ? resolve(String(response.authResponse.code)) : reject(new Error("Meta did not authorize WhatsApp signup")), { config_id: readiness.whatsappConfigId, response_type: "code", override_default_response_type: true, extras: { setup: {} } }));
+      const [authorizationCode, selectedAssets] = await Promise.all([code, assets]);
+      await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/whatsapp/connect`, { code: authorizationCode, ...selectedAssets });
+      setMessage("WhatsApp Business is connected to this property. Incoming messages can now enter Reception inquiries."); await loadMetaConnections();
+    } catch (requestError: any) { setError(requestError?.response?.data?.error || requestError?.message || "WhatsApp connection could not be completed."); }
+    finally { removeListener(); setBusy(null); }
+  };
+  const disconnectWhatsApp = () => act("meta-whatsapp", () => apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/WHATSAPP/disconnect`), "WhatsApp was disconnected from this property.").then(() => loadMetaConnections());
   const progress = useMemo(() => { const checks = data?.onboarding?.checks ?? []; return checks.length ? Math.round(checks.filter((item: any) => item.status === "VERIFIED").length / checks.length * 100) : 0; }, [data]);
   const loyaltyView = useMemo(() => paged(data?.loyalty ?? [], loyaltyPage), [data, loyaltyPage]);
   const reviewView = useMemo(() => paged(data?.reviews ?? [], reviewPage), [data, reviewPage]);
   const recoveryQueue = useMemo(() => (data?.reviews ?? []).filter((item: any) => item.needsRecovery && !item.recoveredAt), [data]);
+  const publicChannelCount = [guestContact.instagramUsername, guestContact.whatsappPhone, guestContact.receptionPhone, guestContact.receptionEmail]
+    .filter((value) => Boolean(value?.trim())).length;
   const toggleReviewCategory = (key: string) => {
     const current: string[] = data?.reviewInsights?.selectedCategories ?? [];
     const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
@@ -283,9 +346,22 @@ export default function NrmsControlsPage() {
       onCancel={() => setRestrictionConfirmation(null)}
       onConfirm={() => void confirmRestrictionAction()}
     />}
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Hotel operating system</p><h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Hotel controls</h1><p className="mb-0 mt-1 max-w-3xl text-sm text-neutral-500">Rates, readiness, service recovery and growth controls for {selectedProperty?.title || "this property"}.</p></div>
-      <div className="flex flex-wrap items-center gap-2"><ShareBookingButton propertyId={selectedPropertyId} propertyTitle={selectedProperty?.title} /><span className={`inline-flex min-h-9 items-center gap-2 rounded-full px-3 text-xs font-bold ${online ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{online ? <CheckCircle2 className="h-4 w-4" /> : <CloudOff className="h-4 w-4" />}{online ? (queued ? `${queued} waiting to sync` : "Synced") : `${queued} saved offline`}</span><button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button></div>
+    <header className="relative rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <div className="grid gap-5 px-5 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div className="flex min-w-0 items-start gap-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-950 text-emerald-200 shadow-sm"><Gauge className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Hotel operating system</p><span className="h-1 w-1 rounded-full bg-neutral-300" /><span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-400">{selectedProperty?.title || "Property workspace"}</span></div>
+            <h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Hotel controls</h1>
+            <p className="mb-0 mt-1 max-w-2xl text-sm leading-5 text-neutral-500">Manage commercial rules, operational readiness and direct guest conversion from one property workspace.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <span className={`inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold ${online ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{online ? <CheckCircle2 className="h-4 w-4" /> : <CloudOff className="h-4 w-4" />}{online ? (queued ? `${queued} waiting to sync` : "All changes synced") : `${queued} saved offline`}</span>
+          <ShareBookingButton propertyId={selectedPropertyId} propertyTitle={selectedProperty?.title} />
+          <button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+        </div>
+      </div>
     </header>
     {(message || error) && <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${error ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Check className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || message}</span></div>}
     {tab === "rates" && <div className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
@@ -404,42 +480,102 @@ export default function NrmsControlsPage() {
     </div>}
 
     {tab === "guest" && <div className="space-y-5">
-      <Section title="Guest contact and conversion" copy="Give direct-booking visitors a real path to reception. These property contacts never fall back to the owner's personal account.">
-        <div className="grid items-start gap-5 xl:grid-cols-[1.25fr_.75fr]">
-          <div>
-            <label className="flex items-start justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <span><span className="block text-sm font-bold text-emerald-950">Publish reception channels</span><span className="mt-1 block text-xs leading-5 text-emerald-800/70">Guests will only see the channels completed below.</span></span>
-              <input type="checkbox" checked={guestContact.enabled} onChange={(event) => setGuestContact({ ...guestContact, enabled: event.target.checked })} aria-label="Publish reception channels" />
-            </label>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Label><span className="flex items-center gap-1.5"><Instagram className="h-3.5 w-3.5 text-fuchsia-600" />Instagram username</span><input className={inputClass} value={guestContact.instagramUsername || ""} onChange={(event) => setGuestContact({ ...guestContact, instagramUsername: event.target.value })} placeholder="hotel.username" /></Label>
-              <Label><span className="flex items-center gap-1.5"><MessageSquareText className="h-3.5 w-3.5 text-emerald-600" />WhatsApp Business</span><input type="tel" className={inputClass} value={guestContact.whatsappPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, whatsappPhone: event.target.value })} placeholder="+255712345678" /></Label>
-              <Label><span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-sky-600" />Reception telephone</span><input type="tel" className={inputClass} value={guestContact.receptionPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionPhone: event.target.value })} placeholder="+255712345678" /></Label>
-              <Label><span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-amber-600" />Reception email</span><input type="email" className={inputClass} value={guestContact.receptionEmail || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionEmail: event.target.value })} placeholder="reservations@hotel.com" /></Label>
-              <Label><span className="flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5 text-neutral-500" />Contact hours</span><input className={inputClass} value={guestContact.contactHours || ""} onChange={(event) => setGuestContact({ ...guestContact, contactHours: event.target.value })} placeholder="Daily, 06:00–23:00 EAT" /></Label>
-              <Label>Preferred greeting language<select className={inputClass} value={guestContact.preferredLanguage} onChange={(event) => setGuestContact({ ...guestContact, preferredLanguage: event.target.value as GuestContact["preferredLanguage"] })}><option value="EN_SW">English and Swahili</option><option value="SW">Swahili</option><option value="EN">English</option></select></Label>
-              <label className="grid gap-1.5 text-xs font-bold text-neutral-700 sm:col-span-2">Welcome message<textarea className={`${inputClass} min-h-24 py-3`} value={guestContact.greeting || ""} onChange={(event) => setGuestContact({ ...guestContact, greeting: event.target.value })} placeholder="Karibu. View live rooms or contact reception for help with your stay." /></label>
-            </div>
-            <button type="button" className={`${buttonClass} mt-5`} disabled={busy === "guest-contact"} onClick={() => void saveGuestContact()}>{busy === "guest-contact" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save guest channels</button>
+      <section className="overflow-hidden rounded-2xl border border-neutral-300 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.07)]">
+        <header className="grid gap-4 border-b border-neutral-300 px-5 py-5 sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200"><MessageSquareText className="h-5 w-5" /></span>
+            <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Direct booking conversion</p><h2 className="mb-0 mt-1 text-lg font-bold tracking-tight text-neutral-950">Guest contact channels</h2><p className="mb-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500">Publish property-owned reception details so every interested guest has a clear next action after checking availability.</p></div>
           </div>
-          <div className="space-y-3">
-            <div className="rounded-xl border border-neutral-200 bg-neutral-950 p-4 text-white">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[.15em] text-emerald-300">Public contact preview</p>
-              <h3 className="mb-0 mt-2 text-base font-bold">Talk to {selectedProperty?.title || "reception"}</h3>
-              <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-400">{guestContact.greeting || "Choose the channel that is most convenient for you."}</p>
-              <div className="mt-4 grid gap-2">
-                {guestContact.instagramUsername && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-[linear-gradient(110deg,#7c3aed,#db2777,#f97316)] px-3 text-xs font-bold"><Instagram className="h-4 w-4" />Instagram · @{guestContact.instagramUsername.replace(/^@/, "")}</span>}
-                {guestContact.whatsappPhone && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-[#25D366] px-3 text-xs font-bold"><MessageSquareText className="h-4 w-4" />WhatsApp reception</span>}
-                {guestContact.receptionPhone && <span className="flex min-h-9 items-center gap-2 rounded-lg bg-sky-700 px-3 text-xs font-bold"><Phone className="h-4 w-4" />Call reception</span>}
-                {!guestContact.instagramUsername && !guestContact.whatsappPhone && !guestContact.receptionPhone && <span className="text-xs text-neutral-400">Add a public channel to complete the preview.</span>}
+          <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] ${guestContact.enabled && publicChannelCount ? "bg-emerald-100 text-emerald-800" : guestContact.enabled ? "bg-amber-100 text-amber-900" : "bg-neutral-100 text-neutral-600"}`}>{guestContact.enabled && publicChannelCount ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}{guestContact.enabled && publicChannelCount ? `${publicChannelCount} channels live` : guestContact.enabled ? "Channel required" : "Not published"}</span>
+        </header>
+
+        <div className="grid lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,.75fr)]">
+          <div className="p-5 sm:p-6">
+            <div className={`flex flex-col gap-4 rounded-xl border p-4 shadow-[0_3px_10px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between ${guestContact.enabled ? "border-emerald-300 bg-emerald-50/70" : "border-neutral-300 bg-neutral-50"}`}>
+              <div className="flex min-w-0 items-start gap-3"><span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${guestContact.enabled ? "bg-emerald-700 text-white" : "bg-white text-neutral-400 ring-1 ring-neutral-200"}`}><Globe2 className="h-4 w-4" /></span><span><span className="block text-sm font-bold text-neutral-950">Publish on the booking page</span><span className="mt-0.5 block text-[11px] leading-5 text-neutral-500">Only completed channels are displayed. Owner personal details are never used as a fallback.</span></span></div>
+              <button type="button" role="switch" aria-checked={guestContact.enabled} onClick={() => setGuestContact({ ...guestContact, enabled: !guestContact.enabled })} className={`relative h-7 w-12 shrink-0 rounded-full border-0 p-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${guestContact.enabled ? "bg-emerald-700" : "bg-neutral-300"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${guestContact.enabled ? "left-1 translate-x-5" : "left-1 translate-x-0"}`} /><span className="sr-only">Publish reception channels</span></button>
+            </div>
+
+            <div className="mt-6">
+              <div className="flex items-end justify-between gap-3"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Social and messaging</h3><p className="mb-0 mt-1 text-[11px] text-neutral-500">Fast conversation channels for booking questions.</p></div><span className="text-[10px] font-semibold text-neutral-400">Optional</span></div>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <Label><span className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-fuchsia-50 text-fuchsia-600"><Instagram className="h-4 w-4" /></span>Instagram username</span><input className={inputClass} value={guestContact.instagramUsername || ""} onChange={(event) => setGuestContact({ ...guestContact, instagramUsername: event.target.value })} placeholder="hotel.username" /></Label>
+                <Label><span className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><MessageSquareText className="h-4 w-4" /></span>WhatsApp Business</span><input type="tel" className={inputClass} value={guestContact.whatsappPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, whatsappPhone: event.target.value })} placeholder="+255 712 345 678" /></Label>
+              </div>
+              {(() => {
+                const connection = metaConnections?.connections.find((item) => item.provider === "INSTAGRAM");
+                const connected = connection?.status === "CONNECTED";
+                const ready = Boolean(metaConnections?.readiness.instagramOAuthConfigured);
+                const checking = metaConnectionStatus === "loading";
+                const unavailable = metaConnectionStatus === "unavailable";
+                const statusLabel = connected ? "Connected" : checking ? "Checking availability" : ready ? "Ready to connect" : unavailable ? "Status unavailable" : "Platform setup required";
+                return <div className={`mt-4 grid gap-4 rounded-2xl border p-4 shadow-[0_4px_14px_rgba(15,23,42,0.06)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${connected ? "border-emerald-300 bg-emerald-50/60" : ready ? "border-fuchsia-300 bg-white" : "border-neutral-300 bg-white"}`}>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${connected ? "bg-emerald-700 text-white shadow-sm" : "bg-white text-fuchsia-600 ring-1 ring-neutral-200"}`}><Instagram className="h-4 w-4" /></span>
+                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">Instagram inbox</p><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${connected ? "bg-emerald-100 text-emerald-800" : ready ? "bg-fuchsia-50 text-fuchsia-700" : "bg-white text-neutral-600 ring-1 ring-neutral-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : ready ? "bg-fuchsia-500" : checking ? "animate-pulse bg-neutral-400" : "bg-amber-500"}`} />{statusLabel}</span></div><p className="mb-0 mt-1.5 text-[10px] leading-4 text-neutral-500">{connected ? `@${String(connection?.displayName || guestContact.instagramUsername || "Instagram").replace(/^@/, "")} is securely routed to ${selectedProperty?.title || "this property"}.` : ready ? "Connect the hotel's Instagram Professional account to route new DMs into Reception inquiries." : unavailable ? "Connection status could not be checked. The public Instagram contact link is not affected." : "Automated Instagram inbox sync is awaiting activation by the NoLSAF platform team."}</p>{connection?.lastError && <p className="mb-0 mt-1 text-[10px] font-semibold text-amber-800">This connection needs attention. Reconnect the account or contact support.</p>}</div>
+                  </div>
+                  {connected ? <button type="button" disabled={busy === "meta-instagram"} onClick={() => void disconnectInstagram()} className="min-h-9 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700 transition hover:bg-red-50">Disconnect</button> : ready ? <button type="button" disabled={busy === "meta-instagram"} onClick={() => void connectInstagram()} className={buttonClass}>{busy === "meta-instagram" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Instagram className="h-4 w-4" />}Connect account</button> : <span className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-500">{checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}{checking ? "Checking" : "Admin setup"}</span>}
+                </div>;
+              })()}
+              {(() => {
+                const connection = metaConnections?.connections.find((item) => item.provider === "WHATSAPP");
+                const connected = connection?.status === "CONNECTED";
+                const ready = Boolean(metaConnections?.readiness.whatsappEmbeddedSignupConfigured);
+                const checking = metaConnectionStatus === "loading";
+                const unavailable = metaConnectionStatus === "unavailable";
+                const statusLabel = connected ? "Connected" : checking ? "Checking availability" : ready ? "Ready to connect" : unavailable ? "Status unavailable" : "Platform setup required";
+                return <div className={`mt-3 grid gap-4 rounded-2xl border p-4 shadow-[0_4px_14px_rgba(15,23,42,0.06)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${connected ? "border-emerald-300 bg-emerald-50/60" : ready ? "border-emerald-300 bg-white" : "border-neutral-300 bg-white"}`}>
+                  <div className="flex min-w-0 items-start gap-3"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${connected ? "bg-[#128C7E] text-white shadow-sm" : "bg-white text-emerald-700 ring-1 ring-neutral-200"}`}><MessageSquareText className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">WhatsApp inbox</p><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${connected ? "bg-emerald-100 text-emerald-800" : ready ? "bg-emerald-50 text-emerald-700" : "bg-white text-neutral-600 ring-1 ring-neutral-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : ready ? "bg-emerald-500" : checking ? "animate-pulse bg-neutral-400" : "bg-amber-500"}`} />{statusLabel}</span></div><p className="mb-0 mt-1.5 text-[10px] leading-4 text-neutral-500">{connected ? `${connection?.displayName || "WhatsApp Business"} is securely routed to ${selectedProperty?.title || "this property"}.` : ready ? "Connect the hotel's WhatsApp Business account and phone number to receive guest conversations in NRMS." : unavailable ? "Connection status could not be checked. The public WhatsApp contact link is not affected." : "Automated WhatsApp inbox sync is awaiting activation by the NoLSAF platform team."}</p>{connection?.lastError && <p className="mb-0 mt-1 text-[10px] font-semibold text-amber-800">This connection needs attention. Reconnect the account or contact support.</p>}</div></div>
+                  {connected ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void disconnectWhatsApp()} className="min-h-9 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700 transition hover:bg-red-50">Disconnect</button> : ready ? <button type="button" disabled={busy === "meta-whatsapp"} onClick={() => void connectWhatsApp()} className={buttonClass}>{busy === "meta-whatsapp" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}Connect account</button> : <span className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[10px] font-bold text-neutral-500">{checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}{checking ? "Checking" : "Admin setup"}</span>}
+                </div>;
+              })()}
+              {metaConnectionStatus === "ready" && (!metaConnections?.readiness.instagramOAuthConfigured || !metaConnections?.readiness.whatsappEmbeddedSignupConfigured) && <div className="mt-3 flex items-start gap-3 rounded-xl border border-sky-300 bg-sky-50/80 px-4 py-3 text-sky-950 shadow-[0_3px_10px_rgba(14,116,144,0.06)]"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-sky-700 ring-1 ring-sky-200"><Info className="h-3.5 w-3.5" /></span><div><p className="m-0 text-[11px] font-bold">Messaging automation is being prepared</p><p className="mb-0 mt-1 text-[10px] leading-4 text-sky-800">Guests can still use the published Instagram and WhatsApp contact links. Automated incoming messages will appear in Reception inquiries after the NoLSAF connection service is activated.</p></div></div>}
+              {metaConnectionStatus === "unavailable" && <div className="mt-3 flex items-start gap-3 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-neutral-700 shadow-[0_3px_10px_rgba(15,23,42,0.04)]"><Info className="mt-0.5 h-4 w-4 shrink-0" /><p className="m-0 text-[10px] leading-4"><span className="font-bold text-neutral-900">Messaging status is temporarily unavailable.</span> Guest-facing contact links remain available while NRMS retries the connection check.</p></div>}
+            </div>
+
+            <div className="mt-6 border-t border-neutral-100 pt-5">
+              <div className="flex items-end justify-between gap-3"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Reception desk</h3><p className="mb-0 mt-1 text-[11px] text-neutral-500">Formal contact details owned and answered by this property.</p></div><span className="text-[10px] font-semibold text-neutral-400">Recommended</span></div>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <Label><span className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><Phone className="h-4 w-4" /></span>Reception telephone</span><input type="tel" className={inputClass} value={guestContact.receptionPhone || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionPhone: event.target.value })} placeholder="+255 712 345 678" /></Label>
+                <Label><span className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-700"><Mail className="h-4 w-4" /></span>Reception email</span><input type="email" className={inputClass} value={guestContact.receptionEmail || ""} onChange={(event) => setGuestContact({ ...guestContact, receptionEmail: event.target.value })} placeholder="reservations@hotel.com" /></Label>
+                <Label><span className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600"><Clock3 className="h-4 w-4" /></span>Contact hours</span><input className={inputClass} value={guestContact.contactHours || ""} onChange={(event) => setGuestContact({ ...guestContact, contactHours: event.target.value })} placeholder="Daily, 06:00–23:00 EAT" /></Label>
+                <Label>Greeting language<select className={inputClass} value={guestContact.preferredLanguage} onChange={(event) => setGuestContact({ ...guestContact, preferredLanguage: event.target.value as GuestContact["preferredLanguage"] })}><option value="EN_SW">English and Swahili</option><option value="SW">Swahili</option><option value="EN">English</option></select></Label>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[["Searches", data?.directConversion?.events?.AVAILABILITY_SEARCH || 0], ["Room choices", data?.directConversion?.events?.ROOM_SELECTED || 0], ["Contact taps", (data?.directConversion?.events?.INSTAGRAM_CLICK || 0) + (data?.directConversion?.events?.WHATSAPP_CLICK || 0) + (data?.directConversion?.events?.PHONE_CLICK || 0)], ["Room holds", data?.directConversion?.events?.HOLD_CREATED || 0]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-neutral-200 bg-neutral-50 p-3"><p className="m-0 text-lg font-bold text-neutral-950">{value}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">{label} · 30 days</p></div>)}
+
+            <div className="mt-6 border-t border-neutral-100 pt-5">
+              <label className="grid gap-1.5 text-xs font-bold text-neutral-700">Welcome message<span className="font-normal leading-5 text-neutral-500">Keep it short and guide the guest toward availability, reception or a booking decision.</span><textarea className={`${inputClass} min-h-24 resize-y py-3`} value={guestContact.greeting || ""} onChange={(event) => setGuestContact({ ...guestContact, greeting: event.target.value })} placeholder="Karibu. View live rooms or contact reception for help with your stay." /></label>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 border-t border-neutral-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="m-0 text-[11px] leading-5 text-neutral-500">Changes appear on the direct booking page after saving.</p>
+              <button type="button" className={buttonClass} disabled={busy === "guest-contact"} onClick={() => void saveGuestContact()}>{busy === "guest-contact" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save and update preview</button>
             </div>
           </div>
+
+          <aside className="border-t border-neutral-300 bg-neutral-50/80 p-5 sm:p-6 lg:border-l lg:border-t-0">
+            <div className="flex items-center justify-between gap-3"><div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.15em] text-neutral-500">Booking page preview</p><p className="mb-0 mt-1 text-[11px] text-neutral-400">What guests see after checking rooms</p></div><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] ${guestContact.enabled ? "bg-emerald-100 text-emerald-800" : "bg-white text-neutral-500 ring-1 ring-neutral-200"}`}><span className={`h-1.5 w-1.5 rounded-full ${guestContact.enabled ? "bg-emerald-600" : "bg-neutral-400"}`} />{guestContact.enabled ? "Visible" : "Draft"}</span></div>
+            <div className="mt-4 overflow-hidden rounded-2xl bg-emerald-950 text-white shadow-lg shadow-emerald-950/10 ring-1 ring-white/10">
+              <div className="border-b border-white/10 px-5 py-5"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-emerald-200"><MessageSquareText className="h-4 w-4" /></span><p className="mb-0 mt-4 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-300">Reception assistance</p><h3 className="mb-0 mt-1.5 text-lg font-bold leading-6">Talk to {selectedProperty?.title || "reception"}</h3><p className="mb-0 mt-2 text-xs leading-5 text-emerald-50/65">{guestContact.greeting || "Choose the channel that is most convenient for you."}</p></div>
+              <div className="grid gap-2.5 px-4 py-4">
+                {guestContact.instagramUsername && <span className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3.5 text-xs font-bold text-neutral-900"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#7c3aed,#db2777,#f97316)] text-white"><Instagram className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1 truncate">@{guestContact.instagramUsername.replace(/^@/, "")}</span><ChevronRight className="h-4 w-4 text-neutral-400" /></span>}
+                {guestContact.whatsappPhone && <span className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3.5 text-xs font-bold text-neutral-900"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#25D366] text-white"><MessageSquareText className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1 truncate">WhatsApp reception</span><ChevronRight className="h-4 w-4 text-neutral-400" /></span>}
+                {guestContact.receptionPhone && <span className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3.5 text-xs font-bold text-neutral-900"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-600 text-white"><Phone className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1 truncate">Call reception</span><ChevronRight className="h-4 w-4 text-neutral-400" /></span>}
+                {guestContact.receptionEmail && <span className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3.5 text-xs font-bold text-neutral-900"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-white"><Mail className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1 truncate">Email reception</span><ChevronRight className="h-4 w-4 text-neutral-400" /></span>}
+                {!publicChannelCount && <div className="rounded-xl border border-dashed border-white/20 px-4 py-7 text-center"><Globe2 className="mx-auto h-5 w-5 text-emerald-200/70" /><p className="mb-0 mt-2 text-xs font-semibold text-white/80">No public channels yet</p><p className="mb-0 mt-1 text-[10px] leading-4 text-white/45">Complete at least one reception channel to finish this preview.</p></div>}
+              </div>
+              {guestContact.contactHours && <div className="flex items-center gap-2 border-t border-white/10 px-5 py-3 text-[10px] text-emerald-50/60"><Clock3 className="h-3.5 w-3.5 text-emerald-300" /><span>{guestContact.contactHours}</span></div>}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-neutral-300 bg-white p-4 shadow-[0_4px_14px_rgba(15,23,42,0.06)]">
+              <div className="flex items-baseline justify-between gap-3"><h3 className="m-0 text-xs font-bold text-neutral-900">Direct conversion</h3><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Last 30 days</span></div>
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+                {[["Availability searches", data?.directConversion?.events?.AVAILABILITY_SEARCH || 0], ["Room selections", data?.directConversion?.events?.ROOM_SELECTED || 0], ["Contact actions", (data?.directConversion?.events?.INSTAGRAM_CLICK || 0) + (data?.directConversion?.events?.WHATSAPP_CLICK || 0) + (data?.directConversion?.events?.PHONE_CLICK || 0)], ["Room holds", data?.directConversion?.events?.HOLD_CREATED || 0]].map(([label, value], index) => <div key={String(label)} className={`${index > 1 ? "border-t border-neutral-100 pt-3" : ""}`}><p className="m-0 text-xl font-bold tracking-tight text-neutral-950">{value}</p><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{label}</p></div>)}
+              </div>
+            </div>
+          </aside>
         </div>
-      </Section>
+      </section>
       <div className="grid items-start gap-5 xl:grid-cols-2">
       <div className="space-y-5">
         <Section title="Automated guest journey" copy="Templates schedule against booking and stay events. Messages use the existing consent-aware delivery layer."><div className="grid gap-4 sm:grid-cols-2"><Label>Template name<input className={inputClass} value={journey.name} onChange={(event) => setJourney({ ...journey, name: event.target.value })} placeholder="Arrival reminder" /></Label><Label>Trigger<select className={inputClass} value={journey.trigger} onChange={(event) => setJourney({ ...journey, trigger: event.target.value })}><option value="BOOKED">Booked</option><option value="PRE_ARRIVAL">Pre arrival</option><option value="CHECK_IN">Check in</option><option value="PRE_DEPARTURE">Pre departure</option><option value="CHECK_OUT">Check out</option></select></Label><Label>Offset in minutes<input type="number" className={inputClass} value={journey.offsetMinutes} onChange={(event) => setJourney({ ...journey, offsetMinutes: event.target.value })} /></Label><Label>Channel<select className={inputClass} value={journey.channel} onChange={(event) => setJourney({ ...journey, channel: event.target.value })}><option value="SMS">SMS</option><option value="EMAIL">Email</option></select></Label><label className="grid gap-1.5 text-xs font-bold text-neutral-700 sm:col-span-2">Message<textarea className={`${inputClass} min-h-24 py-3`} value={journey.message} onChange={(event) => setJourney({ ...journey, message: event.target.value })} /></label></div><div className="mt-5 flex flex-wrap gap-2"><button className={buttonClass} disabled={!journey.name || busy === "journey"} onClick={() => act("journey", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/journeys`, { ...journey, offsetMinutes: Number(journey.offsetMinutes) }), "Journey template saved.")}><Save className="h-4 w-4" />Save template</button><button className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700" onClick={() => act("schedule", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/journeys/schedule`), "Guest journeys scheduled.")}><Sparkles className="h-4 w-4" />Schedule eligible stays</button></div></Section>

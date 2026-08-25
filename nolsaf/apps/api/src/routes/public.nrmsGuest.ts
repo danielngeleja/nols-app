@@ -10,6 +10,7 @@ import { computeNightlyRates, money, nightsBetween } from "../lib/nrmsRateMath.j
 import { publicNrmsGuestContact } from "../lib/nrmsGuestContact.js";
 import { buildInquiryAcknowledgement } from "../lib/nrmsInquiryAcknowledgement.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { directHoldExternalRef } from "../lib/nrmsDirectHoldIdentity.js";
 import { limitPublicNrmsDirectHold, limitPublicNrmsDirectQuote, limitPublicNrmsGuestCapability } from "../middleware/rateLimit.js";
 
 export const router = Router();
@@ -46,7 +47,7 @@ const DIRECT_EVENTS = ["PAGE_OPEN", "AVAILABILITY_SEARCH", "ROOM_SELECTED", "INS
 const INQUIRY_CHANNELS = ["WEB", "INSTAGRAM", "WHATSAPP", "PHONE", "EMAIL"] as const;
 const directSourceSchema = z.preprocess((value) => String(value || "DIRECT").trim().toUpperCase(), z.enum(DIRECT_SOURCES));
 const directQuoteSchema = z.object({ checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), adults: z.coerce.number().int().min(1).max(20).default(1), children: z.coerce.number().int().min(0).max(20).default(0), source: directSourceSchema.default("DIRECT") });
-const directHoldSchema = directQuoteSchema.extend({ roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
+const directHoldSchema = directQuoteSchema.extend({ clientRequestId: z.string().uuid(), roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
 const directInquirySchema = z.object({
   sessionRef: z.string().trim().min(8).max(100), channel: z.enum(INQUIRY_CHANNELS), source: directSourceSchema.default("DIRECT"),
   guestName: z.string().trim().min(2).max(160).nullable().optional(), guestPhone: z.string().trim().min(7).max(40).nullable().optional(), guestEmail: z.string().trim().email().max(160).nullable().optional(),
@@ -198,9 +199,16 @@ router.post("/direct/:propertyId/hold", limitPublicNrmsDirectHold as RequestHand
   const parsed = directHoldSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Complete the guest details and accept the booking terms", details: parsed.error.flatten() });
   try {
     const propertyId = Number(req.params.propertyId); const quote = await directQuote(propertyId, parsed.data, parsed.data.roomTypeId, parsed.data.ratePlanId); const selected = quote.quotes.find((item) => item.roomType.id === parsed.data.roomTypeId && (!parsed.data.ratePlanId || item.ratePlan?.id === parsed.data.ratePlanId)); if (!selected) return res.status(409).json({ error: "The selected room or rate is no longer available" });
-    const holdExpiresAt = new Date(Date.now() + 30 * 60_000); const publicToken = crypto.randomBytes(24).toString("base64url"); const externalRef = `DIRECT-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+    const holdExpiresAt = new Date(Date.now() + 30 * 60_000); const publicToken = crypto.randomBytes(24).toString("base64url");
+    const externalRef = directHoldExternalRef(propertyId, parsed.data.clientRequestId);
     const result = await prisma.$transaction(async (tx) => {
-      await lockPropertyInventory(tx, propertyId); const capacity = await getRoomTypeAvailability(tx, propertyId, selected.roomType.id, quote.checkIn, quote.checkOut); if (capacity.available < 1) return null;
+      await lockPropertyInventory(tx, propertyId);
+      const existingReservation = await tx.reservation.findFirst({
+        where: { propertyId, source: "DIRECT", externalRef },
+        include: { paymentRequests: { where: { cancelledAt: null }, orderBy: { createdAt: "desc" }, take: 1 } },
+      });
+      if (existingReservation?.paymentRequests[0]) return { reservation: existingReservation, paymentRequest: existingReservation.paymentRequests[0], replayed: true } as const;
+      const capacity = await getRoomTypeAvailability(tx, propertyId, selected.roomType.id, quote.checkIn, quote.checkOut); if (capacity.available < 1) return null;
       // The quote happened before this transaction. Re-evaluate restrictions
       // after the inventory lock so a stop sell activated during checkout wins
       // over the in-flight booking instead of allowing one final reservation.
@@ -211,12 +219,12 @@ router.post("/direct/:propertyId/hold", limitPublicNrmsDirectHold as RequestHand
       // isolated; staff can merge verified duplicates through an audited flow.
       const guest = await tx.guestProfile.create({ data: { propertyId, ownerId: quote.property.ownerId, fullName: parsed.data.guest.fullName, phone: parsed.data.guest.phone, email: parsed.data.guest.email, nationality: parsed.data.guest.nationality } });
       const reservation = await tx.reservation.create({ data: { propertyId, ownerId: quote.property.ownerId, guestProfileId: guest.id, source: "DIRECT", attribution: "OWNER_DIRECT", externalRef, status: "HELD", holdExpiresAt, checkIn: quote.checkIn, checkOut: quote.checkOut, adults: parsed.data.adults, children: parsed.data.children, currency: selected.currency, roomRate: selected.nightly[0]?.rate ?? 0, taxAmount: selected.tax, totalAmount: selected.total, depositAmount: selected.depositAmount, notes: `Guest accepted direct booking terms at ${new Date().toISOString()}.`, allocations: { create: { roomTypeId: selected.roomType.id, startDate: quote.checkIn, endDate: quote.checkOut, ratePlanId: selected.ratePlan?.id ?? null, mealPlan: selected.ratePlan?.mealPlan ?? null } }, events: { create: { type: "CREATED", data: { source: "DIRECT", campaignSource: parsed.data.source, ratePlanId: selected.ratePlan?.id ?? null, termsAccepted: true } } } } });
-      const paymentRequest = await tx.nrmsGuestPaymentRequest.create({ data: { reservationId: reservation.id, kind: "DEPOSIT", amount: selected.depositAmount || selected.total, currency: selected.currency, publicToken, dueAt: holdExpiresAt, instructions: quote.property.nrmsGuestPayInstructions ?? undefined } }); return { reservation, paymentRequest };
+      const paymentRequest = await tx.nrmsGuestPaymentRequest.create({ data: { reservationId: reservation.id, kind: "DEPOSIT", amount: selected.depositAmount || selected.total, currency: selected.currency, publicToken, dueAt: holdExpiresAt, instructions: quote.property.nrmsGuestPayInstructions ?? undefined } }); return { reservation, paymentRequest, replayed: false } as const;
     }, HOLD_TX_OPTIONS);
     if (!result) return res.status(409).json({ error: "The selected room was just booked. Please choose another available option." });
     if ("restricted" in result) return res.status(409).json({ error: result.restricted, code: "RESTRICTION_CHANGED" });
-    await recordDirectMetric(propertyId, "HOLD_CREATED", parsed.data.source);
-    res.status(201).json({ hold: { reference: result.reservation.externalRef, expiresAt: result.reservation.holdExpiresAt, status: result.reservation.status, total: Number(result.reservation.totalAmount), depositAmount: Number(result.reservation.depositAmount), currency: result.reservation.currency, paymentToken: result.paymentRequest.publicToken } });
+    if (!result.replayed) await recordDirectMetric(propertyId, "HOLD_CREATED", parsed.data.source);
+    res.status(result.replayed ? 200 : 201).json({ hold: { reference: result.reservation.externalRef, expiresAt: result.reservation.holdExpiresAt, status: result.reservation.status, total: Number(result.reservation.totalAmount), depositAmount: Number(result.reservation.depositAmount), currency: result.reservation.currency, paymentToken: result.paymentRequest.publicToken }, replayed: result.replayed });
   } catch (error) { if (error instanceof Error && ["PROPERTY_NOT_FOUND", "INVALID_DATES"].includes(error.message)) return res.status(400).json({ error: "The direct booking request is not valid" }); console.error("[public.nrms.guest] direct hold failed", error); res.status(500).json({ error: "The room could not be held" }); }
 }) as RequestHandler);
 

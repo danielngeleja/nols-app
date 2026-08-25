@@ -6594,6 +6594,10 @@ model NrmsGuestInquiry {
   channel                String    @db.VarChar(20) // WEB, INSTAGRAM, WHATSAPP, PHONE, EMAIL
   source                 String    @default("DIRECT") @db.VarChar(20)
   externalConversationId String?   @db.VarChar(191)
+  /// Deterministic property + channel + sender fingerprint while this social
+  /// conversation is active. It is cleared on close/conversion so a later
+  /// conversation from the same guest can open a fresh inquiry.
+  activeConversationKey  String?   @unique(map: "nrms_guest_inquiry_active_conversation_key") @db.VarChar(64)
   guestName              String?   @db.VarChar(160)
   guestHandle            String?   @db.VarChar(160)
   guestPhone             String?   @db.VarChar(40)

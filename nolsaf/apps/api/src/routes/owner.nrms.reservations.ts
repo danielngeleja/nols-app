@@ -1941,7 +1941,7 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
       if (inquiry) {
         const linked = await tx.nrmsGuestInquiry.updateMany({
           where: { id: inquiry.id, propertyId, reservationId: null, status: { notIn: ["CONVERTED", "CLOSED"] } },
-          data: { reservationId: reservation.id, status: "CONVERTED", convertedAt: new Date(), lastMessageAt: new Date(), version: { increment: 1 } },
+          data: { reservationId: reservation.id, status: "CONVERTED", activeConversationKey: null, convertedAt: new Date(), lastMessageAt: new Date(), version: { increment: 1 } },
         });
         if (!linked.count) throw new Error("INQUIRY_CONVERSION_CONFLICT");
         await tx.nrmsGuestMessage.create({ data: { inquiryId: inquiry.id, channel: inquiry.channel, direction: "SYSTEM", body: `Converted to reservation ${reservation.id}.`, senderName: req.user!.name ?? "NRMS", sentById: ownerId } });

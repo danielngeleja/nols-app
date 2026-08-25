@@ -57,7 +57,7 @@ describe("reception inquiry journey", () => {
     expect(result).toMatchObject({ ok: true, reservationId: 501, status: "HELD", totalAmount: 200_000, currency: "TZS" });
     expect(tx.$executeRawUnsafe).toHaveBeenCalledWith("SELECT id FROM `property` WHERE id = ? FOR UPDATE", 7);
     expect(tx.reservation.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ ownerId: 2, createdById: 19, status: "HELD", totalAmount: 200_000 }) }));
-    expect(tx.nrmsGuestInquiry.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 41, version: 3 }), data: expect.objectContaining({ status: "CONVERTED", reservationId: 501 }) }));
+    expect(tx.nrmsGuestInquiry.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 41, version: 3 }), data: expect.objectContaining({ status: "CONVERTED", reservationId: 501, activeConversationKey: null }) }));
   });
 
   it("refuses to create a hold when live room capacity is gone", async () => {

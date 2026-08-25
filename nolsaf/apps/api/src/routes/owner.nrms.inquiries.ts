@@ -8,6 +8,7 @@ import { createInquiryRoomHold } from "../lib/nrmsInquiryConversion.js";
 import { buildInquiryConversionReport } from "../lib/nrmsInquiryReporting.js";
 import { sendMetaText } from "../lib/nrmsMetaMessaging.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { closesActiveConversation } from "../lib/nrmsMetaConversation.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -107,7 +108,7 @@ router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res
   const parsed = updateSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid inquiry update" });
   const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId);
   const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
-  if (["CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
+  if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
   if (parsed.data.assignedToId) {
     const isOwner = parsed.data.assignedToId === loaded.allowed.ownerId;
     const isStaff = isOwner ? true : Boolean(await prisma.nrmsStaffMembership.findFirst({ where: { propertyId, userId: parsed.data.assignedToId, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } }, select: { id: true } }));
@@ -118,7 +119,11 @@ router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res
     const result = await tx.nrmsGuestInquiry.updateMany({
       where: { id: inquiryId, propertyId, version: parsed.data.version },
       data: {
-        ...(parsed.data.status ? { status: parsed.data.status, closedAt: ["RESOLVED", "CLOSED"].includes(parsed.data.status) ? now : null } : {}),
+        ...(parsed.data.status ? {
+          status: parsed.data.status,
+          closedAt: ["RESOLVED", "CLOSED"].includes(parsed.data.status) ? now : null,
+          ...(closesActiveConversation(parsed.data.status) ? { activeConversationKey: null } : {}),
+        } : {}),
         ...(parsed.data.assignedToId !== undefined ? { assignedToId: parsed.data.assignedToId } : {}),
         version: { increment: 1 },
       },
@@ -136,7 +141,7 @@ router.post("/property/:propertyId/:inquiryId/messages", (async (req: AuthedRequ
   const parsed = messageSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Write a valid response or note" });
   const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId);
   const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
-  if (["CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
+  if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
   const now = new Date();
   let providerMessageId: string | null = null;
   let deliveryStatus = "RECORDED";
