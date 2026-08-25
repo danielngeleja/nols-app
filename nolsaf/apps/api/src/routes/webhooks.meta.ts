@@ -24,13 +24,19 @@ router.post("/", (async (req: Request, res: Response) => {
   const appSecrets = [...new Set([process.env.META_APP_SECRET, process.env.META_INSTAGRAM_APP_SECRET].map((value) => String(value || "")).filter(Boolean))];
   if (!appSecrets.length) return res.status(503).json({ error: "Meta webhook is not configured" });
   const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}));
-  if (!appSecrets.some((secret) => verifyMetaWebhookSignature(rawBody, req.header("x-hub-signature-256"), secret))) return res.sendStatus(401);
+  const signature = req.header("x-hub-signature-256");
+  if (!appSecrets.some((secret) => verifyMetaWebhookSignature(rawBody, signature, secret))) {
+    console.warn(JSON.stringify({ level: "warn", event: "meta_webhook_signature_rejected", signaturePresent: Boolean(signature), timestamp: new Date().toISOString() }));
+    return res.sendStatus(401);
+  }
   let payload: unknown;
   try { payload = JSON.parse(rawBody.toString("utf8")); }
   catch { return res.status(400).json({ error: "Invalid Meta webhook payload" }); }
   try {
     const events = parseMetaWebhook(payload);
     const result = await enqueueMetaWebhookEvents(events);
+    const accountIds = [...new Set(events.map((event) => event.accountId))];
+    console.info(JSON.stringify({ level: "info", event: "meta_webhook_received", object: typeof payload === "object" && payload && "object" in payload ? String((payload as { object?: unknown }).object || "unknown") : "unknown", parsedEvents: events.length, acceptedEvents: result.accepted, accountIds, timestamp: new Date().toISOString() }));
     return res.status(202).json({ received: true, accepted: result.accepted, events: events.length });
   } catch (error) {
     console.error("[webhooks.meta] durable enqueue failed", error);

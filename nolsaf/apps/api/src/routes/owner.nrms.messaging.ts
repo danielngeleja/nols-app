@@ -96,6 +96,9 @@ router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedReques
   let appWebhookVerified = false;
   let wabaSubscribed = false;
   let phoneAccessible = false;
+  let connectedPhoneNumber: string | null = null;
+  let phoneStatus: string | null = null;
+  let codeVerificationStatus: string | null = null;
   let reportedCallback: string | null = null;
 
   if (appId && appSecret) {
@@ -132,22 +135,43 @@ router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedReques
       const accessToken = decrypt(connection.accessTokenEncrypted, { log: false });
       const [subscriptions, phones] = await Promise.all([
         metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${connection.externalBusinessId}/subscribed_apps`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8_000) })),
-        metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${connection.externalBusinessId}/phone_numbers?fields=id,display_phone_number,verified_name`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8_000) })),
+        metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${connection.externalBusinessId}/phone_numbers?fields=id,display_phone_number,verified_name,status,code_verification_status`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8_000) })),
       ]);
       const subscription = (Array.isArray(subscriptions.data) ? subscriptions.data : []).find((item: any) => String(item?.whatsapp_business_api_data?.id || item?.id || "") === appId);
       wabaSubscribed = Boolean(subscription);
       const overrideCallback = subscription?.override_callback_uri ? String(subscription.override_callback_uri) : null;
-      phoneAccessible = (Array.isArray(phones.data) ? phones.data : []).some((phone: any) => String(phone?.id || "") === String(connection.phoneNumberId));
+      const selectedPhone = (Array.isArray(phones.data) ? phones.data : []).find((phone: any) => String(phone?.id || "") === String(connection.phoneNumberId));
+      phoneAccessible = Boolean(selectedPhone);
+      connectedPhoneNumber = selectedPhone?.display_phone_number ? String(selectedPhone.display_phone_number) : null;
+      phoneStatus = selectedPhone?.status ? String(selectedPhone.status).toUpperCase() : null;
+      codeVerificationStatus = selectedPhone?.code_verification_status ? String(selectedPhone.code_verification_status).toUpperCase() : null;
+      const registrationHealthy = phoneAccessible
+        && (!phoneStatus || phoneStatus === "CONNECTED")
+        && (!codeVerificationStatus || codeVerificationStatus === "VERIFIED");
       checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", wabaSubscribed ? "PASS" : "FAIL", wabaSubscribed ? `The NoLSAF Meta app is subscribed to this WABA${overrideCallback ? ` with callback ${overrideCallback}` : ""}.` : "The NoLSAF Meta app is not present in this WABA's subscribed apps."));
-      checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", phoneAccessible ? "PASS" : "FAIL", phoneAccessible ? "Meta confirms the connected phone belongs to this WABA and the token can access it." : "The connected phone ID is not accessible with the stored WABA token."));
+      checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", phoneAccessible ? "PASS" : "FAIL", phoneAccessible ? `Meta confirms ${connectedPhoneNumber || "the connected phone"} belongs to this WABA and the token can access it.` : "The connected phone ID is not accessible with the stored WABA token."));
+      checks.push(diagnosticCheck(
+        "phone_registration",
+        "WhatsApp phone registration",
+        !phoneAccessible || !registrationHealthy ? "FAIL" : phoneStatus || codeVerificationStatus ? "PASS" : "WARN",
+        !phoneAccessible
+          ? "Meta could not inspect the connected phone registration."
+          : !registrationHealthy
+            ? `${connectedPhoneNumber || "The connected phone"} is not operational yet. Meta status is ${phoneStatus || "unknown"}; verification is ${codeVerificationStatus || "unknown"}.`
+            : phoneStatus || codeVerificationStatus
+              ? `${connectedPhoneNumber || "The connected phone"} is operational. Meta status is ${phoneStatus || "not reported"}; verification is ${codeVerificationStatus || "not reported"}.`
+              : "Meta did not return a registration status for the connected phone.",
+      ));
     } catch (error) {
       const detail = safeDiagnosticError(error);
       checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", "FAIL", `Meta could not verify the WABA subscription: ${detail}`));
       checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", "FAIL", `Meta could not verify the connected phone: ${detail}`));
+      checks.push(diagnosticCheck("phone_registration", "WhatsApp phone registration", "FAIL", `Meta could not verify phone registration: ${detail}`));
     }
   } else {
     checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", "FAIL", "The stored connection is missing its WABA ID, phone ID or encrypted token."));
     checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", "FAIL", "The stored connection is incomplete."));
+    checks.push(diagnosticCheck("phone_registration", "WhatsApp phone registration", "FAIL", "The stored connection is incomplete."));
   }
 
   let workerHealthy = false;
@@ -178,7 +202,7 @@ router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedReques
   }
 
   const failedIds = checks.filter((check) => check.status === "FAIL").map((check) => check.id);
-  const verdict = failedIds.some((id) => ["server_configuration", "connection_record", "app_webhook", "waba_subscription", "phone_access"].includes(id))
+  const verdict = failedIds.some((id) => ["server_configuration", "connection_record", "app_webhook", "waba_subscription", "phone_access", "phone_registration"].includes(id))
     ? "CONFIGURATION_BROKEN"
     : failedIds.some((id) => ["worker", "webhook_queue", "inbound_storage"].includes(id))
       ? "PROCESSING_BROKEN"
@@ -197,6 +221,9 @@ router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedReques
       checks,
       evidence: {
         reportedCallback,
+        connectedPhoneNumber,
+        phoneStatus,
+        codeVerificationStatus,
         lastWebhookAt: connection?.lastWebhookAt ?? null,
         latestWebhookJobStatus: lastJob?.status ?? null,
         latestInboundAt: lastInbound?.createdAt ?? null,

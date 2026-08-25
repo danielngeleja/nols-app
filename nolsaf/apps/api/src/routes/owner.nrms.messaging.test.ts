@@ -52,7 +52,7 @@ describe("property-scoped Meta connection routes", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "app-access-token" }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ object: "whatsapp_business_account", active: true, callback_url: "https://api.example.com/webhooks/meta", fields: [{ name: "messages" }] }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ whatsapp_business_api_data: { id: "1066743859095630", name: "NoLSAF" } }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "8001", display_phone_number: "+255700000000", verified_name: "Hotel Desk" }] }), { status: 200 })));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "8001", display_phone_number: "+255700000000", verified_name: "Hotel Desk", status: "CONNECTED", code_verification_status: "VERIFIED" }] }), { status: 200 })));
 
     const app = express(); app.use(express.json()); app.use("/api/owner/nrms/messaging", router);
     const response = await request(app).post("/api/owner/nrms/messaging/property/19/whatsapp/diagnose").expect(200);
@@ -61,6 +61,7 @@ describe("property-scoped Meta connection routes", () => {
     expect(response.body.diagnostic.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "app_webhook", status: "PASS" }),
       expect.objectContaining({ id: "waba_subscription", status: "PASS" }),
+      expect.objectContaining({ id: "phone_registration", status: "PASS", detail: expect.stringContaining("+255700000000") }),
       expect.objectContaining({ id: "worker", status: "PASS" }),
     ]));
     expect(JSON.stringify(response.body)).not.toContain("app-access-token");
@@ -78,7 +79,7 @@ describe("property-scoped Meta connection routes", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "app-access-token" }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ object: "whatsapp_business_account", active: true, callback_url: "https://api.example.com/webhooks/meta", fields: [{ name: "account_update" }] }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ whatsapp_business_api_data: { id: "1066743859095630" } }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "8001" }] }), { status: 200 })));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "8001", status: "CONNECTED", code_verification_status: "VERIFIED" }] }), { status: 200 })));
 
     const app = express(); app.use(express.json()); app.use("/api/owner/nrms/messaging", router);
     const response = await request(app).post("/api/owner/nrms/messaging/property/19/whatsapp/diagnose").expect(200);

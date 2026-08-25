@@ -30,7 +30,7 @@ type MessagingDiagnostic = {
   provider: "WHATSAPP"; propertyId: number; checkedAt: string;
   verdict: "HEALTHY" | "CONFIGURATION_BROKEN" | "PROCESSING_BROKEN" | "AWAITING_META_WEBHOOK" | "ATTENTION_REQUIRED";
   checks: Array<{ id: string; label: string; status: "PASS" | "WARN" | "FAIL"; detail: string }>;
-  evidence: { reportedCallback: string | null; lastWebhookAt: string | null; latestWebhookJobStatus: string | null; latestInboundAt: string | null };
+  evidence: { reportedCallback: string | null; connectedPhoneNumber: string | null; phoneStatus: string | null; codeVerificationStatus: string | null; lastWebhookAt: string | null; latestWebhookJobStatus: string | null; latestInboundAt: string | null };
 };
 
 const inputClass = "box-border min-h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100";
