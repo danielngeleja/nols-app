@@ -26,6 +26,12 @@ type ConversionReport = {
   sources: Array<{ source: string; visits: number; inquiries: number; responded: number; holds: number; confirmed: number }>;
 };
 type InboxData = { total: number; inquiries: Inquiry[]; assignees: Array<{ id: number; name: string | null; fullName: string | null; email: string | null; role: string }>; roomTypes: RoomType[]; reporting?: ConversionReport; messagingConnections?: Array<{ provider: string; status: string; displayName: string | null; lastWebhookAt: string | null; lastError: string | null }>; messagingOperations?: { webhookPending: number; webhookDead: number; outboundRetrying: number; outboundFailed: number; templateRequired: number }; metaReadiness?: { appConfigured: boolean; webhookConfigured: boolean; graphVersion: string | null } };
+type MessagingDiagnostic = {
+  provider: "WHATSAPP"; propertyId: number; checkedAt: string;
+  verdict: "HEALTHY" | "CONFIGURATION_BROKEN" | "PROCESSING_BROKEN" | "AWAITING_META_WEBHOOK" | "ATTENTION_REQUIRED";
+  checks: Array<{ id: string; label: string; status: "PASS" | "WARN" | "FAIL"; detail: string }>;
+  evidence: { reportedCallback: string | null; lastWebhookAt: string | null; latestWebhookJobStatus: string | null; latestInboundAt: string | null };
+};
 
 const inputClass = "box-border min-h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100";
 const statusStyle: Record<string, string> = { NEW: "bg-violet-100 text-violet-800", OPEN: "bg-sky-100 text-sky-800", WAITING_GUEST: "bg-amber-100 text-amber-800", RESOLVED: "bg-emerald-100 text-emerald-800", CONVERTED: "bg-emerald-700 text-white", CLOSED: "bg-neutral-200 text-neutral-600" };
@@ -52,6 +58,7 @@ export default function NrmsGuestInquiriesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [status, setStatus] = useState(""); const [channel, setChannel] = useState(""); const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const [messagingDiagnostic, setMessagingDiagnostic] = useState<MessagingDiagnostic | null>(null);
   const [response, setResponse] = useState(""); const [responseKind, setResponseKind] = useState<"OUTBOUND" | "INTERNAL">("OUTBOUND");
   const [conversion, setConversion] = useState({ guestName: "", guestPhone: "", guestEmail: "", checkIn: "", checkOut: "", roomTypeId: "", adults: "1" });
 
@@ -63,6 +70,7 @@ export default function NrmsGuestInquiriesPage() {
     } catch (requestError: any) { if (!silent) setError(requestError?.response?.data?.error || "The reception inbox could not be loaded."); }
     finally { if (!silent) setLoading(false); }
   }, [channel, query, selectedPropertyId, status]);
+  useEffect(() => { setMessagingDiagnostic(null); }, [selectedPropertyId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const refresh = (event?: { propertyId?: number }) => {
@@ -96,6 +104,16 @@ export default function NrmsGuestInquiriesPage() {
   const canSendLive = Boolean(liveConnection && selected?.externalConversationId);
   const recordResponse = () => selected && response.trim() && mutate("message", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}/messages`, { version: selected.version, body: response, direction: responseKind, deliveryMode: responseKind === "OUTBOUND" && canSendLive ? "SEND" : "RECORD" }), responseKind === "INTERNAL" ? "Internal note added." : canSendLive ? `Reply queued securely for ${label(selected.channel)}.` : "External response recorded.");
   const replayFailures = () => mutate("replay", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/messaging-failures/replay`), "Failed messages queued for another delivery attempt.");
+  const runMessagingDiagnostic = async () => {
+    if (!selectedPropertyId) return;
+    setBusy("messaging-diagnostic"); setError(null);
+    try {
+      const result = await apiClient.post<{ diagnostic: MessagingDiagnostic }>(`/api/owner/nrms/messaging/property/${selectedPropertyId}/whatsapp/diagnose`);
+      setMessagingDiagnostic(result.data.diagnostic);
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "The messaging diagnostic could not be completed.");
+    } finally { setBusy(null); }
+  };
   const selectedRoom = data.roomTypes.find((room) => String(room.id) === conversion.roomTypeId) ?? null;
   const estimatedTotal = selectedRoom && conversion.checkIn && conversion.checkOut ? selectedRoom.baseRate * nights(conversion.checkIn, conversion.checkOut) : 0;
   const conversionReady = Boolean(conversion.guestName.trim().length >= 2 && conversion.guestPhone.trim().length >= 7 && conversion.checkIn && conversion.checkOut && nights(conversion.checkIn, conversion.checkOut) > 0 && selectedRoom);
@@ -125,6 +143,7 @@ export default function NrmsGuestInquiriesPage() {
     provider,
     connection: data.messagingConnections?.find((item) => item.provider === provider) ?? null,
   })), [data.messagingConnections]);
+  const webhookObserved = Boolean(data.messagingConnections?.some((connection) => connection.lastWebhookAt));
 
   return <div className="reception-inbox mx-auto max-w-[1500px] space-y-4 pb-10">
     <style jsx global>{`
@@ -151,11 +170,22 @@ export default function NrmsGuestInquiriesPage() {
       ].map((item) => <article key={item.name} className={`relative flex min-h-[96px] items-center gap-3 overflow-hidden rounded-xl border-2 px-4 py-3.5 shadow-[0_6px_18px_rgba(15,23,42,0.07)] ${item.frame}`}><span className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${item.bar}`} aria-hidden="true" /><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${item.colour}`}><Inbox className="h-4 w-4" /></span><div className="min-w-0 flex-1"><p className="m-0 flex items-center gap-1.5 text-xs font-bold text-neutral-900"><span className={`h-1.5 w-1.5 rounded-full ${item.dot}`} />{item.name}</p><p className="mb-0 mt-1 truncate text-[10px] font-medium text-neutral-500">{item.detail}</p></div><strong className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-2xl tracking-tight text-neutral-950 shadow-sm">{item.count}</strong></article>)}
     </div>
 
-    <section className="grid gap-3 rounded-xl border-2 border-slate-300 bg-[linear-gradient(110deg,#ffffff_0%,#f8fafc_100%)] p-3.5 shadow-[0_5px_16px_rgba(15,23,42,0.06)] lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
+    <section className="grid gap-3 rounded-xl border-2 border-slate-300 bg-[linear-gradient(110deg,#ffffff_0%,#f8fafc_100%)] p-3.5 shadow-[0_5px_16px_rgba(15,23,42,0.06)] lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:items-center">
       <div className="flex min-w-0 items-center gap-3 px-1"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm"><Radio className="h-4 w-4" /></span><div><h2 className="m-0 text-xs font-bold text-neutral-950">Messaging readiness</h2><p className="mb-0 mt-0.5 text-xs leading-4 text-neutral-500">{liveConnected ? "Live inbox updates connected." : "Polling safely while live updates reconnect."}</p></div></div>
-      <span className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-[10px] font-bold shadow-sm ${data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? <CheckCircle2 className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}{data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "Meta webhook ready" : "Meta setup incomplete"}</span>
+      <span className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-[10px] font-bold shadow-sm ${webhookObserved ? "border-emerald-300 bg-emerald-50 text-emerald-800" : data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "border-amber-300 bg-amber-50 text-amber-900" : "border-red-300 bg-red-50 text-red-800"}`}>{webhookObserved ? <CheckCircle2 className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}{webhookObserved ? "Webhook receiving" : data.metaReadiness?.appConfigured && data.metaReadiness?.webhookConfigured ? "Webhook not yet verified" : "Meta setup incomplete"}</span>
       {connectionHealth.map(({ provider, connection }) => { const connected = connection?.status === "CONNECTED"; return <span key={provider} className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-[10px] font-bold shadow-sm ${connected ? "border-emerald-300 bg-white text-emerald-800" : "border-slate-300 bg-white text-neutral-600"}`}><ChannelIcon channel={provider} className="h-3.5 w-3.5" /><span>{provider === "INSTAGRAM" ? "Instagram" : "WhatsApp"}</span><span className={`h-1.5 w-1.5 rounded-full ring-2 ring-white ${connected ? "bg-emerald-500" : "bg-neutral-400"}`} /><span>{connected ? connection?.lastWebhookAt ? `Active ${timeAgo(connection.lastWebhookAt)}` : "Connected" : connection?.status ? label(connection.status) : "Not connected"}</span></span>; })}
+      <button type="button" disabled={busy === "messaging-diagnostic"} onClick={() => void runMessagingDiagnostic()} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-[10px] font-bold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-60">{busy === "messaging-diagnostic" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}Run diagnostics</button>
     </section>
+
+    {messagingDiagnostic && <section className={`rounded-xl border-2 p-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] ${messagingDiagnostic.verdict === "HEALTHY" ? "border-emerald-300 bg-emerald-50/60" : messagingDiagnostic.verdict === "AWAITING_META_WEBHOOK" ? "border-amber-300 bg-amber-50/70" : "border-red-300 bg-red-50/70"}`} aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3"><span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${messagingDiagnostic.verdict === "HEALTHY" ? "bg-emerald-700 text-white" : messagingDiagnostic.verdict === "AWAITING_META_WEBHOOK" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{messagingDiagnostic.verdict === "HEALTHY" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}</span><div><h2 className="m-0 text-sm font-bold text-neutral-950">WhatsApp end-to-end diagnosis</h2><p className="mb-0 mt-1 text-xs leading-5 text-neutral-700">{messagingDiagnostic.verdict === "HEALTHY" ? "Meta configuration and the NoLSAF processing path are healthy." : messagingDiagnostic.verdict === "CONFIGURATION_BROKEN" ? "The failure is in Meta or account configuration. Review the failed checks below." : messagingDiagnostic.verdict === "PROCESSING_BROKEN" ? "Meta is connected, but the NoLSAF queue or worker is broken." : messagingDiagnostic.verdict === "AWAITING_META_WEBHOOK" ? "Configuration looks valid, but Meta has not delivered a webhook to this property yet." : "One or more messaging checks require attention."}</p></div></div>
+        <span className="rounded-full border border-current/20 bg-white/80 px-3 py-1.5 text-[10px] font-bold">Checked {timeAgo(messagingDiagnostic.checkedAt)}</span>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {messagingDiagnostic.checks.map((check) => <article key={check.id} className="rounded-lg border border-white/80 bg-white p-3 shadow-sm"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${check.status === "PASS" ? "bg-emerald-500" : check.status === "WARN" ? "bg-amber-500" : "bg-red-500"}`} /><h3 className="m-0 text-xs font-bold text-neutral-900">{check.label}</h3><span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold ${check.status === "PASS" ? "bg-emerald-100 text-emerald-800" : check.status === "WARN" ? "bg-amber-100 text-amber-900" : "bg-red-100 text-red-800"}`}>{check.status}</span></div><p className="mb-0 mt-2 text-[10px] leading-4 text-neutral-600">{check.detail}</p></article>)}
+      </div>
+    </section>}
 
     {data.messagingOperations && (data.messagingOperations.webhookPending + data.messagingOperations.webhookDead + data.messagingOperations.outboundRetrying + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0) && <section className={`flex flex-col gap-3 rounded-xl border-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0 ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"}`} role="status">
       <div className="flex items-start gap-3"><AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed + data.messagingOperations.templateRequired > 0 ? "text-red-700" : "text-amber-700"}`} /><div><h2 className="m-0 text-sm font-bold text-neutral-950">Message delivery operations</h2><p className="mb-0 mt-1 text-xs leading-5 text-neutral-700">{data.messagingOperations.webhookPending} inbound event(s) processing · {data.messagingOperations.outboundRetrying} outbound reply/replies retrying · {data.messagingOperations.webhookDead + data.messagingOperations.outboundFailed} need intervention{data.messagingOperations.templateRequired ? ` · ${data.messagingOperations.templateRequired} require an approved WhatsApp template` : ""}.</p></div></div>

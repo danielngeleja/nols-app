@@ -33,6 +33,22 @@ async function metaJson(response: globalThis.Response) {
   return body;
 }
 
+type DiagnosticStatus = "PASS" | "WARN" | "FAIL";
+type DiagnosticCheck = { id: string; label: string; status: DiagnosticStatus; detail: string };
+
+function diagnosticCheck(id: string, label: string, status: DiagnosticStatus, detail: string): DiagnosticCheck {
+  return { id, label, status, detail };
+}
+
+function safeDiagnosticError(error: unknown): string {
+  return String(error instanceof Error ? error.message : error || "Unknown error").slice(0, 300);
+}
+
+function workerExpectedToRun(): boolean {
+  const configured = String(process.env.RUN_BACKGROUND_WORKERS || "").trim().toLowerCase();
+  return configured ? ["1", "true", "yes", "on"].includes(configured) : process.env.NODE_ENV === "production";
+}
+
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
   const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
   const connections = await prisma.nrmsMessagingConnection.findMany({ where: { propertyId }, orderBy: { provider: "asc" } });
@@ -45,6 +61,145 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       whatsappAppId: process.env.META_APP_ID || null,
       whatsappConfigId: process.env.META_WHATSAPP_CONFIG_ID || null,
       graphVersion: process.env.META_GRAPH_API_VERSION || "v23.0",
+    },
+  });
+}) as RequestHandler);
+
+/**
+ * Performs a live, property-scoped WhatsApp diagnostic without returning any
+ * access token or secret. Unlike the lightweight readiness badges, this route
+ * verifies Meta and the asynchronous ingestion path independently.
+ */
+router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedRequest, res: Response) => {
+  const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
+  const checkedAt = new Date();
+  const checks: DiagnosticCheck[] = [];
+  const graphVersion = String(process.env.META_GRAPH_API_VERSION || "v23.0");
+  const appId = String(process.env.META_APP_ID || "");
+  const appSecret = String(process.env.META_APP_SECRET || "");
+  const verifyTokenConfigured = Boolean(process.env.META_WEBHOOK_VERIFY_TOKEN);
+  const connection = await prisma.nrmsMessagingConnection.findFirst({ where: { propertyId, provider: "WHATSAPP" } });
+
+  checks.push(diagnosticCheck(
+    "server_configuration",
+    "NoLSAF server configuration",
+    appId && appSecret && verifyTokenConfigured ? "PASS" : "FAIL",
+    appId && appSecret && verifyTokenConfigured ? "App credentials and webhook verification token are configured." : "META_APP_ID, META_APP_SECRET or META_WEBHOOK_VERIFY_TOKEN is missing.",
+  ));
+  checks.push(diagnosticCheck(
+    "connection_record",
+    "Property connection",
+    connection?.status === "CONNECTED" && Boolean(connection.phoneNumberId && connection.externalBusinessId && connection.accessTokenEncrypted) ? "PASS" : "FAIL",
+    connection?.status === "CONNECTED" ? "The property has a connected WhatsApp account and stored business assets." : "This property does not have a complete connected WhatsApp account.",
+  ));
+
+  let appWebhookVerified = false;
+  let wabaSubscribed = false;
+  let phoneAccessible = false;
+  let reportedCallback: string | null = null;
+
+  if (appId && appSecret) {
+    try {
+      const appToken = await metaJson(await fetch("https://graph.facebook.com/oauth/access_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: appId, client_secret: appSecret, grant_type: "client_credentials" }).toString(),
+        signal: AbortSignal.timeout(8_000),
+      }));
+      const subscriptions = await metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${appId}/subscriptions`, {
+        headers: { Authorization: `Bearer ${String(appToken.access_token || "")}` },
+        signal: AbortSignal.timeout(8_000),
+      }));
+      const whatsappSubscription = (Array.isArray(subscriptions.data) ? subscriptions.data : []).find((item: any) => item?.object === "whatsapp_business_account");
+      const fields = Array.isArray(whatsappSubscription?.fields) ? whatsappSubscription.fields.map((field: any) => String(field?.name || field)) : [];
+      reportedCallback = whatsappSubscription?.callback_url ? String(whatsappSubscription.callback_url) : null;
+      appWebhookVerified = Boolean(whatsappSubscription && whatsappSubscription.active !== false && fields.includes("messages") && reportedCallback);
+      checks.push(diagnosticCheck(
+        "app_webhook",
+        "Meta app messages webhook",
+        appWebhookVerified ? "PASS" : "FAIL",
+        !whatsappSubscription ? "The Meta app has no whatsapp_business_account webhook subscription." : !fields.includes("messages") ? "The Meta app webhook is not subscribed to the messages field." : !reportedCallback ? "The Meta app has no webhook callback URL." : whatsappSubscription.active === false ? "The Meta app webhook subscription is inactive." : `Meta reports an active messages webhook at ${reportedCallback}.`,
+      ));
+    } catch (error) {
+      checks.push(diagnosticCheck("app_webhook", "Meta app messages webhook", "FAIL", `Meta could not verify the app webhook: ${safeDiagnosticError(error)}`));
+    }
+  } else {
+    checks.push(diagnosticCheck("app_webhook", "Meta app messages webhook", "FAIL", "App credentials are unavailable, so Meta could not be queried."));
+  }
+
+  if (connection?.externalBusinessId && connection.phoneNumberId && connection.accessTokenEncrypted) {
+    try {
+      const accessToken = decrypt(connection.accessTokenEncrypted, { log: false });
+      const [subscriptions, phones] = await Promise.all([
+        metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${connection.externalBusinessId}/subscribed_apps`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8_000) })),
+        metaJson(await fetch(`https://graph.facebook.com/${graphVersion}/${connection.externalBusinessId}/phone_numbers?fields=id,display_phone_number,verified_name`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8_000) })),
+      ]);
+      const subscription = (Array.isArray(subscriptions.data) ? subscriptions.data : []).find((item: any) => String(item?.whatsapp_business_api_data?.id || item?.id || "") === appId);
+      wabaSubscribed = Boolean(subscription);
+      const overrideCallback = subscription?.override_callback_uri ? String(subscription.override_callback_uri) : null;
+      phoneAccessible = (Array.isArray(phones.data) ? phones.data : []).some((phone: any) => String(phone?.id || "") === String(connection.phoneNumberId));
+      checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", wabaSubscribed ? "PASS" : "FAIL", wabaSubscribed ? `The NoLSAF Meta app is subscribed to this WABA${overrideCallback ? ` with callback ${overrideCallback}` : ""}.` : "The NoLSAF Meta app is not present in this WABA's subscribed apps."));
+      checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", phoneAccessible ? "PASS" : "FAIL", phoneAccessible ? "Meta confirms the connected phone belongs to this WABA and the token can access it." : "The connected phone ID is not accessible with the stored WABA token."));
+    } catch (error) {
+      const detail = safeDiagnosticError(error);
+      checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", "FAIL", `Meta could not verify the WABA subscription: ${detail}`));
+      checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", "FAIL", `Meta could not verify the connected phone: ${detail}`));
+    }
+  } else {
+    checks.push(diagnosticCheck("waba_subscription", "WhatsApp Business Account subscription", "FAIL", "The stored connection is missing its WABA ID, phone ID or encrypted token."));
+    checks.push(diagnosticCheck("phone_access", "WhatsApp phone access", "FAIL", "The stored connection is incomplete."));
+  }
+
+  let workerHealthy = false;
+  let queueHealthy = false;
+  let lastJob: any = null;
+  let lastInbound: any = null;
+  try {
+    const accountId = String(connection?.phoneNumberId || "");
+    const [worker, webhookJob, inbound] = await Promise.all([
+      prisma.nrmsWorkerHealth.findUnique({ where: { worker: "meta-messaging" } }),
+      prisma.nrmsMetaWebhookJob.findFirst({ where: { OR: [{ propertyId }, ...(accountId ? [{ provider: "WHATSAPP", accountId }] : [])] }, orderBy: { createdAt: "desc" }, select: { status: true, lastError: true, createdAt: true, completedAt: true } }),
+      prisma.nrmsGuestMessage.findFirst({ where: { direction: "INBOUND", channel: "WHATSAPP", inquiry: { propertyId } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+    ]);
+    lastJob = webhookJob;
+    lastInbound = inbound;
+    const lastSuccessAt = worker?.lastSuccessAt ? new Date(worker.lastSuccessAt) : null;
+    workerHealthy = Boolean(workerExpectedToRun() && worker?.status === "HEALTHY" && lastSuccessAt && checkedAt.getTime() - lastSuccessAt.getTime() < 120_000);
+    checks.push(diagnosticCheck("worker", "NoLSAF webhook processor", workerHealthy ? "PASS" : "FAIL", !workerExpectedToRun() ? "RUN_BACKGROUND_WORKERS is disabled on this service." : !worker ? "The meta-messaging worker has never reported health." : workerHealthy ? `The worker last completed successfully at ${lastSuccessAt?.toISOString()}.` : `The worker is ${worker.status}; last success was ${lastSuccessAt?.toISOString() || "never"}${worker.lastError ? ` (${String(worker.lastError).slice(0, 180)})` : ""}.`));
+    queueHealthy = !webhookJob || webhookJob.status === "COMPLETED";
+    checks.push(diagnosticCheck("webhook_queue", "Durable webhook queue", webhookJob?.status === "DEAD" ? "FAIL" : webhookJob && webhookJob.status !== "COMPLETED" ? "WARN" : "PASS", !webhookJob ? "No WhatsApp webhook event has reached the durable queue for this property yet." : webhookJob.status === "COMPLETED" ? `The latest webhook event was processed successfully at ${webhookJob.completedAt?.toISOString() || webhookJob.createdAt.toISOString()}.` : `The latest webhook event is ${webhookJob.status}${webhookJob.lastError ? `: ${String(webhookJob.lastError).slice(0, 180)}` : "."}`));
+    checks.push(diagnosticCheck("inbound_storage", "Reception inquiry storage", inbound ? "PASS" : "WARN", inbound ? `The latest stored inbound WhatsApp message arrived at ${inbound.createdAt.toISOString()}.` : "No inbound WhatsApp message has been stored for this property."));
+  } catch (error) {
+    const detail = safeDiagnosticError(error);
+    checks.push(diagnosticCheck("worker", "NoLSAF webhook processor", "FAIL", `Worker health could not be read: ${detail}`));
+    checks.push(diagnosticCheck("webhook_queue", "Durable webhook queue", "FAIL", `The webhook queue could not be queried. Confirm the latest Prisma migration: ${detail}`));
+    checks.push(diagnosticCheck("inbound_storage", "Reception inquiry storage", "FAIL", "Inbound storage could not be verified because the database diagnostic failed."));
+  }
+
+  const failedIds = checks.filter((check) => check.status === "FAIL").map((check) => check.id);
+  const verdict = failedIds.some((id) => ["server_configuration", "connection_record", "app_webhook", "waba_subscription", "phone_access"].includes(id))
+    ? "CONFIGURATION_BROKEN"
+    : failedIds.some((id) => ["worker", "webhook_queue", "inbound_storage"].includes(id))
+      ? "PROCESSING_BROKEN"
+      : !connection?.lastWebhookAt && !lastJob
+        ? "AWAITING_META_WEBHOOK"
+        : workerHealthy && queueHealthy && lastInbound
+          ? "HEALTHY"
+          : "ATTENTION_REQUIRED";
+
+  res.json({
+    diagnostic: {
+      provider: "WHATSAPP",
+      propertyId,
+      checkedAt: checkedAt.toISOString(),
+      verdict,
+      checks,
+      evidence: {
+        reportedCallback,
+        lastWebhookAt: connection?.lastWebhookAt ?? null,
+        latestWebhookJobStatus: lastJob?.status ?? null,
+        latestInboundAt: lastInbound?.createdAt ?? null,
+      },
     },
   });
 }) as RequestHandler);
