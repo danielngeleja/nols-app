@@ -259,7 +259,7 @@ export default function FiscalReceiptsCard() {
                     };
                     reader.readAsDataURL(file);
                   }}
-                  className="box-border w-full rounded-lg border border-solid border-neutral-200 bg-white p-2 text-xs file:mr-2 file:rounded file:border-0 file:bg-neutral-100 file:px-2 file:py-1 file:text-xs file:font-bold"
+                  className="box-border w-full rounded-lg border border-solid border-neutral-200 bg-white p-2 text-xs file:mr-2 file:rounded-[0.25rem] file:border-0 file:bg-neutral-100 file:px-2 file:py-1 file:text-xs file:font-bold"
                 />
                 {certificateName ? <span className="text-[10px] text-neutral-500">{certificateName}</span> : null}
               </label>
