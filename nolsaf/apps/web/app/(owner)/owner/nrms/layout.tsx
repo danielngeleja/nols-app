@@ -57,6 +57,7 @@ import NrmsActivationScreen from "./_components/NrmsActivationScreen";
 import NrmsBootScreen from "./_components/NrmsBootScreen";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 import NrmsPropertyGate from "./_components/NrmsPropertyGate";
+import FiscalAlertBanner from "./_components/FiscalAlertBanner";
 import NrmsOperationalFooter from "./_components/NrmsOperationalFooter";
 
 const PRIMARY_TABS = [
@@ -715,6 +716,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
             </div>
           </nav>
         </header>
+
+        <FiscalAlertBanner />
 
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
           {showPropertyGate ? null : propertyNeedsActivation ? <PropertyActivationGate /> : children}

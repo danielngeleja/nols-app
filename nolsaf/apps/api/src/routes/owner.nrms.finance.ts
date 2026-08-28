@@ -3,6 +3,7 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { auditOrThrow } from "../lib/audit.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
@@ -32,7 +33,10 @@ function requireManager(access: FinanceAccess, res: Response): boolean {
 
 const openShiftSchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), openingFloat: z.number().min(0) });
 const closeShiftSchema = z.object({ declaredCash: z.number().min(0), closeNote: z.string().trim().max(300).optional().nullable() });
-const closeDaySchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+const closeDaySchema = z.object({
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  acknowledgeFiscalBacklog: z.boolean().optional().default(false),
+});
 const classifyTenderSchema = z.object({ method: z.enum(PAYMENT_METHODS) });
 const createExpenseSchema = z.object({
   category: z.enum(EXPENSE_CATEGORIES),
@@ -118,6 +122,18 @@ async function controlIssues(source: any, propertyId: number, key: string, event
     source.reservationCharge.count({ where: { reservation: { propertyId }, voidReason: null, voidedAt: { gte: start, lt: end } } }),
   ]);
   const missingVoidReasons = missingOrderVoidReasons + missingPaymentVoidReasons + missingChargeVoidReasons;
+  // Fiscal receipts still queued for TRA. A warning, never a blocker: a tax
+  // service being unreachable must not stop a hotel closing its day, for the
+  // same reason it must not stop a hotel taking money. Landing it in
+  // nrmsNightAuditRun.warnings is what stops the day closing *quietly* over a
+  // backlog, since the operator sees it and the run records that they proceeded.
+  const pendingFiscal = await source.nrmsFiscalReceipt.count({
+    where: {
+      propertyId,
+      status: { in: ["PENDING", "FAILED", "DEAD_LETTER"] },
+      saleOccurredAt: { gte: start, lt: end },
+    },
+  });
   const blockers = [
     openShifts ? { code: "OPEN_CASHIER_SHIFTS", count: openShifts, message: `${openShifts} cashier shift${openShifts === 1 ? " is" : "s are"} still open.` } : null,
     openOrders ? { code: "OPEN_OUTLET_ORDERS", count: openOrders, message: `${openOrders} restaurant or bar order${openOrders === 1 ? " is" : "s are"} not completed.` } : null,
@@ -125,7 +141,12 @@ async function controlIssues(source: any, propertyId: number, key: string, event
     unclassified ? { code: "UNCLASSIFIED_TENDERS", count: unclassified, message: `${unclassified} outlet settlement${unclassified === 1 ? " needs" : "s need"} a payment method.` } : null,
     missingVoidReasons ? { code: "MISSING_VOID_REASONS", count: missingVoidReasons, message: `${missingVoidReasons} void or cancellation record${missingVoidReasons === 1 ? " has" : "s have"} no reason.` } : null,
   ].filter(Boolean);
-  return { blockers, warnings: [] as any[] };
+  const warnings = [
+    pendingFiscal
+      ? { code: "FISCAL_RECEIPTS_PENDING", count: pendingFiscal, message: `${pendingFiscal} fiscal receipt${pendingFiscal === 1 ? " has" : "s have"} not reached TRA yet.` }
+      : null,
+  ].filter(Boolean);
+  return { blockers, warnings: warnings as any[] };
 }
 
 type Posting = {
@@ -514,6 +535,47 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         return { blocked: true as const, blockers: issues.blockers, audit };
       }
 
+      const fiscalWarning = issues.warnings.find((warning: any) => warning.code === "FISCAL_RECEIPTS_PENDING");
+      if (fiscalWarning && !parsed.data.acknowledgeFiscalBacklog) {
+        const audit = await tx.nrmsNightAuditRun.create({
+          data: {
+            propertyId: active.property.id,
+            businessDayId: day.id,
+            status: "BLOCKED",
+            reportNumber,
+            blockers: [],
+            warnings: issues.warnings,
+            summary: { fiscalBacklogAcknowledgement: { required: true, acknowledged: false, count: fiscalWarning.count } },
+            startedById: req.user!.id,
+            completedAt: new Date(),
+          },
+        });
+        await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "OPEN" } });
+        return { acknowledgementRequired: true as const, warning: fiscalWarning, audit };
+      }
+
+      const fiscalBacklogRows = fiscalWarning
+        ? await tx.nrmsFiscalReceipt.findMany({
+          where: {
+            propertyId: active.property.id,
+            status: { in: ["PENDING", "FAILED", "DEAD_LETTER"] },
+            saleOccurredAt: { gte: eventWindow.start, lt: eventWindow.end },
+          },
+          select: { id: true, sourceKey: true, status: true },
+          orderBy: { globalCounter: "asc" },
+        })
+        : [];
+      const fiscalBacklogAcknowledgement = fiscalWarning
+        ? {
+          required: true,
+          acknowledged: true,
+          acknowledgedById: req.user!.id,
+          acknowledgedAt: new Date(),
+          count: fiscalBacklogRows.length,
+          receipts: fiscalBacklogRows,
+        }
+        : { required: false, acknowledged: false, count: 0, receipts: [] };
+
       const candidates = await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow);
       const alreadyPosted = candidates.length
         ? await tx.nrmsLedgerTransaction.findMany({
@@ -547,17 +609,38 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
           entries: { create: posting.entries },
         });
       }
-      const summary = { transactionCount: postings.length, debitTotal: money(debitTotal), creditTotal: money(debitTotal) };
+      const summary = {
+        transactionCount: postings.length,
+        debitTotal: money(debitTotal),
+        creditTotal: money(debitTotal),
+        fiscalBacklogAcknowledgement,
+      };
       const closedAt = closeBoundary;
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
       const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
       const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
       const nextBusinessDay = await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
       if (["CLOSING", "CLOSED"].includes(nextBusinessDay.status)) throw new Error("NEXT_BUSINESS_DAY_LOCKED");
+      if (fiscalWarning) {
+        await auditOrThrow(tx, req, "NRMS_FISCAL_BACKLOG_ACKNOWLEDGED_AT_NIGHT_AUDIT", "PROPERTY", null, {
+          businessDate: parsed.data.businessDate,
+          nightAuditRunId: closedAudit.id,
+          receiptCount: fiscalBacklogRows.length,
+          receiptIds: fiscalBacklogRows.map((receipt: any) => receipt.id),
+        }, active.property.id);
+      }
       return { blocked: false as const, businessDay: closed, nextBusinessDay, audit: closedAudit };
     }, { maxWait: 10_000, timeout: 30_000 });
 
-    if (result.blocked) return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: result.blockers, audit: result.audit });
+    if ("acknowledgementRequired" in result && result.acknowledgementRequired) {
+      return res.status(409).json({
+        error: "Explicitly acknowledge the listed fiscal backlog before closing this business date.",
+        code: "FISCAL_BACKLOG_ACKNOWLEDGEMENT_REQUIRED",
+        warning: result.warning,
+        audit: result.audit,
+      });
+    }
+    if ("blocked" in result && result.blocked) return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: result.blockers, audit: result.audit });
     res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";

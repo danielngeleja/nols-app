@@ -53,21 +53,52 @@ function initials(name?: string | null): string {
   return (words[0]![0]! + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
-/** A labelled metadata cell: small uppercase label above a bold value. */
-function MetaCell({ label, children, warn }: { label: string; children: ReactNode; warn?: boolean }) {
-  return (
-    <div className="flex flex-col">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{label}</span>
-      <span className={`text-[12px] font-bold ${warn ? "text-amber-600" : "text-neutral-800"}`}>{children}</span>
-    </div>
+/**
+ * Card skin per status. A rail down the left edge lets an owner read the state
+ * of a whole list at a glance without parsing each pill, and the avatar picks
+ * up the same colour so identity and state agree.
+ */
+const CARD_SKIN: Record<string, { rail: string; head: string; avatar: string }> = {
+  ACTIVE: { rail: "bg-emerald-500", head: "bg-emerald-50/40", avatar: "bg-emerald-100 text-emerald-700" },
+  INVITED: { rail: "bg-amber-400", head: "bg-amber-50/40", avatar: "bg-amber-100 text-amber-700" },
+  REQUESTED: { rail: "bg-cyan-500", head: "bg-cyan-50/40", avatar: "bg-cyan-100 text-cyan-700" },
+  AGENT_ACCEPTED: { rail: "bg-blue-500", head: "bg-blue-50/40", avatar: "bg-blue-100 text-blue-700" },
+  SUSPENDED: { rail: "bg-orange-400", head: "bg-orange-50/40", avatar: "bg-orange-100 text-orange-700" },
+  REJECTED: { rail: "bg-neutral-300", head: "bg-neutral-50", avatar: "bg-neutral-100 text-neutral-500" },
+  TERMINATED: { rail: "bg-red-400", head: "bg-red-50/40", avatar: "bg-red-100 text-red-700" },
+};
+function cardSkin(status: string) {
+  return CARD_SKIN[status] ?? { rail: "bg-neutral-300", head: "bg-neutral-50", avatar: "bg-neutral-100 text-neutral-500" };
+}
+
+/**
+ * One term of the deal, as a tile. These were four bare label-over-value
+ * columns stretched across the full card width, which left most of the row
+ * empty and gave the terms no weight of their own.
+ */
+function MetaTile({ icon: Icon, label, value, tone = "normal", onClick }: {
+  icon: typeof Wallet; label: string; value: ReactNode;
+  tone?: "normal" | "warn"; onClick?: () => void;
+}) {
+  const body = (
+    <>
+      <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+        <Icon className="h-3 w-3 flex-shrink-0" />{label}
+      </span>
+      <span className={`mt-1 block truncate text-[13px] font-bold ${tone === "warn" ? "text-amber-600" : "text-neutral-800"}`}>{value}</span>
+    </>
   );
+  const skin = `block min-w-0 rounded-lg px-2.5 py-2 text-left ${tone === "warn" ? "bg-amber-50/70 ring-1 ring-amber-200" : "bg-neutral-50 ring-1 ring-neutral-100"}`;
+  return onClick
+    ? <button type="button" onClick={onClick} className={`${skin} w-full appearance-none border-0 transition hover:ring-emerald-300`}>{body}</button>
+    : <div className={skin}>{body}</div>;
 }
 
 export default function NrmsAgentsPage() {
   const { selectedPropertyId } = useNrms();
   const [maxAgents, setMaxAgents] = useState(0);
-  const [prepayWindowMinutes, setPrepayWindowMinutes] = useState(24 * 60);
   const [links, setLinks] = useState<AgentLink[]>([]);
+  const [confirming, setConfirming] = useState<{ link: AgentLink; kind: DestructiveKind } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -83,7 +114,6 @@ export default function NrmsAgentsPage() {
     try {
       const res = await apiClient.get<any>(`/api/owner/nrms/agents/property/${selectedPropertyId}`);
       setMaxAgents(res.data?.maxAgents ?? 0);
-      setPrepayWindowMinutes(res.data?.prepayWindowMinutes ?? 24 * 60);
       setLinks(res.data?.links ?? []);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load travel agents");
@@ -121,19 +151,21 @@ export default function NrmsAgentsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="m-0 flex items-center gap-2.5 text-lg font-bold text-neutral-900">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm"><Handshake className="h-[18px] w-[18px]" /></span>
-            Travel agents
-          </h1>
-          <p className="m-0 mt-1.5 max-w-2xl text-[13px] leading-relaxed text-neutral-500">Approved agents book your rooms against live inventory at your negotiated rates. You control who sells, at what price, and whether each booking needs your approval.</p>
+      <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
+        <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm"><Handshake className="h-5 w-5" /></span>
+        <div className="min-w-[16rem] flex-1">
+          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Travel trade</p>
+          <h1 className="m-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-900">Travel agents</h1>
+          <p className="m-0 mt-1 max-w-2xl text-[13px] leading-relaxed text-neutral-500">Approved agents book your rooms against live inventory at your negotiated rates. You control who sells, at what price, and whether each booking needs your approval.</p>
         </div>
+        {/* ml-auto rather than justify-between: once this wraps to its own row
+            it is the lone item, and justify-between resolves that to the left. */}
         <button
           type="button"
           onClick={() => { setShowAdd(true); setNotice(null); setError(null); }}
           disabled={capReached}
-          className="inline-flex items-center gap-1.5 self-start rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400"
+          title={capReached ? "You have used every approved-agent seat" : undefined}
+          className="ml-auto inline-flex flex-shrink-0 items-center gap-1.5 self-start rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400"
         >
           <Plus className="h-4 w-4" /> Add agent
         </button>
@@ -144,7 +176,7 @@ export default function NrmsAgentsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col">
             <span className="text-[13px] font-semibold text-neutral-800">Approved-agent limit</span>
-            <span className="text-[11px] text-neutral-400">Set by NoLSAF{seatsLeft > 0 ? ` · ${seatsLeft} seat${seatsLeft === 1 ? "" : "s"} available` : ""}</span>
+            <span className="text-[11px] text-neutral-400">Set by NoLSAF</span>
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className={`text-2xl font-extrabold tabular-nums leading-none ${capReached ? "text-orange-500" : "text-emerald-600"}`}>{seatsUsed}</span>
@@ -185,7 +217,7 @@ export default function NrmsAgentsPage() {
       {loading ? (
         <div className="flex items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agents…</div>
       ) : links.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-solid border-neutral-200 bg-white p-8 text-center">
+        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
           <p className="m-0 text-sm font-semibold text-neutral-700">No travel agents yet</p>
           <p className="m-0 mt-1 text-[13px] text-neutral-500">Add an agency to let it book your rooms at agreed rates.</p>
         </div>
@@ -199,19 +231,35 @@ export default function NrmsAgentsPage() {
             const agentAccepted = link.status === "REQUESTED" || link.status === "AGENT_ACCEPTED" || (link.status === "SUSPENDED" && !centralSuspension);
             const canApprove = agentAccepted && link.status !== "ACTIVE";
             const noRates = link.rateAccess.length === 0;
+            const skin = cardSkin(link.status);
+            // One note per card, most blocking first. Only states that are
+            // waiting on somebody say anything; a healthy ACTIVE row stays clean.
+            const stateNote =
+              centralSuspension
+                ? { tone: "bg-red-50 text-red-800", icon: ShieldAlert, text: "Suspended by NoLSAF. This one cannot be reactivated from here, contact NoLSAF to have it reviewed." }
+                : canApprove && notVerified
+                  ? { tone: "bg-amber-50 text-amber-800", icon: ShieldAlert, text: "NoLSAF has to verify this agency before you can activate it. Activation stays disabled until then." }
+                  : link.status === "INVITED"
+                    ? { tone: "bg-amber-50 text-amber-800", icon: Clock, text: "Waiting for the agency to accept your invitation. Resend the activation email if it has been a while." }
+                    : link.status === "REQUESTED"
+                      ? { tone: "bg-cyan-50 text-cyan-800", icon: Clock, text: "This agency asked to sell your rooms. Approve it to go live, or reject the request." }
+                      : link.status === "SUSPENDED"
+                        ? { tone: "bg-orange-50 text-orange-800", icon: Clock, text: "Paused by you. This agency cannot book until you activate it again." }
+                        : null;
             return (
-              <li key={link.id} className="rounded-xl border border-solid border-neutral-200 bg-white p-4 transition hover:border-neutral-300 hover:shadow-sm">
-                {/* Zone 1 - identity + actions */}
-                <div className="flex items-start justify-between gap-3">
-                  <button type="button" onClick={() => setDetailFor(link.id)} className="flex min-w-0 items-center gap-3 border-0 bg-transparent p-0 text-left group">
-                    <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-50 to-teal-100 text-[13px] font-bold text-emerald-700">{initials(link.agency?.legalName)}</span>
+              <li key={link.id} className="relative overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+                <span className={`absolute inset-y-0 left-0 w-1 ${skin.rail}`} aria-hidden="true" />
+                {/* Zone 1 - identity + actions, on a tint that matches the state */}
+                <div className={`flex flex-wrap items-start justify-between gap-3 py-3 pl-5 pr-4 ${skin.head}`}>
+                  <button type="button" onClick={() => setDetailFor(link.id)} className="flex min-w-0 flex-1 items-center gap-3 border-0 bg-transparent p-0 text-left group">
+                    <span className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl text-[13px] font-bold shadow-sm ${skin.avatar}`}>{initials(link.agency?.legalName)}</span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-[15px] font-bold text-neutral-900 group-hover:text-emerald-700">{link.agency?.legalName ?? "Agency"}</span>
                         <StatusPill status={link.status} />
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                        {link.agency?.reference && <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{link.agency.reference}</span>}
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        {link.agency?.reference && <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500 ring-1 ring-neutral-200">{link.agency.reference}</span>}
                         {verify && (
                           <span className={`inline-flex items-center gap-1 text-[12px] font-medium ${verify.cls}`}>
                             {link.agency?.verificationStatus === "VERIFIED" ? <BadgeCheck className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />} {verify.label}
@@ -227,34 +275,56 @@ export default function NrmsAgentsPage() {
                     {canApprove && (
                       <button type="button" onClick={() => void act(link.id, "/approve", "post", {}, "Agent activated.")} disabled={busy || notVerified} title={notVerified ? "The agency must be verified by NoLSAF before you can activate it" : undefined} className="inline-flex items-center gap-1 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400"><CheckCircle2 className="h-3.5 w-3.5" /> Activate</button>
                     )}
-                    {link.status === "INVITED" && <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700">Awaiting agency acceptance</span>}
-                    {link.status === "REQUESTED" && <span className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-700">Requested by operator</span>}
-                    {centralSuspension && <span className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">NoLSAF review required</span>}
+                    {/* The three status labels that used to sit here were not
+                        buttons. They made every card a different width and
+                        repeated the status pill beside the agency name. They
+                        are one explanatory note below now, so this row holds
+                        only things you can click. */}
                     {link.status === "INVITED" && link.agency?.activationPending && <button type="button" onClick={() => void act(link.id, "/resend-invite", "post", {}, "Invitation email sent again.")} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-neutral-600 disabled:opacity-50"><Mail className="h-3.5 w-3.5" /> Resend activation</button>}
+                    {/* Ending a partnership is separated from the routine
+                        actions by a hairline and carries no coloured border of
+                        its own, so Terminate stops competing with Open for the
+                        eye while staying one click away. */}
+                    {(link.status === "ACTIVE" || ["INVITED", "REQUESTED", "AGENT_ACCEPTED", "SUSPENDED"].includes(link.status)) && (
+                      <span className="mx-0.5 h-5 w-px flex-shrink-0 bg-neutral-200" aria-hidden="true" />
+                    )}
+                    {/* These three open a confirmation rather than firing. */}
                     {link.status === "ACTIVE" && (
-                      <button type="button" onClick={() => void act(link.id, "/suspend", "post", {}, "Agent suspended.")} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-solid border-orange-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-50 disabled:opacity-50"><Clock className="h-3.5 w-3.5" /> Suspend</button>
+                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "suspend" }); }} disabled={busy} title="Pause this agency without ending the partnership" className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-50 disabled:opacity-50"><Clock className="h-3.5 w-3.5" /> Suspend</button>
                     )}
                     {["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(link.status) && (
-                      <button type="button" onClick={() => void act(link.id, "/reject", "post", {}, "Agent rejected.")} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-neutral-600 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Reject</button>
+                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "reject" }); }} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-neutral-600 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Reject</button>
                     )}
                     {["ACTIVE", "SUSPENDED"].includes(link.status) && (
-                      <button type="button" onClick={() => void act(link.id, "/terminate", "post", {}, "Partnership terminated.")} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-solid border-red-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Terminate</button>
+                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "terminate" }); }} disabled={busy} title="End this partnership permanently" className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Terminate</button>
                     )}
                   </div>
                 </div>
 
-                {/* Zone 2 - aligned data columns */}
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 border-0 border-t border-solid border-neutral-100 pt-3 sm:grid-cols-4">
-                  <MetaCell label="Booking">{link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book"}</MetaCell>
-                  <MetaCell label="Payment">{link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms}</MetaCell>
-                  <MetaCell label="Currency">{link.currency}</MetaCell>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">Rate access</span>
-                    {noRates ? (
-                      <button type="button" onClick={() => setRateFor(link)} className="w-fit border-0 bg-transparent p-0 text-left text-[12px] font-bold text-amber-600 hover:underline">Set rates →</button>
-                    ) : (
-                      <button type="button" onClick={() => setRateFor(link)} className="w-fit border-0 bg-transparent p-0 text-left text-[12px] font-bold text-neutral-800 hover:text-emerald-700 hover:underline">{link.rateAccess.length} plan(s)</button>
-                    )}
+                {/* Zone 1b - what this state means and what it is waiting on.
+                    The verification blocker in particular was only ever a
+                    `title` on a disabled Activate button, so an owner saw a
+                    dead button with no stated reason. */}
+                <div className="py-3 pl-5 pr-4">
+                  {stateNote && (
+                    <p className={`m-0 mb-3 flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-4 ${stateNote.tone}`}>
+                      <stateNote.icon className="mt-px h-3.5 w-3.5 flex-shrink-0" />
+                      <span>{stateNote.text}</span>
+                    </p>
+                  )}
+
+                  {/* Zone 2 - the terms of the deal, as tiles */}
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <MetaTile icon={CheckCircle2} label="Booking" value={link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book"} />
+                    <MetaTile icon={Wallet} label="Payment" value={link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms} />
+                    <MetaTile icon={Globe} label="Currency" value={link.currency} />
+                    <MetaTile
+                      icon={Tag}
+                      label="Rate access"
+                      tone={noRates ? "warn" : "normal"}
+                      value={noRates ? "Set rates" : `${link.rateAccess.length} ${link.rateAccess.length === 1 ? "plan" : "plans"}`}
+                      onClick={() => setRateFor(link)}
+                    />
                   </div>
                 </div>
               </li>
@@ -264,9 +334,26 @@ export default function NrmsAgentsPage() {
       )}
 
       {showAdd && <AddAgentPanel propertyId={selectedPropertyId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); setNotice("Agent invited. The agency must accept the relationship before activation."); void load(); }} onInvited={(delivered) => { setShowAdd(false); setNotice(delivered ? "Invitation sent. The agency accepts the hotel relationship, then NoLSAF verification enables activation." : "The agency was created, but email delivery failed. Use Resend on the pending agent row."); void load(); }} onError={setError} />}
-      {termsFor && <TermsModal propertyId={selectedPropertyId} link={termsFor} prepayWindowMinutes={prepayWindowMinutes} onClose={() => setTermsFor(null)} onSaved={() => { setTermsFor(null); setNotice("Terms updated."); void load(); }} onError={setError} />}
+      {termsFor && <TermsModal propertyId={selectedPropertyId} link={termsFor} onClose={() => setTermsFor(null)} onSaved={() => { setTermsFor(null); setNotice("Terms updated."); void load(); }} onError={setError} />}
       {rateFor && <RateAccessModal link={rateFor} propertyId={selectedPropertyId} onClose={() => setRateFor(null)} onSaved={() => { setRateFor(null); setNotice("Rate access updated."); void load(); }} onError={setError} />}
       {detailFor && <AgentDetailModal linkId={detailFor} onClose={() => setDetailFor(null)} onEditTerms={(l) => { setDetailFor(null); setTermsFor(l); }} onEditRates={(l) => { setDetailFor(null); setRateFor(l); }} />}
+      {confirming && (
+        <ConfirmDestructiveModal
+          // Keyed so the typed confirmation resets between agencies rather
+          // than carrying a stale value into the next dialog.
+          key={`${confirming.link.id}-${confirming.kind}`}
+          link={confirming.link}
+          kind={confirming.kind}
+          busy={busyId === confirming.link.id}
+          error={error}
+          onCancel={() => { setConfirming(null); setError(null); }}
+          onConfirm={async () => {
+            const spec = DESTRUCTIVE[confirming.kind];
+            const done = await act(confirming.link.id, spec.path, spec.verb, {}, spec.okMsg);
+            if (done) setConfirming(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -288,11 +375,100 @@ function Field({ icon, label, value, mono }: { icon: ReactNode; label: string; v
   );
 }
 
-function StatTile({ label, value, warn }: { label: string; value: ReactNode; warn?: boolean }) {
+type DestructiveKind = "suspend" | "reject" | "terminate";
+
+/**
+ * Suspend, Reject and Terminate used to fire straight from onClick. Terminate
+ * ends a commercial relationship and cannot be undone from this screen, and
+ * all three sit next to Open and Terms in the same button row, so a stray
+ * click ended a partnership with no way back. Each now states its consequence
+ * and asks; Terminate additionally requires the agency name to be typed, which
+ * also stops the right action being confirmed on the wrong row.
+ */
+const DESTRUCTIVE: Record<DestructiveKind, {
+  path: string; verb: "post"; title: string; confirmLabel: string; okMsg: string;
+  body: string; requireName: boolean; tone: "amber" | "red";
+}> = {
+  suspend: {
+    path: "/suspend", verb: "post", title: "Suspend agency?", confirmLabel: "Suspend", okMsg: "Agent suspended.",
+    body: "Booking access stops immediately. Existing reservations are unaffected and you can reactivate at any time.",
+    requireName: false, tone: "amber",
+  },
+  reject: {
+    path: "/reject", verb: "post", title: "Reject request?", confirmLabel: "Reject", okMsg: "Agent rejected.",
+    body: "The request is declined and the agency is notified. You can invite them again later.",
+    requireName: false, tone: "amber",
+  },
+  terminate: {
+    path: "/terminate", verb: "post", title: "Terminate partnership?", confirmLabel: "Terminate", okMsg: "Partnership terminated.",
+    body: "Access ends immediately and negotiated rates are withdrawn. Existing reservations stay in your system. This cannot be undone from here.",
+    requireName: true, tone: "red",
+  },
+};
+
+function ConfirmDestructiveModal({ link, kind, busy, error, onCancel, onConfirm }: {
+  link: AgentLink; kind: DestructiveKind; busy: boolean; error: string | null; onCancel: () => void; onConfirm: () => void;
+}) {
+  const spec = DESTRUCTIVE[kind];
+  const name = link.agency?.legalName ?? "this agency";
+  const [typed, setTyped] = useState("");
+  const ready = !spec.requireName || typed.trim().toLowerCase() === name.trim().toLowerCase();
+  const red = spec.tone === "red";
+
   return (
-    <div className="rounded-xl border border-solid border-neutral-200 bg-white px-3 py-2.5 text-center">
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{label}</span>
-      <span className={`mt-0.5 block text-[13px] font-bold ${warn ? "text-amber-600" : "text-neutral-800"}`}>{value}</span>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="agent-destructive-title">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-neutral-200">
+        {/* The agency name appears once, as the subject line. It used to be
+            inside the title as well, which pushed the heading to two lines. */}
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${red ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+            {red ? <Ban className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
+          </span>
+          <div className="min-w-0">
+            <h2 id="agent-destructive-title" className="m-0 text-[15px] font-bold leading-5 text-neutral-900">{spec.title}</h2>
+            <p className="m-0 mt-0.5 truncate text-[12px] font-semibold text-neutral-500" title={name}>{name}</p>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+          <p className="m-0 text-[12px] leading-5 text-neutral-600">{spec.body}</p>
+
+          {/* A failure here would otherwise render on the page behind this
+              dialog, where nobody would see it. */}
+          {error && <p className="m-0 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-[12px] leading-4 text-red-700 ring-1 ring-red-200" role="alert"><ShieldAlert className="mt-px h-3.5 w-3.5 flex-shrink-0" /><span>{error}</span></p>}
+
+          {spec.requireName && (
+            <label className="block">
+              <span className="block text-[12px] text-neutral-600">Type <span className="font-bold text-neutral-900">{name}</span> to confirm</span>
+              {/* No placeholder: repeating the name inside the box made an
+                  empty field look filled while the button stayed disabled. */}
+              <input
+                autoFocus
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                aria-label={`Type ${name} to confirm termination`}
+                // box-border is required: preflight is disabled app-wide, so
+                // without it w-full is 100% *plus* the padding and border,
+                // which pushed the field past the dialog and produced a
+                // horizontal scrollbar.
+                className="mt-1.5 box-border block min-h-10 w-full rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[13px] text-neutral-900 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+              />
+            </label>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-4 py-3 shadow-[inset_0_1px_0_0_#f5f5f5]">
+          <button type="button" onClick={onCancel} disabled={busy} className="min-h-10 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-[13px] font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || !ready}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-lg border-0 px-4 text-[13px] font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 ${red ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"}`}
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}{spec.confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -389,18 +565,28 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
 
               {/* Terms at this property */}
               <section>
-                <div className="mb-1.5 flex items-center justify-between">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <h4 className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-500"><Wallet className="h-3.5 w-3.5" /> Terms at this property</h4>
-                  <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => onEditRates(link)} className="border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 hover:underline">Rate access</button>
-                    <button type="button" onClick={() => onEditTerms(link)} className="border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 hover:underline">Edit terms</button>
+                  {/* Bare underlined text read as body copy. These are the two
+                      ways to change the terms shown beneath them. */}
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => onEditRates(link)} className="inline-flex min-h-8 appearance-none items-center gap-1 rounded-lg border-0 bg-white px-2.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50"><Tag className="h-3.5 w-3.5" /> Rate access</button>
+                    <button type="button" onClick={() => onEditTerms(link)} className="inline-flex min-h-8 appearance-none items-center gap-1 rounded-lg border-0 bg-white px-2.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50"><FileText className="h-3.5 w-3.5" /> Edit terms</button>
                   </div>
                 </div>
+                {/* The same tiles the card uses, so the drawer is a bigger view
+                    of the row rather than a differently drawn one. */}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <StatTile label="Booking" value={link.bookingMode === "INSTANT" ? "Instant" : "On request"} />
-                  <StatTile label="Payment" value={link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms} />
-                  <StatTile label="Currency" value={link.currency} />
-                  <StatTile label="Rate access" value={link.rateAccess.length ? `${link.rateAccess.length} plan(s)` : "None"} warn={link.rateAccess.length === 0} />
+                  <MetaTile icon={CheckCircle2} label="Booking" value={link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book"} />
+                  <MetaTile icon={Wallet} label="Payment" value={link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms} />
+                  <MetaTile icon={Globe} label="Currency" value={link.currency} />
+                  <MetaTile
+                    icon={Tag}
+                    label="Rate access"
+                    tone={link.rateAccess.length === 0 ? "warn" : "normal"}
+                    value={link.rateAccess.length ? `${link.rateAccess.length} ${link.rateAccess.length === 1 ? "plan" : "plans"}` : "Set rates"}
+                    onClick={() => onEditRates(link)}
+                  />
                 </div>
               </section>
 
@@ -745,13 +931,7 @@ function RateAccessModal({ link, propertyId, onClose, onSaved, onError }: { link
   );
 }
 
-function paymentWindowLabel(minutes: number): string {
-  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)} day${minutes === 24 * 60 ? "" : "s"}`;
-  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
-  return `${minutes} minutes`;
-}
-
-function TermsModal({ propertyId, link, prepayWindowMinutes, onClose, onSaved, onError }: { propertyId: number; link: AgentLink; prepayWindowMinutes: number; onClose: () => void; onSaved: () => void; onError: (m: string) => void }) {
+function TermsModal({ propertyId, link, onClose, onSaved, onError }: { propertyId: number; link: AgentLink; onClose: () => void; onSaved: () => void; onError: (m: string) => void }) {
   const [bookingMode, setBookingMode] = useState(link.bookingMode);
   const [currency, setCurrency] = useState(link.currency);
   const [supportedCurrencies, setSupportedCurrencies] = useState<string[] | null>(null);
@@ -802,16 +982,18 @@ function TermsModal({ propertyId, link, prepayWindowMinutes, onClose, onSaved, o
             </select>
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">
+            {/* min-w-0 on the label and w-full box-border on the control: a
+                grid track does not shrink a select below its content width, so
+                a long option ran under the chevron. */}
+            <label className="flex min-w-0 flex-col gap-1 text-[12px] font-semibold text-neutral-700">
               Payment
-              <select value="PREPAID" disabled className="cursor-not-allowed rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2 text-[13px] font-normal text-neutral-600 outline-none">
-                <option value="PREPAID">Prepaid (agent pays upfront)</option>
-                <option value="CREDIT" disabled>Credit / on-account (coming soon)</option>
+              <select value="PREPAID" disabled title="Credit and on-account terms are not available yet" className="box-border w-full cursor-not-allowed rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2 text-[13px] font-normal text-neutral-600 outline-none">
+                <option value="PREPAID">Prepaid</option>
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-neutral-700">
+            <label className="flex min-w-0 flex-col gap-1 text-[12px] font-semibold text-neutral-700">
               Currency
-              <select value={currency} onChange={(e) => setCurrency(e.target.value)} disabled={supportedCurrencies === null || supportedCurrencies.length === 0} className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-500">
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} disabled={supportedCurrencies === null || supportedCurrencies.length === 0} className="box-border w-full rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] font-normal outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-500">
                 {supportedCurrencies === null && <option value={currency}>Checking currencies…</option>}
                 {supportedCurrencies?.length === 0 && <option value={currency}>{currency} (not configured)</option>}
                 {supportedCurrencies?.map((code) => <option key={code} value={code}>{code}{code === "TZS" ? " (Tanzanian Shilling)" : code === "USD" ? " (US Dollar)" : ""}</option>)}
@@ -819,9 +1001,13 @@ function TermsModal({ propertyId, link, prepayWindowMinutes, onClose, onSaved, o
             </label>
           </div>
           {currencyError && <p className="m-0 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-700">{currencyError}</p>}
-          {supportedCurrencies?.length === 0 && !currencyError && <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">Add an active priced room and an active rate plan in the same currency before saving agent terms.</p>}
-          {supportedCurrencies && supportedCurrencies.length > 0 && !supportedCurrencies.includes(link.currency) && <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">The current {link.currency} term is not backed by a compatible room and rate plan. Saving will safely switch this agent to {currency}.</p>}
-          <p className="m-0 flex items-start gap-1.5 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] text-neutral-500"><Wallet className="mt-px h-3.5 w-3.5 flex-shrink-0 text-neutral-400" /> Prepaid bookings must be settled within {paymentWindowLabel(prepayWindowMinutes)} of confirmation, including hotel-approved requests. The exact deadline is shown to the agent. Unpaid inventory is released after that deadline.</p>
+          {supportedCurrencies?.length === 0 && !currencyError && <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-700">Add an active priced room and a rate plan in the same currency before saving.</p>}
+          {supportedCurrencies && supportedCurrencies.length > 0 && !supportedCurrencies.includes(link.currency) && <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-700">No room and rate plan back {link.currency}. Saving switches this agent to {currency}.</p>}
+          {/* The prepay-countdown note that used to sit here described a
+              deadline and an automatic inventory release that do not exist:
+              the API returns prepayWindowMinutes = 0 as a legacy DTO field and
+              its own comment says the invoice workflow has no prepay
+              countdown. It rendered as "settled within 0 days". */}
           <div className="mt-1 flex justify-end gap-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-[13px] font-semibold text-neutral-600 hover:border-neutral-300">Cancel</button>
             <button type="button" onClick={() => void save()} disabled={saving || supportedCurrencies === null || !supportedCurrencies.includes(currency)} className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Save terms</button>

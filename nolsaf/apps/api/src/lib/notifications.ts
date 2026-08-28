@@ -297,6 +297,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "Pending NRMS Staff Invites Cancelled",
         body: `Pending staff invites for "${data.propertyTitle || 'your property'}" were cancelled by NoLSAF. ${data.reason ? `Reason: ${data.reason}.` : ""} You can re-invite staff at any time.`
       },
+      nrms_fiscal_suspended: {
+        title: "TRA Receipts Paused",
+        body: `TRA fiscal receipting for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF pending review. ${data.reason ? `Reason: ${data.reason}. ` : ""}Your guests can still pay and every other part of your property works normally. Receipts already waiting to be sent are kept.`
+      },
+      nrms_fiscal_restored: {
+        title: "TRA Receipts Resumed",
+        body: `TRA fiscal receipting for "${data.propertyTitle || 'your property'}" has been restored. ${data.reason ? `Note: ${data.reason}. ` : ""}Receipts start again when your next business day opens.`
+      },
       nrms_qr_ordering_frozen: {
         title: "Guest QR Ordering Paused",
         body: `Guest QR ordering for "${data.propertyTitle || 'your property'}" has been paused by NoLSAF. ${data.reason ? `Reason: ${data.reason}. ` : ""}${data.referenceCode ? `Reference: ${data.referenceCode}. ` : ""}Staff ordering continues to work normally.`

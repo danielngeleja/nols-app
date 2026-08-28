@@ -31,6 +31,7 @@ import { createMasterProForma, emailMasterProForma, renderMasterProFormaPdf, ser
 import { generatePaymentReceiptPdf } from "../lib/pdfDocuments.js";
 import QRCode from "qrcode";
 import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
+import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
 import { materialiseAgentBookingRooms, repairSplitAgencyBooking, type MaterialiseOutcome } from "../lib/nrmsAgentGroupMaterialise.js";
@@ -1105,6 +1106,17 @@ router.post("/requests/:requestId/payments/confirm", (async (req: AuthedRequest,
         if (referenceDuplicate) throw new Error("NRMS_MASTER_PAYMENT_REFERENCE_DUPLICATE");
       }
       const payment = await tx.nrmsMasterFolioPayment.create({ data: { masterFolioId: owned.request.masterFolio!.id, amount: data.amount, currency: owned.request.currency, method: data.method, reference, idempotencyKey: data.idempotencyKey, receiptNumber: buildMasterPaymentReceiptNumber(owned.request.masterFolio!.id), note: data.note ? sanitizeText(data.note) : null, recordedById: req.user!.id } });
+      // Agency money settling the master folio is a taxable sale on the same
+      // terms as a guest paying their own. No-op unless the property has fiscal
+      // receipting on.
+      await fiscaliseSettlement(tx, {
+        propertyId: owned.request.propertyId,
+        sourceType: "MASTER_FOLIO_PAYMENT",
+        sourceId: payment.id,
+        saleOccurredAt: payment.createdAt ?? new Date(),
+        currency: owned.request.currency,
+        grossAmount: data.amount,
+      });
       const totalsAfter = await refreshMasterFolioStatus(tx, owned.request.masterFolio!.id);
       // The folio is the only ledger for agency money. Mirroring its total onto
       // the reservation used to be how the front desk saw a paid agency stay,

@@ -101,6 +101,7 @@ describe("NRMS finance access boundaries", () => {
       reservation: { count: vi.fn().mockResolvedValue(0) },
       externalPaymentRecord: { count: vi.fn().mockResolvedValue(0) },
       reservationCharge: { count: vi.fn().mockResolvedValue(0) },
+      nrmsFiscalReceipt: { count: vi.fn().mockResolvedValue(0) },
       nrmsNightAuditRun: { create: vi.fn().mockResolvedValue({ id: 4, status: "BLOCKED" }) },
     };
     mocks.ensureBusinessDay.mockResolvedValue({ id: 7, status: "OPEN" });
@@ -139,6 +140,83 @@ describe("NRMS finance access boundaries", () => {
     expect(mocks.lockPropertyInventory).not.toHaveBeenCalled();
   });
 
+  it("requires an explicit acknowledgement for that business date's fiscal backlog", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+    });
+    const zero = vi.fn().mockResolvedValue(0);
+    const businessDayUpdate = vi.fn().mockResolvedValue({});
+    const tx = {
+      nrmsBusinessDay: { update: businessDayUpdate },
+      nrmsCashierShift: { count: zero },
+      nrmsOutletOrder: { count: zero },
+      reservation: { count: zero },
+      externalPaymentRecord: { count: zero },
+      reservationCharge: { count: zero },
+      nrmsFiscalReceipt: { count: vi.fn().mockResolvedValue(2) },
+      nrmsNightAuditRun: { create: vi.fn().mockResolvedValue({ id: 4, status: "BLOCKED" }) },
+    };
+    mocks.ensureBusinessDay.mockResolvedValue({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z") });
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
+
+    const response = await request(app)
+      .post("/api/owner/nrms/finance/property/91/night-audit/close")
+      .send({ businessDate: "2026-08-13" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("FISCAL_BACKLOG_ACKNOWLEDGEMENT_REQUIRED");
+    expect(response.body.warning).toMatchObject({ code: "FISCAL_RECEIPTS_PENDING", count: 2 });
+    expect(businessDayUpdate).toHaveBeenLastCalledWith({ where: { id: 7 }, data: { status: "OPEN" } });
+    expect(tx.nrmsFiscalReceipt.count.mock.calls[0][0].where.saleOccurredAt).toBeTruthy();
+  });
+
+  it("stores the acknowledged receipt snapshot in both Night Audit and the audit log", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+    });
+    const empty = vi.fn().mockResolvedValue([]);
+    const zero = vi.fn().mockResolvedValue(0);
+    const nightAuditUpdate = vi.fn().mockResolvedValue({ id: 4, status: "CLOSED" });
+    const tx = {
+      nrmsBusinessDay: { update: vi.fn().mockResolvedValue({ id: 7, status: "CLOSED" }) },
+      nrmsCashierShift: { count: zero },
+      nrmsOutletOrder: { count: zero, findMany: empty },
+      reservation: { count: zero, findMany: empty },
+      externalPaymentRecord: { count: zero, findMany: empty },
+      reservationCharge: { count: zero, findMany: empty },
+      nrmsFiscalReceipt: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([{ id: 41, sourceKey: "PAYMENT:91:8", status: "FAILED" }]),
+      },
+      nrmsMasterFolioItem: { findMany: empty },
+      nrmsMasterFolioPayment: { findMany: empty },
+      nrmsUsageEvent: { findMany: empty },
+      nrmsExpense: { findMany: empty },
+      nrmsNightAuditRun: { create: vi.fn().mockResolvedValue({ id: 4, status: "DRAFT" }), update: nightAuditUpdate },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 99 }) },
+    };
+    mocks.ensureBusinessDay
+      .mockResolvedValueOnce({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z") })
+      .mockResolvedValueOnce({ id: 8, status: "OPEN" });
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
+
+    const response = await request(app)
+      .post("/api/owner/nrms/finance/property/91/night-audit/close")
+      .send({ businessDate: "2026-08-13", acknowledgeFiscalBacklog: true });
+
+    expect(response.status).toBe(200);
+    const summary = nightAuditUpdate.mock.calls[0][0].data.summary;
+    expect(summary.fiscalBacklogAcknowledgement).toMatchObject({ acknowledged: true, count: 1 });
+    expect(summary.fiscalBacklogAcknowledgement.receipts).toEqual([{ id: 41, sourceKey: "PAYMENT:91:8", status: "FAILED" }]);
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
   it("closes one completed date and opens the next date in the same transaction", async () => {
     mocks.loadNrmsPropertyAccess.mockResolvedValue({
       role: "MANAGER",
@@ -158,6 +236,7 @@ describe("NRMS finance access boundaries", () => {
       reservation: { count: zero, findMany: empty },
       externalPaymentRecord: { count: zero, findMany: empty },
       reservationCharge: { count: zero, findMany: empty },
+      nrmsFiscalReceipt: { count: zero },
       nrmsMasterFolioItem: { findMany: empty },
       nrmsMasterFolioPayment: { findMany: empty },
       nrmsUsageEvent: { findMany: empty },

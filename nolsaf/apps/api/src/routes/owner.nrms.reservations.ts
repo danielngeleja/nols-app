@@ -13,6 +13,7 @@ import { requireNrms, loadOwnedActiveNrmsProperty, NRMS_BILLING_BLOCKING_STATUSE
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
+import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
@@ -2504,7 +2505,7 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       const currentOutstanding = current ? computeOutstanding(current.totalAmount, current.chargesTotal, Number(current.amountPaid) + currentTransfer) : 0;
       if (currentOutstanding <= 0) throw new Error("NRMS_PAYMENT_COMPLETE");
       if (data.amount > currentOutstanding) throw new Error(`NRMS_PAYMENT_EXCEEDS_BALANCE:${currentOutstanding}`);
-      await tx.externalPaymentRecord.create({
+      const payment = await tx.externalPaymentRecord.create({
         data: {
           reservationId: reservation.id,
           amount: data.amount,
@@ -2515,6 +2516,18 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           note: normalizedNote,
           recordedById: ownerId,
         },
+      });
+      // The guest paying the folio is the taxable event, not the charges landing
+      // on it. Queues a TRA document only for properties that have fiscal
+      // receipting switched on; a no-op for everyone else. The duplicate guard
+      // above already returned, so a replayed idempotency key never reaches here.
+      await fiscaliseSettlement(tx, {
+        propertyId: reservation.propertyId,
+        sourceType: "FOLIO_PAYMENT",
+        sourceId: payment.id,
+        saleOccurredAt: payment.createdAt ?? new Date(),
+        currency: reservation.currency,
+        grossAmount: data.amount,
       });
       const amountPaid = await recomputeAmountPaid(tx, reservation.id);
       const pendingRequests = await tx.nrmsGuestPaymentRequest.findMany({ where: { reservationId: reservation.id, status: "PENDING" } });

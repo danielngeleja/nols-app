@@ -129,24 +129,24 @@ export default function NrmsOrdersPage() {
   const MenuItemIcon = isBarMenu ? Wine : UtensilsCrossed;
   const menuTone = isBarMenu
     ? {
-        header: "border-sky-100 bg-gradient-to-r from-sky-50 via-cyan-50/60 to-white",
+        header: "border-sky-100 bg-sky-50",
         eyebrow: "text-sky-700",
         filterActive: "border-sky-700 bg-sky-700 text-white shadow-sm shadow-sky-200",
         filterIdle: "border-neutral-200 bg-white text-neutral-600 hover:border-sky-200 hover:text-sky-800",
-        cardActive: "border-sky-300 bg-gradient-to-br from-sky-50 to-cyan-50/60 shadow-sm shadow-sky-100",
-        cardIdle: "border-neutral-200 bg-gradient-to-br from-white to-sky-50/30 hover:border-sky-200 hover:shadow-sm",
+        cardActive: "border-sky-300 bg-sky-50 shadow-sm shadow-sky-100",
+        cardIdle: "border-neutral-200 bg-white hover:border-sky-200 hover:shadow-sm",
         icon: "bg-sky-100 text-sky-700 ring-sky-200",
         price: "text-sky-800",
         add: "border-sky-200 bg-white text-sky-700 group-hover:bg-sky-700 group-hover:text-white",
         quantity: "bg-sky-700 text-white",
       }
     : {
-        header: "border-emerald-100 bg-gradient-to-r from-emerald-50 via-lime-50/45 to-white",
+        header: "border-emerald-100 bg-emerald-50",
         eyebrow: "text-emerald-700",
         filterActive: "border-emerald-700 bg-emerald-700 text-white shadow-sm shadow-emerald-200",
         filterIdle: "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200 hover:text-emerald-800",
-        cardActive: "border-emerald-300 bg-gradient-to-br from-emerald-50 to-lime-50/50 shadow-sm shadow-emerald-100",
-        cardIdle: "border-neutral-200 bg-gradient-to-br from-white to-emerald-50/25 hover:border-emerald-200 hover:shadow-sm",
+        cardActive: "border-emerald-300 bg-emerald-50 shadow-sm shadow-emerald-100",
+        cardIdle: "border-neutral-200 bg-white hover:border-emerald-200 hover:shadow-sm",
         icon: "bg-emerald-100 text-emerald-700 ring-emerald-200",
         price: "text-emerald-800",
         add: "border-emerald-200 bg-white text-emerald-700 group-hover:bg-emerald-700 group-hover:text-white",

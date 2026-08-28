@@ -217,7 +217,9 @@ export default function RevenueAnalyticsPage() {
           </div>
         </div>
 
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+        {/* ml-auto, not justify-between: a lone item on a wrapped flex row
+            resolves to flex-start, which pushed this toolbar back to the left. */}
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-1 shadow-sm sm:flex-none">
             <CalendarRange className="mx-2 hidden h-3.5 w-3.5 shrink-0 text-neutral-400 md:block" />
             {RANGE_OPTIONS.map((option) => (

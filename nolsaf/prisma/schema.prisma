@@ -332,6 +332,8 @@ model User {
   nrmsHkTasksAssigned        NrmsHousekeepingTask[]       @relation("NrmsHkTaskAssignedTo")
   nrmsHkTasksCreated         NrmsHousekeepingTask[]       @relation("NrmsHkTaskCreatedBy")
   nrmsHkTasksCompleted       NrmsHousekeepingTask[]       @relation("NrmsHkTaskCompletedBy")
+  nrmsFiscalAcknowledged     NrmsFiscalConnection[]       @relation("NrmsFiscalAcknowledgedBy")
+  nrmsFiscalCredentials      NrmsFiscalCredentialVersion[] @relation("NrmsFiscalCredentialCreatedBy")
   nrmsOrdersCreated          NrmsOutletOrder[]            @relation("NrmsOrderCreatedBy")
   nrmsOrdersConfirmed        NrmsOutletOrder[]            @relation("NrmsOrderConfirmedBy")
   nrmsOrdersSettled          NrmsOutletOrder[]            @relation("NrmsOrderSettledBy")
@@ -527,6 +529,8 @@ model Property {
   nrmsLedgerTransactions   NrmsLedgerTransaction[]
   nrmsHousekeepingTasks    NrmsHousekeepingTask[]
   nrmsOrderPoints          NrmsOrderPoint[]
+  nrmsFiscalConnection     NrmsFiscalConnection?
+  nrmsFiscalReceipts       NrmsFiscalReceipt[]
   nrmsIntegritySignals     NrmsIntegritySignal[]
   nrmsPublicMetrics        NrmsPublicMetric[]
   channelConnections       ChannelConnection[]
@@ -5818,6 +5822,192 @@ model NrmsLedgerEntry {
 
   @@index([accountCode, transactionId])
   @@map("nrms_ledger_entry")
+}
+
+/// Owner-activated TRA fiscal receipting (VFD). No row means the property has
+/// never touched the feature, which is every property today and the majority of
+/// them permanently: most guesthouses are below the VAT threshold and are not
+/// required to fiscalise at all. See docs/NRMS_FISCAL_RECEIPTS.md.
+///
+/// NoLSAF is not the taxpayer here. The property registers with TRA under its own
+/// TIN and VRN, and NRMS transmits on that registration.
+model NrmsFiscalConnection {
+  id         Int    @id @default(autoincrement())
+  propertyId Int    @unique
+  regime     String @default("TZ_TRA") @db.VarChar(20)
+  mode       String @default("OFF") @db.VarChar(20) // OFF, ON_REQUEST, ALWAYS
+  pendingMode String? @db.VarChar(20)
+  status     String @default("DISABLED") @db.VarChar(20) // DISABLED, PENDING, VALIDATED, ACTIVE, FAILED, SUSPENDED
+  suspendedFromStatus String? @db.VarChar(20)
+
+  /// Taxpayer identity. Not secret: it is printed on every receipt.
+  tin          String? @db.VarChar(20)
+  vrn          String? @db.VarChar(20)
+  businessName String? @db.VarChar(180)
+  taxOffice    String? @db.VarChar(120)
+
+  /// Issued by TRA at registration and required on every document afterwards.
+  regId        String? @db.VarChar(60)
+  receiptCode  String? @db.VarChar(40)
+  serialNumber String? @db.VarChar(60)
+
+  /// Counters TRA validates, which we generate rather than receive. Global starts
+  /// at 1, never resets, and always equals the receipt number. Daily resets at
+  /// CALENDAR midnight, deliberately NOT at business-day close: a sale rung at
+  /// 01:30 belongs to yesterday's business day and to today's fiscal day.
+  globalCounter    Int       @default(0)
+  dailyCounter     Int       @default(0)
+  dailyCounterDate DateTime? @db.Date
+  lastZReportDate  DateTime? @db.Date
+
+  /// Switching on or off lands on a business-day boundary so no day ever closes
+  /// half fiscalised. Stored as the business date rather than a day id so the
+  /// intent survives a business-day row being reopened or recreated.
+  activatesOnBusinessDate   DateTime? @db.Date
+  deactivatesOnBusinessDate DateTime? @db.Date
+
+  lastSuccessAt DateTime?
+  lastErrorAt   DateTime?
+  lastError     String?   @db.VarChar(1000)
+  /// Set when a failure first survives a cashier-shift boundary. Drives the
+  /// undismissable banner; cleared on the next success.
+  escalatedAt   DateTime?
+
+  /// The owner accepts in writing that they are the taxpayer of record and NoLSAF
+  /// is only transmitting. Not skippable.
+  acknowledgedAt         DateTime?
+  acknowledgedById       Int?
+  acknowledgementVersion String?   @db.VarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property           Property                      @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  acknowledgedBy     User?                         @relation("NrmsFiscalAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  credentialVersions NrmsFiscalCredentialVersion[]
+  receipts           NrmsFiscalReceipt[]
+
+  @@index([status, mode])
+  @@map("nrms_fiscal_connection")
+}
+
+/// Versioned, encrypted TRA credentials. Same staging/activation shape as
+/// ChannelCredentialVersion so rotation works the same way it already does for
+/// channels. Secrets are never returned by any endpoint, owner or admin.
+model NrmsFiscalCredentialVersion {
+  id           Int    @id @default(autoincrement())
+  connectionId Int
+  version      Int
+  status       String @default("STAGED") @db.VarChar(20) // STAGED, ACTIVE, REVOKED
+
+  /// AES-256-GCM (lib/crypto.ts) over JSON holding the token-grant username and
+  /// password AND the PKCS12 bundle plus its passphrase: every document is signed
+  /// with that private key, so the certificate is a credential, not a setting.
+  encryptedData String @db.Text
+
+  validationStatus String    @default("UNTESTED") @db.VarChar(20) // UNTESTED, VALIDATED, FAILED
+  validatedAt      DateTime?
+  validationError  String?   @db.VarChar(500)
+  /// Signing certificate expiry, so the health strip warns before it lapses
+  /// rather than after receipts start failing.
+  expiresAt        DateTime?
+  activatedAt      DateTime?
+  revokedAt        DateTime?
+  createdById      Int?
+  createdAt        DateTime  @default(now())
+
+  connection NrmsFiscalConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  createdBy  User?                @relation("NrmsFiscalCredentialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([connectionId, version])
+  @@index([connectionId, status])
+  @@map("nrms_fiscal_credential_version")
+}
+
+/// One fiscalisation attempt and its outcome. Created at settle, delivered by a
+/// worker, because a guest at the counter cannot wait for night audit.
+///
+/// A row is never deleted and its counters are never re-issued. A settlement that
+/// fails after allocation leaves a BURNED row, which is what makes the burn
+/// auditable instead of invisible.
+model NrmsFiscalReceipt {
+  id           Int    @id @default(autoincrement())
+  propertyId   Int
+  connectionId Int
+
+  /// Shared identity with the night-audit ledger posting for the same money
+  /// movement, e.g. "PAYMENT:12:3391" or "OUTLET:12:8842". Lets the two systems
+  /// be reconciled without either one knowing about the other.
+  sourceKey  String @db.VarChar(100)
+  sourceType String @db.VarChar(40)
+  sourceId   Int?
+
+  kind   String @default("RECEIPT") @db.VarChar(20) // RECEIPT, CREDIT_NOTE
+  status String @default("PENDING") @db.VarChar(20) // PENDING, SENDING, CONFIRMED, FAILED, DEAD_LETTER, BURNED
+  /// Stable across retries. The TRA adapter must use this as the provider-side
+  /// idempotency/reconciliation key so a crash after submission cannot duplicate
+  /// a fiscal document.
+  submissionKey String @unique @default(uuid()) @db.VarChar(36)
+
+  /// Allocated inside the committing transaction. receiptNumber == globalCounter
+  /// by TRA's rule; both are kept because the document carries them separately.
+  receiptNumber Int
+  globalCounter Int
+  dailyCounter  Int
+  /// Calendar day the counters belong to. NOT the business date.
+  fiscalDate    DateTime @db.Date
+
+  /// When the money actually moved, which is not the issue date when a guest
+  /// comes back on Wednesday for Monday's receipt.
+  saleOccurredAt DateTime
+  /// When TRA confirmed it.
+  issuedAt       DateTime?
+
+  currency     String  @default("TZS") @db.VarChar(3)
+  grossAmount  Decimal @db.Decimal(12, 2)
+  taxAmount    Decimal @default(0.00) @db.Decimal(12, 2)
+  taxBreakdown Json?
+  /// The document we built, secrets and signature excluded.
+  payload      Json?
+
+  /// Returned by TRA. verificationUrl is what the printed QR encodes; we generate
+  /// that QR ourselves, TRA does not supply an image.
+  fiscalReceiptNumber String? @db.VarChar(60)
+  verificationCode    String? @db.VarChar(80)
+  verificationUrl     String? @db.VarChar(500)
+  signature           String? @db.Text
+  /// Digest only. Raw provider payloads are not retained, matching the decision
+  /// already taken for channel reservations.
+  responseDigest      String? @db.VarChar(64)
+
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  lastError     String?   @db.VarChar(1000)
+  deliveryLeaseToken     String?   @db.VarChar(36)
+  deliveryLeaseExpiresAt DateTime?
+  burnReason    String?   @db.VarChar(300)
+
+  replacesReceiptId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property   Property             @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  connection NrmsFiscalConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  replaces   NrmsFiscalReceipt?   @relation("NrmsFiscalReceiptReplaces", fields: [replacesReceiptId], references: [id], onDelete: SetNull)
+  replacedBy NrmsFiscalReceipt[]  @relation("NrmsFiscalReceiptReplaces")
+
+  /// One fiscal document per money movement, enforced by the database rather
+  /// than by remembering to check.
+  @@unique([propertyId, sourceKey, kind])
+  /// The counter series cannot fork, even under concurrent settlements.
+  @@unique([connectionId, globalCounter])
+  @@index([connectionId, status, nextAttemptAt])
+  @@index([status, deliveryLeaseExpiresAt])
+  @@index([propertyId, fiscalDate])
+  @@index([replacesReceiptId])
+  @@map("nrms_fiscal_receipt")
 }
 
 model NrmsOutletOrderItem {

@@ -401,15 +401,20 @@ export default function SalesChannelsPage() {
     return null;
   }, [cards, money]);
 
+  /**
+   * Awards for one channel. "Top earner" is deliberately absent: the rank chip
+   * beside the name already says rank 1 is the top earner by net revenue, and
+   * a channel that swept every award stacked five full-width chips down the
+   * sticky column and made the row six lines tall on a laptop.
+   */
   const badgeFor = useCallback((key: ChannelKey): Array<{ label: string; tone: string }> => {
     const highlights = report?.highlights;
     if (!highlights) return [];
     const badges: Array<{ label: string; tone: string }> = [];
-    if (highlights.topRevenue === key) badges.push({ label: "Top earner", tone: "bg-emerald-50 text-emerald-700" });
-    if (highlights.bestAdr === key) badges.push({ label: "Best rate", tone: "bg-violet-50 text-violet-700" });
-    if (highlights.bestCollection === key) badges.push({ label: "Pays fastest", tone: "bg-blue-50 text-blue-700" });
-    if (highlights.mostReliable === key) badges.push({ label: "Most reliable", tone: "bg-teal-50 text-teal-700" });
-    if (highlights.fastestGrowing === key) badges.push({ label: "Fastest growing", tone: "bg-amber-50 text-amber-700" });
+    if (highlights.bestAdr === key) badges.push({ label: "Best rate", tone: "bg-violet-50 text-violet-700 ring-violet-100" });
+    if (highlights.bestCollection === key) badges.push({ label: "Pays fastest", tone: "bg-blue-50 text-blue-700 ring-blue-100" });
+    if (highlights.mostReliable === key) badges.push({ label: "Most reliable", tone: "bg-teal-50 text-teal-700 ring-teal-100" });
+    if (highlights.fastestGrowing === key) badges.push({ label: "Growing", tone: "bg-amber-50 text-amber-700 ring-amber-100" });
     return badges;
   }, [report]);
 
@@ -439,7 +444,10 @@ export default function SalesChannelsPage() {
           </div>
         </div>
 
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+        {/* ml-auto, not justify-between: once this toolbar wraps to its own
+            row it is the only item on that line, and justify-between resolves
+            a lone item to flex-start, which threw it back to the left. */}
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
           <div className="flex items-center gap-1 rounded-xl bg-white p-1 ring-1 ring-neutral-200 shadow-sm">
             {([["BOOKED", "Booked"], ["STAY", "Arrivals"]] as const).map(([value, label]) => (
               <button
@@ -455,6 +463,8 @@ export default function SalesChannelsPage() {
             ))}
           </div>
 
+          {/* Grows to fill the row on a phone so the presets can scroll, but
+              sits at its natural width from sm up so the group stays right. */}
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl bg-white p-1 ring-1 ring-neutral-200 shadow-sm sm:flex-none">
             <CalendarRange className="mx-2 hidden h-3.5 w-3.5 shrink-0 text-neutral-400 md:block" />
             {RANGE_OPTIONS.map((option) => (
@@ -718,7 +728,7 @@ export default function SalesChannelsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[1180px] border-collapse text-sm">
                     <colgroup>
-                      <col className="w-[248px]" />
+                      <col className="w-[276px]" />
                       <col span={2} className="w-[92px]" />
                       <col span={4} className="w-[116px]" />
                       <col span={2} className="w-[104px]" />
@@ -761,15 +771,26 @@ export default function SalesChannelsPage() {
                               >
                                 {row.rank}
                               </span>
-                              <div className="min-w-0">
-                                <p className="m-0 flex flex-wrap items-center gap-1.5 text-sm font-bold leading-5 text-neutral-900">
-                                  {row.label}
-                                  {badgeFor(row.key).map((badge) => (
-                                    <span key={badge.label} className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] ${badge.tone}`}>{badge.label}</span>
-                                  ))}
-                                </p>
-                                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">{FAMILY_LABELS[row.family]}</p>
-                              </div>
+                              {(() => {
+                                const badges = badgeFor(row.key);
+                                // At most two ride the family line; the rest
+                                // collapse into a +N chip that names them on
+                                // hover. Nothing here is allowed to wrap.
+                                const shown = badges.slice(0, 2);
+                                const hidden = badges.slice(2);
+                                return <div className="min-w-0">
+                                  <p className="m-0 truncate text-sm font-bold leading-5 text-neutral-900" title={row.label}>{row.label}</p>
+                                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden">
+                                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">{FAMILY_LABELS[row.family]}</span>
+                                    {shown.map((badge) => (
+                                      <span key={badge.label} className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-bold ring-1 ${badge.tone}`}>{badge.label}</span>
+                                    ))}
+                                    {hidden.length > 0 && (
+                                      <span title={hidden.map((badge) => badge.label).join(" · ")} className="shrink-0 cursor-help rounded-full bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-500 ring-1 ring-neutral-200">+{hidden.length}</span>
+                                    )}
+                                  </div>
+                                </div>;
+                              })()}
                             </div>
                           </td>
                           <Num value={row.reservations} />
