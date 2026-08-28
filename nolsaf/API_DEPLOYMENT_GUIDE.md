@@ -20,6 +20,7 @@ replace staging and clone qualification.
 | Prisma schema | `prisma/schema.prisma` |
 | Prisma migrations | `prisma/migrations/` |
 | API deployment script | `apps/api/scripts/deploy-eb.ps1` |
+| Operator entry point | `scripts/aws-production.ps1` |
 
 The commands below assume Windows PowerShell.
 
@@ -62,6 +63,58 @@ remain available.
 - If Elastic Beanstalk is `Red`, the API health check fails, migration files are
   missing, or Prisma reports a failed migration, stop and investigate before
   continuing.
+
+## Operator entry point
+
+`scripts/aws-production.ps1` is the guarded local entry point for the AWS-facing
+steps of this runbook. It is a wrapper, not a replacement: it does not perform
+staging QA, promotion, snapshots, or migrations, and it never removes the need
+for the approvals and evidence required by
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+
+Run it from the repository root:
+
+```powershell
+Set-Location $RepoRoot
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\aws-production.ps1 help
+```
+
+| Action | Runbook section | Effect on AWS |
+| --- | --- | --- |
+| `preflight` | 3 | Read-only |
+| `status` | 3, 9 | Read-only |
+| `validate` | 5 | None; local bundle build only |
+| `deploy` | 7 | Deploys a new application version |
+| `health` | 3, 9 | Read-only |
+| `events` | 7, 9 | Read-only |
+| `logs` | 7, 9 | Read-only |
+| `ssh` | 6, 8 | Opens an interactive session |
+| `open`, `console` | Any | Read-only |
+
+The `deploy` action fails closed. It requires `-ConfirmProduction`, an explicit
+`-DatabaseChange` state, and a clean `main` checkout whose `HEAD` matches
+`origin/main`. It then runs `apps/api/scripts/deploy-eb.ps1` and prints EB, RDS,
+and public health status.
+
+```powershell
+# Application-only release with no Prisma or database-compatibility change
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+
+# Schema-bearing release, only after section 6 completed and was verified
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange AppliedAndVerified
+```
+
+`-DatabaseChange AppliedAndVerified` is an operator acknowledgement, not a check.
+The script cannot prove that the exact `main` migration artifact was applied and
+verified by the designated runner. Never pass it to skip section 6.
+
+Use `-Profile <name>` when the correct production credentials are not the default
+AWS profile. The AWS region defaults to `eu-north-1`.
+
+The manual commands in the sections below remain authoritative. Use them
+directly whenever the wrapper is unavailable, when its output is ambiguous, or
+when a release is being investigated after a failure.
 
 ## 1. QA the staging branch
 
@@ -186,6 +239,13 @@ Required pre-deployment state:
 Record the current `Deployed Version` from `eb status`. It is the application
 rollback candidate if the new API bundle fails.
 
+The same read-only checks, plus RDS instance state, are available as:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 status
+```
+
 ## 4. Create and verify the production RDS snapshot
 
 Create a unique snapshot:
@@ -240,6 +300,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\deploy-eb.ps1 `
   -ValidateOnly
 ```
+
+The wrapper equivalent is `.\scripts\aws-production.ps1 validate` from
+`$RepoRoot`. Either form must end with the same result.
 
 Expected ending:
 
@@ -392,6 +455,17 @@ $env:PYTHONUTF8 = "1"
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\deploy-eb.ps1
 ```
+
+The guarded wrapper form re-checks the release checkout before deploying and
+prints EB, RDS, and health status afterwards:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+```
+
+Use `-DatabaseChange AppliedAndVerified` instead when section 6 applied and
+verified migrations for this release.
 
 Do not run another deploy while this command is active. A successful deployment
 ends with:
@@ -571,6 +645,9 @@ Set-Location $ApiDir
 & $Eb events $EbEnvironment
 & $Eb logs $EbEnvironment --all
 ```
+
+The wrapper exposes the same read-only views as
+`.\scripts\aws-production.ps1 status`, `events`, `logs`, and `health`.
 
 ## 10. Record the release
 

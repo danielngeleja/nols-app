@@ -134,15 +134,31 @@ copy-ready AWS production runbook. It covers:
 - failed-migration recovery and snapshot-clone testing;
 - application rollback and troubleshooting.
 
-For a normal API release, never use raw `eb deploy`. The required entry point is:
+For a normal API release, never use raw `eb deploy`. The required packaging and
+deployment script is:
 
 ```powershell
 cd D:\nolsapp2.1\nolsaf\apps\api
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-eb.ps1
 ```
 
-Create and verify the RDS snapshot before running the Prisma migration section
-of the authoritative runbook.
+`scripts/aws-production.ps1` is the guarded operator entry point around the
+AWS-facing steps of that runbook (`preflight`, `status`, `validate`, `deploy`,
+`health`, `events`, `logs`, `ssh`, `open`, `console`). Its `deploy` action
+requires `-ConfirmProduction`, an explicit `-DatabaseChange` state, and a clean
+`main` checkout matching `origin/main`, then calls `deploy-eb.ps1`:
+
+```powershell
+cd D:\nolsapp2.1\nolsaf
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\aws-production.ps1 status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\aws-production.ps1 validate
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+```
+
+The wrapper does not perform staging QA, promotion, snapshots, or migrations,
+and it cannot verify that a schema-bearing release was migrated. Create and
+verify the RDS snapshot, and run the Prisma migration section of the
+authoritative runbook, before deploying dependent application code.
 
 ## Render setup (API)
 
