@@ -111,6 +111,12 @@ Follow the authoritative AWS runbook:
 - [`nolsaf/API_DEPLOYMENT_GUIDE.md`](nolsaf/API_DEPLOYMENT_GUIDE.md)
 - [`nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md`](nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md)
 
+The AWS-facing steps have a guarded operator entry point,
+`nolsaf/scripts/aws-production.ps1`. Its `deploy` action requires
+`-ConfirmProduction`, an explicit `-DatabaseChange` state, and a clean `main`
+checkout matching `origin/main`. It does not replace staging QA, the recovery
+snapshot, or the migration runner.
+
 For a release containing Prisma changes, the required order is recovery snapshot,
 exact-commit migration runner, migration verification, and only then deployment
 of application code that depends on the schema. An application-only release may
