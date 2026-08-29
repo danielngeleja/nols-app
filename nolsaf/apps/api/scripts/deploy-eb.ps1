@@ -28,6 +28,7 @@ $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\b
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
 $RedisCaCertPath = "$ApiDir\certs\redis_ca.pem"
+$SocketProxyConfigPath = "$ApiDir\.platform\nginx\conf.d\elasticbeanstalk\01_socket_io.conf"
 
 $RuntimeArtifacts = @(
     [PSCustomObject]@{
@@ -177,7 +178,8 @@ try {
         $PkgLockPath,
         $EbLockArtifact,
         "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh",
-        $RedisCaCertPath
+        $RedisCaCertPath,
+        $SocketProxyConfigPath
     )
     $requiredFiles += @($RuntimeArtifacts | ForEach-Object { $_.Destination })
     foreach ($requiredFile in $requiredFiles) {
