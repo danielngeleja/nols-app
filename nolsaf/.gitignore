@@ -66,6 +66,10 @@ Thumbs.db
 !.elasticbeanstalk/*.global.yml
 .ebignore
 .platform/
+!apps/api/.platform/
+apps/api/.platform/*
+!apps/api/.platform/nginx/
+!apps/api/.platform/nginx/**
 
 # Local deployment guides that may contain credentials
 *DEPLOYMENT_GUIDE*.md
