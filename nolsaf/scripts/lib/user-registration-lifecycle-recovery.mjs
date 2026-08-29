@@ -1,6 +1,15 @@
 export const USER_REGISTRATION_LIFECYCLE_MIGRATION =
   "20260822170000_add_user_registration_lifecycle";
 
+export const CASE_SENSITIVE_RECOVERY_MIGRATIONS = Object.freeze([
+  USER_REGISTRATION_LIFECYCLE_MIGRATION,
+  "20260823090000_add_property_share_attribution",
+  "20260823140000_add_trust_verification",
+]);
+
+export const CASE_SENSITIVE_RECOVERY_PREREQUISITE =
+  "20260822120000_reconcile_nrms_financial_fk_names";
+
 export const USER_REGISTRATION_COLUMNS = Object.freeze([
   Object.freeze({
     name: "registrationStatus",
@@ -69,4 +78,37 @@ export function missingUserRegistrationIndexes(existingIndexes) {
     (index) =>
       !existingShapes.has(index.columns.map((column) => column.toLowerCase()).join(",")),
   );
+}
+
+export function recoveryTargetFingerprint(target, databaseUrl) {
+  if (!new Set(["clone", "production"]).has(target)) {
+    throw new Error("target must be clone or production");
+  }
+  const parsed = new URL(databaseUrl);
+  const database = parsed.pathname.replace(/^\//, "");
+  if (!database) throw new Error("database name is missing");
+  return `${target}:${parsed.hostname}:${parsed.port || "3306"}/${database}`;
+}
+
+export function assertRecoveryTargetHost(target, hostname) {
+  const productionHost = "database-1.cl6m044mi2nr.eu-north-1.rds.amazonaws.com";
+  if (target === "clone") {
+    if (hostname === productionHost) {
+      throw new Error("clone mode cannot target the production endpoint");
+    }
+    if (!hostname.startsWith("database-1-migration-test-")) {
+      throw new Error("clone hostname is not an approved disposable RDS clone");
+    }
+    return;
+  }
+  if (target === "production" && hostname !== productionHost) {
+    throw new Error("production mode must target the documented production endpoint");
+  }
+}
+
+export function classifyRecoveryMigration(rows, migrationName) {
+  const matching = rows.filter((row) => row.migration_name === migrationName);
+  if (matching.some((row) => row.finished_at && !row.rolled_back_at)) return "applied";
+  if (matching.some((row) => !row.finished_at && !row.rolled_back_at)) return "failed";
+  return "pending";
 }

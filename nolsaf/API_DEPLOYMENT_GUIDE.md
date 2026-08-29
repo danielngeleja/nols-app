@@ -429,6 +429,11 @@ EOF
 ./node_modules/.bin/prisma migrate status \
   --config "$RUNNER_ROOT/prisma-production.config.cjs"
 
+# Stop here when the release contains
+# 20260822170000_add_user_registration_lifecycle. Use the guarded prefix and
+# recovery sequence in docs/CASE_SENSITIVE_DATABASE_RECOVERY.md instead of the
+# next migrate-deploy command.
+
 ./node_modules/.bin/prisma migrate deploy \
   --config "$RUNNER_ROOT/prisma-production.config.cjs"
 
@@ -668,6 +673,12 @@ Keep the pre-migration snapshot according to the production backup-retention
 policy. Do not delete it immediately after deployment.
 
 ## Failed Prisma migration procedure
+
+For the known immutable case-sensitive migrations beginning with
+`20260822170000_add_user_registration_lifecycle`, use the guarded, clone-first
+procedure in
+[`docs/CASE_SENSITIVE_DATABASE_RECOVERY.md`](docs/CASE_SENSITIVE_DATABASE_RECOVERY.md).
+Do not substitute an ad-hoc SQL session or edit the shared migrations.
 
 A failed MariaDB migration can be partially applied because many DDL statements
 automatically commit. Never assume that a failed migration changed nothing.

@@ -14,6 +14,8 @@ describe("property-scoped Meta OAuth state", () => {
   it("rejects a state that was altered after the property connection started", () => {
     vi.stubEnv("META_OAUTH_STATE_SECRET", "test-only-state-secret-with-enough-entropy");
     const signed = signNrmsMetaOAuthState({ propertyId: 19, ownerId: 4, actorId: 8, provider: "INSTAGRAM" });
-    expect(verifyNrmsMetaOAuthState(`${signed.slice(0, -1)}x`)).toBeNull();
+    const [payload, signature] = signed.split(".");
+    const alteredSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+    expect(verifyNrmsMetaOAuthState(`${payload}.${alteredSignature}`)).toBeNull();
   });
 });

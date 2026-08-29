@@ -40,6 +40,7 @@
     "prisma:migrate:staging": "node scripts/prisma-migrate-staging.mjs",
     "prisma:migrate:staging:status": "node scripts/prisma-migrate-staging.mjs --status-only",
     "prisma:migrate:staging:cleanup": "node scripts/prisma-migrate-staging.mjs --cleanup-failed-baseline-artifacts --status-only",
+    "prisma:migrate:case-recovery": "node scripts/prisma-migrate-case-recovery.mjs",
     "migrations:checksums": "node scripts/check-migration-integrity.mjs",
     "migrations:checksums:update": "node scripts/check-migration-integrity.mjs --write",
     "migrations:coverage": "node scripts/audit-schema-migration-coverage.mjs",
