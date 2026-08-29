@@ -11,6 +11,7 @@ import {
   CASE_SENSITIVE_RECOVERY_MIGRATIONS,
   CASE_SENSITIVE_RECOVERY_PREREQUISITE,
   classifyRecoveryMigration,
+  isExpectedFiscalDeleteTrigger,
   missingUserRegistrationColumns,
   missingUserRegistrationIndexes,
   normalizeInformationSchemaDefault,
@@ -18,6 +19,9 @@ import {
   USER_REGISTRATION_COLUMNS,
   USER_REGISTRATION_INDEXES,
 } from "./lib/user-registration-lifecycle-recovery.mjs";
+
+const FISCAL_SECURITY_MIGRATION =
+  "20260828171000_harden_nrms_fiscal_security";
 
 const { PrismaClient } = prismaPackage;
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -213,7 +217,9 @@ try {
 
 async function assertDatabaseIdentity() {
   const rows = await prisma.$queryRawUnsafe(
-    "SELECT DATABASE() AS database_name, @@lower_case_table_names AS lower_case_table_names",
+    `SELECT DATABASE() AS database_name,
+            @@lower_case_table_names AS lower_case_table_names,
+            @@GLOBAL.log_bin_trust_function_creators AS trust_function_creators`,
   );
   const expectedDatabase = parsedUrl.pathname.replace(/^\//, "");
   if (rows[0]?.database_name !== expectedDatabase) {
@@ -221,6 +227,11 @@ async function assertDatabaseIdentity() {
   }
   if (Number(rows[0]?.lower_case_table_names) !== 0) {
     throw new Error("recovery is only valid for case-sensitive lower_case_table_names=0");
+  }
+  if (mode === "repair" && Number(rows[0]?.trust_function_creators) !== 1) {
+    throw new Error(
+      "log_bin_trust_function_creators must be 1 before repair so the later fiscal trigger can be created",
+    );
   }
   const tables = await prisma.$queryRawUnsafe(`
     SELECT table_name
@@ -443,7 +454,10 @@ async function verifyTrustVerification() {
 }
 
 async function verifyAppliedRecoverySet(rows) {
-  for (const migrationName of CASE_SENSITIVE_RECOVERY_MIGRATIONS) {
+  for (const migrationName of [
+    ...CASE_SENSITIVE_RECOVERY_MIGRATIONS,
+    FISCAL_SECURITY_MIGRATION,
+  ]) {
     if (classifyRecoveryMigration(rows, migrationName) !== "applied") {
       throw new Error(`${migrationName} is not successfully applied`);
     }
@@ -459,6 +473,19 @@ async function verifyAppliedRecoverySet(rows) {
   await verifyUserRegistrationLifecycle();
   await verifyPropertyShareAttribution();
   await verifyTrustVerification();
+  await verifyFiscalDeleteTrigger();
+}
+
+async function verifyFiscalDeleteTrigger() {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT action_timing, event_manipulation, event_object_table, action_statement
+    FROM information_schema.triggers
+    WHERE trigger_schema = DATABASE()
+      AND BINARY trigger_name = BINARY 'nrms_fiscal_receipt_prevent_delete'
+  `);
+  if (rows.length !== 1 || !isExpectedFiscalDeleteTrigger(rows[0])) {
+    throw new Error("nrms_fiscal_receipt_prevent_delete has missing or unexpected semantics");
+  }
 }
 
 async function exactTableExists(tableName) {

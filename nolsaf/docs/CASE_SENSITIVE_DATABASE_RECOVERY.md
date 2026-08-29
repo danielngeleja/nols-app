@@ -31,6 +31,11 @@ applied, and then resumes the ordinary migration chain.
 - Run from the single designated Elastic Beanstalk migration runner.
 - Keep `DATABASE_URL` unchanged. Use only the dedicated recovery URL variable.
 - Use strict RDS TLS with the AWS CA bundle.
+- Require `@@GLOBAL.log_bin_trust_function_creators = 1` before recovery. The
+  final fiscal-security migration creates a trigger and RDS otherwise rejects
+  it with error `1419`. Use a disposable parameter group for a clone. For
+  production, temporarily change only the existing production group, verify
+  the trigger, and restore the parameter to `0` immediately afterward.
 - Run the normal migrations only through
   `20260822120000_reconcile_nrms_financial_fk_names` before recovery. This avoids
   deliberately creating a known failed migration row.
@@ -89,6 +94,39 @@ section.
 
 ## Run the guarded recovery on a clone
 
+Snapshot restore does not preserve the source instance's custom parameter
+group. Before connecting, create a disposable MariaDB 11.8 parameter group,
+set only the dynamic trigger-creation parameter, and attach it to the clone:
+
+```powershell
+$QualificationParameterGroup = "nolsaf-qualification-mariadb11-8-<release-short-sha>"
+
+aws rds create-db-parameter-group `
+  --region eu-north-1 `
+  --db-parameter-group-name $QualificationParameterGroup `
+  --db-parameter-group-family mariadb11.8 `
+  --description "Disposable NoLSAF migration qualification"
+
+aws rds modify-db-parameter-group `
+  --region eu-north-1 `
+  --db-parameter-group-name $QualificationParameterGroup `
+  --parameters "ParameterName=log_bin_trust_function_creators,ParameterValue=1,ApplyMethod=immediate"
+
+aws rds modify-db-instance `
+  --region eu-north-1 `
+  --db-instance-identifier $CloneId `
+  --db-parameter-group-name $QualificationParameterGroup `
+  --apply-immediately
+
+aws rds wait db-instance-available `
+  --region eu-north-1 `
+  --db-instance-identifier $CloneId
+```
+
+From the designated runner, verify the clone reports
+`@@GLOBAL.log_bin_trust_function_creators = 1`. A different value is a stop
+condition and the guarded recovery command also enforces it.
+
 Append the CA path to the clone URL used by the runner. Do not print the URL:
 
 ```bash
@@ -133,9 +171,12 @@ node "$RELEASE_ROOT/scripts/check-physical-schema.mjs" --target=clone
 ```
 
 Required results are healthy migration history, accepted checksums, and a zero
-Prisma physical-schema diff. Record non-sensitive row counts and results. Delete
-only the exactly named disposable clone after evidence is captured; retain the
-source recovery snapshot under the backup-retention policy.
+Prisma physical-schema diff. Also verify
+`nrms_fiscal_receipt_prevent_delete` exists on `nrms_fiscal_receipt`. Record
+non-sensitive row counts and results. Delete only the exactly named disposable
+clone after evidence is captured, wait for deletion, and then delete only the
+disposable qualification parameter group. Retain the source recovery snapshot
+under the backup-retention policy.
 
 ## Production execution after merge
 
@@ -144,6 +185,19 @@ after all release gates pass, `main` equals the qualified staging SHA, a new
 pre-migration recovery snapshot is verified, and the release owner explicitly
 approves the production mutation. Put the API in the approved maintenance state
 before the prefix deploy so no registration can race the legacy backfill.
+
+Immediately before the prefix deploy, set the dynamic parameter on the existing
+production group. This is a production mutation and needs explicit approval:
+
+```powershell
+aws rds modify-db-parameter-group `
+  --region eu-north-1 `
+  --db-parameter-group-name nolsaf-mariadb11-8 `
+  --parameters "ParameterName=log_bin_trust_function_creators,ParameterValue=1,ApplyMethod=immediate"
+```
+
+Verify the designated runner reads
+`@@GLOBAL.log_bin_trust_function_creators = 1` before continuing.
 
 Use the production-only URL and acknowledgements:
 
@@ -169,6 +223,19 @@ node "$RELEASE_ROOT/scripts/prisma-migrate-case-recovery.mjs" \
   --mode=repair \
   --config="$RUNNER_ROOT/prisma-production.config.cjs"
 ```
+
+After migration status and the physical trigger are verified, restore the
+production parameter immediately:
+
+```powershell
+aws rds modify-db-parameter-group `
+  --region eu-north-1 `
+  --db-parameter-group-name nolsaf-mariadb11-8 `
+  --parameters "ParameterName=log_bin_trust_function_creators,ParameterValue=0,ApplyMethod=immediate"
+```
+
+Verify the group and the running database both report `0`. Failure to restore
+the value is a release stop condition.
 
 Afterward, use the ordinary production sequence to verify migration status and
 required physical objects, deploy API/web artifacts from the same SHA, and

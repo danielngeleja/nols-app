@@ -4,6 +4,7 @@ import {
   assertRecoverableUserTableNames,
   assertRecoveryTargetHost,
   classifyRecoveryMigration,
+  isExpectedFiscalDeleteTrigger,
   missingUserRegistrationColumns,
   missingUserRegistrationIndexes,
   normalizeInformationSchemaDefault,
@@ -133,4 +134,18 @@ test("normalizes MariaDB information_schema defaults", () => {
   assert.equal(normalizeInformationSchemaDefault("NULL"), null);
   assert.equal(normalizeInformationSchemaDefault(null), null);
   assert.equal(normalizeInformationSchemaDefault("0"), "0");
+});
+
+test("recognizes only the intended fiscal delete trigger semantics", () => {
+  const trigger = {
+    action_timing: "BEFORE",
+    event_manipulation: "DELETE",
+    event_object_table: "nrms_fiscal_receipt",
+    action_statement:
+      "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Fiscal receipts are immutable and cannot be deleted'",
+  };
+  assert.equal(isExpectedFiscalDeleteTrigger(trigger), true);
+  assert.equal(isExpectedFiscalDeleteTrigger({ ...trigger, action_timing: "AFTER" }), false);
+  assert.equal(isExpectedFiscalDeleteTrigger({ ...trigger, event_object_table: "user" }), false);
+  assert.equal(isExpectedFiscalDeleteTrigger(null), false);
 });

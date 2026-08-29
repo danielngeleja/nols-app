@@ -125,3 +125,18 @@ export function normalizeInformationSchemaDefault(value) {
   }
   return text;
 }
+
+export function isExpectedFiscalDeleteTrigger(row) {
+  if (!row) return false;
+  const statement = String(row.action_statement ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  return (
+    row.action_timing === "BEFORE" &&
+    row.event_manipulation === "DELETE" &&
+    row.event_object_table === "nrms_fiscal_receipt" &&
+    statement.includes("SIGNAL SQLSTATE '45000'") &&
+    statement.includes("FISCAL RECEIPTS ARE IMMUTABLE AND CANNOT BE DELETED")
+  );
+}
