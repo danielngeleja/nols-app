@@ -112,3 +112,16 @@ export function classifyRecoveryMigration(rows, migrationName) {
   if (matching.some((row) => !row.finished_at && !row.rolled_back_at)) return "failed";
   return "pending";
 }
+
+export function normalizeInformationSchemaDefault(value) {
+  if (value == null || String(value).toUpperCase() === "NULL") return null;
+  const text = String(value);
+  if (
+    text.length >= 2 &&
+    ((text.startsWith("'") && text.endsWith("'")) ||
+      (text.startsWith('"') && text.endsWith('"')))
+  ) {
+    return text.slice(1, -1).replaceAll("''", "'").replaceAll('""', '"');
+  }
+  return text;
+}

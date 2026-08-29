@@ -13,6 +13,7 @@ import {
   classifyRecoveryMigration,
   missingUserRegistrationColumns,
   missingUserRegistrationIndexes,
+  normalizeInformationSchemaDefault,
   recoveryTargetFingerprint,
   USER_REGISTRATION_COLUMNS,
   USER_REGISTRATION_INDEXES,
@@ -320,7 +321,7 @@ function assertUserRegistrationColumnDefinitions(rows) {
     if (
       !actual || actual.column_type !== expected.type ||
       (actual.is_nullable === "YES") !== expected.nullable ||
-      (actual.column_default ?? null) !== expected.defaultValue
+      normalizeInformationSchemaDefault(actual.column_default) !== expected.defaultValue
     ) {
       throw new Error(`user.${expected.name} has an unexpected definition`);
     }

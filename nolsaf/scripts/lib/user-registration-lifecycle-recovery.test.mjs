@@ -6,6 +6,7 @@ import {
   classifyRecoveryMigration,
   missingUserRegistrationColumns,
   missingUserRegistrationIndexes,
+  normalizeInformationSchemaDefault,
   recoveryTargetFingerprint,
 } from "./user-registration-lifecycle-recovery.mjs";
 
@@ -124,4 +125,12 @@ test("classifies migration history without manufacturing success", () => {
     ),
     "applied",
   );
+});
+
+test("normalizes MariaDB information_schema defaults", () => {
+  assert.equal(normalizeInformationSchemaDefault("'INCOMPLETE'"), "INCOMPLETE");
+  assert.equal(normalizeInformationSchemaDefault('"UNKNOWN"'), "UNKNOWN");
+  assert.equal(normalizeInformationSchemaDefault("NULL"), null);
+  assert.equal(normalizeInformationSchemaDefault(null), null);
+  assert.equal(normalizeInformationSchemaDefault("0"), "0");
 });
