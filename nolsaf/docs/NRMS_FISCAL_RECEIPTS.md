@@ -2,7 +2,7 @@
 
 Status: Written 2026-08-28. TRA contract researched 2026-08-28, see section 4; six items remain open with TRA, one of which (4.3(2)) can invalidate the whole approach.
 
-Milestones 1, 2 and 4 BUILT AND WIRED 2026-08-28, uncommitted on `staging`. Migrations `20260828090000_add_nrms_fiscal_receipts` and `20260828171000_harden_nrms_fiscal_security` are APPLIED to the local Railway dev DB. Staging and production have NOT run them.
+Milestones 1, 2 and 4 BUILT AND WIRED 2026-08-28. Migrations `20260828090000_add_nrms_fiscal_receipts`, `20260828171000_harden_nrms_fiscal_security`, and the forward-only RDS reconciliation `20260829210000_reconcile_nrms_fiscal_updated_at_defaults` are committed on `staging`. Production has not run them.
 
 - `apps/api/src/lib/nrmsFiscal.ts`: classification, ledger source keys, calendar-day derivation, transactional counter allocation, enqueue, burn, backoff, and the `fiscaliseSettlement` hook.
 - `apps/api/src/workers/nrmsFiscalDelivery.ts`: leased, idempotent FIFO per-property delivery, retry, dead-letter, escalation clock. Registered in `workers/index.ts`.
@@ -133,7 +133,7 @@ The record of one fiscalisation attempt and its result.
 Raw provider payloads are **not** stored durably, only a digest, matching the decision already taken for Expedia reservations in market-readiness item 4.
 
 ### Migration
-`20260828090000_add_nrms_fiscal_receipts` plus the forward-only `20260828171000_harden_nrms_fiscal_security`; both are applied only to the local disposable development database and remain unapplied to staging/production pending the normal release gates.
+`20260828090000_add_nrms_fiscal_receipts`, the forward-only `20260828171000_harden_nrms_fiscal_security`, and `20260829210000_reconcile_nrms_fiscal_updated_at_defaults`. The last migration removes two database-managed `updatedAt` defaults so the physical RDS schema matches Prisma's `@updatedAt` contract without rewriting either shared fiscal migration. Production remains unapplied pending the normal release gates.
 
 ## 6. What triggers a fiscal receipt
 

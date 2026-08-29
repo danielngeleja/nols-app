@@ -173,6 +173,7 @@
     "20260825170000_add_meta_message_reliability": "e948e694c82554d2d1df4293fa229112d2b6a467e8cdbff463faa8c7ba26097d",
     "20260825173000_repair_meta_message_reliability_drift": "3e3e9cb3687e17bfdf47746d577f105cead365b2d89e633b9c67507c4da989eb",
     "20260828090000_add_nrms_fiscal_receipts": "ba1afa91b1f2ab1c9f3d7acf72a9305d2a96178322c4defde5438133515beae9",
-    "20260828171000_harden_nrms_fiscal_security": "c08abb05a89202662b833c6ca36677907d705d70382388dc4b45f077432c0d2c"
+    "20260828171000_harden_nrms_fiscal_security": "c08abb05a89202662b833c6ca36677907d705d70382388dc4b45f077432c0d2c",
+    "20260829210000_reconcile_nrms_fiscal_updated_at_defaults": "c91f3068a26f66bee1b9aebdaa8b69e72718eab435c07eb6caaabf10e96f1863"
   }
 }
