@@ -6,6 +6,13 @@ import { spawnSync } from "node:child_process";
 import dotenv from "dotenv";
 import prismaPackage from "@prisma/client";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+import {
+  assertRecoverableUserTableNames,
+  missingUserRegistrationColumns,
+  missingUserRegistrationIndexes,
+  USER_REGISTRATION_COLUMNS,
+  USER_REGISTRATION_LIFECYCLE_MIGRATION,
+} from "./lib/user-registration-lifecycle-recovery.mjs";
 
 const { PrismaClient } = prismaPackage;
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -13,6 +20,9 @@ const repoRoot = resolve(scriptDirectory, "..");
 const schemaPath = join(repoRoot, "prisma", "schema.prisma");
 const migrationsPath = join(repoRoot, "prisma", "migrations");
 const prismaCliPath = join(repoRoot, "node_modules", "prisma", "build", "index.js");
+const migrationChecksumManifest = JSON.parse(
+  readFileSync(join(repoRoot, "prisma", "migration-checksums.json"), "utf8"),
+);
 
 const args = new Set(process.argv.slice(2));
 const statusOnly = args.has("--status-only");
@@ -76,6 +86,8 @@ const legacyIndexReconciliation = "20260714195920";
 const nrmsStaffInviteHardening = "20260720120000_harden_nrms_staff_invites";
 const nrmsStaffInviteRepair =
   "20260720123000_repair_nrms_staff_invite_hardening";
+const propertyShareAttribution = "20260823090000_add_property_share_attribution";
+const trustVerification = "20260823140000_add_trust_verification";
 const allowedLegacyDatabaseMigrations = new Set([
   legacyBaseline,
   "20260106185415_add_performance_indexes",
@@ -110,6 +122,33 @@ if (activeFailures.has(nrmsStaffInviteHardening)) {
 // rolled back and safely replayed from its corrected, committed SQL.
 if (activeFailures.has(nrmsStaffInviteRepair)) {
   repairs.push(["--rolled-back", nrmsStaffInviteRepair]);
+}
+
+// This committed migration used the Prisma model name `User` after the model
+// had been mapped to the exact lowercase physical table `user`. Windows MySQL
+// did not expose the mismatch, while Linux-hosted Aiven correctly failed its
+// first statement. Establish and verify the intended physical state before
+// resolving only that active failed migration as applied.
+if (activeFailures.has(USER_REGISTRATION_LIFECYCLE_MIGRATION)) {
+  assertLocalMigrationChecksum(USER_REGISTRATION_LIFECYCLE_MIGRATION);
+  await recoverUserRegistrationLifecycle();
+  repairs.push(["--applied", USER_REGISTRATION_LIFECYCLE_MIGRATION]);
+}
+
+// These two migrations were authored after the same physical tables had been
+// normalized to lowercase, but their foreign keys still referenced the old
+// Prisma model table names. Reconcile either a pending or partially committed
+// attempt before Prisma reaches it, then record the migration only after every
+// table, index, and relationship has been verified.
+if (!appliedNames.has(propertyShareAttribution)) {
+  assertLocalMigrationChecksum(propertyShareAttribution);
+  await recoverPropertyShareAttribution();
+  repairs.push(["--applied", propertyShareAttribution]);
+}
+if (!appliedNames.has(trustVerification)) {
+  assertLocalMigrationChecksum(trustVerification);
+  await recoverTrustVerification();
+  repairs.push(["--applied", trustVerification]);
 }
 
 if (!appliedNames.has(renamedBaseline)) {
@@ -415,6 +454,424 @@ async function columnSetsExist(columnSets) {
     if (rows.length !== columnNames.length) return false;
   }
   return true;
+}
+
+async function recoverUserRegistrationLifecycle() {
+  const client = await getPrisma();
+  const tableRows = await client.$queryRawUnsafe(
+    `SELECT table_name AS table_name
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND (BINARY table_name = BINARY 'user' OR BINARY table_name = BINARY 'User')`,
+  );
+  try {
+    assertRecoverableUserTableNames(tableRows.map((row) => row.table_name));
+  } catch (error) {
+    await disconnect();
+    fail(
+      `Cannot recover ${USER_REGISTRATION_LIFECYCLE_MIGRATION}: ${error.message}.`,
+    );
+  }
+
+  let columnRows = await readUserRegistrationColumns();
+  for (const column of missingUserRegistrationColumns(
+    columnRows.map((row) => row.column_name),
+  )) {
+    console.log(
+      `[prisma:staging] Adding missing user.${column.name} for ${USER_REGISTRATION_LIFECYCLE_MIGRATION}.`,
+    );
+    await client.$executeRawUnsafe(
+      `ALTER TABLE \`user\` ADD COLUMN \`${column.name}\` ${column.definition}`,
+    );
+  }
+
+  columnRows = await readUserRegistrationColumns();
+  assertUserRegistrationColumnDefinitions(columnRows);
+
+  console.log(
+    "[prisma:staging] Applying verified legacy registration backfill on user.",
+  );
+  await client.$executeRawUnsafe(`
+    UPDATE \`user\`
+    SET
+      \`registrationSource\` = 'LEGACY',
+      \`registrationStatus\` = CASE
+        WHEN COALESCE(NULLIF(TRIM(\`name\`), ''), NULLIF(TRIM(\`fullName\`), '')) IS NOT NULL
+          AND NULLIF(TRIM(COALESCE(\`email\`, '')), '') IS NOT NULL
+          AND NULLIF(TRIM(COALESCE(\`phone\`, '')), '') IS NOT NULL
+        THEN 'COMPLETE'
+        ELSE 'INCOMPLETE'
+      END,
+      \`profileCompletedAt\` = CASE
+        WHEN COALESCE(NULLIF(TRIM(\`name\`), ''), NULLIF(TRIM(\`fullName\`), '')) IS NOT NULL
+          AND NULLIF(TRIM(COALESCE(\`email\`, '')), '') IS NOT NULL
+          AND NULLIF(TRIM(COALESCE(\`phone\`, '')), '') IS NOT NULL
+        THEN COALESCE(\`updatedAt\`, \`createdAt\`)
+        ELSE NULL
+      END
+  `);
+
+  const invalidRows = await client.$queryRawUnsafe(`
+    SELECT COUNT(*) AS count
+    FROM \`user\`
+    WHERE \`registrationSource\` <> 'LEGACY'
+       OR NOT (
+         \`registrationStatus\` <=> CASE
+           WHEN COALESCE(NULLIF(TRIM(\`name\`), ''), NULLIF(TRIM(\`fullName\`), '')) IS NOT NULL
+             AND NULLIF(TRIM(COALESCE(\`email\`, '')), '') IS NOT NULL
+             AND NULLIF(TRIM(COALESCE(\`phone\`, '')), '') IS NOT NULL
+           THEN 'COMPLETE'
+           ELSE 'INCOMPLETE'
+         END
+       )
+       OR NOT (
+         \`profileCompletedAt\` <=> CASE
+           WHEN COALESCE(NULLIF(TRIM(\`name\`), ''), NULLIF(TRIM(\`fullName\`), '')) IS NOT NULL
+             AND NULLIF(TRIM(COALESCE(\`email\`, '')), '') IS NOT NULL
+             AND NULLIF(TRIM(COALESCE(\`phone\`, '')), '') IS NOT NULL
+           THEN COALESCE(\`updatedAt\`, \`createdAt\`)
+           ELSE NULL
+         END
+       )
+  `);
+  if (Number(invalidRows[0]?.count ?? 0) !== 0) {
+    await disconnect();
+    fail(
+      `Cannot recover ${USER_REGISTRATION_LIFECYCLE_MIGRATION}: registration backfill verification failed.`,
+    );
+  }
+
+  let existingIndexes = await readUserRegistrationIndexes();
+  for (const index of missingUserRegistrationIndexes(existingIndexes)) {
+    console.log(
+      `[prisma:staging] Creating missing index ${index.name} for ${USER_REGISTRATION_LIFECYCLE_MIGRATION}.`,
+    );
+    const columnsSql = index.columns.map((column) => `\`${column}\``).join(", ");
+    await client.$executeRawUnsafe(
+      `CREATE INDEX \`${index.name}\` ON \`user\` (${columnsSql})`,
+    );
+  }
+
+  existingIndexes = await readUserRegistrationIndexes();
+  const stillMissing = missingUserRegistrationIndexes(existingIndexes);
+  if (stillMissing.length > 0) {
+    await disconnect();
+    fail(
+      `Cannot recover ${USER_REGISTRATION_LIFECYCLE_MIGRATION}: indexes ${stillMissing
+        .map((index) => index.name)
+        .join(", ")} are still missing.`,
+    );
+  }
+  console.log(
+    `[prisma:staging] Verified physical state for ${USER_REGISTRATION_LIFECYCLE_MIGRATION}.`,
+  );
+}
+
+async function readUserRegistrationColumns() {
+  const client = await getPrisma();
+  const names = USER_REGISTRATION_COLUMNS.map((column) => column.name);
+  const placeholders = names.map(() => "?").join(", ");
+  return client.$queryRawUnsafe(
+    `SELECT column_name AS column_name,
+            LOWER(column_type) AS column_type,
+            is_nullable AS is_nullable,
+            column_default AS column_default
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND BINARY table_name = BINARY 'user'
+       AND column_name IN (${placeholders})`,
+    ...names,
+  );
+}
+
+function assertUserRegistrationColumnDefinitions(columnRows) {
+  const byName = new Map(columnRows.map((row) => [row.column_name, row]));
+  for (const expected of USER_REGISTRATION_COLUMNS) {
+    const actual = byName.get(expected.name);
+    const nullable = actual?.is_nullable === "YES";
+    const defaultValue = actual?.column_default ?? null;
+    if (
+      !actual ||
+      actual.column_type !== expected.type ||
+      nullable !== expected.nullable ||
+      defaultValue !== expected.defaultValue
+    ) {
+      fail(
+        `Cannot recover ${USER_REGISTRATION_LIFECYCLE_MIGRATION}: user.${expected.name} has an unexpected definition.`,
+      );
+    }
+  }
+}
+
+async function readUserRegistrationIndexes() {
+  const client = await getPrisma();
+  const rows = await client.$queryRawUnsafe(
+    `SELECT index_name AS index_name,
+            column_name AS column_name,
+            seq_in_index AS seq_in_index,
+            non_unique AS non_unique
+     FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND BINARY table_name = BINARY 'user'
+       AND index_name <> 'PRIMARY'
+     ORDER BY index_name, seq_in_index`,
+  );
+  const indexes = new Map();
+  for (const row of rows) {
+    const index = indexes.get(row.index_name) ?? {
+      name: row.index_name,
+      unique: Number(row.non_unique) === 0,
+      columns: [],
+    };
+    index.columns.push(row.column_name);
+    indexes.set(row.index_name, index);
+  }
+  return [...indexes.values()];
+}
+
+async function recoverPropertyShareAttribution() {
+  await assertExactTableExists("user");
+  await assertExactTableExists("property");
+  await assertExactTableExists("booking");
+  const client = await getPrisma();
+  if (!(await exactTableExists("property_share"))) {
+    console.log(`[prisma:staging] Creating property_share for ${propertyShareAttribution}.`);
+    await client.$executeRawUnsafe(`
+      CREATE TABLE \`property_share\` (
+        \`id\` INTEGER NOT NULL AUTO_INCREMENT,
+        \`token\` VARCHAR(24) NOT NULL,
+        \`sharerId\` INTEGER NOT NULL,
+        \`propertyId\` INTEGER NOT NULL,
+        \`channel\` VARCHAR(20) NULL,
+        \`openCount\` INTEGER NOT NULL DEFAULT 0,
+        \`firstOpenedAt\` DATETIME(3) NULL,
+        \`lastOpenedAt\` DATETIME(3) NULL,
+        \`registeredUserId\` INTEGER NULL,
+        \`registeredAt\` DATETIME(3) NULL,
+        \`bookingId\` INTEGER NULL,
+        \`convertedAt\` DATETIME(3) NULL,
+        \`revokedAt\` DATETIME(3) NULL,
+        \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        \`updatedAt\` DATETIME(3) NOT NULL,
+        PRIMARY KEY (\`id\`)
+      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+  }
+  await assertColumnsExist("property_share", [
+    "id", "token", "sharerId", "propertyId", "channel", "openCount",
+    "firstOpenedAt", "lastOpenedAt", "registeredUserId", "registeredAt",
+    "bookingId", "convertedAt", "revokedAt", "createdAt", "updatedAt",
+  ]);
+  await ensureIndexDefinition("property_share", "property_share_token_key", ["token"], true);
+  await ensureIndexDefinition(
+    "property_share",
+    "property_share_sharerId_createdAt_idx",
+    ["sharerId", "createdAt"],
+  );
+  await ensureIndexDefinition("property_share", "property_share_propertyId_idx", ["propertyId"]);
+  await ensureIndexDefinition(
+    "property_share",
+    "property_share_registeredUserId_idx",
+    ["registeredUserId"],
+  );
+  await ensureIndexDefinition("property_share", "property_share_bookingId_idx", ["bookingId"]);
+  await ensureIndexDefinition("property_share", "property_share_createdAt_idx", ["createdAt"]);
+  await ensureForeignKey(
+    "property_share", "sharerId", "property_share_sharerId_fkey", "user", "id", "CASCADE",
+  );
+  await ensureForeignKey(
+    "property_share", "propertyId", "property_share_propertyId_fkey", "property", "id", "CASCADE",
+  );
+  await ensureForeignKey(
+    "property_share", "registeredUserId", "property_share_registeredUserId_fkey", "user", "id", "SET NULL",
+  );
+  await ensureForeignKey(
+    "property_share", "bookingId", "property_share_bookingId_fkey", "booking", "id", "SET NULL",
+  );
+  console.log(`[prisma:staging] Verified physical state for ${propertyShareAttribution}.`);
+}
+
+async function recoverTrustVerification() {
+  await assertExactTableExists("user");
+  const client = await getPrisma();
+  if (!(await exactTableExists("company_verifications"))) {
+    console.log(`[prisma:staging] Creating company_verifications for ${trustVerification}.`);
+    await client.$executeRawUnsafe(`
+      CREATE TABLE \`company_verifications\` (
+        \`id\` INTEGER NOT NULL AUTO_INCREMENT,
+        \`key\` VARCHAR(80) NOT NULL,
+        \`category\` VARCHAR(40) NOT NULL,
+        \`displayName\` VARCHAR(160) NOT NULL,
+        \`authorityName\` VARCHAR(160) NULL,
+        \`authorityDomain\` VARCHAR(160) NULL,
+        \`jurisdiction\` VARCHAR(120) NULL,
+        \`registrationNumber\` VARCHAR(120) NULL,
+        \`registrationNumberNormalized\` VARCHAR(120) NULL,
+        \`publicSummary\` TEXT NULL,
+        \`status\` VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+        \`visibility\` VARCHAR(20) NOT NULL DEFAULT 'PRIVATE',
+        \`externalVerificationUrl\` VARCHAR(500) NULL,
+        \`issuedAt\` DATETIME(3) NULL,
+        \`expiresAt\` DATETIME(3) NULL,
+        \`lastCheckedAt\` DATETIME(3) NULL,
+        \`evidenceApprovedAt\` DATETIME(3) NULL,
+        \`evidenceApprovedById\` INTEGER NULL,
+        \`evidenceNote\` VARCHAR(1000) NULL,
+        \`publishedAt\` DATETIME(3) NULL,
+        \`publishedById\` INTEGER NULL,
+        \`sortOrder\` INTEGER NOT NULL DEFAULT 0,
+        \`createdById\` INTEGER NULL,
+        \`updatedById\` INTEGER NULL,
+        \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        \`updatedAt\` DATETIME(3) NOT NULL,
+        \`archivedAt\` DATETIME(3) NULL,
+        PRIMARY KEY (\`id\`)
+      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+  }
+  if (!(await exactTableExists("official_company_channels"))) {
+    console.log(`[prisma:staging] Creating official_company_channels for ${trustVerification}.`);
+    await client.$executeRawUnsafe(`
+      CREATE TABLE \`official_company_channels\` (
+        \`id\` INTEGER NOT NULL AUTO_INCREMENT,
+        \`channelType\` VARCHAR(30) NOT NULL,
+        \`label\` VARCHAR(160) NOT NULL,
+        \`value\` VARCHAR(500) NOT NULL,
+        \`href\` VARCHAR(500) NULL,
+        \`notes\` VARCHAR(500) NULL,
+        \`confirmedAt\` DATETIME(3) NULL,
+        \`confirmedById\` INTEGER NULL,
+        \`visibility\` VARCHAR(20) NOT NULL DEFAULT 'PRIVATE',
+        \`publishedAt\` DATETIME(3) NULL,
+        \`sortOrder\` INTEGER NOT NULL DEFAULT 0,
+        \`createdById\` INTEGER NULL,
+        \`updatedById\` INTEGER NULL,
+        \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        \`updatedAt\` DATETIME(3) NOT NULL,
+        \`archivedAt\` DATETIME(3) NULL,
+        PRIMARY KEY (\`id\`)
+      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+  }
+  await assertColumnsExist("company_verifications", [
+    "id", "key", "category", "displayName", "authorityName", "authorityDomain",
+    "jurisdiction", "registrationNumber", "registrationNumberNormalized",
+    "publicSummary", "status", "visibility", "externalVerificationUrl", "issuedAt",
+    "expiresAt", "lastCheckedAt", "evidenceApprovedAt", "evidenceApprovedById",
+    "evidenceNote", "publishedAt", "publishedById", "sortOrder", "createdById",
+    "updatedById", "createdAt", "updatedAt", "archivedAt",
+  ]);
+  await assertColumnsExist("official_company_channels", [
+    "id", "channelType", "label", "value", "href", "notes", "confirmedAt",
+    "confirmedById", "visibility", "publishedAt", "sortOrder", "createdById",
+    "updatedById", "createdAt", "updatedAt", "archivedAt",
+  ]);
+  await ensureIndexDefinition("company_verifications", "company_verifications_key_key", ["key"], true);
+  await ensureIndexDefinition(
+    "company_verifications",
+    "company_verifications_visibility_publishedAt_sortOrder_idx",
+    ["visibility", "publishedAt", "sortOrder"],
+  );
+  await ensureIndexDefinition(
+    "company_verifications",
+    "company_verifications_status_expiresAt_idx",
+    ["status", "expiresAt"],
+  );
+  await ensureIndexDefinition(
+    "company_verifications",
+    "company_verifications_category_sortOrder_idx",
+    ["category", "sortOrder"],
+  );
+  await ensureIndexDefinition(
+    "company_verifications",
+    "company_verifications_registrationNumberNormalized_idx",
+    ["registrationNumberNormalized"],
+  );
+  await ensureIndexDefinition(
+    "official_company_channels",
+    "official_company_channels_visibility_publishedAt_sortOrder_idx",
+    ["visibility", "publishedAt", "sortOrder"],
+  );
+  await ensureIndexDefinition(
+    "official_company_channels",
+    "official_company_channels_channelType_sortOrder_idx",
+    ["channelType", "sortOrder"],
+  );
+  await ensureForeignKey(
+    "company_verifications", "evidenceApprovedById",
+    "company_verifications_evidenceApprovedById_fkey", "user", "id", "SET NULL",
+  );
+  await ensureForeignKey(
+    "company_verifications", "publishedById",
+    "company_verifications_publishedById_fkey", "user", "id", "SET NULL",
+  );
+  await ensureForeignKey(
+    "official_company_channels", "confirmedById",
+    "official_company_channels_confirmedById_fkey", "user", "id", "SET NULL",
+  );
+  console.log(`[prisma:staging] Verified physical state for ${trustVerification}.`);
+}
+
+async function exactTableExists(tableName) {
+  const client = await getPrisma();
+  const rows = await client.$queryRawUnsafe(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE() AND BINARY table_name = BINARY ?`,
+    tableName,
+  );
+  return Number(rows[0]?.count ?? 0) === 1;
+}
+
+async function assertExactTableExists(tableName) {
+  if (await exactTableExists(tableName)) return;
+  await disconnect();
+  fail(`Cannot recover case-sensitive migration: exact table ${tableName} is missing.`);
+}
+
+function assertLocalMigrationChecksum(migrationName) {
+  const migrationPath = join(migrationsPath, migrationName, "migration.sql");
+  if (!existsSync(migrationPath)) {
+    fail(`Cannot recover ${migrationName}: local migration SQL is missing.`);
+  }
+  const actual = createHash("sha256").update(readFileSync(migrationPath)).digest("hex");
+  const expected = migrationChecksumManifest.migrations?.[migrationName];
+  if (!expected || actual !== expected) {
+    fail(`Cannot recover ${migrationName}: local migration checksum is not approved.`);
+  }
+}
+
+async function ensureIndexDefinition(tableName, indexName, columnNames, unique = false) {
+  const client = await getPrisma();
+  const rows = await client.$queryRawUnsafe(
+    `SELECT column_name AS column_name,
+            seq_in_index AS seq_in_index,
+            non_unique AS non_unique
+     FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND BINARY table_name = BINARY ?
+       AND index_name = ?
+     ORDER BY seq_in_index`,
+    tableName,
+    indexName,
+  );
+  if (rows.length > 0) {
+    const actualColumns = rows.map((row) => row.column_name);
+    const actualUnique = Number(rows[0].non_unique) === 0;
+    if (
+      actualUnique !== unique ||
+      actualColumns.length !== columnNames.length ||
+      actualColumns.some((column, index) => column !== columnNames[index])
+    ) {
+      fail(`Cannot recover case-sensitive migration: index ${indexName} has an unexpected definition.`);
+    }
+    return;
+  }
+  const columnsSql = columnNames.map((column) => `\`${column}\``).join(", ");
+  console.log(`[prisma:staging] Creating missing index ${indexName}.`);
+  await client.$executeRawUnsafe(
+    `CREATE ${unique ? "UNIQUE " : ""}INDEX \`${indexName}\` ON \`${tableName}\` (${columnsSql})`,
+  );
 }
 
 async function restorePartiallyDroppedLegacyForeignKeys() {
@@ -756,7 +1213,22 @@ function runPrisma(prismaArgs) {
 
 function failWithDatabaseError(message, error) {
   const code = error && typeof error === "object" && "code" in error ? error.code : "UNKNOWN";
-  fail(`${message} (${code}).`);
+  const rawDetail =
+    error && typeof error === "object" && "meta" in error && error.meta?.message
+      ? String(error.meta.message)
+      : error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "";
+  const secrets = [databaseUrl, decodeURIComponent(parsedDatabaseUrl.password)].filter(
+    Boolean,
+  );
+  const redactedDetail = secrets
+    .reduce((detail, secret) => detail.replaceAll(secret, "[REDACTED]"), rawDetail)
+    .replace(/\s+/g, " ")
+    .trim();
+  fail(
+    `${message} (${code})${redactedDetail ? `: ${redactedDetail}` : "."}`,
+  );
 }
 
 function fail(message) {

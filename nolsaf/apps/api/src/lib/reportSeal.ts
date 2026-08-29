@@ -16,6 +16,7 @@
 // The secret never leaves the server. Sealing is admin only; verifying is public.
 
 import jwt, { type Algorithm } from "jsonwebtoken";
+import { publicLinkSigningSecret, verifyWithAnyPublicLinkSecret } from "./publicLinkSecrets.js";
 
 export type ReportFigure = { label: string; value: string };
 
@@ -44,16 +45,7 @@ const ALGS: Algorithm[] = ["HS256"];
 const MAX_TOKEN_LENGTH = 4096;
 
 function getReportSealSecret(): string {
-  const secret =
-    process.env.PUBLIC_LINK_TOKEN_SECRET ||
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV !== "production" ? process.env.DEV_JWT_SECRET || "dev_jwt_secret" : "");
-
-  if (!secret) {
-    throw new Error("report_seal_secret_missing");
-  }
-
-  return secret;
+  return publicLinkSigningSecret("report_seal_secret_missing");
 }
 
 export function signReportSeal(input: ReportSealInput): string {
@@ -65,10 +57,11 @@ export function signReportSeal(input: ReportSealInput): string {
 export function verifyReportSeal(token: string): ReportSealPayload | null {
   try {
     if (typeof token !== "string" || token.length === 0 || token.length > MAX_TOKEN_LENGTH) return null;
-    const decoded = jwt.verify(token, getReportSealSecret(), {
+    const decoded = verifyWithAnyPublicLinkSecret<ReportSealPayload>(token, {
       issuer: ISSUER,
       algorithms: ALGS,
-    }) as ReportSealPayload;
+    });
+    if (!decoded) return null;
     if (decoded?.typ !== "REPORT_VERIFICATION") return null;
     return decoded;
   } catch {

@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 const assertBusinessDayWritable = vi.hoisted(() => vi.fn());
 vi.mock("./nrmsShifts.js", () => ({ assertNrmsBusinessDayWritable: assertBusinessDayWritable }));
+// Fiscal receipting is a no-op for every property that has not switched it on,
+// which is what these fakes represent; its own behaviour is covered in
+// nrmsFiscal.test.ts. Stubbed here so the tx fakes stay about orders.
+const fiscalise = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock("./nrmsFiscal.js", () => ({ fiscaliseSettlement: fiscalise }));
 
 import { advanceNrmsOutletOrder, nrmsOrderDescription, nrmsOrderPlacementSettlement } from "./nrmsOrders.js";
 
@@ -225,5 +230,49 @@ describe("guest QR orders (PLACED status)", () => {
     };
     await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 31 });
     expect(chargeCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("fiscal receipting hook", () => {
+  it("queues a fiscal document when an outlet payment settles", async () => {
+    fiscalise.mockClear();
+    const tx = {
+      nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder({ settlementMode: "OUTLET_PAYMENT" })), update: vi.fn().mockResolvedValue({}) },
+    };
+    await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12, settlementMethod: "CASH" });
+    expect(fiscalise).toHaveBeenCalledWith(tx, expect.objectContaining({
+      propertyId: 3,
+      sourceType: "OUTLET_SALE",
+      sourceId: 5,
+      currency: "TZS",
+      grossAmount: 25_000,
+    }));
+  });
+
+  it("does not fiscalise a charge posted to a room folio", async () => {
+    // The guest paying that folio at checkout is the taxable event, not the
+    // bar order landing on it, so this path must stay silent.
+    fiscalise.mockClear();
+    const tx = {
+      nrmsOutletOrder: {
+        findUnique: vi.fn().mockResolvedValue(servingOrder()),
+        update: vi.fn().mockResolvedValue({ folioCharge: { id: 44, reservationId: 9, category: "RESTAURANT", description: "Order", amount: 25_000, currency: "TZS" } }),
+      },
+      reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 25_000 } }) },
+      reservation: { findUnique: vi.fn().mockResolvedValue({ id: 9, groupId: null }), update: vi.fn().mockResolvedValue({}) },
+      reservationEvent: { create: vi.fn().mockResolvedValue({}) },
+      nrmsMasterFolioItem: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12 });
+    expect(fiscalise).not.toHaveBeenCalled();
+  });
+
+  it("does not fiscalise an order that is merely accepted or prepared", async () => {
+    fiscalise.mockClear();
+    const tx = {
+      nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(preparingOrder({ settlementMode: "OUTLET_PAYMENT" })), update: vi.fn().mockResolvedValue({}) },
+    };
+    await advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12, settlementMethod: "CASH" });
+    expect(fiscalise).not.toHaveBeenCalled();
   });
 });

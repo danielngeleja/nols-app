@@ -9,6 +9,7 @@ export default function robots(): MetadataRoute.Robots {
         allow: [
           "/",
           "/public/",
+          "/nrms",
           "/tourism/",
           "/services/",
           "/about/",
@@ -37,6 +38,14 @@ export default function robots(): MetadataRoute.Robots {
           "/version",
           "/docs/",
           "/maintenance",
+          // NRMS guest and partner links are bearer credentials in the URL.
+          // The pages carry noindex too; this stops them being fetched at all.
+          "/nrms/guest/",
+          "/nrms/rooming-list/",
+          "/nrms/agency/pro-forma/",
+          "/nrms/agent/activate",
+          "/nrms/choose",
+          "/nrms/confirm",
         ],
       },
     ],

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Calendar, Users, Truck, Building2, Shield, TrendingUp, Settings, MapPin } from "lucide-react";
+import { LayoutDashboard, Calendar, Users, Truck, Building2, Shield, TrendingUp, Settings, MapPin, MessageCircle } from "lucide-react";
 import Chart from "@/components/Chart";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -257,6 +257,13 @@ export default function AdminManagementPageClient() {
       href: "/admin/management/pickup-points",
       icon: <MapPin className="h-4 w-4 text-rose-600" />,
       accentClass: "bg-rose-500",
+    },
+    {
+      title: "Meta Messaging",
+      subtitle: "WhatsApp & Instagram operations",
+      href: "/admin/nrms/messaging",
+      icon: <MessageCircle className="h-4 w-4 text-green-600" />,
+      accentClass: "bg-green-500",
     },
   ];
 

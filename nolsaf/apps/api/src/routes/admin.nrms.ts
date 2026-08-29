@@ -10,6 +10,7 @@ import type { RequestHandler, Response } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole, blockImpersonated } from "../middleware/auth.js";
 import { requireFinanceGrant } from "../middleware/financeGrant.js";
+import { fiscalErrorMessage } from "../lib/nrmsFiscal.js";
 import { NRMS_PLAN_CODE } from "../lib/nrms.js";
 
 const router = Router();
@@ -226,7 +227,24 @@ router.get("/property/:propertyId", (async (req, res: Response) => {
     db.nrmsBusinessDay.findFirst({ where: { propertyId, status: "OPEN" }, select: { businessDate: true, openedAt: true } }),
   ]);
 
+  // TRA fiscal receipting. Identity and health only: no credential, no version
+  // metadata, nothing an admin could use to act as the taxpayer. Absent for
+  // almost every property, which is the normal state, not a gap.
+  const fiscalConnection = await db.nrmsFiscalConnection.findUnique({
+    where: { propertyId },
+    select: { id: true, mode: true, status: true, tin: true, vrn: true, businessName: true, lastSuccessAt: true, lastErrorAt: true, lastError: true, escalatedAt: true, acknowledgedAt: true },
+  });
+  const fiscal = fiscalConnection
+    ? {
+        ...fiscalConnection,
+        id: undefined,
+        lastError: fiscalErrorMessage(fiscalConnection.lastError),
+        pending: await db.nrmsFiscalReceipt.count({ where: { connectionId: fiscalConnection.id, status: { in: ["PENDING", "FAILED", "DEAD_LETTER"] } } }),
+      }
+    : null;
+
   res.json({
+    fiscal,
     property: {
       ...property,
       guestPayInstructions: Array.isArray(property.nrmsGuestPayInstructions) ? property.nrmsGuestPayInstructions : [],

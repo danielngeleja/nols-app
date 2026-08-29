@@ -1,21 +1,16 @@
 import { AzamPayDisburseConfigurationError } from "./errors.js";
+import { canonicalAzamPayProvider } from "./providers.js";
 import type { AzamPayDisburseBankName } from "./types.js";
 
-const SUPPORTED_PROVIDER_VALUES = new Set<AzamPayDisburseBankName>([
-  "tigo",
-  "airtel",
-  "azampesa",
-]);
-
 function providerValue(value: string, key: string): AzamPayDisburseBankName {
-  const normalized = value.trim().toLowerCase() as AzamPayDisburseBankName;
-  if (!SUPPORTED_PROVIDER_VALUES.has(normalized)) {
+  const normalized = canonicalAzamPayProvider(value);
+  if (!normalized) {
     throw new AzamPayDisburseConfigurationError({
       operation: "REQUEST",
       missingKeys: [key],
       message:
-        `AzamPay disbursement: ${key}=${JSON.stringify(value)} is not one of the documented ` +
-        "provider values (tigo, airtel, azampesa).",
+        `AzamPay disbursement: ${key}=${JSON.stringify(value)} is not one of the enabled ` +
+        "provider values (Yas, Vodacom, Airtel, Halotel, Azampesa).",
     });
   }
   return normalized;
@@ -29,10 +24,9 @@ export function loadAzamPayDisbursementRequestConfig(destinationProvider: string
   destinationProvider: AzamPayDisburseBankName;
 } {
   const sourceAccount = String(process.env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT || "").trim();
-  const transferType = String(process.env.AZAMPAY_DISBURSE_TRANSFER_TYPE || "").trim();
+  const transferType = String(process.env.AZAMPAY_DISBURSE_TRANSFER_TYPE || "FUND").trim();
   const missingKeys = [
     !sourceAccount && "AZAMPAY_DISBURSE_SOURCE_ACCOUNT",
-    !transferType && "AZAMPAY_DISBURSE_TRANSFER_TYPE",
   ].filter(Boolean) as string[];
 
   if (missingKeys.length > 0) {

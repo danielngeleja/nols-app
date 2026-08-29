@@ -23,6 +23,19 @@ const reconciliation = join(
   "20260729020000_reconcile_confirmed_schema_drift",
   "migration.sql",
 );
+const financialFkNameDrift = join(
+  root,
+  "scripts",
+  "fixtures",
+  "20260822-nrms-financial-fk-name-drift.sql",
+);
+const financialFkNameReconciliation = join(
+  root,
+  "prisma",
+  "migrations",
+  "20260822120000_reconcile_nrms_financial_fk_names",
+  "migration.sql",
+);
 
 const databaseUrl = process.env.LOCAL_DATABASE_URL;
 if (!databaseUrl) fail("LOCAL_DATABASE_URL is required; DATABASE_URL is ignored.");
@@ -80,6 +93,10 @@ try {
   // Exercise the already-present path used by partially repaired staging
   // databases as well as the missing-object path above.
   runPrisma(["db", "execute", `--file=${reconciliation}`]);
+  runPrisma(["db", "execute", `--file=${financialFkNameDrift}`]);
+  runPrisma(["db", "execute", `--file=${financialFkNameReconciliation}`]);
+  // The second pass proves the canonical-name path is idempotent.
+  runPrisma(["db", "execute", `--file=${financialFkNameReconciliation}`]);
   runPrisma([
     "migrate",
     "diff",
@@ -90,7 +107,7 @@ try {
   ]);
 
   console.log(
-    "[reconciliation] Guarded migration repaired all confirmed drift, remained idempotent, and produced a zero physical diff.",
+    "[reconciliation] Guarded migrations repaired confirmed object and FK-name drift, remained idempotent, and produced a zero physical diff.",
   );
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });

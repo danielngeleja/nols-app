@@ -104,12 +104,21 @@ pnpm --filter api dev
 pnpm --filter web dev
 ```
 
-### Database Migrations
+### Database changes
 
-```bash
-pnpm prisma migrate dev     # Apply pending migrations
-pnpm prisma generate        # Regenerate Prisma client
+The authoritative development-to-production path is
+[`nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md`](nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md).
+Prisma schema, a new forward-only migration, its checksum, and compatible code
+must be reviewed and committed together.
+
+```powershell
+Set-Location nolsaf
+npm run prisma:generate
+npm run migrations:checksums
+npm run migrations:coverage
 ```
+
+Never run `prisma migrate dev`, `db push`, or `migrate reset` against staging or production.
 
 ---
 

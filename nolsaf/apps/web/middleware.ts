@@ -124,6 +124,10 @@ export function middleware(req: NextRequest) {
   }
 
   const isPublicNrmsGuestRoute =
+    // Public NRMS marketing landing (indexable, no login). Exact match only so
+    // deeper /nrms/* app routes stay gated below.
+    path === "/nrms" ||
+    path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/book/") ||
     path.startsWith("/nrms/guest/payment/") ||
     path.startsWith("/nrms/guest/review/");
@@ -166,6 +170,25 @@ export function middleware(req: NextRequest) {
   if (path.startsWith("/driver")) {
     if (role !== "DRIVER" && role !== "ADMIN") {
       url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (path === "/agent-portal" || path.startsWith("/agent-portal/")) {
+    if (!token) {
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
+      url.searchParams.set("role", "agent");
+      return NextResponse.redirect(url);
+    }
+    // AGENT operators can enter only after the UI discovers their additive
+    // accommodation capability. The API remains the authoritative entitlement
+    // gate for all profile, hotel, rate, inventory, and booking data.
+    if (role !== "AGENT" && role !== "NRMS_AGENT" && role !== "ADMIN") {
+      url.pathname = role === "OWNER" ? "/owner" : role === "DRIVER" ? "/driver" : "/account";
+      url.search = "";
       return NextResponse.redirect(url);
     }
   }
@@ -220,6 +243,7 @@ export function middleware(req: NextRequest) {
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", contentSecurityPolicy);
   const isCapabilityPage =
+    path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/guest/payment/") ||
     path.startsWith("/nrms/guest/review/");
   response.headers.set(
@@ -249,7 +273,7 @@ function decodeRoleFromToken(token: string) {
     const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
     const decoded = atob(padded);
     const role = String((JSON.parse(decoded) as { role?: unknown })?.role || "").toUpperCase();
-    return ["ADMIN", "OWNER", "DRIVER", "AGENT", "USER", "CUSTOMER"].includes(role) ? role : "";
+    return ["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER"].includes(role) ? role : "";
   } catch {
     return "";
   }

@@ -66,6 +66,20 @@ export type PickupArgs = {
   roomingListRowId?: number | null;
   /** Whoever pressed the button, recorded on the reservation and its events. */
   actorId: number;
+  /**
+   * Channel the resulting stay belongs to. Defaults to DIRECT, the desk naming
+   * a guest itself. An agency booking passes AGENT so the reservation keeps its
+   * channel badge, its usage-billing classification and its link to the agency.
+   */
+  source?: string;
+  agentPropertyLinkId?: number | null;
+  /**
+   * Skip moving this room's charge onto the master folio. An agency booking was
+   * already invoiced for its rooms on that folio, so routing them again would
+   * bill the agency twice and reopen a settled bill. The caller re-splits the
+   * existing line instead.
+   */
+  skipRoomRouting?: boolean;
 };
 
 export type GroupGuestInput = {
@@ -98,9 +112,9 @@ function utcDay(value: Date): Date {
  * stay. The caller holds the property inventory lock, which is what makes the
  * read-then-write safe against a concurrent pickup.
  */
-async function nextBlockExternalRef(tx: any, propertyId: number, blockReference: string): Promise<string> {
+async function nextBlockExternalRef(tx: any, propertyId: number, blockReference: string, source: string): Promise<string> {
   const issued = await tx.reservation.findMany({
-    where: { propertyId, source: "DIRECT", externalRef: { startsWith: `${blockReference}-` } },
+    where: { propertyId, source, externalRef: { startsWith: `${blockReference}-` } },
     select: { externalRef: true },
   });
   const highest = issued.reduce((max: number, row: { externalRef: string | null }) => {
@@ -187,14 +201,16 @@ export async function pickUpBlockRoom(tx: any, args: PickupArgs, timings?: Picku
 
   const nightlyRate = Number(line.nightlyRate);
   const stayNights = nightsBetween(block.checkIn, block.checkOut);
-  const externalRef = await nextBlockExternalRef(tx, propertyId, block.reference);
+  const source = args.source ?? "DIRECT";
+  const externalRef = await nextBlockExternalRef(tx, propertyId, block.reference, source);
   const reservation = await tx.reservation.create({
     data: {
       propertyId,
       ownerId: args.ownerId,
       guestProfileId: args.guestProfileId,
       groupId,
-      source: "DIRECT",
+      source,
+      agentPropertyLinkId: args.agentPropertyLinkId ?? null,
       attribution: "OWNER_DIRECT",
       externalRef,
       status: "CONFIRMED",
@@ -224,7 +240,7 @@ export async function pickUpBlockRoom(tx: any, args: PickupArgs, timings?: Picku
 
   // SPLIT and MASTER move payment responsibility for the room onto one agency
   // bill. The Reservation amount stays untouched as the revenue source.
-  await routeRoomToMasterFolio(tx, block, reservation);
+  if (!args.skipRoomRouting) await routeRoomToMasterFolio(tx, block, reservation);
 
   // Conditional increment, so a concurrent pickup cannot push pickedUp past
   // quantity even if both passed the read above.
@@ -252,7 +268,7 @@ export async function pickUpBlockRoom(tx: any, args: PickupArgs, timings?: Picku
         type: "CREATED",
         actorId: args.actorId,
         data: {
-          source: "DIRECT",
+          source,
           blockId: block.id,
           blockReference: block.reference,
           ...(args.roomingListRowId != null ? { roomingListRowId: args.roomingListRowId } : {}),

@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import {
   AlertTriangle,
@@ -13,7 +14,6 @@ import {
   ArrowDown,
   ArrowUp,
   Camera,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   ImageIcon,
@@ -24,7 +24,6 @@ import {
   SlidersHorizontal,
   Store,
   UtensilsCrossed,
-  Wine,
   X,
 } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
@@ -89,6 +88,7 @@ function categoriesInOrder(outlet: Outlet, items: MenuItem[]): string[] {
 
 export default function NrmsOutletsPage() {
   const { selectedPropertyId } = useNrms();
+  const searchParams = useSearchParams();
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,10 +116,15 @@ export default function NrmsOutletsPage() {
       const next: Outlet[] = response.data?.outlets ?? [];
       setOutlets(next);
       setSelectedId((current) => current && next.some((outlet) => outlet.id === current) ? current : next[0]?.id ?? null);
+      window.dispatchEvent(new CustomEvent("nrms-outlets-updated", { detail: { propertyId: selectedPropertyId, outlets: next.map((outlet) => ({ id: outlet.id, name: outlet.name, type: outlet.type })) } }));
     } catch (cause: any) { setError(cause?.response?.data?.error || "Failed to load outlets"); }
     finally { setLoading(false); }
   }, [selectedPropertyId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const requested = Number(searchParams.get("outlet"));
+    if (requested > 0 && outlets.some((outlet) => outlet.id === requested)) setSelectedId(requested);
+  }, [outlets, searchParams]);
 
   const selected = outlets.find((outlet) => outlet.id === selectedId) ?? null;
   const activeItems = (selected?.menuItems ?? []).filter((item) => item.status === "ACTIVE");
@@ -327,29 +332,7 @@ export default function NrmsOutletsPage() {
       </form>
     </section>
 
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <aside className="min-w-0 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
-        <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Property outlets</p>
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-          {outlets.map((outlet) => {
-            const Icon = outlet.type === "BAR" ? Wine : UtensilsCrossed;
-            const active = selectedId === outlet.id;
-            const itemCount = outlet.menuItems.filter((item) => item.status === "ACTIVE").length;
-            return (
-              <button key={outlet.id} type="button" onClick={() => setSelectedId(outlet.id)} aria-current={active ? "true" : undefined} className={`flex w-full min-w-0 items-center gap-3 border-0 border-b border-solid border-neutral-100 px-3 py-3 text-left transition last:border-b-0 ${active ? "bg-emerald-50 text-emerald-950" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}>
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${active ? "border-emerald-200 bg-white text-emerald-700 shadow-sm" : outlet.type === "BAR" ? "border-sky-100 bg-sky-50 text-sky-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}><Icon className="h-4 w-4" /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-bold">{outlet.name}</span>
-                  <span className="mt-0.5 block text-[10px] font-medium text-neutral-400">{outlet.code} · {itemCount} {itemCount === 1 ? "item" : "items"}</span>
-                </span>
-                {active && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Selected outlet" />}
-              </button>
-            );
-          })}
-        </div>
-        {outlets.length === 0 && <div className="py-10 text-center text-xs text-neutral-400"><Store className="mx-auto mb-2 h-5 w-5" />No outlets</div>}
-      </aside>
-
+    <div className="min-w-0">
       <section className="min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
         {!selected ? <div className="py-14 text-center text-sm text-neutral-400">Create an outlet to manage its menu.</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="m-0 text-base font-bold text-neutral-950">{selected.name}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{selected.type.toLowerCase()} · {selected.code} · {selected.currency}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => void toggleAutoAccept(selected)} disabled={busy} title="When on, guest QR orders skip the accept step and enter the queue as confirmed" className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[10px] font-bold transition disabled:opacity-50 ${selected.autoAcceptQrOrders ? "border-violet-200 bg-violet-50 text-violet-700" : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50"}`}><span className={`h-2 w-2 rounded-full ${selected.autoAcceptQrOrders ? "bg-violet-600" : "bg-neutral-300"}`} />QR auto-accept {selected.autoAcceptQrOrders ? "on" : "off"}</button><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">{selected.status}</span></div></div>

@@ -38,6 +38,9 @@ describe("NRMS master folio", () => {
     };
 
     expect(summarizeReservationMasterSettlement(group, 430_000)).toEqual({
+      // GROUP marks the transfer as money separate from the reservation's own
+      // payments, which is what lets a caller add the two.
+      source: "GROUP",
       billingMode: "SPLIT",
       masterFolioReference: "MF-BLK-1",
       status: "SETTLED",
@@ -66,6 +69,86 @@ describe("NRMS master folio", () => {
       settled: false,
       methods: ["BANK"],
     });
+  });
+
+  it("reads the live room line when a re-cut bill left a voided one behind", () => {
+    const block = {
+      masterFolio: {
+        reference: "MF-BLK-9",
+        status: "SETTLED",
+        proFormas: [],
+        items: [
+          // The duplicate an earlier split wrote, since voided.
+          { id: 1, reservationId: 10, reservationChargeId: null, kind: "ROOM", amount: 1_600_500, currency: "TZS", description: "Room stay BLK-9-01", createdAt: new Date("2026-08-24T02:35:00Z"), voidedAt: new Date("2026-08-24T03:10:00Z") },
+          // The live line the agency was actually invoiced for.
+          { id: 2, reservationId: 10, reservationChargeId: null, kind: "ROOM", amount: 1_440_450, currency: "TZS", description: "Room 1 of 10", createdAt: new Date("2026-08-24T03:10:00Z"), voidedAt: null },
+        ],
+      },
+      group: {
+        reservations: [{
+          id: 10,
+          externalRef: "BLK-9-01",
+          status: "CONFIRMED",
+          currency: "TZS",
+          totalAmount: 1_440_450,
+          amountPaid: 0,
+          createdAt: new Date("2026-08-24T02:35:00Z"),
+          guestProfile: { fullName: "Daud Mange" },
+          allocations: [{ roomUnit: { code: "Double-15" }, roomType: { name: "Double" } }],
+          charges: [],
+        }],
+      },
+    };
+
+    const roomRow = buildGroupChargeRegister(block).rows.find((row) => row.sourceType === "ROOM");
+    expect(roomRow).toMatchObject({
+      id: "MASTER_ITEM:2",
+      amount: 1_440_450,
+      payer: "AGENCY",
+      settlementStatus: "PAID_BY_AGENCY",
+    });
+  });
+
+  it("shows the commercial discount, so the register reconciles to the invoice", () => {
+    const block = {
+      masterFolio: {
+        reference: "MF-BLK-10",
+        billToName: "Serengeti Tours",
+        currency: "TZS",
+        status: "SETTLED",
+        proFormas: [{ number: "PF-10", status: "SENT", issuedAt: new Date("2026-08-21T08:00:00Z"), supersededAt: null }],
+        items: [
+          { id: 1, reservationId: 10, reservationChargeId: null, kind: "ROOM", amount: 1_600_500, currency: "TZS", description: "Room 1 of 1", createdAt: new Date("2026-08-24T03:18:00Z"), voidedAt: null },
+          // Raised against the booking, not against any one room, which is why
+          // the reservation loop never saw it.
+          { id: 2, reservationId: 700, reservationChargeId: null, kind: "EXTRA", amount: -160_050, currency: "TZS", description: "Commercial discount", createdAt: new Date("2026-08-21T07:00:00Z"), voidedAt: null },
+        ],
+      },
+      group: {
+        reservations: [{
+          id: 10,
+          externalRef: "BLK-10-01",
+          status: "CONFIRMED",
+          currency: "TZS",
+          totalAmount: 1_600_500,
+          amountPaid: 0,
+          createdAt: new Date("2026-08-24T03:18:00Z"),
+          guestProfile: { fullName: "Daud Mange" },
+          allocations: [{ roomUnit: { code: "Double-15" }, roomType: { name: "Double" } }],
+          charges: [],
+        }],
+      },
+    };
+
+    const rows = buildGroupChargeRegister(block).rows;
+    expect(rows.map((row) => row.amount).reduce((sum, value) => sum + value, 0)).toBe(1_440_450);
+    expect(rows).toContainEqual(expect.objectContaining({
+      sourceType: "FOLIO_ADJUSTMENT",
+      description: "Commercial discount",
+      amount: -160_050,
+      payer: "AGENCY",
+      settlementStatus: "PAID_BY_AGENCY",
+    }));
   });
 
   it("traces SPLIT room liability to the agency and restaurant extras to the guest", () => {
@@ -211,13 +294,78 @@ describe("NRMS master folio", () => {
     await expect(getMasterCheckoutBlocker(tx, null, { reservationId: 5 })).resolves.toEqual({ code: "MASTER_BALANCE_DUE", balance: 300_000 });
   });
 
+  // A traveller on a split agency booking ordering from the bar is the daily
+  // case this whole conversion exists for: the order must land on whichever
+  // bill the agency's own declaration says it should.
+  describe("an outlet order charged to a room on a split agency booking", () => {
+    const agencyTx = (over: Record<string, any> = {}) => {
+      const request = {
+        incidentalBilling: "AGENCY",
+        incidentalScope: "ALL",
+        incidentalCategories: null,
+        incidentalCapAmount: null,
+        incidentalCapBasis: null,
+        adults: 2,
+        children: 0,
+        checkIn: new Date("2026-09-01T00:00:00.000Z"),
+        checkOut: new Date("2026-09-04T00:00:00.000Z"),
+        ...over,
+      };
+      return {
+        reservation: { findUnique: vi.fn().mockResolvedValue({ id: 5, groupId: 22 }) },
+        // The block the split created, holding the agency's declaration.
+        nrmsGroupBlock: { findUnique: vi.fn().mockResolvedValue({ id: 3, propertyId: 1, ownerId: 2, reference: "BLK-9", name: "Serengeti Tours", agencyName: "Serengeti Tours", billingMode: over.billingMode ?? "MASTER", currency: "TZS" }) },
+        nrmsMasterFolio: {
+          upsert: vi.fn().mockResolvedValue({ id: 8, agentBookingRequestId: 42 }),
+          findUnique: vi.fn().mockResolvedValue({ id: 8, agentBookingRequestId: 42 }),
+          update: vi.fn(),
+        },
+        nrmsAgentBookingRequest: { findUnique: vi.fn().mockResolvedValue(request) },
+        nrmsMasterFolioItem: {
+          upsert: vi.fn().mockResolvedValue({ id: 30 }),
+          findMany: vi.fn().mockResolvedValue([]),
+          aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+        },
+        nrmsMasterFolioPayment: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
+      };
+    };
+    const barTab = { id: 90, reservationId: 5, category: "BAR", description: "Bar tab", amount: 75_000, currency: "TZS" };
+
+    it("puts it on the agency bill when the agency covers everything", async () => {
+      const tx = agencyTx();
+      await routeChargeToMasterFolio(tx, barTab);
+      expect(tx.nrmsMasterFolioItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { sourceKey: "CHARGE:90" },
+        create: expect.objectContaining({ masterFolioId: 8, reservationId: 5, kind: "EXTRA", amount: 75_000 }),
+      }));
+    });
+
+    it("leaves it on the traveller's folio when the agency named other categories", async () => {
+      const tx = agencyTx({ incidentalScope: "SELECTED", incidentalCategories: ["RESTAURANT"] });
+      await routeChargeToMasterFolio(tx, barTab);
+      expect(tx.nrmsMasterFolioItem.upsert).not.toHaveBeenCalled();
+    });
+
+    it("leaves it on the traveller's folio when the travellers settle their own extras", async () => {
+      const tx = agencyTx({ billingMode: "SPLIT", incidentalBilling: "INDIVIDUAL_GUEST" });
+      await routeChargeToMasterFolio(tx, barTab);
+      expect(tx.nrmsMasterFolioItem.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   it("routes a MASTER incidental once and reopens the agency bill", async () => {
     const itemUpsert = vi.fn().mockResolvedValue({ id: 30 });
     const update = vi.fn();
     const tx = {
       reservation: { findUnique: vi.fn().mockResolvedValue({ id: 5, groupId: 22 }) },
       nrmsGroupBlock: { findUnique: vi.fn().mockResolvedValue({ id: 3, propertyId: 1, ownerId: 2, reference: "BLK-1", name: "Tour", agencyName: "Agency", billingMode: "MASTER", currency: "TZS" }) },
-      nrmsMasterFolio: { upsert: vi.fn().mockResolvedValue({ id: 8 }), update },
+      nrmsMasterFolio: {
+        upsert: vi.fn().mockResolvedValue({ id: 8 }),
+        // An ordinary group block: no agency declaration to honour, so the
+        // billing mode alone decides where the extra lands.
+        findUnique: vi.fn().mockResolvedValue({ id: 8, agentBookingRequestId: null }),
+        update,
+      },
       nrmsMasterFolioItem: {
         upsert: itemUpsert,
         aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 75_000 } }),

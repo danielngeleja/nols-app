@@ -3,6 +3,7 @@ import type { Server as HttpServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
+import { getRedisTlsOptions } from "../lib/redisTls.js";
 import { prisma } from "@nolsaf/prisma";
 import { monitorSocketSessionPolicy, socketAuthMiddleware, verifyToken, type AuthenticatedSocket } from "../middleware/socketAuth.js";
 import { touchActiveUser } from "../lib/activePresence.js";
@@ -99,6 +100,7 @@ async function configureSocketRedisAdapter(io: SocketServer): Promise<void> {
   }
 
   const pubClient = new Redis(redisUrl, {
+    ...getRedisTlsOptions(redisUrl),
     lazyConnect: true,
     maxRetriesPerRequest: null,
   });
@@ -523,6 +525,28 @@ function registerSocketHandlers(io: SocketServer): void {
 
 function getIo(): SocketServer | null {
   return ioRef;
+}
+
+/**
+ * Notify every active owner/front-desk session for one property. Recipients
+ * are resolved from persisted access instead of trusting a client-supplied
+ * room name, so sockets cannot subscribe themselves to another hotel.
+ */
+export async function emitNrmsInboxUpdate(
+  propertyId: number,
+  event: { reason: string; inquiryId?: number | null },
+): Promise<void> {
+  const io = getIo();
+  if (!io) return;
+  const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { ownerId: true } });
+  if (!property) return;
+  const memberships = await prisma.nrmsStaffMembership.findMany({
+    where: { propertyId, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } },
+    select: { userId: true },
+  });
+  const userIds = new Set([property.ownerId, ...memberships.map((membership) => membership.userId)]);
+  const payload = { propertyId, inquiryId: event.inquiryId ?? null, reason: event.reason, occurredAt: new Date().toISOString() };
+  for (const userId of userIds) io.to(`user:${userId}`).emit("nrms:inbox:update", payload);
 }
 
 /**

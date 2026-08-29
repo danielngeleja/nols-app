@@ -8,6 +8,7 @@ const expectedHomes = {
   OWNER: "/owner",
   DRIVER: "/driver",
   AGENT: "/account/agent",
+  NRMS_AGENT: "/agent-portal",
   USER: "/account",
   CUSTOMER: "/account",
 };
@@ -37,7 +38,7 @@ test("middleware sends every mismatched portal login to the authenticated role h
       checks += 1;
     }
   }
-  assert.equal(checks, 30);
+  assert.equal(checks, 35);
 });
 
 test("middleware ignores a protected next target that conflicts with the token role", () => {
@@ -47,6 +48,8 @@ test("middleware ignores a protected next target that conflicts with the token r
     ["OWNER", "/driver", "/owner"],
     ["DRIVER", "/account/agent", "/driver"],
     ["AGENT", "/admin/home", "/account/agent"],
+    ["NRMS_AGENT", "/account/agent", "/agent-portal"],
+    ["USER", "/agent-portal", "/account"],
   ];
 
   for (const [role, next, expected] of cases) {

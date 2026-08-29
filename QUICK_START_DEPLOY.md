@@ -1,5 +1,9 @@
 # Quick Start: Staging-First Release Flow
 
+This is a short operator checklist. The authoritative policy is
+[`nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md`](nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md).
+If any instruction conflicts with that policy, stop and correct the documents.
+
 This repository uses `staging` as the single shared integration and QA source of
 truth. `main` is reserved for code that has already passed staging QA and is
 approved for production.
@@ -106,6 +110,18 @@ Follow the authoritative AWS runbook:
 
 - [`nolsaf/API_DEPLOYMENT_GUIDE.md`](nolsaf/API_DEPLOYMENT_GUIDE.md)
 - [`nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md`](nolsaf/docs/PRODUCTION_STABILITY_RUNBOOK.md)
+
+The AWS-facing steps have a guarded operator entry point,
+`nolsaf/scripts/aws-production.ps1`. Its `deploy` action requires
+`-ConfirmProduction`, an explicit `-DatabaseChange` state, and a clean `main`
+checkout matching `origin/main`. It does not replace staging QA, the recovery
+snapshot, or the migration runner.
+
+For a release containing Prisma changes, the required order is recovery snapshot,
+exact-commit migration runner, migration verification, and only then deployment
+of application code that depends on the schema. An application-only release may
+skip the migration runner only when the exact diff proves there is no Prisma or
+database-compatibility change.
 
 Production verification is limited to health/readiness, migration status,
 observability, and pre-approved read-only canary requests. Do not run feature

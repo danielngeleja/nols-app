@@ -46,6 +46,18 @@ export const limitAgentPortalRead = rateLimit({
   },
 });
 
+export const limitNrmsAgentBookingCreate = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many booking attempts. Please wait before trying again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return userId ? `nrms-agent-book:${userId}` : `nrms-agent-book-ip:${req.ip || "unknown"}`;
+  },
+});
+
 export const limitAgentNotifyAdmin = rateLimit({
   windowMs: 60_000, // 1 minute
   limit: 5, // prevent inbox spam
@@ -148,11 +160,34 @@ export const limitPublicCareerApply = rateLimit({
   keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
 });
 
+/** A tour booking code travels in vouchers and messages, so it is not a secret.
+ * The roster lookup already answers 404 for any trip the caller does not own;
+ * this keeps a stolen code from being used to sweep for live trips. */
+export const limitAgentTourRosterLookup = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many tour code lookups. Please wait a few minutes and try again." },
+  keyGenerator: (req) => `tour-roster:${(req as any).user?.id ?? req.ip ?? "unknown"}`,
+});
+
 export const limitCodeSearch = rateLimit({
   windowMs: 60_000, // 1 min
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+/** Exact public-channel checks are deliberately bounded to discourage bulk
+ * enumeration while allowing normal recipients to correct formatting errors. */
+export const limitPublicTrustChannelVerify = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Please wait a moment and try again." },
+  keyGenerator: (req) => `trust-channel:${req.ip || req.socket?.remoteAddress || "unknown"}`,
 });
 
 // Rate limiter for cancellation lookups (prevents brute-force / DoS on code validation).
@@ -283,9 +318,14 @@ export const limitOtpSend = rateLimit({
   message: (req: any) => {
     const resetTime: Date | undefined = req.rateLimit?.resetTime;
     const retryAfterMs = resetTime ? Math.max(0, resetTime.getTime() - Date.now()) : 15 * 60_000;
+    const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+    const message = "Too many OTP requests. Please wait before requesting another code.";
     return {
-      error: "Too many OTP requests. Please wait before requesting another code.",
+      error: message,
+      code: "rate_limited",
+      message,
       retryAfterMs,
+      retryAfterSeconds,
       cooldownUntil: Date.now() + retryAfterMs,
     };
   },

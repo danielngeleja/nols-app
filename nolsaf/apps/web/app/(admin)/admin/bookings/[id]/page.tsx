@@ -36,7 +36,7 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
   return (
     <div>
       <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className="font-semibold text-sm text-gray-900">{value || "—"}</div>
+      <div className="font-semibold text-sm text-gray-900">{value || "Not set"}</div>
     </div>
   );
 }
@@ -248,7 +248,7 @@ export default function AdminBookingDetail() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Header */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Link
@@ -269,7 +269,7 @@ export default function AdminBookingDetail() {
               {/* Check-in codes are issued automatically once payment is confirmed.
                   There is no manual code generation. Unpaid bookings simply wait. */}
               {b.status === "NEW" && (
-                <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium">
+                <span className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-amber-800 text-sm font-medium">
                   <Clock className="h-4 w-4" />
                   Awaiting payment. The check-in code is issued automatically once paid.
                 </span>
@@ -282,14 +282,14 @@ export default function AdminBookingDetail() {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Booking Dates & Details */}
-            <div className="bg-gradient-to-br from-white to-purple-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0">
                   <Calendar className="h-5 w-5 text-purple-600" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Booking Dates & Details</h2>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Check-in</div>
                       <div className="font-semibold text-sm text-gray-900">
@@ -317,14 +317,14 @@ export default function AdminBookingDetail() {
             </div>
 
             {/* Property Details */}
-            <div className="bg-gradient-to-br from-white to-emerald-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
                   <Home className="h-5 w-5 text-[#02665e]" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Property Details</h2>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <InfoRow label="Property Name" value={b.property?.title} />
                     <InfoRow label="Property Type" value={b.property?.type} />
                     <InfoRow label="Country" value={b.property?.country} />
@@ -338,14 +338,14 @@ export default function AdminBookingDetail() {
             </div>
 
             {/* Guest Information */}
-            <div className="bg-gradient-to-br from-white to-blue-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                   <User className="h-5 w-5 text-blue-600" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Guest Information</h2>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <InfoRow label="Full Name" value={b.guestName || b.user?.name} />
                     <InfoRow label="Email" value={b.user?.email} />
                     <InfoRow label="Phone" value={b.user?.phone} />
@@ -355,16 +355,16 @@ export default function AdminBookingDetail() {
             </div>
 
             {/* Room Assignment */}
-            <div className="bg-gradient-to-br from-white to-teal-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
                   <Home className="h-5 w-5 text-[#02665e]" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Room Assignment</h2>
                   <div className="flex items-center gap-3">
                     <input
-                      className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="flex-1 min-w-0 border-0 rounded-xl bg-white px-4 py-2 text-sm ring-1 ring-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       value={roomCode}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -399,9 +399,9 @@ export default function AdminBookingDetail() {
             </div>
 
             {/* Financials */}
-            <div className="bg-gradient-to-br from-white to-amber-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0">
                   <DollarSign className="h-5 w-5 text-amber-600" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -422,9 +422,9 @@ export default function AdminBookingDetail() {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Check-in Code */}
-            <div className="bg-gradient-to-br from-white to-emerald-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
                   <Key className="h-5 w-5 text-emerald-600" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -437,7 +437,7 @@ export default function AdminBookingDetail() {
                           {b.code.codeVisible}
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <InfoRow label="Status" value={b.code.status} />
                         {b.code.generatedAt && (
                           <InfoRow
@@ -457,7 +457,7 @@ export default function AdminBookingDetail() {
                           disabled={busy}
                           onClick={() => setShowVoidConfirm(true)}
                           aria-label="Void check-in code"
-                          className="w-full px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+                          className="w-full px-4 py-2 border-0 bg-white ring-1 ring-red-300 text-red-700 rounded-xl hover:bg-red-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
                         >
                           {busy ? (
                             <>
@@ -478,15 +478,15 @@ export default function AdminBookingDetail() {
             </div>
 
             {/* Owner Information */}
-            <div className="bg-gradient-to-br from-white to-indigo-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
                   <User className="h-5 w-5 text-indigo-600" />
                 </div>
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Owner</h2>
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <InfoRow label="Name" value={b.property?.owner?.name} />
                       {b.property?.owner?.phone && (
                         <InfoRow label="Phone" value={b.property?.owner?.phone} />
@@ -518,8 +518,8 @@ export default function AdminBookingDetail() {
                 : 0;
               const review = Array.isArray(b.reviews) && b.reviews.length > 0 ? b.reviews[0] : null;
               return (
-                <div className="bg-gradient-to-br from-white to-slate-50 rounded-lg border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-start gap-3 mb-4">
+                <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
+                  <div className="flex items-start gap-3">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
                       wasOverdue || isCurrentlyOverdue ? 'bg-amber-50' : 'bg-emerald-50'
                     }`}>
@@ -532,22 +532,22 @@ export default function AdminBookingDetail() {
 
                       {/* Status line */}
                       {b.status === 'CHECKED_OUT' ? (
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 w-fit mb-3">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded-full px-2.5 py-1 w-fit mb-3">
                           <CheckCircle2 className="h-3 w-3" /> Checkout confirmed
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2.5 py-1 w-fit mb-3">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 ring-1 ring-blue-200 rounded-full px-2.5 py-1 w-fit mb-3">
                           <Clock className="h-3 w-3" /> Guest is currently checked in
                         </div>
                       )}
 
                       {/* Overdue banner */}
                       {(wasOverdue || isCurrentlyOverdue) && (
-                        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 mb-3">
+                        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 ring-1 ring-amber-200 mb-3">
                           <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
                           <div className="text-xs leading-snug">
                             <span className="font-bold text-amber-800">
-                              {isCurrentlyOverdue ? 'Overdue — guest has not checked out' : `Late checkout — ${overdueDays} day${overdueDays !== 1 ? 's' : ''} past schedule`}
+                              {isCurrentlyOverdue ? 'Overdue: guest has not checked out' : `Late checkout: ${overdueDays} day${overdueDays !== 1 ? 's' : ''} past schedule`}
                             </span>
                             <div className="text-amber-600 mt-0.5">
                               Scheduled out: <span className="font-semibold">{scheduledOut.toLocaleDateString()}</span>
@@ -578,7 +578,7 @@ export default function AdminBookingDetail() {
 
                           {/* Owner response */}
                           {review.ownerResponse && (
-                            <div className="mt-2 p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+                            <div className="mt-2 p-3 rounded-xl bg-indigo-50 ring-1 ring-indigo-100">
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <MessageSquare className="h-3.5 w-3.5 text-indigo-500" />
                                 <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">Owner response</span>

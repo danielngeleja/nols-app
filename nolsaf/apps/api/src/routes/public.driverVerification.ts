@@ -1,17 +1,44 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
+import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
+import { buildDriverVerificationCode, resolveDriverVerificationCode } from "../lib/driverVerificationCode.js";
 
+/**
+ * Public, no-login driver ID check.
+ *
+ * A passenger matches the person and vehicle in front of them against the card
+ * the driver is holding. The response therefore carries real personal data
+ * (name, photo, plate), and the only thing standing between an anonymous caller
+ * and that data is the code they submit.
+ *
+ * So the code must be unguessable and the endpoint must not behave like a
+ * directory:
+ *
+ * - Codes carry an HMAC check segment; the bare user id is not accepted.
+ * - Every failure returns the same 404 body. A caller cannot tell "no such
+ *   code" from "that account is not a driver", which is what made counting
+ *   upwards profitable before.
+ * - A tight per-IP limit caps how fast the remaining guess space can be walked.
+ */
 const router = Router();
 
 const LICENSE_TYPES = new Set(["DRIVER_LICENSE", "DRIVING_LICENSE", "DRIVER_LICENCE", "DRIVING_LICENCE", "LICENSE"]);
 
-function parseDriverId(value: string) {
-  const text = String(value || "").trim();
-  const modernMatch = text.match(/^NLS\/D\/(\d+)\/[A-Z0-9]{4}\/\d{4}$/i);
-  const legacyMatch = text.match(/^NLS-(\d+)-\d{4}$/i);
-  const id = Number(modernMatch?.[1] ?? legacyMatch?.[1]);
-  return Number.isFinite(id) ? id : null;
-}
+/**
+ * Deliberately tighter than the other public verify limiters. Those are gated
+ * by a full signature; this one is a short printed code, so the rate limit is
+ * carrying part of the security budget rather than just protecting the DB.
+ */
+const lookupLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many verification attempts. Please wait a moment and try again." },
+});
+
+/** One response for every failure mode, so the endpoint answers no questions. */
+const NOT_VERIFIED = { ok: false as const, error: "This driver ID could not be verified." };
 
 function getExpiry(metadata: any) {
   const raw =
@@ -26,10 +53,10 @@ function getExpiry(metadata: any) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-router.get("/:driverId", async (req, res) => {
-  const publicId = String(req.params.driverId || "").trim().toUpperCase();
-  const userId = parseDriverId(publicId);
-  if (!userId) return res.status(400).json({ ok: false, error: "Invalid driver ID." });
+router.get("/:driverId", lookupLimiter, async (req, res) => {
+  const submitted = String(req.params.driverId || "").trim();
+  const userId = resolveDriverVerificationCode(submitted);
+  if (!userId) return res.status(404).json(NOT_VERIFIED);
 
   try {
     const driver = await prisma.user.findFirst({
@@ -53,7 +80,7 @@ router.get("/:driverId", async (req, res) => {
       } as any
     });
 
-    if (!driver) return res.status(404).json({ ok: false, error: "Driver not found." });
+    if (!driver) return res.status(404).json(NOT_VERIFIED);
 
     const documents = await (prisma as any).userDocument?.findMany?.({
       where: { userId },
@@ -71,10 +98,16 @@ router.get("/:driverId", async (req, res) => {
       (driver as any).kycStatus !== "REJECTED_KYC" &&
       Boolean(licenseExpiry && licenseExpiry.getTime() >= now);
 
+    // Never cached: the whole point of the check is that the status is live at
+    // the moment the passenger looks at it.
+    res.setHeader("Cache-Control", "no-store");
+
     res.json({
       ok: true,
       driver: {
-        id: publicId,
+        // Rebuilt from the resolved id, never echoed from the path, so the page
+        // cannot be made to display attacker-chosen text.
+        id: buildDriverVerificationCode(userId),
         name: (driver as any).fullName || (driver as any).name || "NoLSAF driver",
         avatarUrl: (driver as any).avatarUrl || null,
         certification: (driver as any).isVipDriver ? "Premium Driver" : "Certified Driver",

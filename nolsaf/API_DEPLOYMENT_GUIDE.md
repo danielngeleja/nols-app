@@ -1,7 +1,10 @@
 # NoLSAF AWS Production Deployment Runbook
 
-This is the authoritative runbook for deploying the NoLSAF API and Prisma
-migrations to AWS production.
+This runbook implements the production phase of the authoritative
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+It is the executable procedure for deploying the NoLSAF API and Prisma
+migrations to AWS production, but it does not authorize production changes or
+replace staging and clone qualification.
 
 ## Production resources
 
@@ -17,6 +20,7 @@ migrations to AWS production.
 | Prisma schema | `prisma/schema.prisma` |
 | Prisma migrations | `prisma/migrations/` |
 | API deployment script | `apps/api/scripts/deploy-eb.ps1` |
+| Operator entry point | `scripts/aws-production.ps1` |
 
 The commands below assume Windows PowerShell.
 
@@ -45,7 +49,11 @@ remain available.
 - Use `apps/api/scripts/deploy-eb.ps1`; do not use raw `eb deploy` for a normal
   release.
 - Create and verify an RDS snapshot before applying production migrations.
-- Use `prisma migrate deploy` in production.
+- For a schema-bearing release, run the exact approved `main` migration artifact
+  from the designated single runner and verify it before deploying dependent
+  API code. Never use the post-deployment application directory as the first
+  opportunity to apply required schema.
+- Use `prisma migrate deploy` from that designated runner only.
 - Never run `prisma migrate dev`, `prisma db push`, or
   `prisma db push --accept-data-loss` against production.
 - Never rename, reorder, or delete a migration already applied to a shared
@@ -55,6 +63,58 @@ remain available.
 - If Elastic Beanstalk is `Red`, the API health check fails, migration files are
   missing, or Prisma reports a failed migration, stop and investigate before
   continuing.
+
+## Operator entry point
+
+`scripts/aws-production.ps1` is the guarded local entry point for the AWS-facing
+steps of this runbook. It is a wrapper, not a replacement: it does not perform
+staging QA, promotion, snapshots, or migrations, and it never removes the need
+for the approvals and evidence required by
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+
+Run it from the repository root:
+
+```powershell
+Set-Location $RepoRoot
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\aws-production.ps1 help
+```
+
+| Action | Runbook section | Effect on AWS |
+| --- | --- | --- |
+| `preflight` | 3 | Read-only |
+| `status` | 3, 9 | Read-only |
+| `validate` | 5 | None; local bundle build only |
+| `deploy` | 7 | Deploys a new application version |
+| `health` | 3, 9 | Read-only |
+| `events` | 7, 9 | Read-only |
+| `logs` | 7, 9 | Read-only |
+| `ssh` | 6, 8 | Opens an interactive session |
+| `open`, `console` | Any | Read-only |
+
+The `deploy` action fails closed. It requires `-ConfirmProduction`, an explicit
+`-DatabaseChange` state, and a clean `main` checkout whose `HEAD` matches
+`origin/main`. It then runs `apps/api/scripts/deploy-eb.ps1` and prints EB, RDS,
+and public health status.
+
+```powershell
+# Application-only release with no Prisma or database-compatibility change
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+
+# Schema-bearing release, only after section 6 completed and was verified
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange AppliedAndVerified
+```
+
+`-DatabaseChange AppliedAndVerified` is an operator acknowledgement, not a check.
+The script cannot prove that the exact `main` migration artifact was applied and
+verified by the designated runner. Never pass it to skip section 6.
+
+Use `-Profile <name>` when the correct production credentials are not the default
+AWS profile. The AWS region defaults to `eu-north-1`.
+
+The manual commands in the sections below remain authoritative. Use them
+directly whenever the wrapper is unavailable, when its output is ambiguous, or
+when a release is being investigated after a failure.
 
 ## 1. QA the staging branch
 
@@ -143,6 +203,14 @@ if ($LocalMain -ne $RemoteMain) {
 }
 ```
 
+```powershell
+$ReleaseSha = $LocalMain.Trim()
+$MigrationCount = (Get-ChildItem "$RepoRoot\prisma\migrations" `
+  -Filter migration.sql -Recurse -File).Count
+$ReleaseSha
+$MigrationCount
+```
+
 If the merge reports no changes and `main` already matches `origin/main`, do not
 create an empty commit.
 
@@ -170,6 +238,13 @@ Required pre-deployment state:
 
 Record the current `Deployed Version` from `eb status`. It is the application
 rollback candidate if the new API bundle fails.
+
+The same read-only checks, plus RDS instance state, are available as:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 status
+```
 
 ## 4. Create and verify the production RDS snapshot
 
@@ -226,6 +301,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -ValidateOnly
 ```
 
+The wrapper equivalent is `.\scripts\aws-production.ps1 validate` from
+`$RepoRoot`. Either form must end with the same result.
+
 Expected ending:
 
 ```text
@@ -246,7 +324,134 @@ Test-Path "$ApiDir\docs"
 
 Git status must be empty and all five `Test-Path` commands must return `False`.
 
-## 6. Deploy the API bundle
+## 6. Apply approved Prisma migrations from the exact `main` commit
+
+Skip this section only when the exact staging-to-main diff proves there is no
+Prisma schema, migration, or database-compatibility change. This is the single
+designated migration runner; do not run the same migration from multiple EB
+instances.
+
+Connect to one production EB instance:
+
+```powershell
+Set-Location $ApiDir
+& $Eb ssh $EbEnvironment
+```
+
+Inside the Linux SSH session, download the immutable source archive for the
+approved 40-character `main` SHA. Paste the recorded values; never use a branch
+name such as `main` in the URL.
+
+```bash
+set -euo pipefail
+cd /var/app/current
+
+RELEASE_SHA="<paste $ReleaseSha>"
+EXPECTED_MIGRATION_COUNT="<paste $MigrationCount>"
+
+test "${#RELEASE_SHA}" -eq 40 || {
+  echo "Release SHA must contain exactly 40 characters" >&2; exit 1;
+}
+case "$RELEASE_SHA" in
+  *[!0-9a-f]*) echo "Release SHA must be lowercase hexadecimal" >&2; exit 1 ;;
+  *) ;;
+esac
+
+case "$EXPECTED_MIGRATION_COUNT" in
+  ''|*[!0-9]*) echo "Invalid migration count" >&2; exit 1 ;;
+esac
+
+RUNNER_ROOT="$(mktemp -d "/tmp/nolsaf-migration-${RELEASE_SHA}.XXXXXX")"
+ARCHIVE="$RUNNER_ROOT/release.tar.gz"
+trap 'rm -rf -- "$RUNNER_ROOT"' EXIT
+
+curl --fail --silent --show-error --location \
+  --proto '=https' --tlsv1.2 \
+  "https://github.com/danielngeleja/nols-app/archive/${RELEASE_SHA}.tar.gz" \
+  -o "$ARCHIVE"
+
+mkdir "$RUNNER_ROOT/source"
+tar -xzf "$ARCHIVE" -C "$RUNNER_ROOT/source" --strip-components=1
+export RELEASE_ROOT="$RUNNER_ROOT/source/nolsaf"
+
+test -f "$RELEASE_ROOT/prisma/schema.prisma"
+test -d "$RELEASE_ROOT/prisma/migrations"
+test -f "$RELEASE_ROOT/prisma/migration-checksums.json"
+test -f "$RELEASE_ROOT/scripts/check-migration-integrity.mjs"
+test -x /var/app/current/node_modules/.bin/prisma
+
+test "$(find "$RELEASE_ROOT/prisma/migrations" -name migration.sql -type f | wc -l)" \
+  -eq "$EXPECTED_MIGRATION_COUNT"
+
+node "$RELEASE_ROOT/scripts/check-migration-integrity.mjs"
+
+CURRENT_PRISMA_VERSION="$(node -p "require('/var/app/current/package.json').dependencies.prisma")"
+RELEASE_PRISMA_VERSION="$(node -p "require(process.env.RELEASE_ROOT + '/package.json').dependencies.prisma")"
+test "$CURRENT_PRISMA_VERSION" = "$RELEASE_PRISMA_VERSION"
+```
+
+A Prisma CLI version mismatch is a stop condition. Build a separately reviewed
+migration-runner artifact with the exact release dependency instead of installing
+an unpinned package on production.
+
+Load the production URL without printing it, download the official AWS RDS CA,
+and configure Prisma against the exact release source:
+
+```bash
+export DATABASE_URL="$(/opt/elasticbeanstalk/bin/get-config environment -k DATABASE_URL)"
+test -n "$DATABASE_URL"
+
+curl --fail --silent --show-error --location \
+  --proto '=https' --tlsv1.2 \
+  https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  -o "$RUNNER_ROOT/rds-global-bundle.pem"
+test -s "$RUNNER_ROOT/rds-global-bundle.pem"
+
+case "$DATABASE_URL" in
+  *\?*) export DATABASE_URL="${DATABASE_URL}&sslcert=${RUNNER_ROOT}/rds-global-bundle.pem&sslaccept=strict" ;;
+  *) export DATABASE_URL="${DATABASE_URL}?sslcert=${RUNNER_ROOT}/rds-global-bundle.pem&sslaccept=strict" ;;
+esac
+
+cat >"$RUNNER_ROOT/prisma-production.config.cjs" <<'EOF'
+const { defineConfig } = require('/var/app/current/node_modules/prisma/config');
+
+module.exports = defineConfig({
+  schema: `${process.env.RELEASE_ROOT}/prisma/schema.prisma`,
+  migrations: {
+    path: `${process.env.RELEASE_ROOT}/prisma/migrations`,
+  },
+  datasource: {
+    url: process.env.DATABASE_URL,
+  },
+});
+EOF
+
+./node_modules/.bin/prisma migrate status \
+  --config "$RUNNER_ROOT/prisma-production.config.cjs"
+
+# Stop here when the release contains
+# 20260822170000_add_user_registration_lifecycle. Use the guarded prefix and
+# recovery sequence in docs/CASE_SENSITIVE_DATABASE_RECOVERY.md instead of the
+# next migrate-deploy command.
+
+./node_modules/.bin/prisma migrate deploy \
+  --config "$RUNNER_ROOT/prisma-production.config.cjs"
+
+./node_modules/.bin/prisma migrate status \
+  --config "$RUNNER_ROOT/prisma-production.config.cjs"
+```
+
+Required final output is `Database schema is up to date!`. If Prisma reports a
+failed migration, an unexpected database, a checksum problem, or a connection
+error, stop. Do not use `migrate resolve` merely to silence the error.
+
+Exit the SSH session. The trap removes only the uniquely created runner folder:
+
+```bash
+exit
+```
+
+## 7. Deploy the API bundle after schema verification
 
 ```powershell
 Set-Location $ApiDir
@@ -255,6 +460,17 @@ $env:PYTHONUTF8 = "1"
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\deploy-eb.ps1
 ```
+
+The guarded wrapper form re-checks the release checkout before deploying and
+prints EB, RDS, and health status afterwards:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+```
+
+Use `-DatabaseChange AppliedAndVerified` instead when section 6 applied and
+verified migrations for this release.
 
 Do not run another deploy while this command is active. A successful deployment
 ends with:
@@ -270,14 +486,14 @@ Confirm the new bundle:
 & $Eb status
 ```
 
-Required state before database migration:
+Required deployment state:
 
 - `Deployed Version` changed to the new application version.
 - Status is `Ready`.
 - Health is `Green`.
 
-Yellow health can be temporary during startup. Wait and check again. Do not run
-migrations while the environment is updating or unhealthy.
+Yellow health can be temporary during startup. Wait and check again. Do not
+continue verification while the environment is updating or unhealthy.
 
 If deployment fails:
 
@@ -287,9 +503,11 @@ If deployment fails:
 & $Eb logs $EbEnvironment --all
 ```
 
-Resolve the API deployment failure before touching the production database.
+Resolve the API deployment failure without rerunning the migration or launching
+another deploy blindly. The schema expansion may already be committed and must
+remain backward-compatible with the rollback API version.
 
-## 7. Apply production Prisma migrations through EB SSH
+## 8. Verify the deployed bundle carries the applied migration head
 
 Connect to the production instance:
 
@@ -361,36 +579,22 @@ module.exports = defineConfig({
 EOF
 ```
 
-Check migration history before applying anything:
+Verify the deployed bundle and production migration history still agree:
 
 ```bash
 ./node_modules/.bin/prisma migrate status \
   --config /tmp/prisma-production.config.cjs
 ```
 
-If Prisma reports a failed migration, `No migration found`, an unexpected
-database, or a connection error, stop. Do not use `migrate resolve` merely to
-silence the error.
-
-Apply pending migrations:
-
-```bash
-./node_modules/.bin/prisma migrate deploy \
-  --config /tmp/prisma-production.config.cjs
-```
-
-Verify the final state:
-
-```bash
-./node_modules/.bin/prisma migrate status \
-  --config /tmp/prisma-production.config.cjs
-```
-
-Required result:
+Required result is:
 
 ```text
 Database schema is up to date!
 ```
+
+A pending or failed migration here means the deployed bundle and the section 6
+runner did not use the same artifact. Stop and investigate; do not apply a
+required migration for the first time after dependent API code is running.
 
 Clean the temporary configuration and leave SSH:
 
@@ -399,7 +603,7 @@ rm -f /tmp/prisma-production.config.cjs /tmp/rds-global-bundle.pem
 exit
 ```
 
-## 8. Verify production after migration
+## 9. Verify production after migration and deployment
 
 Back in PowerShell:
 
@@ -447,7 +651,13 @@ Set-Location $ApiDir
 & $Eb logs $EbEnvironment --all
 ```
 
-## 9. Record the release
+The wrapper exposes the same read-only views as
+`.\scripts\aws-production.ps1 status`, `events`, `logs`, and `health`.
+
+## 10. Record the release
+
+Use
+[`docs/RELEASE_EVIDENCE_TEMPLATE.md`](docs/RELEASE_EVIDENCE_TEMPLATE.md).
 
 Record these values in the release ticket or deployment log:
 
@@ -463,6 +673,12 @@ Keep the pre-migration snapshot according to the production backup-retention
 policy. Do not delete it immediately after deployment.
 
 ## Failed Prisma migration procedure
+
+For the known immutable case-sensitive migrations beginning with
+`20260822170000_add_user_registration_lifecycle`, use the guarded, clone-first
+procedure in
+[`docs/CASE_SENSITIVE_DATABASE_RECOVERY.md`](docs/CASE_SENSITIVE_DATABASE_RECOVERY.md).
+Do not substitute an ad-hoc SQL session or edit the shared migrations.
 
 A failed MariaDB migration can be partially applied because many DDL statements
 automatically commit. Never assume that a failed migration changed nothing.

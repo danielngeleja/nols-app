@@ -74,7 +74,10 @@ export function buildProFormaSnapshot(block: any) {
       quantity,
       nights,
       unitRate,
-      amount: money(quantity * nights * unitRate),
+      // Agent quotes are already authoritative commercial snapshots. Their
+      // per-night display rate may round, so an explicit source amount avoids
+      // introducing a few cents of invoice drift.
+      amount: room.amount == null ? money(quantity * nights * unitRate) : money(room.amount),
     };
   });
   for (const item of block.masterFolio?.items ?? []) {
@@ -237,12 +240,32 @@ export function serializeProForma(record: any) {
     viewCount: record.viewCount,
     lastViewedAt: record.lastViewedAt,
     supersededAt: record.supersededAt,
+    payerMarkedPaidAt: record.payerMarkedPaidAt ?? null,
+    payerPaymentReference: record.payerPaymentReference ?? null,
+    payerPaymentMethod: record.payerPaymentMethod ?? null,
+    payerPaymentAccountName: record.payerPaymentAccountName ?? null,
     createdAt: record.createdAt,
   };
 }
 
+function proFormaStay(record: any) {
+  const block = record.masterFolio?.block;
+  if (block) return { name: block.name, reference: block.reference, checkIn: block.checkIn, checkOut: block.checkOut };
+  const agent = record.masterFolio?.agentBookingRequest;
+  if (agent) {
+    const agency = agent.link?.agentAccount;
+    return {
+      name: agency?.tradingName || agency?.legalName || record.billToName,
+      reference: `AGB-${String(agent.id).padStart(6, "0")}`,
+      checkIn: agent.checkIn,
+      checkOut: agent.checkOut,
+    };
+  }
+  throw new Error("NRMS_PRO_FORMA_SOURCE_MISSING");
+}
+
 export async function renderMasterProFormaPdf(record: any): Promise<Buffer> {
-  const block = record.masterFolio.block;
+  const stay = proFormaStay(record);
   const accountNumber = decrypt(record.bankAccountNumberEnc, { log: false });
   const verificationUrl = proFormaVerificationUrl(record.publicToken);
   const qrPng = await QRCode.toBuffer(verificationUrl, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
@@ -261,10 +284,10 @@ export async function renderMasterProFormaPdf(record: any): Promise<Buffer> {
     contactName: record.contactName,
     contactEmail: record.contactEmail,
     contactPhone: record.contactPhone,
-    groupName: block.name,
-    groupReference: block.reference,
-    checkIn: block.checkIn,
-    checkOut: block.checkOut,
+    groupName: stay.name,
+    groupReference: stay.reference,
+    checkIn: stay.checkIn,
+    checkOut: stay.checkOut,
     currency: record.currency,
     items: record.itemsSnapshot as ProFormaItemSnapshot[],
     payments: record.paymentsSnapshot as ProFormaPaymentSnapshot[],
@@ -324,6 +347,7 @@ export async function emailMasterProForma(record: any, recipient: string) {
 
 export function publicProFormaView(record: any) {
   const serialized = serializeProForma(record);
+  const stay = proFormaStay(record);
   return {
     ...serialized,
     property: {
@@ -334,10 +358,10 @@ export function publicProFormaView(record: any) {
       phone: record.propertyPhone,
     },
     group: {
-      name: record.masterFolio.block.name,
-      reference: record.masterFolio.block.reference,
-      checkIn: record.masterFolio.block.checkIn,
-      checkOut: record.masterFolio.block.checkOut,
+      name: stay.name,
+      reference: stay.reference,
+      checkIn: stay.checkIn,
+      checkOut: stay.checkOut,
     },
     items: record.itemsSnapshot,
     paymentsAtIssue: record.paymentsSnapshot,

@@ -42,6 +42,7 @@ import {
   getMasterFolioTotals,
   refreshMasterFolioStatus,
 } from "../lib/nrmsMasterFolio.js";
+import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import {
   createMasterProForma,
   emailMasterProForma,
@@ -969,7 +970,7 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
       const payableBalance = Number((payableTotal - totals.paid).toFixed(2));
       if (payableBalance <= 0.005) throw new Error("NRMS_MASTER_PAYMENT_COMPLETE");
       if (data.amount > payableBalance + 0.005) throw new Error(`NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:${payableBalance}`);
-      await tx.nrmsMasterFolioPayment.create({
+      const payment = await tx.nrmsMasterFolioPayment.create({
         data: {
           masterFolioId: folio.id,
           amount: data.amount,
@@ -981,6 +982,15 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
           note: normalizedNote,
           recordedById: actorId,
         },
+      });
+      // Group master folio settlement, same taxable event as the agent path.
+      await fiscaliseSettlement(tx, {
+        propertyId: block.propertyId,
+        sourceType: "MASTER_FOLIO_PAYMENT",
+        sourceId: payment.id,
+        saleOccurredAt: payment.createdAt ?? new Date(),
+        currency: folio.currency,
+        grossAmount: data.amount,
       });
       await refreshMasterFolioStatus(tx, folio.id);
       return { idempotent: false };

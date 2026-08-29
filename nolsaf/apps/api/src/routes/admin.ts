@@ -58,6 +58,7 @@ import adminNrmsIntegrityRouter from "./admin.nrms.integrity.js";
 import adminNrmsSupportRouter from "./admin.nrms.support.js";
 import adminNrmsSystemRouter from "./admin.nrms.system.js";
 import adminNrmsChannelsRouter from "./admin.nrms.channels.js";
+import adminNrmsMessagingRouter from "./admin.nrms.messaging.js";
 import adminFxRouter from "./admin.fx";
 import adminSettingsRouter from "./admin.settings";
 import adminServiceAvailabilityRouter from "./admin.service-availability";
@@ -71,6 +72,7 @@ import adminUpdatesRouter from "./admin.updates";
 import adminUsersSummaryRouter from "./admin.users.summary";
 import adminUsersTransportBookingsRouter from "./admin.users.transportBookings";
 import adminUsersRouter from "./admin.users";
+import adminTrustVerificationRouter from "./admin.trustVerification.js";
 
 export function registerAdminGuards(app: Express): void {
   // Optional but recommended: protect all admin endpoints behind IP allowlist (no-op unless configured).
@@ -101,6 +103,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/nrms/system", adminNrmsSystemRouter as RequestHandler);
   app.use("/admin/nrms/channels", adminNrmsChannelsRouter);
   app.use("/api/admin/nrms/channels", adminNrmsChannelsRouter as RequestHandler);
+  app.use("/admin/nrms/messaging", adminNrmsMessagingRouter);
+  app.use("/api/admin/nrms/messaging", adminNrmsMessagingRouter as RequestHandler);
   app.use("/admin/nrms", adminNrmsRouter);
   app.use("/api/admin/nrms", adminNrmsRouter as RequestHandler);
   app.use("/admin/payments", adminPaymentsRouter);
@@ -161,6 +165,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/users/transport-bookings", adminUsersTransportBookingsRouter);
   app.use("/api/admin/users/transport-bookings", adminUsersTransportBookingsRouter as RequestHandler);
   app.use("/admin/users", adminUsersRouter);
+  app.use("/api/admin/trust-verification", adminTrustVerificationRouter as RequestHandler);
   app.use("/api/admin/users", adminUsersRouter as RequestHandler);
   app.use("/admin/help-owners", adminHelpOwnersRouter);
   app.use("/api/admin/help-owners", adminHelpOwnersRouter as RequestHandler);

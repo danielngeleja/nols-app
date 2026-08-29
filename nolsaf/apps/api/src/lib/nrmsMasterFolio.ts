@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { agentCoverDecision } from "./nrmsAgentIncidentals.js";
 
 export const MASTER_BILLING_MODES = ["SPLIT", "MASTER"] as const;
 export const STRICT_MASTER_SETTLEMENT_POLICY = "PAY_BEFORE_DEPARTURE";
@@ -37,7 +38,49 @@ export function summarizeReservationMasterSettlement(group: any, transferredAmou
   const status = String(folio.status || "OPEN").toUpperCase();
 
   return {
+    // GROUP means the room charge was moved off this reservation's folio onto
+    // the master, so the two amounts are separate money and add up. Callers
+    // must not add them for an agent booking, where they are the same payment.
+    source: "GROUP" as const,
     billingMode: String(block?.billingMode ?? folio.billingMode).toUpperCase(),
+    masterFolioReference: String(folio.reference),
+    status,
+    settled: status === "SETTLED" || status === "CREDIT",
+    settledAt: folio.settledAt ?? null,
+    methods,
+  };
+}
+
+/**
+ * The same context for an agent booking. A master folio hangs off either a
+ * group block or an agent booking request, and an agency stay is invoiced on
+ * that folio directly rather than transferred there from a guest folio, so
+ * there is no transferred amount to gate on.
+ */
+export function summarizeAgentBookingSettlement(request: any) {
+  const folio = request?.masterFolio;
+  if (!folio) return null;
+
+  const live = (folio.payments ?? []).filter((payment: any) => !payment.voidedAt);
+  const methods = [...new Set(
+    live
+      .map((payment: any) => String(payment.method || "").trim().toUpperCase())
+      .filter(Boolean),
+  )];
+  const status = String(folio.status || "OPEN").toUpperCase();
+  // What the agency has actually paid. An agent booking is one folio for one
+  // booking, so this belongs to the reservation exactly; a group folio covers
+  // many members at once and cannot be attributed to any single one, which is
+  // why the group summary deliberately has no equivalent field.
+  const paidAmount = live.reduce((sum: number, payment: any) => sum + money(payment.amount), 0);
+
+  return {
+    // The agency's payment is already recorded against the reservation, and the
+    // room also sits on this folio. Adding the two would count one payment
+    // twice, so this source never contributes to a paid total.
+    source: "AGENT_BOOKING" as const,
+    paidAmount,
+    billingMode: String(folio.billingMode || "MASTER").toUpperCase(),
     masterFolioReference: String(folio.reference),
     status,
     settled: status === "SETTLED" || status === "CREDIT",
@@ -49,7 +92,7 @@ export function summarizeReservationMasterSettlement(group: any, transferredAmou
 export type GroupChargeRegisterRow = {
   id: string;
   occurredAt: Date | string;
-  sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE";
+  sourceType: "ROOM" | "OUTLET_ORDER" | "MANUAL_CHARGE" | "FOLIO_ADJUSTMENT";
   sourceReference: string;
   category: string;
   description: string;
@@ -98,7 +141,12 @@ export function buildGroupChargeRegister(block: any): { rows: GroupChargeRegiste
       .join(", ") || "Unassigned";
     const guestName = reservation.guestProfile?.fullName || "Guest not recorded";
     const reservationVoided = ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(String(reservation.status || "").toUpperCase());
-    const roomItem = allMasterItems.find((item: any) => item.reservationId === reservation.id && item.kind === "ROOM");
+    // A stay can carry more than one room line once a bill has been re-cut: the
+    // live line, and a voided one it replaced. The live line is the truth, so
+    // the register shows that and only falls back to a voided line when the
+    // room really was withdrawn.
+    const roomItem = activeMasterItems.find((item: any) => item.reservationId === reservation.id && item.kind === "ROOM")
+      ?? allMasterItems.find((item: any) => item.reservationId === reservation.id && item.kind === "ROOM");
     const roomPayer: "AGENCY" | "GUEST" = roomItem ? "AGENCY" : "GUEST";
 
     if (money(reservation.totalAmount) > 0.005 || roomItem) {
@@ -166,6 +214,39 @@ export function buildGroupChargeRegister(block: any): { rows: GroupChargeRegiste
         currency: masterItem?.currency || charge.currency || reservation.currency,
       });
     }
+  }
+
+  // Lines on the agency bill that belong to no single stay: a commercial
+  // discount, or anything raised against a booking record rather than a room.
+  // Leaving them out made the register's agency total disagree with the invoice
+  // it is meant to explain, which is the one thing a register must never do.
+  // Live items only. A voided line is already visible against its own stay when
+  // it has one, and a retired adjustment is history the register does not need
+  // to repeat.
+  const accountedItemIds = new Set(rows.map((row) => row.id));
+  for (const item of activeMasterItems) {
+    const id = `MASTER_ITEM:${item.id}`;
+    if (accountedItemIds.has(id)) continue;
+    rows.push({
+      id,
+      occurredAt: item.createdAt,
+      sourceType: "FOLIO_ADJUSTMENT",
+      sourceReference: currentProForma?.number || folio?.reference || "Agency master folio",
+      category: item.kind || "ADJUSTMENT",
+      description: item.description || (money(item.amount) < 0 ? "Adjustment" : "Agency charge"),
+      outlet: null,
+      orderStatus: null,
+      reservationId: item.reservationId ?? 0,
+      reservationStatus: "N/A",
+      guestName: folio?.billToName || "Agency account",
+      room: "Whole booking",
+      payer: "AGENCY",
+      destination: currentProForma?.number || folio?.reference || "Agency master folio",
+      settlementStatus: agencySettled ? "PAID_BY_AGENCY" : "AGENCY_DUE",
+      documentRevisionRequired: false,
+      amount: money(item.amount),
+      currency: item.currency || folio?.currency || "TZS",
+    });
   }
 
   rows.sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
@@ -255,6 +336,12 @@ export async function ensureMasterFolioForBlock(tx: any, block: any) {
 export async function routeRoomToMasterFolio(tx: any, block: any, reservation: any) {
   if (!billingUsesMasterFolio(block.billingMode)) return null;
   const folio = await ensureMasterFolioForBlock(tx, block);
+  // An agency booking was invoiced for its rooms before any of them became a
+  // stay, and that invoice is the contract. Routing a room here would charge it
+  // a second time, and re-syncing after a desk edit would silently re-price a
+  // settled bill. Changing what the agency owes is an invoice revision, which
+  // is a deliberate act elsewhere, never a side effect of editing one room.
+  if (folio.agentBookingRequestId != null) return null;
   const item = await tx.nrmsMasterFolioItem.upsert({
     where: { sourceKey: `ROOM:${reservation.id}` },
     create: {
@@ -297,6 +384,9 @@ export async function routeChargeToMasterFolio(tx: any, charge: any) {
   const block = await tx.nrmsGroupBlock.findUnique({ where: { groupId: reservation.groupId } });
   if (!block || !billingRoutesExtras(block.billingMode)) return null;
   const folio = await ensureMasterFolioForBlock(tx, block);
+  // An agency only pays for what it declared it would pay for.
+  const cover = await agentCoverDecision(tx, folio.id, charge);
+  if (!cover.route) return null;
   const item = await tx.nrmsMasterFolioItem.upsert({
     where: { sourceKey: `CHARGE:${charge.id}` },
     create: {

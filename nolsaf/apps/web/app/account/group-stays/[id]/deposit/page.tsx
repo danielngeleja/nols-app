@@ -273,7 +273,9 @@ export default function GroupStayDepositPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await apiClient.post(`/api/customer/group-stays/${id}/deposit/initiate-card`, {});
+      // client:"web" keeps the post-payment redirect on this page. Without it the
+      // server assumes the native app and returns to nolsaf://.
+      const res = await apiClient.post(`/api/customer/group-stays/${id}/deposit/initiate-card`, { client: "web" });
       const checkoutUrl = res.data?.checkoutUrl;
       if (checkoutUrl) {
         window.location.href = checkoutUrl;

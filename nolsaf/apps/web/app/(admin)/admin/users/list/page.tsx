@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Users, Search, X, Mail, Phone, Lock, ShoppingCart, DollarSign, Eye, MoreVertical, CheckCircle, XCircle, Loader2, Filter, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
@@ -13,8 +15,14 @@ const api = apiClient;
 type CustomerRow = {
   id: number;
   name: string | null;
-  email: string;
+  displayName?: string;
+  bookingGuestName?: string | null;
+  identityNameSource?: "ACCOUNT" | "BOOKING" | "MISSING";
+  email: string | null;
   phone: string | null;
+  registrationStatus?: "COMPLETE" | "INCOMPLETE";
+  registrationSource?: "WEB" | "TRAVELLER_APP" | "DRIVER_APP" | "PARTNERS_APP" | "LEGACY" | "UNKNOWN";
+  profileCompletedAt?: string | null;
   createdAt: string;
   emailVerifiedAt: string | null;
   phoneVerifiedAt: string | null;
@@ -33,13 +41,16 @@ type CustomersSummary = {
   totalRevenue: number;
   verifiedEmailCount?: number;
   verifiedPhoneCount?: number;
+  verifiedCustomerCount?: number;
+  incompleteRegistrationCount?: number;
 };
 
-type CustomerSortKey = "customer" | "accountId" | "contact" | "verification" | "status" | "bookings" | "totalSpent" | "lastBooking" | "joined";
+type CustomerSortKey = "customer" | "profile" | "accountId" | "contact" | "verification" | "status" | "bookings" | "totalSpent" | "lastBooking" | "joined";
 
 export default function AdminUsersListPage(){
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [registrationStatus, setRegistrationStatus] = useState("");
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<CustomerRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -52,14 +63,63 @@ export default function AdminUsersListPage(){
     totalBookings: 0,
     totalRevenue: 0,
     verifiedCustomers: 0,
+    incompleteRegistrations: 0,
   });
   const pageSize = 30;
   const role = "CUSTOMER";
 
+  const router = useRouter();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [suggestions, setSuggestions] = useState<CustomerRow[]>([]);
   const [showActionsMenu, setShowActionsMenu] = useState<number | null>(null);
+  const [actionsMenuPos, setActionsMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+
+  /**
+   * The row actions menu is rendered into a portal on document.body, not inside
+   * the table cell. The table lives in `overflow-x-auto` inside a card with
+   * `overflow-hidden`, and an absolutely positioned menu is clipped by both
+   * (overflow-x: auto also forces overflow-y to compute as auto), so the last
+   * rows and the right edge of the menu were being cut off.
+   */
+  const ACTIONS_MENU_WIDTH = 208; // matches w-52
+  const ACTIONS_MENU_HEIGHT = 150; // three rows, used only to decide whether to flip upward
+
+  const closeActionsMenu = useCallback(() => {
+    setShowActionsMenu(null);
+    setActionsMenuPos(null);
+  }, []);
+
+  const openActionsMenu = useCallback((customerId: number, trigger: HTMLElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const flipUp = rect.bottom + ACTIONS_MENU_HEIGHT + 16 > window.innerHeight;
+    setActionsMenuPos({
+      top: flipUp ? Math.max(8, rect.top - ACTIONS_MENU_HEIGHT - 8) : rect.bottom + 8,
+      left: Math.max(
+        8,
+        Math.min(rect.right - ACTIONS_MENU_WIDTH, window.innerWidth - ACTIONS_MENU_WIDTH - 8),
+      ),
+    });
+    setShowActionsMenu(customerId);
+  }, []);
+
+  // A fixed menu cannot follow its trigger, so close it whenever the page or
+  // the table's own scroll container moves under it.
+  useEffect(() => {
+    if (showActionsMenu === null) return;
+    const onScrollOrResize = () => closeActionsMenu();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeActionsMenu();
+    };
+    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showActionsMenu, closeActionsMenu]);
 
   const isCustomerSuspended = useCallback((c: CustomerRow) => {
     const disabled = (c.isDisabled as any) === true || (c.isDisabled as any) === 1;
@@ -73,7 +133,7 @@ export default function AdminUsersListPage(){
       // (e.g. /admin/users is a page route, not an API route).
       const [listRes, summaryRes] = await Promise.all([
         api.get<{ data: CustomerRow[]; meta: { total: number } }>("/api/admin/users", {
-          params: { q, status, page, perPage: pageSize, role },
+          params: { q, status, registrationStatus, page, perPage: pageSize, role },
         }),
         api.get<CustomersSummary>("/api/admin/users/summary"),
       ]);
@@ -82,13 +142,14 @@ export default function AdminUsersListPage(){
       setTotal(listRes.data.meta?.total || 0);
 
       const summary = summaryRes.data;
-      const verified = Number(summary.verifiedEmailCount || 0) + Number(summary.verifiedPhoneCount || 0);
+      const verified = Number(summary.verifiedCustomerCount || 0);
       setStats({
         totalCustomers: Number(summary.totalCustomers || 0),
         activeCustomers: Number(summary.activeCustomers || 0),
         totalBookings: Number(summary.totalBookings || 0),
         totalRevenue: Number(summary.totalRevenue || 0),
         verifiedCustomers: verified,
+        incompleteRegistrations: Number(summary.incompleteRegistrationCount || 0),
       });
     } catch (err) {
       console.error("Failed to load customers", err);
@@ -97,7 +158,7 @@ export default function AdminUsersListPage(){
     } finally {
       setLoading(false);
     }
-  }, [q, status, page, role]);
+  }, [q, status, registrationStatus, page, role]);
 
   useEffect(()=>{ load(); }, [load]);
 
@@ -110,7 +171,7 @@ export default function AdminUsersListPage(){
     const t = setTimeout(()=>{ 
       (async ()=>{
         try{ 
-          const r = await api.get<{ data: CustomerRow[] }>("/api/admin/users", { params: { status, q: term, page:1, perPage:5, role } }); 
+          const r = await api.get<{ data: CustomerRow[] }>("/api/admin/users", { params: { status, registrationStatus, q: term, page:1, perPage:5, role } });
           setSuggestions(r.data.data ?? []); 
         } catch(e){ 
           setSuggestions([]); 
@@ -118,7 +179,7 @@ export default function AdminUsersListPage(){
       })(); 
     }, 400);
     return ()=> clearTimeout(t);
-  }, [q, status, role]);
+  }, [q, status, registrationStatus, role]);
 
   useEffect(()=>{ 
     const url = typeof window !== 'undefined'
@@ -139,9 +200,11 @@ export default function AdminUsersListPage(){
     const readValue = (c: CustomerRow): string | number => {
       switch (sortBy) {
         case "customer":
-          return `${c.name || ""} ${c.email || ""}`.toLowerCase();
+          return `${c.displayName || c.name || ""} ${c.email || ""}`.toLowerCase();
         case "accountId":
           return c.id;
+        case "profile":
+          return `${c.registrationStatus || "INCOMPLETE"} ${c.registrationSource || "UNKNOWN"}`.toLowerCase();
         case "contact":
           return `${c.phone || ""}`.toLowerCase();
         case "verification":
@@ -245,9 +308,19 @@ export default function AdminUsersListPage(){
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    // Full width rather than a centred max-w-7xl column. The admin layout
+    // already supplies the workspace frame, so capping at 1280px left a wide
+    // empty gutter on large screens and squeezed the table for no reason.
+    //
+    <div id="admin-customers-page" className="box-border w-full min-w-0 space-y-4 px-3 py-3 sm:space-y-6 sm:px-4 lg:px-5 xl:px-6">
+      {/* Tailwind preflight is disabled app-wide, so nothing sets border-box.
+          Without this, any `w-full` element that also has padding renders wider
+          than its parent and pushes the page sideways. Scoped to this page
+          rather than global, because enabling it everywhere would shift layouts
+          that were built around its absence. */}
+      <style>{`#admin-customers-page, #admin-customers-page * { box-sizing: border-box; }`}</style>
       {/* Premium Banner */}
-      <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)", padding: "2rem 2rem 1.75rem" }}>
+      <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)", padding: "clamp(1rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) clamp(0.9rem, 2.5vw, 1.75rem)" }}>
         <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.13, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">
           <circle cx="820" cy="30" r="90" fill="none" stroke="white" strokeWidth="1.2" />
           <circle cx="820" cy="30" r="55" fill="none" stroke="white" strokeWidth="0.7" />
@@ -265,12 +338,12 @@ export default function AdminUsersListPage(){
           <defs><radialGradient id="custListGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="white" stopOpacity="0.12" /><stop offset="100%" stopColor="white" stopOpacity="0" /></radialGradient></defs>
           <ellipse cx="450" cy="90" rx="200" ry="70" fill="url(#custListGlow)" />
         </svg>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
           <div style={{ width: 46, height: 46, borderRadius: "50%", background: "rgba(255,255,255,0.10)", border: "1.5px solid rgba(255,255,255,0.18)", boxShadow: "0 0 0 8px rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Users style={{ width: 22, height: 22, color: "white" }} />
           </div>
           <div>
-            <h1 style={{ fontSize: "1.35rem", fontWeight: 800, color: "white", margin: 0, letterSpacing: "-0.01em" }}>All Customers</h1>
+            <h1 style={{ fontSize: "clamp(1.1rem, 2.2vw, 1.35rem)", fontWeight: 800, color: "white", margin: 0, letterSpacing: "-0.01em" }}>All Customers</h1>
             <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.62)", margin: "2px 0 0" }}>Manage customers who book, review, pay, and add transportation</p>
           </div>
         </div>
@@ -296,6 +369,10 @@ export default function AdminUsersListPage(){
           <div style={{ background: "rgba(14,165,233,0.16)", border: "1px solid rgba(14,165,233,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 90 }}>
             <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(125,211,252,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Verified</div>
             <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#7dd3fc", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.verifiedCustomers.toLocaleString()}</div>
+          </div>
+          <div style={{ background: "rgba(249,115,22,0.16)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 105 }}>
+            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(253,186,116,0.9)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incomplete</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#fdba74", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.incompleteRegistrations.toLocaleString()}</div>
           </div>
         </div>
       </div>
@@ -336,11 +413,11 @@ export default function AdminUsersListPage(){
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => { setQ(s.name ?? s.email); setSuggestions([]); setPage(1); load(); }}
+                    onClick={() => { setQ(s.displayName ?? s.name ?? s.email ?? ''); setSuggestions([]); setPage(1); load(); }}
                     className="w-full text-left px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 last:border-b-0"
                   >
-                    <div className="font-medium text-gray-900">{s.name ?? s.email}</div>
-                    <div className="text-xs text-gray-500">{s.email}</div>
+                    <div className="font-medium text-gray-900">{s.displayName ?? s.name ?? s.email ?? `Account #${s.id}`}</div>
+                    <div className="text-xs text-gray-500">{s.email || s.phone || 'Missing contact details'}</div>
                   </button>
                 ))}
               </div>
@@ -358,6 +435,18 @@ export default function AdminUsersListPage(){
               <option value="">All Status</option>
               <option value="ACTIVE">Active</option>
               <option value="SUSPENDED">Suspended</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
+            <select
+              value={registrationStatus}
+              onChange={(e) => { setRegistrationStatus(e.target.value); setPage(1); }}
+              aria-label="Registration status"
+              className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white text-gray-700 outline-none box-border min-w-[180px]"
+            >
+              <option value="">All Registrations</option>
+              <option value="COMPLETE">Complete Profiles</option>
+              <option value="INCOMPLETE">Incomplete Profiles</option>
             </select>
           </div>
         </div>
@@ -381,15 +470,17 @@ export default function AdminUsersListPage(){
               <table className="w-full">
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <tr>
-                    {["Customer","ID","Contact","Verification","Status","Bookings","Total Spent","Last Booking","Joined","Actions"].map(h => (
+                    {["S/N","Customer","Profile","Account ID","Contact","Verification","Status","Bookings","Total Spent","Last Booking","Joined","Actions"].map(h => (
                       <th key={h} className={`px-6 py-3 ${h==="Actions"?"text-right":"text-left"} text-xs font-semibold text-gray-500 uppercase tracking-wider`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                  {[...Array(5)].map((_, i) => (
-                    <TableRow key={i} hover={false} className="animate-pulse">
+                    {[...Array(5)].map((_, i) => (
+                      <TableRow key={i} hover={false} className="animate-pulse">
+                      <td className="px-4 py-4 whitespace-nowrap"><div className="h-7 w-7 rounded-md bg-gray-200"></div></td>
                       <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-32 mb-2"></div><div className="h-3 bg-gray-100 rounded w-40"></div></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-5 bg-gray-200 rounded w-28"></div></td>
                       <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
                       <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
                       <td className="px-6 py-4 whitespace-nowrap"><div className="h-6 bg-gray-200 rounded w-16"></div></td>
@@ -416,48 +507,54 @@ export default function AdminUsersListPage(){
               <table className="w-full">
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 sticky top-0 z-10">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("customer")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="w-16 whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">S/N</th>
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("customer")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Customer {renderSortIcon("customer")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("accountId")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      <button type="button" onClick={() => handleSort("profile")} className="m-0 inline-flex appearance-none items-center gap-1 border-0 bg-transparent p-0 hover:text-gray-700">
+                        Profile {renderSortIcon("profile")}
+                      </button>
+                    </th>
+                    <th className="min-w-[110px] whitespace-nowrap px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      <button type="button" onClick={() => handleSort("accountId")} className="m-0 inline-flex whitespace-nowrap appearance-none items-center gap-1 border-0 bg-transparent p-0 hover:text-gray-700">
                         Account ID {renderSortIcon("accountId")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("contact")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("contact")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Contact {renderSortIcon("contact")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("verification")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("verification")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Verification {renderSortIcon("verification")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("status")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Status {renderSortIcon("status")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("bookings")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("bookings")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Bookings {renderSortIcon("bookings")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("totalSpent")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("totalSpent")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Total Spent {renderSortIcon("totalSpent")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("lastBooking")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("lastBooking")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Last Booking {renderSortIcon("lastBooking")}
                       </button>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("joined")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
+                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <button type="button" onClick={() => handleSort("joined")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
                         Joined {renderSortIcon("joined")}
                       </button>
                     </th>
@@ -465,14 +562,37 @@ export default function AdminUsersListPage(){
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                  {sortedItems.map((customer) => (
-                    <TableRow key={customer.id} className="align-middle hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-semibold text-gray-900">{customer.name || "N/A"}</div>
-                        <div className="text-sm text-gray-500">{customer.email}</div>
+                  {sortedItems.map((customer, index) => (
+                    <TableRow
+                      key={customer.id}
+                      // Double click anywhere on the row is a shortcut to the
+                      // customer profile, same destination as View Details.
+                      onDoubleClick={() => {
+                        closeActionsMenu();
+                        router.push(`/admin/users/${customer.id}`);
+                      }}
+                      title="Double click to open this customer"
+                      className="align-middle cursor-pointer select-none hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-slate-100 px-1.5 text-xs font-bold tabular-nums text-slate-700 ring-1 ring-slate-200">
+                          {(page - 1) * pageSize + index + 1}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-semibold text-gray-600">#{customer.id}</span>
+                        <div className="font-semibold text-gray-900">{customer.displayName || customer.name || "Incomplete profile"}</div>
+                        <div className="text-sm text-gray-500">{customer.email || 'Email missing'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${customer.registrationStatus === 'COMPLETE' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                            {customer.registrationStatus === 'COMPLETE' ? 'Profile complete' : 'Profile incomplete'}
+                          </span>
+                          <span className="text-[10px] font-medium text-gray-400">{(customer.registrationSource || 'UNKNOWN').replaceAll('_', ' ')}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-semibold tabular-nums text-gray-600">{customer.id}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                         {customer.phone || "N/A"}
@@ -533,7 +653,14 @@ export default function AdminUsersListPage(){
                         <div className="relative">
                           <button
                             aria-label="Customer actions"
-                            onClick={() => setShowActionsMenu(showActionsMenu === customer.id ? null : customer.id)}
+                            aria-expanded={showActionsMenu === customer.id}
+                            onClick={(event) => {
+                              if (showActionsMenu === customer.id) {
+                                closeActionsMenu();
+                                return;
+                              }
+                              openActionsMenu(customer.id, event.currentTarget);
+                            }}
                             className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                           >
                             {actionLoading === customer.id ? (
@@ -542,37 +669,48 @@ export default function AdminUsersListPage(){
                               <MoreVertical className="h-4 w-4" />
                             )}
                           </button>
-                          {showActionsMenu === customer.id && (
-                            <>
-                              <div className="fixed inset-0 z-10" onClick={() => setShowActionsMenu(null)} />
-                              <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
-                                <Link
-                                  href={`/admin/users/${customer.id}`}
-                                  className="w-full px-4 py-2.5 text-sm flex items-center gap-2 no-underline text-gray-700 hover:bg-gray-50 border-b border-gray-100"
-                                  onClick={() => setShowActionsMenu(null)}
+                          {showActionsMenu === customer.id && actionsMenuPos && typeof document !== "undefined" &&
+                            createPortal(
+                              <>
+                                <div className="fixed inset-0 z-[70]" onClick={closeActionsMenu} />
+                                {/* ring-1 instead of `border`, and gap-px over a tinted
+                                    background instead of `border-b`: Tailwind preflight is
+                                    disabled in this app, so bare border utilities set no
+                                    border-style and render nothing. */}
+                                <div
+                                  className="fixed z-[80] w-52 overflow-hidden rounded-lg bg-white shadow-xl ring-1 ring-gray-200"
+                                  style={{ top: actionsMenuPos.top, left: actionsMenuPos.left }}
                                 >
-                                  <Eye className="h-4 w-4 text-blue-500" />
-                                  View Details
-                                </Link>
-                                <button
-                                  type="button"
-                                  onClick={() => handleReset2FA(customer.id)}
-                                  className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 text-gray-700 hover:bg-gray-50 border-b border-gray-100"
-                                >
-                                  <Lock className="h-4 w-4 text-amber-500" />
-                                  Reset 2FA
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSuspend(customer.id)}
-                                  className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 text-red-600 hover:bg-red-50"
-                                >
-                                  <XCircle className="h-4 w-4 text-red-500" />
-                                  Suspend
-                                </button>
-                              </div>
-                            </>
-                          )}
+                                  <div className="flex flex-col gap-px bg-gray-100">
+                                    <Link
+                                      href={`/admin/users/${customer.id}`}
+                                      className="w-full bg-white px-4 py-2.5 text-sm flex items-center gap-2 no-underline text-gray-700 hover:bg-gray-50"
+                                      onClick={closeActionsMenu}
+                                    >
+                                      <Eye className="h-4 w-4 text-blue-500" />
+                                      View Details
+                                    </Link>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleReset2FA(customer.id)}
+                                      className="w-full bg-white text-left px-4 py-2.5 text-sm flex items-center gap-2 text-gray-700 hover:bg-gray-50"
+                                    >
+                                      <Lock className="h-4 w-4 text-amber-500" />
+                                      Reset 2FA
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSuspend(customer.id)}
+                                      className="w-full bg-white text-left px-4 py-2.5 text-sm flex items-center gap-2 text-red-600 hover:bg-red-50"
+                                    >
+                                      <XCircle className="h-4 w-4 text-red-500" />
+                                      Suspend
+                                    </button>
+                                  </div>
+                                </div>
+                              </>,
+                              document.body,
+                            )}
                         </div>
                       </td>
                     </TableRow>

@@ -1,5 +1,6 @@
 import type { Server as SocketServer } from "socket.io";
 import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js";
+import { startExpireAgentHoldsWorker } from "./expireAgentHolds.js";
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
@@ -8,11 +9,13 @@ import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
 import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
 import { startNrmsDunningWorker } from "./nrmsDunning.js";
+import { startNrmsFiscalDeliveryWorker } from "./nrmsFiscalDelivery.js";
 import { startNrmsPaymentReconcileAlertWorker } from "./nrmsPaymentReconcileAlert.js";
 import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
+import { startNrmsMetaMessagingWorker } from "./nrmsMetaMessaging.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
@@ -102,14 +105,18 @@ export function startBackgroundWorkers(io: SocketServer): void {
     startExpireStaleBookings();
     // Expire group stay offers whose 24h deposit window has passed.
     startExpireGroupBookingDeposits();
+    // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.
+    startExpireAgentHoldsWorker();
     startGuestSmsCampaignWorker();
     startDailyOccupiedHousekeepingWorker();
     startNrmsUsageAccrualWorker();
     startNrmsDunningWorker();
     startNrmsPaymentReconcileAlertWorker();
+    startNrmsFiscalDeliveryWorker();
     startNrmsIntegritySignalsWorker();
     startNrmsRetentionWorker();
     startNrmsGuestAutomationWorker();
+    startNrmsMetaMessagingWorker();
     startSalesCommissionLifecycleWorker();
     startAuditRetentionWorker();
     // Fallback for missed/delayed AzamPay disbursement callbacks: polls

@@ -1,8 +1,15 @@
-# PlanetScale Staging Setup
+# Archived PlanetScale staging proposal
 
-This project already uses Prisma with the MySQL provider, so PlanetScale can be used for the staging database without changing the app to Postgres.
+Status: inactive historical proposal. NoLSAF's shared staging database is Aiven.
+Do not provision, migrate, or test a PlanetScale environment as part of the
+current delivery flow. Follow
+[`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md) and
+[`AIVEN_STAGING.md`](AIVEN_STAGING.md).
 
-## Recommended Staging Shape
+The remaining content is retained only as architectural research and must not be
+treated as operator instructions.
+
+## Historical proposed staging shape
 
 ```text
 Vercel staging/preview web
@@ -30,6 +37,9 @@ DATABASE_URL=mysql://USERNAME:PASSWORD@HOST.connect.psdb.cloud/DATABASE?sslaccep
 The `sslaccept=strict` parameter is important. The API's Prisma MariaDB adapter already reads that parameter and enables TLS.
 
 ## Load Schema Into Staging
+
+Do not execute this archived procedure for the active NoLSAF staging
+environment.
 
 For a fresh PlanetScale staging branch, replay the repository's migration
 history so later deploys remain safe:

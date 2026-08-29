@@ -35,6 +35,13 @@ apps/api/reports/capacity-*.json
 *.p12
 secrets/
 .secrets/
+
+# Exception: the Redis CA bundle is public trust material, not a secret. It is
+# the GlobalSign root chain, already present in every browser and OS trust
+# store, and it contains no private key. The API cannot start a TLS connection
+# to Redis without it (see apps/api/src/lib/redisTls.ts), and the Docker build
+# asserts its presence, so it has to travel with the repo.
+!apps/api/certs/redis_ca.pem
 *.secret
 *.private
 
@@ -71,6 +78,9 @@ docs/CORAL_COMMERCE_HOSTED_CHECKOUT_JSON.md
 
 # Private NRMS product and commercial roadmap
 docs/NOLSAF_ROOMS_MANAGEMENT_SYSTEM.md
+
+# Private Trust & Verification implementation specification
+docs/TRUST_AND_VERIFICATION_IMPLEMENTATION_PRIVATE.md
 
 # AWS scripts (contain RDS endpoints / sensitive params)
 scripts/create-rds-database.ps1

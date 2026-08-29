@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleHelp, Link2, Loader2, LockKeyhole, Plus, Plug, RefreshCw, Save, ShieldCheck, Trash2, Unplug } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleHelp, Link2, Loader2, LockKeyhole, Plus, Plug, RefreshCw, Save, ShieldCheck, Trash2, Unplug } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 import CalendarFeeds from "./CalendarFeeds";
 
@@ -60,6 +61,7 @@ function statusMeta(status: string, held = false) {
 
 export default function NrmsChannelsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
+  const searchParams = useSearchParams();
   const [providerCode, setProviderCode] = useState<ProviderCode>("EXPEDIA");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [bookingPaused, setBookingPaused] = useState(true);
@@ -89,6 +91,15 @@ export default function NrmsChannelsPage() {
   const mappedRoomCount = useMemo(() => roomTypes.filter((room) => roomExternalIds[room.id]?.trim()).length, [roomExternalIds, roomTypes]);
   const connectedChannelCount = channels.filter((item) => item.status === "ACTIVE" || item.status === "PILOT").length;
   const baseUrl = selectedPropertyId ? `/api/owner/nrms/channels/${selectedPropertyId}/${config.slug}` : "";
+
+  useEffect(() => {
+    const requested = searchParams.get("provider");
+    if (requested === "EXPEDIA" || requested === "BOOKING_COM" || requested === "AIRBNB") {
+      setProviderCode(requested);
+      setError(null);
+      setNotice(null);
+    }
+  }, [searchParams]);
 
   const applyProviderState = useCallback((nextChannels: Channel[], nextRooms: RoomType[], code: ProviderCode) => {
     const nextChannel = nextChannels.find((item) => item.provider?.code === code) ?? null;
@@ -176,63 +187,9 @@ export default function NrmsChannelsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5 pb-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div><p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS integrations</p><h1 className="m-0 text-2xl font-bold tracking-tight text-neutral-950">OTA channels</h1><p className="mb-0 mt-1 max-w-2xl text-sm text-neutral-500">One inventory truth, provider-specific credentials and mappings, and visible delivery evidence.</p></div>
-        <button type="button" onClick={() => void load()} disabled={loading || action !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm hover:bg-neutral-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button>
+        <div><p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS integrations</p><h1 className="m-0 text-2xl font-bold tracking-tight text-neutral-950">OTA channels</h1><p className="mb-0 mt-1 max-w-2xl text-sm text-neutral-500">Choose a provider from the sidebar to manage its credentials, mappings and delivery evidence.</p></div>
+        <div className="flex items-center gap-3"><span className="rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-500 shadow-sm"><strong className="text-neutral-900">{connectedChannelCount}</strong> of 3 connected</span><button type="button" onClick={() => void load()} disabled={loading || action !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm hover:bg-neutral-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button></div>
       </header>
-
-      <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
-          <div>
-            <h2 className="m-0 text-sm font-bold text-neutral-950">Channel connections</h2>
-            <p className="mb-0 mt-0.5 text-xs text-neutral-500">Select a provider to manage its connection, mappings and synchronization.</p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <div className="flex gap-1" aria-hidden="true">
-              {[0, 1, 2].map((slot) => <span key={slot} className={`h-1.5 w-6 rounded-full transition-colors ${slot < connectedChannelCount ? "bg-emerald-500" : "bg-neutral-200"}`} />)}
-            </div>
-            <p className="m-0 text-xs font-semibold text-neutral-500"><span className="text-neutral-900">{connectedChannelCount}</span> of 3 connected</p>
-          </div>
-        </div>
-        <nav className="grid gap-3 border-t border-neutral-200 bg-neutral-50/60 p-4 sm:grid-cols-2 lg:grid-cols-3 sm:p-5" aria-label="OTA providers" role="tablist">
-          {(["EXPEDIA", "BOOKING_COM", "AIRBNB"] as ProviderCode[]).map((code) => {
-            const provider = PROVIDERS[code];
-            const connection = channels.find((item) => item.provider?.code === code);
-            const providerHeld = code === "BOOKING_COM" && bookingPaused && !connection;
-            const state = statusMeta(connection?.status ?? "NOT_CONNECTED", providerHeld);
-            const selected = providerCode === code;
-            const metaLine = providerHeld
-              ? "Retained for reopening"
-              : connection?.status === "ERROR"
-                ? CALENDAR_PROVIDERS.has(code) ? "Calendar needs attention" : "Delivery needs attention"
-                : connection && connection.lastSuccessAt
-                  ? `Synced ${formatDate(connection.lastSuccessAt)}`
-                  : CALENDAR_PROVIDERS.has(code) ? "Connect by calendar link" : "Not linked yet";
-            return <button
-              key={code}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => { setProviderCode(code); setError(null); setNotice(null); }}
-              className={`group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all ${selected ? "border-neutral-900 shadow-md ring-1 ring-neutral-900" : "border-neutral-200 shadow-sm hover:border-neutral-300 hover:shadow-md"}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white shadow-sm ${provider.color}`}><Link2 className="h-5 w-5" /></span>
-                  <div className="min-w-0">
-                    <p className="m-0 truncate text-sm font-bold text-neutral-950">{provider.name}</p>
-                    <p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{provider.subtitle}</p>
-                  </div>
-                </div>
-                <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${state.className}`}><span className={`h-1.5 w-1.5 rounded-full ${state.dotClass}`} />{state.label}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2 border-t border-neutral-100 pt-2.5">
-                <span className="min-w-0 truncate text-[11px] text-neutral-500">{metaLine}</span>
-                <span className={`inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold transition-colors ${selected ? "text-neutral-900" : "text-neutral-400 group-hover:text-neutral-700"}`}>Manage<ChevronRight className="h-3.5 w-3.5" /></span>
-              </div>
-            </button>;
-          })}
-        </nav>
-      </section>
 
       {error && <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
       {notice && <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</div>}

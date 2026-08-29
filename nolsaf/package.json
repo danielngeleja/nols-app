@@ -28,6 +28,7 @@
     "dev:npm": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
     "build": "npm run --workspaces --if-present build",
     "lint": "npm run --workspaces --if-present lint",
+    "pretypecheck": "npm run --workspace=@nolsaf/shared build",
     "typecheck": "npm run --workspaces --if-present typecheck",
     "bootstrap:admin": "npm --workspace=@nolsaf/api run bootstrap:admin --",
     "bootstrap:admin:staging": "npm --workspace=@nolsaf/api run bootstrap:admin:staging",
@@ -39,6 +40,7 @@
     "prisma:migrate:staging": "node scripts/prisma-migrate-staging.mjs",
     "prisma:migrate:staging:status": "node scripts/prisma-migrate-staging.mjs --status-only",
     "prisma:migrate:staging:cleanup": "node scripts/prisma-migrate-staging.mjs --cleanup-failed-baseline-artifacts --status-only",
+    "prisma:migrate:case-recovery": "node scripts/prisma-migrate-case-recovery.mjs",
     "migrations:checksums": "node scripts/check-migration-integrity.mjs",
     "migrations:checksums:update": "node scripts/check-migration-integrity.mjs --write",
     "migrations:coverage": "node scripts/audit-schema-migration-coverage.mjs",
@@ -69,6 +71,7 @@
         "axios": "1.16.0",
         "lodash": "4.18.1"
       },
+      "deepmerge-ts": "^8.0.2",
       "diff": "4.0.4",
       "hono": "^4.12.25",
       "@hono/node-server": "2.0.12",
@@ -101,6 +104,7 @@
       "axios": "1.16.0",
       "lodash": "4.18.1"
     },
+    "deepmerge-ts": "^8.0.2",
     "diff": "4.0.4",
     "hono": "^4.12.25",
     "@hono/node-server": "2.0.12",

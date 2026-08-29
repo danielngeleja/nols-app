@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { BookOpen, BriefcaseBusiness, Building2, Compass, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone, Sparkles } from "lucide-react";
+import { BedDouble, BookOpen, BriefcaseBusiness, Building2, Compass, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone, Sparkles, BadgeCheck } from "lucide-react";
 import FooterBridge from "@/components/FooterBridge";
 
 const APP_VERSION = "v0.1.0";
@@ -373,6 +373,9 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
                     { href: "/about/who", label: "Who are we", icon: Building2 },
                     { href: "/about/what", label: "What we do", icon: Compass },
                     { href: "/about/story", label: "Our Best Story", icon: Sparkles },
+                    // Anti-impersonation: someone checking a suspicious message needs a
+                    // route to the real corporate record from any page on the site.
+                    { href: "/verify", label: "Verify NoLSAF", icon: BadgeCheck },
                   ].map((item) => (
                     <li key={item.href}>
                       <Link
@@ -405,6 +408,7 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
                 <ul className="m-0 grid list-none gap-2 p-0">
                   {[
                     { href: "/help", label: "Help Center", icon: BookOpen },
+                    { href: "/nrms", label: "NRMS for hotels", icon: BedDouble },
                     { href: "/careers", label: "Careers", icon: BriefcaseBusiness },
                   ].map((item) => (
                     <li key={item.href}>

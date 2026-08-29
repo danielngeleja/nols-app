@@ -62,6 +62,8 @@ const allowedFolderPatterns: Array<{ type: "exact"; value: string } | { type: "p
   { type: "prefix", value: "agent-operator/" },
   { type: "exact", value: "agent-documents" },
   { type: "prefix", value: "agent-documents/" },
+  { type: "exact", value: "agent-traveller-documents" },
+  { type: "prefix", value: "agent-traveller-documents/" },
   { type: "exact", value: "owner-documents" },
   { type: "exact", value: "driver-documents" },
   { type: "prefix", value: "driver-documents/" },
@@ -85,7 +87,7 @@ function folderMatches(folder: string, base: string): boolean {
 }
 
 export function maxCloudinaryUploadBytesForFolder(folder: string): number | null {
-  if (folderMatches(folder, "uploads")) return MAX_TRAVELLER_DOCUMENT_BYTES;
+  if (folderMatches(folder, "uploads") || folderMatches(folder, "agent-traveller-documents")) return MAX_TRAVELLER_DOCUMENT_BYTES;
   if (folderMatches(folder, "nrms-menu")) return MAX_NRMS_MENU_PHOTO_BYTES;
   return null;
 }
@@ -124,7 +126,7 @@ function isFolderAllowedForRole(req: any, folder: string): boolean {
   const role = String(req.user?.role || "").toUpperCase();
   if (role === "ADMIN") return true;
   if (folder === "uploads" || folder === "avatars") return true;
-  if (role === "AGENT") return folderMatches(folder, "agent-operator") || folderMatches(folder, "agent-documents");
+  if (role === "AGENT" || role === "NRMS_AGENT") return folderMatches(folder, "agent-operator") || folderMatches(folder, "agent-documents") || folderMatches(folder, "agent-traveller-documents");
   if (role === "OWNER") return folderMatches(folder, "owner-documents") || folderMatches(folder, "properties") || folderMatches(folder, "nrms-menu");
   if (role === "DRIVER") return folderMatches(folder, "driver-documents");
   return false;
@@ -235,19 +237,21 @@ router.post("/upload", limitUploadPresign as any, parseCloudinaryUpload, async (
   }
 
   try {
-    const uploaded = await new Promise<{ secure_url: string }>((resolve, reject) => {
+    const authenticatedTravellerDocument = folderMatches(folder, "agent-traveller-documents");
+    const uploaded = await new Promise<{ secure_url: string; public_id: string; resource_type: string }>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder,
           overwrite: true,
           resource_type: "auto",
+          ...(authenticatedTravellerDocument ? { type: "authenticated" as const, access_mode: "authenticated" as const } : {}),
         },
         (error, result) => {
-          if (error || !result?.secure_url) {
+          if (error || !result?.secure_url || !result.public_id) {
             reject(error || new Error("cloudinary_upload_failed"));
             return;
           }
-          resolve({ secure_url: result.secure_url });
+          resolve({ secure_url: result.secure_url, public_id: result.public_id, resource_type: result.resource_type || "image" });
         }
       );
 

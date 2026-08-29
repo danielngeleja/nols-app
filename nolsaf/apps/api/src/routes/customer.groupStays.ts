@@ -1015,9 +1015,15 @@ router.post("/:id/deposit/initiate-card", depositPaymentLimiter, async (req, res
     const paymentRef = booking.paymentRef ?? `GBDEP-CARD-${booking.id}-${Date.now()}`;
     const coralCurrency = resolveCoralCurrency(currency);
 
+    // The web deposit page sends client:"web"; the app sends "app". Unknown
+    // defaults to "app" on purpose: shipped app builds predating the flag send an
+    // empty body, and they must keep returning to nolsaf://group-stay-card-return.
+    const client = String((req.body as any)?.client || "") === "web" ? "web" : "app";
+
     const postbackParams = new URLSearchParams({
       kind: "group_stay_deposit",
       groupBookingId: String(booking.id),
+      client,
     });
     const successUrl = `${coralConfig.successUrl}${coralConfig.successUrl.includes("?") ? "&" : "?"}${postbackParams.toString()}`;
     const failureUrl = `${coralConfig.failureUrl}${coralConfig.failureUrl.includes("?") ? "&" : "?"}${postbackParams.toString()}`;
@@ -1110,7 +1116,9 @@ router.post("/:id/deposit/initiate-card", depositPaymentLimiter, async (req, res
           status: "PENDING",
           checkoutUrl: checkoutUrl.slice(0, 2048),
           rawStatus: null,
-          payload: { paymentRef, apiUrl: CORAL_UCF_API_URL },
+          // `client` is read back by the Coral /postback handler so app payers
+          // return to the app even if Coral drops our postback query string.
+          payload: { paymentRef, apiUrl: CORAL_UCF_API_URL, client },
         },
         create: {
           provider: "CORALCOMMERCE",
@@ -1122,7 +1130,9 @@ router.post("/:id/deposit/initiate-card", depositPaymentLimiter, async (req, res
           paymentChannel: "CARD",
           checkoutUrl: checkoutUrl.slice(0, 2048),
           rawStatus: null,
-          payload: { paymentRef, apiUrl: CORAL_UCF_API_URL },
+          // `client` is read back by the Coral /postback handler so app payers
+          // return to the app even if Coral drops our postback query string.
+          payload: { paymentRef, apiUrl: CORAL_UCF_API_URL, client },
         },
       });
     } catch (dbErr: any) {

@@ -17,6 +17,7 @@ import {
   MessagesSquare,
   LayoutDashboard,
   LogOut,
+  Handshake,
   Shield,
   TrendingUp,
   UserRound,
@@ -26,12 +27,35 @@ export default function AgentPortalHeader() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [agentUnreadCount, setAgentUnreadCount] = useState<number>(0);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [accommodationEnabled, setAccommodationEnabled] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       sessionStorage.setItem("navigationContext", "agent");
     }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+    const loadAccommodationCapability = async () => {
+      try {
+        const response = await fetch("/api/agent-portal/profile", {
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (mounted) setAccommodationEnabled(response.ok);
+      } catch (error) {
+        if (mounted && (error as Error).name !== "AbortError") setAccommodationEnabled(false);
+      }
+    };
+    void loadAccommodationCapability();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, []);
 
   const { socket } = useSocket(undefined, { enabled: true, joinDriverRoom: false });
@@ -176,6 +200,17 @@ export default function AgentPortalHeader() {
           </div>
 
           <div className="flex items-center gap-2">
+            {accommodationEnabled ? (
+              <Link
+                href="/agent-portal"
+                aria-label="Accommodation partnerships"
+                title="Accommodation partnerships"
+                className="group inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-3 text-emerald-100 no-underline shadow-card transition hover:border-emerald-300/30 hover:bg-emerald-400/20"
+              >
+                <Handshake className="h-5 w-5 transition-transform group-hover:scale-110" aria-hidden />
+                <span className="hidden text-xs font-bold sm:inline">Hotels</span>
+              </Link>
+            ) : null}
             <Link
               href="/account/agent/notifications"
               aria-label="Notifications"
@@ -244,6 +279,19 @@ export default function AgentPortalHeader() {
                       <span className="flex-1">Assignments</span>
                       <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
                     </Link>
+
+                    {accommodationEnabled ? (
+                      <Link
+                        role="menuitem"
+                        href="/agent-portal"
+                        onClick={() => setProfileMenuOpen(false)}
+                        className={menuItemClass}
+                      >
+                        <Handshake className="h-4 w-4 text-emerald-300 transition-colors group-hover:text-emerald-200" aria-hidden />
+                        <span className="flex-1">Accommodation partnerships</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-white/40 transition-colors group-hover:text-brand" aria-hidden />
+                      </Link>
+                    ) : null}
 
                     <div className="my-2 mx-4 h-px bg-white/10" />
 

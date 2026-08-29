@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, ArrowLeft, BedDouble, Building2, CalendarClock, CheckCircle2, ClipboardList, Loader2, MapPin, QrCode, Search, ShieldAlert, Store, UsersRound, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BedDouble, Building2, CalendarClock, CheckCircle2, ClipboardList, FileText, Loader2, MapPin, QrCode, Search, ShieldAlert, Store, UsersRound, WalletCards } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader } from "../_components/CommercialUi";
 
 type Detail = {
@@ -16,6 +16,13 @@ type Detail = {
     owner: { id: number; fullName: string | null; name: string | null; email: string | null; phone: string | null };
   };
   enrollment: { id: number; status: string; suspendedAt: string | null } | null;
+  // TRA fiscal receipting. Identity and health only: the API never returns a
+  // credential, and admin can suspend but never operate the registration.
+  fiscal: {
+    mode: string; status: string; tin: string | null; vrn: string | null; businessName: string | null;
+    lastSuccessAt: string | null; lastErrorAt: string | null; lastError: string | null; escalatedAt: string | null;
+    acknowledgedAt: string | null; pending: number;
+  } | null;
   restrictionCases: Array<{ referenceCode: string; scope: string; reason: string; appliedAt: string; notificationEmailSentAt: string | null; notificationEmailError: string | null }>;
   account: { id: number; status: string; freezePreviousStatus: string | null; frozenAt: string | null; frozenReason: string | null; trialStartsAt: string; trialEndsAt: string; unpaidBalance: number; unpaidLimit: number; policy: { version: string; roomNightPrice: number; currency: string } | null } | null;
   staff: Array<{ membershipId: number; role: string; status: string; confirmedAt: string | null; outlet: { name: string; type: string } | null; user: { id: number; name: string; email: string | null } }>;
@@ -176,6 +183,8 @@ export default function AdminNrmsPropertyPage() {
     data.account?.status === "FROZEN" && { label: "Property temporarily frozen", tone: "border-orange-100 bg-orange-50 text-orange-700" },
     data.account?.status === "CLOSED" && { label: "Property permanently closed", tone: "border-red-100 bg-red-50 text-red-700" },
     data.property.qrOrderingFrozenAt && { label: "Guest QR ordering frozen", tone: "border-amber-100 bg-amber-50 text-amber-700" },
+    data.fiscal?.status === "SUSPENDED" && { label: "TRA receipting suspended", tone: "border-amber-100 bg-amber-50 text-amber-700" },
+    data.fiscal?.escalatedAt && data.fiscal.pending > 0 && { label: `${data.fiscal.pending} TRA receipt${data.fiscal.pending === 1 ? "" : "s"} not sent`, tone: "border-red-100 bg-red-50 text-red-700" },
   ].filter(Boolean) as { label: string; tone: string }[];
   const qrGroups = groupOrderPoints(data.orderPoints, qrQuery);
   const qrActiveCount = data.orderPoints.filter((p) => p.active).length;
@@ -277,6 +286,11 @@ export default function AdminNrmsPropertyPage() {
             {data.staff.some((m) => m.status === "PENDING") && (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/invites/invalidate`, "Invalidate pending invites", "Outstanding staff invites for this property stop working.")} className={`${enforceButtonBase} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`}>Invalidate pending invites</button>
             )}
+            {data.fiscal && (data.fiscal.status === "SUSPENDED" ? (
+              <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/fiscal/restore`, "Restore TRA receipting", "The property resumes issuing fiscal receipts when its next business day opens.")} className={`${enforceButtonBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}>Restore TRA receipting</button>
+            ) : (
+              <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/fiscal/suspend`, "Suspend TRA receipting", "Stops this property issuing fiscal receipts pending review. Guests can still pay, and receipts already queued are kept.", true)} className={`${enforceButtonBase} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>Suspend TRA receipting</button>
+            ))}
             {data.property.guestPayInstructions.length > 0 && (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/pay-instructions/clear`, "Clear guest payment details", "The payment details are removed from the guest page pending owner correction. Use when the details look fraudulent.", true)} className={`${enforceButtonBase} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}>Clear payment details</button>
             )}
@@ -480,6 +494,25 @@ export default function AdminNrmsPropertyPage() {
         </div>
       </section>
 
+      {data.fiscal && (
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+          <SectionHeader icon={FileText} title="TRA fiscal receipts" subtitle="The property's own registration. NoLSAF is not the taxpayer and holds no approval over it." />
+          <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+            <Fact label="Mode" value={data.fiscal.mode === "ALWAYS" ? "Every payment" : data.fiscal.mode === "ON_REQUEST" ? "On request" : "Off"} />
+            <Fact label="Status" value={data.fiscal.status} />
+            <Fact label="TIN" value={data.fiscal.tin || "Not set"} />
+            <Fact label="VRN" value={data.fiscal.vrn || "Not set"} />
+            <Fact label="Registered name" value={data.fiscal.businessName || "Not set"} />
+            <Fact label="Owner accepted responsibility" value={data.fiscal.acknowledgedAt ? new Date(data.fiscal.acknowledgedAt).toLocaleString() : "Not yet"} />
+            <Fact label="Last sent to TRA" value={data.fiscal.lastSuccessAt ? new Date(data.fiscal.lastSuccessAt).toLocaleString() : "Never"} />
+            <Fact label="Waiting or failed" value={String(data.fiscal.pending)} tone={data.fiscal.pending > 0 ? "warn" : undefined} />
+          </div>
+          {data.fiscal.lastError && (
+            <p className="m-0 border-t border-solid border-neutral-100 px-4 py-3 text-[11px] leading-5 text-red-700 sm:px-5">{data.fiscal.lastError}</p>
+          )}
+        </section>
+      )}
+
       {enforce && (
         <div className="fixed inset-0 z-[10000] flex items-start justify-center overflow-y-auto px-4 pb-4 pt-20 sm:pt-24">
           <button type="button" aria-label="Close enforcement dialog" className="fixed inset-0 border-0 bg-neutral-950/60 backdrop-blur-md" onClick={() => !enforcing && setEnforce(null)} />
@@ -508,6 +541,16 @@ export default function AdminNrmsPropertyPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Read-only label/value pair for the fiscal registration facts. */
+function Fact({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2">
+      <p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{label}</p>
+      <p className={`mb-0 mt-0.5 truncate text-xs font-bold ${tone === "warn" ? "text-amber-700" : "text-neutral-800"}`}>{value}</p>
     </div>
   );
 }

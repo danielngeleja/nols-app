@@ -63,6 +63,9 @@ export default function SiteFooter({ withRail = true, topSeparator = true }: { w
             <li><a role="button" onClick={() => window.dispatchEvent(new CustomEvent('open-legal', { detail: { type: 'privacy' } }))} className="text-[#02665e] font-semibold no-underline hover:no-underline">Privacy Policy</a></li>
             <li><Link href="/cookies-policy" className="text-[#02665e] font-semibold no-underline hover:no-underline">Cookies Policy</Link></li>
             <li><Link href="/verification-policy" className="text-[#02665e] font-semibold no-underline hover:no-underline">Verification Policy</Link></li>
+            {/* The corporate identity page, distinct from the verification policy:
+                this is where someone confirms NoLSAF itself is genuine. */}
+            <li><Link href="/verify" className="text-[#02665e] font-semibold no-underline hover:no-underline">Verify NoLSAF</Link></li>
             <li><Link href="/cancellation-policy" className="text-[#02665e] font-semibold no-underline hover:no-underline">Cancellation Policy</Link></li>
             {userRole === 'DRIVER' ? (
               <li><Link href="/driver-disbursement-policy" className="text-[#02665e] font-semibold no-underline hover:no-underline">Disbursement Policy</Link></li>

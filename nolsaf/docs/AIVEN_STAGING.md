@@ -1,5 +1,9 @@
 # Aiven MySQL Staging Setup
 
+This runbook implements the staging phase of
+[`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md). It does not
+authorize production access or replace clone qualification.
+
 Use Aiven MySQL as the isolated staging database for the Render staging API.
 
 ## Database URL
@@ -36,7 +40,10 @@ Use the guarded staging migration command from the `nolsaf/` repository root. It
 loads `apps/api/.env.staging`, verifies that the target is Aiven staging, repairs
 the repository's known legacy migration-name aliases when their checksums and
 database structures match, recovers the known idempotent NRMS staff-invite
-migration failures, and then runs `prisma migrate deploy`:
+migration failures, recovers the known exact-case `User`/`user` registration
+lifecycle failure only after verifying its columns, indexes, and data backfill,
+and reconciles the related property-share and trust-table foreign keys against
+their lowercase physical tables before running `prisma migrate deploy`:
 
 ```powershell
 npm run prisma:migrate:staging
@@ -65,7 +72,9 @@ shared environment; Prisma treats the directory name as an immutable ID.
 Do not run raw `prisma migrate dev` against Aiven staging. Use the guarded
 commands above so the host allowlist and verified recovery rules are enforced.
 
-On Render, keep the pre-deploy command as `npm run prisma:migrate`. The guarded
+On the Render **staging** service only, keep the pre-deploy command as
+`npm run prisma:migrate`. This exception is scoped to the isolated Aiven staging
+URL configured by Render; it is not a production operator command. The guarded
 repair is a one-time local staging operation; normal releases use standard
 `migrate deploy` after the history is reconciled.
 

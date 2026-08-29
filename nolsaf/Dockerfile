@@ -41,7 +41,8 @@ RUN set -eu; \
 	npm run --workspace=@nolsaf/shared build; \
 	npm run --workspace=@nolsaf/prisma build; \
 	npm run --workspace=@nolsaf/api build; \
-	test -f "$ROOT/apps/api/dist/src/index.js"
+	test -f "$ROOT/apps/api/dist/src/index.js"; \
+	test -f "$ROOT/apps/api/certs/redis_ca.pem"
 
 ENV NODE_ENV=production
 

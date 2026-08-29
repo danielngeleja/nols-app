@@ -5,9 +5,11 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth, requireRole, blockImpersonated } from "../middleware/auth.js";
 import { requireFinanceGrant, requireNrmsFinanceApprover } from "../middleware/financeGrant.js";
-import { notifyOwner } from "../lib/notifications.js";
+import { notifyOwner, notifyUser } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
+import { decideAgentVerification } from "../lib/nrmsAgentIdentity.js";
+import { SEAT_CONSUMING_LINK_STATUSES, setAgentLinkStatus } from "../lib/nrmsAgentLinks.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
@@ -74,6 +76,337 @@ async function loadAccount(res: Response, propertyId: number) {
 async function audit(adminId: number, action: string, targetUserId: number | null, details: Record<string, unknown>) {
   await db.adminAudit.create({ data: { adminId, targetUserId, action, details } });
 }
+
+const agentVerificationSchema = z.object({
+  decision: z.enum(["VERIFIED", "REJECTED"]),
+  note: z.string().trim().max(500).transform(sanitizeText).optional(),
+}).superRefine((value, ctx) => {
+  if (value.decision === "REJECTED" && (!value.note || value.note.length < 5)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["note"], message: "A rejection reason of at least 5 characters is required" });
+  }
+});
+
+const partnershipStatus = z.enum(["INVITED", "REQUESTED", "AGENT_ACCEPTED", "ACTIVE", "SUSPENDED", "REJECTED", "TERMINATED"]);
+
+function isPendingPartnershipLifecycleMigration(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase();
+  return error?.code === "P2022" || (message.includes("unknown column") && ["initiatedby", "consentstatus", "terminatedat", "suspendedat", "suspensionauthority"].some((column) => message.includes(column)));
+}
+
+// Portfolio-wide relationship visibility. This returns commercial readiness and
+// central verification attestations, not raw KYC documents, credentials, rates,
+// inventory or guest data. Read access is ADMIN-only through the router guard.
+router.get("/partnerships", (async (req, res) => {
+  const parsed = z.object({
+    status: partnershipStatus.or(z.literal("ALL")).default("ALL"),
+    propertyId: z.coerce.number().int().positive().optional(),
+    query: z.string().trim().max(120).optional(),
+    page: z.coerce.number().int().min(1).max(10000).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(40),
+  }).safeParse(req.query);
+  if (fail(res, parsed)) return;
+  const { status, propertyId, query, page, limit } = parsed.data!;
+  const where = {
+    ...(status === "ALL" ? {} : { status }),
+    ...(propertyId ? { propertyId } : {}),
+    ...(query ? { OR: [
+      { property: { title: { contains: query } } },
+      { agentAccount: { legalName: { contains: query } } },
+      { agentAccount: { tradingName: { contains: query } } },
+      { agentAccount: { registrationNo: { contains: query } } },
+    ] } : {}),
+  };
+
+  const sharedSelect = {
+    id: true, status: true, currency: true, paymentTerms: true, bookingMode: true,
+    createdAt: true, updatedAt: true,
+    property: { select: { id: true, title: true, regionName: true, status: true, nrmsActivatedAt: true, ownerId: true } },
+    agentAccount: { select: { id: true, legalName: true, tradingName: true, status: true, verificationStatus: true, countryCode: true, primaryUserId: true } },
+    _count: { select: { rateAccess: true, bookingRequests: true, reservations: true } },
+  };
+  let lifecycleReady = true;
+  let links: any[];
+  let total: number;
+  let statusCounts: any[];
+  try {
+    [links, total, statusCounts] = await Promise.all([
+      db.nrmsAgentPropertyLink.findMany({
+        where,
+        select: {
+          ...sharedSelect,
+          initiatedBy: true, requestedAt: true,
+          hotelConsentStatus: true, hotelConsentedAt: true,
+          agentConsentStatus: true, agentConsentedAt: true,
+          activatedAt: true, suspendedAt: true, suspensionAuthority: true, terminatedAt: true,
+          decisionReason: true, terminationReason: true,
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      db.nrmsAgentPropertyLink.count({ where }),
+      db.nrmsAgentPropertyLink.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    ]);
+  } catch (error: any) {
+    if (!isPendingPartnershipLifecycleMigration(error)) throw error;
+    lifecycleReady = false;
+    [links, total, statusCounts] = await Promise.all([
+      db.nrmsAgentPropertyLink.findMany({ where, select: sharedSelect, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit }),
+      db.nrmsAgentPropertyLink.count({ where }),
+      db.nrmsAgentPropertyLink.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    ]);
+    links = links.map((link: any) => ({
+      ...link,
+      initiatedBy: "HOTEL",
+      requestedAt: link.createdAt,
+      hotelConsentStatus: "ACCEPTED",
+      hotelConsentedAt: link.createdAt,
+      agentConsentStatus: ["AGENT_ACCEPTED", "ACTIVE", "SUSPENDED"].includes(link.status) ? "ACCEPTED" : "PENDING",
+      agentConsentedAt: null,
+      activatedAt: link.status === "ACTIVE" ? link.createdAt : null,
+      suspendedAt: null,
+      suspensionAuthority: null,
+      terminatedAt: null,
+      decisionReason: null,
+      terminationReason: null,
+    }));
+  }
+
+  const propertyIds = [...new Set(links.map((link: any) => link.propertyId ?? link.property?.id).filter(Boolean))];
+  const [accounts, seatGroups] = propertyIds.length ? await Promise.all([
+    db.ownerPaygAccount.findMany({ where: { propertyId: { in: propertyIds } }, select: { propertyId: true, status: true, maxAgents: true } }),
+    db.nrmsAgentPropertyLink.groupBy({ by: ["propertyId"], where: { propertyId: { in: propertyIds }, status: { in: [...SEAT_CONSUMING_LINK_STATUSES] } }, _count: { _all: true } }),
+  ]) : [[], []];
+  const accountByProperty = new Map<number, { status: string; maxAgents: number }>(accounts.map((account: any) => [account.propertyId, account] as const));
+  const seatsByProperty = new Map<number, number>(seatGroups.map((row: any) => [row.propertyId, Number(row._count._all)] as const));
+
+  res.json({
+    partnerships: links.map((link: any) => ({
+      ...link,
+      property: {
+        ...link.property,
+        region: link.property.regionName,
+        regionName: undefined,
+        billingStatus: accountByProperty.get(link.property.id)?.status ?? null,
+        maxAgents: accountByProperty.get(link.property.id)?.maxAgents ?? 0,
+        seatsInUse: seatsByProperty.get(link.property.id) ?? 0,
+      },
+    })),
+    summary: Object.fromEntries(statusCounts.map((row: any) => [row.status, row._count._all])),
+    lifecycleReady,
+    pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+  });
+}) as RequestHandler);
+
+const partnershipSuspendSchema = z.object({ reason });
+
+// Central emergency/compliance suspension. It deliberately reuses the same
+// transition policy as the hotel workspace and cannot activate or terminate a
+// relationship. Finance-approver role plus OTP prevents casual Admin mutation.
+router.post("/partnerships/:linkId/suspend", requireNrmsFinanceApprover as RequestHandler, requireFinanceGrant as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  const linkId = Number(req.params.linkId);
+  if (!Number.isInteger(linkId) || linkId <= 0) return res.status(400).json({ error: "Invalid partnership id" });
+  const parsed = partnershipSuspendSchema.safeParse(req.body);
+  if (fail(res, parsed)) return;
+
+  const link = await db.nrmsAgentPropertyLink.findUnique({
+    where: { id: linkId },
+    select: {
+      id: true, propertyId: true, status: true, suspendedAt: true,
+      property: { select: { title: true, ownerId: true } },
+      agentAccount: { select: { legalName: true, primaryUserId: true } },
+    },
+  });
+  if (!link) return res.status(404).json({ error: "Partnership not found" });
+  if (link.status === "SUSPENDED") return res.json({ partnership: { id: linkId, status: "SUSPENDED", suspendedAt: link.suspendedAt }, unchanged: true });
+
+  const outcome = await db.$transaction(async (tx: any) => {
+    const transition = await setAgentLinkStatus(tx, {
+      linkId,
+      propertyId: link.propertyId,
+      status: "SUSPENDED",
+      decidedByUserId: req.user!.id,
+      reason: parsed.data!.reason,
+      suspensionAuthority: "ADMIN",
+    });
+    if (!transition.ok) return transition;
+    if (transition.changed) {
+      await tx.adminAudit.create({ data: {
+        adminId: req.user!.id,
+        targetUserId: link.agentAccount.primaryUserId,
+        action: "NRMS_PARTNERSHIP_SUSPEND",
+        details: { linkId, propertyId: link.propertyId, before: link.status, after: "SUSPENDED", reason: parsed.data!.reason },
+      } });
+    }
+    return transition;
+  });
+  if (!outcome.ok) return res.status(outcome.reason === "NOT_FOUND" ? 404 : 409).json({ error: outcome.message, code: outcome.reason });
+  if (!outcome.changed) return res.json({ partnership: { id: linkId, status: "SUSPENDED", suspendedAt: link.suspendedAt }, unchanged: true });
+
+  await Promise.all([
+    notifyOwner(link.property.ownerId, "nrms_partnership_suspended", { linkId, propertyTitle: link.property.title, agencyName: link.agentAccount.legalName, reason: parsed.data!.reason }),
+    notifyUser(link.agentAccount.primaryUserId, "nrms_partnership_suspended", { linkId, propertyTitle: link.property.title, agencyName: link.agentAccount.legalName, reason: parsed.data!.reason }),
+  ]);
+  res.json({ partnership: { id: linkId, status: "SUSPENDED", suspendedAt: new Date().toISOString() } });
+}) as RequestHandler);
+
+// Only the same guarded central authority may clear a compliance suspension.
+// The ordinary hotel approval endpoint is deliberately unable to override it.
+router.post("/partnerships/:linkId/resume", requireNrmsFinanceApprover as RequestHandler, requireFinanceGrant as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  const linkId = Number(req.params.linkId);
+  if (!Number.isInteger(linkId) || linkId <= 0) return res.status(400).json({ error: "Invalid partnership id" });
+  const parsed = partnershipSuspendSchema.safeParse(req.body);
+  if (fail(res, parsed)) return;
+
+  const link = await db.nrmsAgentPropertyLink.findUnique({
+    where: { id: linkId },
+    select: {
+      id: true, propertyId: true, status: true, suspensionAuthority: true,
+      property: { select: { title: true, ownerId: true } },
+      agentAccount: { select: { legalName: true, primaryUserId: true } },
+    },
+  });
+  if (!link) return res.status(404).json({ error: "Partnership not found" });
+  if (link.status !== "SUSPENDED" || link.suspensionAuthority !== "ADMIN") {
+    return res.status(409).json({ error: "Only a central NoLSAF suspension can be resumed here", code: "ADMIN_SUSPENSION_NOT_ACTIVE" });
+  }
+
+  const outcome = await db.$transaction(async (tx: any) => {
+    const transition = await setAgentLinkStatus(tx, {
+      linkId,
+      propertyId: link.propertyId,
+      status: "ACTIVE",
+      decidedByUserId: req.user!.id,
+      reason: parsed.data!.reason,
+      allowAdminSuspensionOverride: true,
+    });
+    if (!transition.ok) return transition;
+    if (transition.changed) {
+      await tx.adminAudit.create({ data: {
+        adminId: req.user!.id,
+        targetUserId: link.agentAccount.primaryUserId,
+        action: "NRMS_PARTNERSHIP_RESUME",
+        details: { linkId, propertyId: link.propertyId, before: "SUSPENDED", after: "ACTIVE", reason: parsed.data!.reason },
+      } });
+    }
+    return transition;
+  });
+  if (!outcome.ok) return res.status(outcome.reason === "NOT_FOUND" ? 404 : 409).json({ error: outcome.message, code: outcome.reason });
+  if (!outcome.changed) return res.status(409).json({ error: "The partnership changed before it could be resumed", code: "INVALID_TRANSITION" });
+
+  await Promise.all([
+    notifyOwner(link.property.ownerId, "nrms_partnership_activated", { linkId, propertyTitle: link.property.title, agencyName: link.agentAccount.legalName, reason: parsed.data!.reason, transition: "ACTIVE" }),
+    notifyUser(link.agentAccount.primaryUserId, "nrms_partnership_activated", { linkId, propertyTitle: link.property.title, agencyName: link.agentAccount.legalName, reason: parsed.data!.reason, transition: "ACTIVE" }),
+  ]);
+  res.json({ partnership: { id: linkId, status: "ACTIVE", suspensionAuthority: null } });
+}) as RequestHandler);
+
+// Central agency identity queue. This intentionally lives under the ADMIN-only
+// router: hotel owners receive only the verification attestation, never the raw
+// KYC document URLs or full government identifiers returned here.
+router.get("/agents", (async (req, res) => {
+  const parsed = z.object({
+    status: z.enum(["PENDING", "VERIFIED", "REJECTED", "ALL"]).default("PENDING"),
+    query: z.string().trim().max(120).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  }).safeParse(req.query);
+  if (fail(res, parsed)) return;
+  const { status, query, limit } = parsed.data!;
+  const agencies = await db.nrmsAgentAccount.findMany({
+    where: {
+      ...(status === "ALL" ? {} : { verificationStatus: status }),
+      ...(query ? { OR: [
+        { legalName: { contains: query } },
+        { tradingName: { contains: query } },
+        { registrationNo: { contains: query } },
+        { tin: { contains: query } },
+        { contactEmail: { contains: query } },
+      ] } : {}),
+    },
+    select: {
+      id: true, legalName: true, tradingName: true, registrationNo: true, tin: true, licenseNo: true,
+      contactName: true, contactEmail: true, contactPhone: true, address: true, countryCode: true,
+      nationality: true, documents: true, status: true, verificationStatus: true, verificationNote: true,
+      verifiedAt: true, verifiedByAdminId: true, createdAt: true, updatedAt: true,
+      primaryUser: { select: { id: true, email: true, fullName: true } },
+      _count: { select: { propertyLinks: true } },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: limit,
+  });
+  res.json({ agencies });
+}) as RequestHandler);
+
+router.post("/agents/:accountId/verification", (async (req: AuthedRequest, res: Response) => {
+  const accountId = Number(req.params.accountId);
+  if (!Number.isInteger(accountId) || accountId <= 0) return res.status(400).json({ error: "Invalid agency id" });
+  const parsed = agentVerificationSchema.safeParse(req.body);
+  if (fail(res, parsed)) return;
+
+  const outcome = await db.$transaction(async (tx: any) => {
+    if (parsed.data!.decision === "VERIFIED") {
+      const evidence = await tx.nrmsAgentAccount.findUnique({ where: { id: accountId }, select: { documents: true, registrationNo: true, tin: true, licenseNo: true } });
+      const documents = Array.isArray(evidence?.documents) ? evidence.documents : [];
+      if (!evidence || documents.length === 0 || ![evidence.registrationNo, evidence.tin, evidence.licenseNo].some(Boolean)) {
+        return { result: { ok: false as const, reason: "EVIDENCE_REQUIRED" as const, message: "Verification requires at least one KYC document and one registration, tax, or licence identifier." }, suspendedLinks: [] };
+      }
+    }
+    const result = await decideAgentVerification(tx, {
+      accountId,
+      adminId: req.user!.id,
+      decision: parsed.data!.decision,
+      note: parsed.data!.note || null,
+    });
+    let suspendedLinks: any[] = [];
+    if (result.ok && parsed.data!.decision === "REJECTED") {
+      suspendedLinks = await tx.nrmsAgentPropertyLink.findMany({
+        where: { agentAccountId: accountId, status: "ACTIVE" },
+        select: {
+          id: true,
+          propertyId: true,
+          property: { select: { title: true, ownerId: true } },
+          agentAccount: { select: { primaryUserId: true, legalName: true } },
+        },
+      });
+      await tx.nrmsAgentPropertyLink.updateMany({
+        where: { agentAccountId: accountId, status: "ACTIVE" },
+        data: { status: "SUSPENDED", suspendedAt: new Date(), suspensionAuthority: "ADMIN", decidedByUserId: req.user!.id, decidedAt: new Date(), decisionReason: "Central agency verification rejected" },
+      });
+      for (const link of suspendedLinks) {
+        await tx.adminAudit.create({ data: {
+          adminId: req.user!.id,
+          targetUserId: link.agentAccount.primaryUserId,
+          action: "NRMS_PARTNERSHIP_SUSPEND_VERIFICATION",
+          details: { linkId: link.id, propertyId: link.propertyId, before: "ACTIVE", after: "SUSPENDED", reason: "Central agency verification rejected" },
+        } });
+      }
+    }
+    return { result, suspendedLinks };
+  });
+  if (!outcome.result.ok) {
+    return res.status(outcome.result.reason === "NOT_FOUND" ? 404 : 409).json({ error: outcome.result.message, code: outcome.result.reason });
+  }
+
+  const agency = await db.nrmsAgentAccount.findUnique({
+    where: { id: accountId },
+    select: { id: true, legalName: true, primaryUserId: true, verificationStatus: true, verifiedAt: true, verificationNote: true },
+  });
+  if (agency) {
+    await notifyUser(agency.primaryUserId, "nrms_agent_verification_decided", {
+      legalName: agency.legalName,
+      decision: agency.verificationStatus,
+      note: agency.verificationNote,
+    });
+    await Promise.all(outcome.suspendedLinks.map((link: any) => notifyOwner(link.property.ownerId, "nrms_partnership_suspended", {
+      linkId: link.id,
+      propertyTitle: link.property.title,
+      agencyName: link.agentAccount.legalName,
+      reason: "Central agency verification rejected",
+      transition: "SUSPENDED",
+    })));
+  }
+  res.json({ agency });
+}) as RequestHandler);
 
 router.get("/policies", requireFinanceGrant as RequestHandler, (async (_req, res) => {
   const policies = await db.nrmsUsageChargePolicy.findMany({ orderBy: [{ effectiveFrom: "desc" }, { id: "desc" }] });
@@ -164,6 +497,25 @@ router.post("/property/:propertyId/unpaid-limit", requireNrmsFinanceApprover as 
   await audit(req.user!.id, "NRMS_UNPAID_LIMIT_ADJUST", account.ownerId, { propertyId: account.propertyId, before: Number(account.unpaidLimit), after: parsed.data!.unpaidLimit, reason: parsed.data!.reason });
   await notifyOwner(account.ownerId, "nrms_unpaid_limit_changed", { propertyTitle: account.property.title, unpaidLimit: parsed.data!.unpaidLimit, reason: parsed.data!.reason });
   res.json({ unpaidLimit: parsed.data!.unpaidLimit });
+}) as RequestHandler);
+
+// Raise (or adjust) a property's approved-agent cap. The upsell lever for the
+// Agent B2B channel: a hotel that wants more agents contacts NoLSAF, an admin
+// bumps this. Cannot be lowered below the seats already in use.
+router.post("/property/:propertyId/agent-limit", requireNrmsFinanceApprover as RequestHandler, requireFinanceGrant as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ maxAgents: z.coerce.number().int().min(0).max(1000), reason }).safeParse(req.body);
+  if (fail(res, parsed)) return;
+  const account = await loadAccount(res, Number(req.params.propertyId));
+  if (!account) return;
+  const seatsInUse = await db.nrmsAgentPropertyLink.count({ where: { propertyId: account.propertyId, status: { in: ["INVITED", "REQUESTED", "AGENT_ACCEPTED", "ACTIVE", "SUSPENDED"] } } });
+  if (parsed.data!.maxAgents < seatsInUse) {
+    return res.status(400).json({ error: `The property already has ${seatsInUse} agent(s). Set a limit of at least that many.` });
+  }
+  const before = account.maxAgents;
+  await db.ownerPaygAccount.update({ where: { id: account.id }, data: { maxAgents: parsed.data!.maxAgents } });
+  await audit(req.user!.id, "NRMS_AGENT_LIMIT_ADJUST", account.ownerId, { propertyId: account.propertyId, before, after: parsed.data!.maxAgents, reason: parsed.data!.reason });
+  await notifyOwner(account.ownerId, "nrms_agent_limit_changed", { propertyTitle: account.property.title, maxAgents: parsed.data!.maxAgents, reason: parsed.data!.reason });
+  res.json({ maxAgents: parsed.data!.maxAgents });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/credit", requireNrmsFinanceApprover as RequestHandler, requireFinanceGrant as RequestHandler, (async (req: AuthedRequest, res: Response) => {

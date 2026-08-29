@@ -9,6 +9,20 @@ import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
 import { buildMenuUrl } from "../lib/nrmsOrderPoints.js";
+import { rateLimitWithRedis } from "../lib/redisRateLimitStore.js";
+
+/**
+ * Certificate lookups are signature-gated, so this is about protecting the
+ * database from a scripted replay rather than about guessing: an invalid token
+ * is rejected before any query, a valid one hits a join every time.
+ */
+const limitPropertyCertificate = rateLimitWithRedis({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many requests" },
+});
 
 const router = Router();
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
@@ -1302,7 +1316,7 @@ router.get("/top-cities", topCities);
  * GET /api/public/properties/verification?token=...
  * Public, no-login property verification certificate endpoint.
  */
-router.get("/verification", (async (req, res) => {
+router.get("/verification", limitPropertyCertificate as RequestHandler, (async (req, res) => {
   const token = String(req.query.token || req.query.t || "").trim();
   if (!token) return res.status(400).json({ ok: false, error: "missing_token" });
 

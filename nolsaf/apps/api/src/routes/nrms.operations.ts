@@ -1204,6 +1204,9 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
     : view === "all" ? null : { in: allowedStatuses };
   const limit = Math.min(Math.max(Number(req.query.limit) || (view === "history" ? 12 : 150), 1), 150);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const queryText = String(req.query.q ?? "").trim().slice(0, 120);
+  const fromDate = req.query.from ? new Date(String(req.query.from)) : null;
+  const validFromDate = fromDate && Number.isFinite(fromDate.getTime()) ? fromDate : null;
   // A page asks for only its world so room and table boards never overlap.
   const scope = req.query.scope === "room" ? ROOM_ORDER_FILTER : req.query.scope === "table" ? TABLE_ORDER_FILTER : {};
   const where: any = {
@@ -1213,6 +1216,18 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
     ...(access.role === "RESTAURANT" && !outletId ? { outlet: { type: "RESTAURANT" } } : {}),
     ...(access.role === "BAR" && !outletId ? { outlet: { type: "BAR" } } : {}),
     ...scope,
+    ...(validFromDate ? { createdAt: { gte: validFromDate } } : {}),
+    ...(queryText ? {
+      AND: [{
+        OR: [
+          { orderNumber: { contains: queryText } },
+          { customerLabel: { contains: queryText } },
+          { outlet: { name: { contains: queryText } } },
+          { reservation: { guestProfile: { fullName: { contains: queryText } } } },
+          { items: { some: { nameSnapshot: { contains: queryText } } } },
+        ],
+      }],
+    } : {}),
   };
   const [total, orders] = await Promise.all([db.nrmsOutletOrder.count({ where }), db.nrmsOutletOrder.findMany({
     where,
@@ -1236,13 +1251,21 @@ router.get("/property/:propertyId/orders/live-count", (async (req: AuthedRequest
   const base = { propertyId: access.property.id, ...(access.outletId ? { outletId: access.outletId } : {}), ...outletTypeScope };
   // Split so each nav item shows its own arrivals: room orders badge the Live
   // order queue ("Bar orders"), table orders badge "Tables & tabs".
-  const [openRoom, openTable, placedRoom, placedTable] = await Promise.all([
+  const [openRoom, openTable, placedRoom, placedTable, openRoomByOutlet, placedRoomByOutlet] = await Promise.all([
     db.nrmsOutletOrder.count({ where: { ...base, status: { in: LIVE_ORDER_STATUSES }, ...ROOM_ORDER_FILTER } }),
     db.nrmsOutletOrder.count({ where: { ...base, status: { in: LIVE_ORDER_STATUSES }, ...TABLE_ORDER_FILTER } }),
     db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED", ...ROOM_ORDER_FILTER } }),
     db.nrmsOutletOrder.count({ where: { ...base, status: "PLACED", ...TABLE_ORDER_FILTER } }),
+    db.nrmsOutletOrder.groupBy({ by: ["outletId"], where: { ...base, status: { in: LIVE_ORDER_STATUSES }, ...ROOM_ORDER_FILTER }, _count: { _all: true } }),
+    db.nrmsOutletOrder.groupBy({ by: ["outletId"], where: { ...base, status: "PLACED", ...ROOM_ORDER_FILTER }, _count: { _all: true } }),
   ]);
-  res.json({ openRoom, openTable, placedRoom, placedTable });
+  const placedByOutlet = new Map<number, number>(placedRoomByOutlet.map((row: any) => [Number(row.outletId), Number(row._count?._all ?? 0)]));
+  const byOutlet = openRoomByOutlet.map((row: any) => ({
+    outletId: Number(row.outletId),
+    openRoom: Number(row._count?._all ?? 0),
+    placedRoom: placedByOutlet.get(Number(row.outletId)) ?? 0,
+  }));
+  res.json({ openRoom, openTable, placedRoom, placedTable, byOutlet });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Response) => {

@@ -1,5 +1,9 @@
 # NoLSAF production-stability and AWS release runbook
 
+This runbook implements the authoritative
+[`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md). It cannot be
+used to bypass that policy's environment boundaries or release order.
+
 This runbook is a release gate, not permission to change production. Production
 AWS, RDS, Elastic Beanstalk, Vercel, and production data remain read-only until
 the release owner gives fresh, explicit approval for the exact change.
@@ -77,6 +81,19 @@ The acknowledgement must exactly match the sanitized target fingerprint printed
 by the script. It contains no credentials. A production URL must never be placed
 in any of these variables.
 
+Historical checksum aliases are narrow evidence exceptions, not permission to
+change applied migration history. Each accepted alias must be tied to a specific
+migration name, target environment, and documented evidence. The checker never
+accepts a staging alias for a clone or a clone alias for staging. The three
+production aliases recorded
+on 2026-08-22 came from successful, non-rolled-back rows on an authorized
+restored production-snapshot clone. Data-integrity preflights passed, and the
+only physical difference was seven foreign-key names whose columns, references,
+and referential actions matched the Prisma schema. Retained Elastic Beanstalk
+bundles did not contain the exact applied SQL, so these hashes must be described
+as environment-observed rather than Git-proven. Never update
+`_prisma_migrations` to manufacture agreement.
+
 Functional and data-dependent validation belongs on staging and the restored
 snapshot clone only. Record the snapshot timestamp, migration head, schema diff
 result, test result, and operator in the release ticket.
@@ -90,12 +107,14 @@ These steps require a fresh production-change approval:
 2. Confirm an RDS recovery point and the named recovery operator.
 3. Confirm Redis connectivity and worker topology before enabling traffic.
 4. Put the API in the approved release/maintenance state.
-5. Run `prisma migrate deploy` once from the designated migration runner. Do not
-   run it independently from every auto-scaling instance.
-6. Check migration output and physical schema before restoring normal traffic.
-7. Observe API process restarts, nginx 5xx, Prisma errors, Redis readiness,
+5. Run the exact approved `main` migration artifact once from the designated
+   migration runner, before deploying API code that depends on it. Do not run it
+   independently from every auto-scaling instance.
+6. Check migration output and required physical objects.
+7. Deploy the API/web artifacts from the same approved commit.
+8. Observe API process restarts, nginx 5xx, Prisma errors, Redis readiness,
    worker lease ownership, and worker health.
-8. If a stop condition appears, halt. Do not edit or resolve migration history
+9. If a stop condition appears, halt. Do not edit or resolve migration history
    opportunistically. Diagnose on a clone and create another forward migration.
 
 ## Redis and worker topology

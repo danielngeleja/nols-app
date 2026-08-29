@@ -554,3 +554,47 @@ export function getOperatorProfileRejectedEmail(data: {
     html: careersEmail("📝", "Profile Needs Updates", "Operator Profile Review", body, data.contactEmail || "partners@nolsaf.com"),
   };
 }
+
+// ─── NRMS Agent B2B — one-time invite to set a password ───────────────────────
+const escapeNrmsAgentEmailText = (value: unknown) => String(value ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+export function getNrmsAgentInviteEmail(inviteUrl: string, agencyName: string) {
+  const safeAgencyName = escapeNrmsAgentEmailText(agencyName);
+  const safeInviteUrl = escapeNrmsAgentEmailText(inviteUrl);
+  const body = `
+    <p style="margin:0 0 14px;color:${TEXT_MAIN};font-size:15px;">Hello ${safeAgencyName},</p>
+    <p style="margin:0 0 14px;color:${TEXT_MAIN};font-size:15px;">You have been invited to book rooms on NoLSAF as an approved travel agent. Set your password to activate your agent account and start searching live availability at your negotiated rates.</p>
+    ${proDivider()}
+    ${proButton(safeInviteUrl, "Set your password", BRAND_TEAL)}
+    <p style="margin:14px 0 0;font-size:13px;color:${TEXT_MUTED};">This invite link is valid for 7 days and can be used once. If the button does not work, copy and paste this link into your browser:<br><a href="${safeInviteUrl}" style="color:${BRAND_TEAL};word-break:break-all;text-decoration:none;">${safeInviteUrl}</a></p>
+    ${proDivider()}
+    ${proNoteCard(BRAND_TEAL, "Did not expect this", "If you were not expecting to become a NoLSAF travel agent, you can safely ignore this email. No account is activated until you set a password.")}
+    ${proDivider()}
+    <p style="margin:0;color:${TEXT_MUTED};font-size:14px;">Need help? Contact us at <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">support@nolsaf.com</a>.</p>
+    <p style="margin:18px 0 0;color:${TEXT_MAIN};">Warm regards,<br><strong>The NoLSAF Team</strong></p>
+  `;
+  return { subject: "Your NoLSAF travel-agent invitation", html: proEmail("Activate your agent account", body) };
+}
+
+// ─── NRMS Agent B2B — request-to-book declined ────────────────────────────────
+export function getNrmsAgentRequestDeclinedEmail(agencyName: string, propertyTitle: string, checkIn: string, checkOut: string, reason: string | null, portalUrl: string) {
+  const safeAgencyName = escapeNrmsAgentEmailText(agencyName);
+  const safePropertyTitle = escapeNrmsAgentEmailText(propertyTitle);
+  const safeCheckIn = escapeNrmsAgentEmailText(checkIn);
+  const safeCheckOut = escapeNrmsAgentEmailText(checkOut);
+  const safeReason = reason ? escapeNrmsAgentEmailText(reason) : null;
+  const safePortalUrl = escapeNrmsAgentEmailText(portalUrl);
+  const body = `
+    <p style="margin:0 0 14px;color:${TEXT_MAIN};font-size:15px;">Hello ${safeAgencyName},</p>
+    <p style="margin:0 0 14px;color:${TEXT_MAIN};font-size:15px;">Unfortunately <strong>${safePropertyTitle}</strong> could not confirm your request to book for ${safeCheckIn} to ${safeCheckOut}. The rooms have been released, and you have not been charged.</p>
+    ${safeReason ? `${proNoteCard(BRAND_TEAL, "Reason from the hotel", safeReason)}` : ""}
+    ${proDivider()}
+    ${proButton(safePortalUrl, "Search other dates", BRAND_TEAL)}
+    <p style="margin:14px 0 0;color:${TEXT_MUTED};font-size:14px;">You can try different dates or another approved hotel from your portal. Need help? Contact <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">support@nolsaf.com</a>.</p>
+    <p style="margin:18px 0 0;color:${TEXT_MAIN};">Warm regards,<br><strong>The NoLSAF Team</strong></p>
+  `;
+  const subjectProperty = String(propertyTitle ?? "the hotel").replace(/[\r\n]+/g, " ").slice(0, 160);
+  return { subject: `Your booking request for ${subjectProperty} was declined`, html: proEmail("Booking request declined", body) };
+}

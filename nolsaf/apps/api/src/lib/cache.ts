@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 import { createHash } from "node:crypto";
 import { requireTenantId } from "./tenantIsolation.js";
+import { getRedisTlsOptions } from "./redisTls.js";
 
 const enabled = String(process.env.REPORTS_CACHE_ENABLED).toLowerCase() === "true";
 const ttl = Number(process.env.REPORTS_CACHE_TTL_SECONDS ?? 600);
@@ -8,7 +9,10 @@ const ttl = Number(process.env.REPORTS_CACHE_TTL_SECONDS ?? 600);
 let redis: Redis | null = null;
 if (enabled && process.env.REDIS_URL) {
   try {
-    redis = new Redis(process.env.REDIS_URL, { lazyConnect: true });
+    redis = new Redis(process.env.REDIS_URL, {
+      ...getRedisTlsOptions(process.env.REDIS_URL),
+      lazyConnect: true,
+    });
     // ioredis emits 'error' events; without a listener Node treats it as unhandled and may crash.
     redis.on("error", () => {
       // Best-effort cache: ignore connection errors and let per-call fallbacks handle it.

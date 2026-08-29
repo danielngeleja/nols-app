@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/redis.js", () => ({ getRedis: () => null }));
 
-import { getAzamPayDisburseToken } from "../services/azampay/disbursement/auth";
+import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "../services/azampay/disbursement/auth";
 
 describe("AzamPay disbursement token generation", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await invalidateAzamPayDisburseToken();
     vi.stubEnv("AZAMPAY_DISBURSE_APP_NAME", "NoLSAF");
     vi.stubEnv("AZAMPAY_DISBURSE_CLIENT_ID", "client-id");
     vi.stubEnv("AZAMPAY_DISBURSE_CLIENT_SECRET", "client-secret");
@@ -39,6 +40,34 @@ describe("AzamPay disbursement token generation", () => {
       appName: "NoLSAF",
       clientId: "client-id",
       clientSecret: "client-secret",
+    });
+  });
+
+  it("reuses checkout credentials when disbursement-specific overrides are absent", async () => {
+    vi.stubEnv("AZAMPAY_DISBURSE_APP_NAME", "");
+    vi.stubEnv("AZAMPAY_DISBURSE_CLIENT_ID", "");
+    vi.stubEnv("AZAMPAY_DISBURSE_CLIENT_SECRET", "");
+    vi.stubEnv("AZAMPAY_APP_NAME", "NoLSAF Checkout");
+    vi.stubEnv("AZAMPAY_CLIENT_ID", "checkout-client-id");
+    vi.stubEnv("AZAMPAY_CLIENT_SECRET", "checkout-client-secret");
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: { accessToken: "access-token", expire: Date.now() + 3_600_000 },
+          success: true,
+          statusCode: 200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getAzamPayDisburseToken()).resolves.toBe("access-token");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      appName: "NoLSAF Checkout",
+      clientId: "checkout-client-id",
+      clientSecret: "checkout-client-secret",
     });
   });
 });

@@ -27,7 +27,8 @@ export function normalizeLoginAppContext(input: unknown): LoginAppContext {
     value === 'PARTNERS' ||
     value === 'PARTNERS_APP' ||
     value === 'OWNER' ||
-    value === 'AGENT'
+    value === 'AGENT' ||
+    value === 'NRMS_AGENT'
   ) {
     return 'PARTNERS';
   }
@@ -45,7 +46,7 @@ export function getLoginAppRoleError(
   const accountRole = normalizeAccountRole(accountRoleInput);
   const allowed =
     loginApp === 'DRIVER' ? accountRole === 'DRIVER' :
-    loginApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' :
+    loginApp === 'PARTNERS' ? accountRole === 'OWNER' || accountRole === 'AGENT' || accountRole === 'NRMS_AGENT' :
     loginApp === 'ADMIN' ? accountRole === 'ADMIN' :
     accountRole === 'CUSTOMER';
 
@@ -69,7 +70,7 @@ export function getLoginAppRoleError(
     };
   }
 
-  if (accountRole === 'OWNER' || accountRole === 'AGENT') {
+  if (accountRole === 'OWNER' || accountRole === 'AGENT' || accountRole === 'NRMS_AGENT') {
     return {
       error: 'wrong_login_app',
       code: 'WRONG_LOGIN_APP',

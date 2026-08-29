@@ -190,45 +190,59 @@ curl http://localhost:4000/live
 
 ## Database Commands
 
-### Run Migrations
+The authoritative environment boundaries and release order are defined in
+[`nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md`](nolsaf/docs/ENGINEERING_DELIVERY_POLICY.md).
+The commands in this section are local-disposable examples only. They must not be
+pointed at Aiven staging or AWS production. Shared staging uses
+`npm run prisma:migrate:staging`; production uses the designated runner in
+`nolsaf/API_DEPLOYMENT_GUIDE.md` after fresh approval.
+
+Before any local destructive command, inspect the sanitized host and database
+name and prove the target is disposable.
+
+### Apply migrations to a local disposable database
 
 ```bash
-# Apply all pending migrations
 cd nolsaf
 npm run prisma:migrate
-
-# Or manually
-npx prisma migrate deploy
 ```
 
-**What it does:** Applies database schema changes from migration files.
+**What it does:** Applies committed migrations to the explicitly configured
+local disposable database. The generic command is not a human-operated staging
+or production procedure.
 
-### Create New Migration
+### Draft a new migration locally
 
 ```bash
 cd nolsaf
 npx prisma migrate dev --name migration_name
 ```
 
-**What it does:** Creates a new migration file based on schema changes.
+This command is allowed only when its shadow and target databases are disposable.
+Because the historical chain is not clean-replayable on every MariaDB version,
+a hand-reviewed forward SQL migration plus the repository reconciliation
+validator may be required. Never edit an older migration to make generation pass.
 
-### Reset Database (⚠️ DESTRUCTIVE)
+### Reset a verified local disposable database (destructive)
 
 ```bash
 cd nolsaf
 npx prisma migrate reset
 ```
 
-**What it does:** **WARNING:** Drops database, recreates it, and runs all migrations. **Only use in development!**
+**What it does:** Drops and recreates the selected database. Stop unless its
+sanitized fingerprint proves it is local and disposable.
 
-### Sync Schema (Development Only)
+### Temporary local schema exploration only
 
 ```bash
 cd nolsaf
 npx prisma db push
 ```
 
-**What it does:** Pushes schema changes directly to database without migrations. **Use only in development.**
+**What it does:** Pushes schema without durable migration history. It is never
+release evidence and is prohibited on every shared database, including staging
+and production.
 
 ### View Database
 
@@ -360,7 +374,7 @@ docker system prune -a
 > the generic commands below against AWS production. Production releases must
 > follow `nolsaf/API_DEPLOYMENT_GUIDE.md` from an approved, clean `main` commit.
 
-### Production Build & Start
+### Local production-mode build and start
 
 The following sequence is for a controlled local or self-managed environment.
 It is not the AWS production deployment procedure.
@@ -388,7 +402,8 @@ cd apps/web
 NODE_ENV=production npm start
 ```
 
-**What it does:** Complete production deployment process.
+**What it does:** Exercises production-mode binaries in a controlled local or
+self-managed disposable environment. It is not release evidence or an AWS procedure.
 
 ### Using PM2 (Process Manager)
 

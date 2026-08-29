@@ -213,7 +213,7 @@ export default function NrmsGuestsPage() {
 
   return (
     <div className="min-w-0 max-w-full pb-10">
-      <div className="relative mb-4 box-border w-full min-w-0 max-w-md">
+      <div className="relative mb-3 box-border w-full min-w-0 max-w-md">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
         <input
           className="block box-border w-full min-w-0 max-w-full rounded-lg border border-neutral-300 py-2 pl-9 pr-3 text-sm"
@@ -229,19 +229,34 @@ export default function NrmsGuestsPage() {
       {campaignNotice && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {campaignNotice}</span>
-          <button type="button" onClick={() => setCampaignNotice(null)} aria-label="Dismiss"><X className="h-4 w-4" /></button>
+          <button type="button" onClick={() => setCampaignNotice(null)} aria-label="Dismiss" className="flex h-6 w-6 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-emerald-700 transition hover:bg-emerald-100"><X className="h-4 w-4" /></button>
         </div>
       )}
 
-      <div className="mb-3 flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-bold text-neutral-800">Guest SMS outreach</p>
-          <p className="mt-0.5 text-[10px] text-neutral-500">Only opted-in guests can receive up to 3 promotional messages per calendar year.</p>
+      {/* Selecting guests used to change only the button's label. The count
+          now leads the bar and can be cleared, so a selection made two pages
+          ago is visible rather than silently carried into a campaign. */}
+      <div className={`mb-3 flex flex-col gap-2 rounded-xl px-3 py-2.5 ring-1 sm:flex-row sm:items-center sm:justify-between ${selectedGuestIds.size > 0 ? "bg-emerald-50/70 ring-emerald-200" : "bg-white ring-neutral-200"}`}>
+        <div className="min-w-0">
+          {selectedGuestIds.size > 0 ? (
+            <>
+              <p className="m-0 flex flex-wrap items-center gap-2 text-xs font-bold text-emerald-900">
+                {selectedGuestIds.size} guest{selectedGuestIds.size === 1 ? "" : "s"} selected
+                <button type="button" onClick={() => setSelectedGuestIds(new Set())} className="appearance-none border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 underline-offset-2 hover:underline">Clear</button>
+              </p>
+              <p className="m-0 mt-0.5 text-[10px] text-emerald-800/70">Only those still eligible will receive the message.</p>
+            </>
+          ) : (
+            <>
+              <p className="m-0 text-xs font-bold text-neutral-800">Guest SMS outreach</p>
+              <p className="m-0 mt-0.5 text-[10px] text-neutral-500">Only opted-in guests can receive up to 3 promotional messages per calendar year.</p>
+            </>
+          )}
         </div>
         <button
           type="button"
           onClick={openCampaign}
-          className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3.5 text-xs font-bold text-white transition hover:bg-emerald-800"
+          className="inline-flex min-h-9 shrink-0 appearance-none items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white transition hover:bg-emerald-800"
         >
           <MessageSquareText className="h-4 w-4" />
           {selectedGuestIds.size > 0 ? `Message ${selectedGuestIds.size} selected` : "Create SMS campaign"}
@@ -262,7 +277,7 @@ export default function NrmsGuestsPage() {
         <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse text-left">
-              <thead className="border-b border-neutral-200 bg-neutral-50/90">
+              <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
                 <tr className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">
                   <th scope="col" className="w-10 px-3 py-3">
                     <input
@@ -303,7 +318,7 @@ export default function NrmsGuestsPage() {
                   <th scope="col" className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
+              <tbody className="[&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
                 {guests.map((g) => (
                   <tr key={g.id} className="group transition hover:bg-emerald-50/35">
                     <td className="px-3 py-3.5">
@@ -330,7 +345,7 @@ export default function NrmsGuestsPage() {
                       <p className="text-xs font-medium text-neutral-700">{g.phone || "No phone"}</p>
                       <p className="mt-0.5 max-w-52 truncate text-[10px] text-neutral-400">{g.email || "No email"}</p>
                     </td>
-                    <td className="px-4 py-3.5 text-xs text-neutral-600">{g.nationality || "—"}</td>
+                    <td className="px-4 py-3.5 text-xs text-neutral-600">{g.nationality || <span className="text-neutral-300">Not recorded</span>}</td>
                     <td className="px-4 py-3.5 text-center">
                       <span className="inline-flex min-w-8 justify-center rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">{g.reservationCount}</span>
                     </td>
@@ -363,8 +378,21 @@ export default function NrmsGuestsPage() {
                                   ? "Opted out"
                                   : "Yearly limit"}
                         </span>
-                        {g.smsOutreach.normalizedPhone && (
-                          <span className="whitespace-nowrap text-[10px] font-medium text-neutral-400">{g.smsOutreach.usedCount}/3 used</span>
+                        {/* "0/3 used" on every row was noise, and meaningless
+                            beside a guest who cannot be messaged at all. The
+                            allowance only shows once it is being spent. */}
+                        {g.smsOutreach.normalizedPhone && g.smsOutreach.usedCount > 0 && (
+                          <span
+                            className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-medium ${g.smsOutreach.usedCount >= 3 ? "text-rose-600" : "text-neutral-400"}`}
+                            title={`${g.smsOutreach.usedCount} of 3 promotional messages used this calendar year`}
+                          >
+                            <span className="flex gap-0.5" aria-hidden="true">
+                              {[0, 1, 2].map((slot) => (
+                                <span key={slot} className={`h-1.5 w-1.5 rounded-full ${slot < g.smsOutreach.usedCount ? (g.smsOutreach.usedCount >= 3 ? "bg-rose-500" : "bg-neutral-400") : "bg-neutral-200"}`} />
+                              ))}
+                            </span>
+                            {g.smsOutreach.usedCount}/3
+                          </span>
                         )}
                       </div>
                     </td>
@@ -413,15 +441,24 @@ export default function NrmsGuestsPage() {
       {detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <button type="button" aria-label="Close" className="absolute inset-0 bg-black/40" onClick={() => setDetail(null)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-5 my-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-neutral-900">{detail.fullName}</h3>
-              <button type="button" onClick={() => setDetail(null)} aria-label="Close dialog">
-                <X className="w-4 h-4 text-neutral-400" />
+          <div className="relative my-8 box-border w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            {/* The close button had no className, so with preflight disabled it
+                rendered with the browser's default grey button chrome. */}
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-emerald-100 text-[13px] font-bold text-emerald-700">
+                  {detail.fullName.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "?"}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="m-0 truncate text-[17px] font-bold text-neutral-900">{detail.fullName}</h3>
+                  <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">
+                    {[detail.phone, detail.email, detail.nationality].filter(Boolean).join(" · ") || "No contact details"}
+                  </p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setDetail(null)} aria-label="Close dialog" className="flex h-8 w-8 flex-shrink-0 appearance-none items-center justify-center rounded-lg border-0 bg-transparent text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700">
+                <X className="h-4 w-4" />
               </button>
-            </div>
-            <div className="text-xs text-neutral-500 mb-4">
-              {[detail.phone, detail.email, detail.nationality].filter(Boolean).join(" · ") || "No contact details"}
             </div>
             <div className="mb-5 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -460,29 +497,53 @@ export default function NrmsGuestsPage() {
                   </button>
                 </div>
               </div>
-              <p className="mt-2 text-[9px] leading-relaxed text-neutral-400">Record opt-in only after the guest clearly agrees. Booking and payment messages are managed separately from promotional consent.</p>
+              {/* Was 9px, below this app's smallest readable size elsewhere. */}
+              <p className="m-0 mt-2 text-[10px] leading-4 text-neutral-500">Record opt-in only after the guest clearly agrees. Booking and payment messages are separate from promotional consent.</p>
               {consentError && <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[10px] font-medium text-red-700">{consentError}</p>}
             </div>
-            <h4 className="text-xs font-semibold text-neutral-700 mb-2">Stay history</h4>
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h4 className="m-0 text-xs font-semibold text-neutral-700">Stay history</h4>
+              {detail.reservations.length > 0 && <span className="text-[10px] font-medium text-neutral-400">{detail.reservations.length} {detail.reservations.length === 1 ? "stay" : "stays"}</span>}
+            </div>
             {detail.reservations.length === 0 ? (
-              <p className="text-xs text-neutral-400">No stays recorded yet.</p>
+              <p className="m-0 rounded-xl bg-neutral-50 px-3 py-4 text-center text-xs text-neutral-400">No stays recorded yet.</p>
             ) : (
-              <ul className="divide-y divide-neutral-100 text-sm">
-                {detail.reservations.map((r) => (
-                  <li key={r.id} className="py-2 flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-neutral-800">
-                        {new Date(r.checkIn).toLocaleDateString()} to {new Date(r.checkOut).toLocaleDateString()}
+              // m-0 list-none p-0 is required: preflight is off, so a <ul>
+              // keeps the browser's 40px indent and its bullets, which is what
+              // pushed every stay row out of line with the heading above it.
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-sm">
+                {detail.reservations.map((r) => {
+                  const nights = Math.max(1, Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 86_400_000));
+                  const due = r.totalAmount != null && r.amountPaid != null ? Math.max(0, r.totalAmount - r.amountPaid) : null;
+                  const status = r.status.replace(/_/g, " ").toLowerCase();
+                  const settled = status === "checked out" || status === "cancelled";
+                  return (
+                    <li key={r.id} className="flex items-start justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="m-0 text-[13px] font-semibold text-neutral-800">
+                          {new Date(r.checkIn).toLocaleDateString()} to {new Date(r.checkOut).toLocaleDateString()}
+                        </p>
+                        <p className="m-0 mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] ${settled ? "bg-neutral-200 text-neutral-600" : "bg-emerald-100 text-emerald-700"}`}>{status}</span>
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] text-neutral-500 ring-1 ring-neutral-200">{r.source.replace(/_/g, " ").toLowerCase()}</span>
+                          <span className="text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</span>
+                        </p>
                       </div>
-                      <div className="text-[11px] text-neutral-400">
-                        {r.source.replace(/_/g, " ").toLowerCase()} · {r.status.replace(/_/g, " ").toLowerCase()}
+                      <div className="shrink-0 text-right">
+                        <p className="m-0 text-[13px] font-bold tabular-nums text-neutral-800">
+                          {r.totalAmount != null ? `${r.currency} ${r.totalAmount.toLocaleString()}` : <span className="text-neutral-300">No value</span>}
+                        </p>
+                        {/* amountPaid was fetched by this drawer and never shown,
+                            so an unpaid stay looked identical to a settled one. */}
+                        {due != null && (
+                          <p className={`m-0 mt-0.5 text-[10px] font-semibold tabular-nums ${due > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                            {due > 0 ? `${r.currency} ${due.toLocaleString()} due` : "Paid in full"}
+                          </p>
+                        )}
                       </div>
-                    </div>
-                    <div className="text-xs text-neutral-600">
-                      {r.totalAmount != null ? `${r.currency} ${r.totalAmount.toLocaleString()}` : ""}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

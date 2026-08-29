@@ -1660,6 +1660,13 @@ function cleanUrl(value: unknown, max = 600): string {
   }
 }
 
+/** Date of birth and document expiry are what a hotel manifest needs on top of
+ * a permit roster, so the group member carries them when they are supplied. */
+function cleanDateOnly(value: unknown): string {
+  const text = cleanText(value, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
 /**
  * GET /api/customer/tour-bookings/:id/group-members
  * Returns the traveller group roster linked to this package booking.
@@ -1707,6 +1714,9 @@ router.post("/:id/group-members", (async (req: AuthedRequest, res) => {
     const documentNumber = cleanText((req.body as any)?.documentNumber, 60);
     const nationality = cleanText((req.body as any)?.nationality, 80);
     const phone = cleanText((req.body as any)?.phone, 30);
+    const email = cleanText((req.body as any)?.email, 160);
+    const dateOfBirth = cleanDateOnly((req.body as any)?.dateOfBirth);
+    const documentExpiry = cleanDateOnly((req.body as any)?.documentExpiry);
     const relationRaw = cleanText((req.body as any)?.relation, 30).toUpperCase();
     const relation = GROUP_MEMBER_RELATIONS.includes(relationRaw) ? relationRaw : "OTHER";
     const notes = cleanText((req.body as any)?.notes, 500);
@@ -1738,8 +1748,11 @@ router.post("/:id/group-members", (async (req: AuthedRequest, res) => {
       fullName,
       documentType: documentType || null,
       documentNumber: documentNumber || null,
+      documentExpiry: documentExpiry || null,
       nationality: nationality || null,
+      dateOfBirth: dateOfBirth || null,
       phone: phone || null,
+      email: email || null,
       relation,
       notes: notes || null,
       photoUrl: photoUrl || null,
@@ -1789,6 +1802,9 @@ router.patch("/:id/group-members/:memberId", (async (req: AuthedRequest, res) =>
     const documentNumber = cleanText((req.body as any)?.documentNumber, 60);
     const nationality = cleanText((req.body as any)?.nationality, 80);
     const phone = cleanText((req.body as any)?.phone, 30);
+    const email = cleanText((req.body as any)?.email, 160);
+    const dateOfBirth = cleanDateOnly((req.body as any)?.dateOfBirth);
+    const documentExpiry = cleanDateOnly((req.body as any)?.documentExpiry);
     const relationRaw = cleanText((req.body as any)?.relation, 30).toUpperCase();
     const relation = GROUP_MEMBER_RELATIONS.includes(relationRaw) ? relationRaw : "OTHER";
     const notes = cleanText((req.body as any)?.notes, 500);
@@ -1817,8 +1833,12 @@ router.patch("/:id/group-members/:memberId", (async (req: AuthedRequest, res) =>
       fullName,
       documentType: documentType || null,
       documentNumber: documentNumber || null,
+      // Older clients do not send these yet, so an update must not wipe them.
+      documentExpiry: documentExpiry || existing.documentExpiry || null,
       nationality: nationality || null,
+      dateOfBirth: dateOfBirth || existing.dateOfBirth || null,
       phone: phone || null,
+      email: email || existing.email || null,
       relation,
       notes: notes || null,
       photoUrl: photoUrl || existing.photoUrl || null,

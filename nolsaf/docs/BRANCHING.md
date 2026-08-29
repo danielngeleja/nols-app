@@ -1,5 +1,9 @@
 # Branch Strategy - Two Truths, One Native Trunk
 
+This branch map is subordinate to the authoritative
+[`ENGINEERING_DELIVERY_POLICY.md`](ENGINEERING_DELIVERY_POLICY.md), which defines
+environment boundaries, Prisma coupling, qualification, and release order.
+
 This repository is a monorepo. There are exactly two long lived development branches,
 each the single source of truth for one concern:
 
