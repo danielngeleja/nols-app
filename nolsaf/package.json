@@ -28,6 +28,7 @@
     "dev:npm": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
     "build": "npm run --workspaces --if-present build",
     "lint": "npm run --workspaces --if-present lint",
+    "pretypecheck": "npm run --workspace=@nolsaf/shared build",
     "typecheck": "npm run --workspaces --if-present typecheck",
     "bootstrap:admin": "npm --workspace=@nolsaf/api run bootstrap:admin --",
     "bootstrap:admin:staging": "npm --workspace=@nolsaf/api run bootstrap:admin:staging",
