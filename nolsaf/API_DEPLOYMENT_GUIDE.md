@@ -545,6 +545,46 @@ JavaScript and source-map counts must match, and test/development output must be
 absent. If any required artifact is missing, exit and redeploy with
 `scripts/deploy-eb.ps1`.
 
+### Private production error symbolication
+
+The API bundle contains `dist/release.json`, generated from the exact Git commit
+and repository remote during the build. API JavaScript source maps remain
+adjacent to compiled files inside the private EB bundle. Browser source maps are
+removed from public Next.js assets and uploaded by the Vercel production build
+to a private S3 prefix keyed by the same Git commit.
+
+Elastic Beanstalk requires these non-secret settings:
+
+```text
+SOURCE_MAP_BUCKET=<private bucket name>
+SOURCE_MAP_AWS_REGION=eu-north-1
+SOURCE_MAP_S3_PREFIX=source-maps
+```
+
+Its instance profile must have `s3:GetObject` only for
+`arn:aws:s3:::<bucket>/source-maps/*`.
+
+Vercel production builds require:
+
+```text
+SOURCE_MAP_UPLOAD_BUCKET=<private bucket name>
+SOURCE_MAP_AWS_REGION=eu-north-1
+SOURCE_MAP_S3_PREFIX=source-maps
+SOURCE_MAP_UPLOAD_REQUIRED=true
+SOURCE_MAP_AWS_ROLE_ARN=<Vercel production OIDC upload role ARN>
+```
+
+The Vercel role uses OIDC federation and short-lived credentials. Do not create
+or store an IAM access key in Vercel. Its role may only call `s3:PutObject` under
+the private `source-maps/*` prefix. The bucket must block all public access and
+retain server-side encryption.
+
+When an error is captured, the diagnostic service uses its release SHA and
+generated chunk path to retrieve the matching private map, then emits the
+original TypeScript file, line, bounded code context, fingerprint, and immutable
+GitHub commit link. Source-map retrieval is outside normal request handling and
+fails closed when storage is unavailable.
+
 Load the production URL without printing it. Prisma's schema engine does not
 use the API's MariaDB driver TLS settings, so also download the official AWS RDS
 CA bundle and append strict TLS settings only to the temporary CLI URL:

@@ -4,6 +4,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from "@nolsaf/prisma";
 import { buildErrorDiagnostic } from "../lib/errorDiagnostics.js";
 import { maskIpAddress, normalizeRoute } from "../lib/observability.js";
+import { getReleaseMetadata } from "../lib/releaseMetadata.js";
 
 export interface AppError extends Error {
   status?: number;
@@ -39,11 +40,7 @@ export function errorHandler(
   if (statusCode >= 500) {
     (req as any).exceptionCaptured = true;
     const requestId = String((req as any).requestId || "") || null;
-    const release = process.env.GIT_COMMIT_SHA
-      || process.env.RAILWAY_GIT_COMMIT_SHA
-      || process.env.VERCEL_GIT_COMMIT_SHA
-      || process.env.APP_VERSION
-      || null;
+    const release = getReleaseMetadata().revision;
 
     void buildErrorDiagnostic({
       service: "api",

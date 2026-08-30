@@ -133,6 +133,8 @@ try {
         Assert-CommandSucceeded "Building @nolsaf/api"
         node scripts/fix-esm-imports.mjs
         Assert-CommandSucceeded "Fixing API ESM imports"
+        node scripts/write-release-metadata.mjs
+        Assert-CommandSucceeded "Embedding API release metadata"
     }
 
     # 5. Stage Prisma schema and migrations into the EB bundle.
@@ -171,6 +173,7 @@ try {
     Write-Host "-- Validating deployment bundle ..."
     $requiredFiles = @(
         "$ApiDir\dist\src\index.js",
+        "$ApiDir\dist\release.json",
         "$VendorRoot\@nolsaf\prisma\package.json",
         "$VendorRoot\@nolsaf\prisma\dist\index.js",
         "$VendorRoot\@nolsaf\shared\package.json",
