@@ -9,6 +9,7 @@ import { auditLog } from "../lib/audit.js";
 
 // ✅ ADD THIS IMPORT NEAR THE TOP
 import { regenerateAndSaveLayout } from "../lib/autoLayout.js";
+import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
 
 // ---------- Schemas & Helpers ----------
@@ -725,7 +726,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
         // hotel …
         hotelStar: normalizeHotelStar(parsed.hotelStar),
         // room & services …
-        roomsSpec: parsed.roomsSpec,
+        roomsSpec: ensureRoomsSpecCodes(parsed.roomsSpec),
         services: servicesForSave,
         // pricing …
         basePrice: resolveSubmittedBasePrice(parsed.basePrice, parsed.roomsSpec),
@@ -916,7 +917,7 @@ router.put("/:id", (async (req: AuthedRequest, res) => {
         // hotel …
         hotelStar: typeof parsed.hotelStar === "undefined" ? undefined : normalizeHotelStar(parsed.hotelStar),
         // room & services …
-        roomsSpec: parsed.roomsSpec,
+        roomsSpec: ensureRoomsSpecCodes(parsed.roomsSpec),
         services: servicesForSave,
         // pricing …
         basePrice: resolveSubmittedBasePrice(parsed.basePrice, parsed.roomsSpec),

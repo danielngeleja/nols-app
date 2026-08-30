@@ -79,7 +79,31 @@ export async function resolveRoomTypeIdForCode(db: DbLike, propertyId: number, r
     where: { propertyId, OR: [{ name: typeKey }, { sourceSpecKey: typeKey }] },
     select: { id: true },
   });
-  return type?.id ?? null;
+  if (type) return type.id;
+
+  // A roomsSpec variant code is "<room type> <beds>", for example
+  // "Single 1 Queen", because one room type can be published as several options
+  // with different beds and prices. NRMS room types are imported under the room
+  // type alone, so fall back to the type this code was built from. Without this
+  // a room-scoped stop sell would stop closing marketplace dates.
+  const candidates = await db.roomType.findMany({
+    where: { propertyId },
+    select: { id: true, name: true, sourceSpecKey: true },
+  });
+  const match = candidates
+    .filter((candidate: { name: string | null; sourceSpecKey: string | null }) =>
+      [candidate.name, candidate.sourceSpecKey].some((value) => {
+        const name = String(value ?? "").trim();
+        return name !== "" && typeKey.startsWith(`${name} `);
+      }),
+    )
+    // Longest name wins so "Deluxe Suite" is preferred over "Deluxe".
+    .sort(
+      (a: { name: string | null }, b: { name: string | null }) =>
+        String(b.name ?? "").length - String(a.name ?? "").length,
+    )[0];
+
+  return match?.id ?? null;
 }
 
 function blockMessage(code: RestrictionBlockCode, rule: any): string {
