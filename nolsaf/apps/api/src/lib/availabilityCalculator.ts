@@ -38,6 +38,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
 import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
 import { evaluateRestrictionRules, type RestrictionBlock } from "./nrmsRestrictions.js";
+import { matchingRoomSelectionCodes } from "./roomSelectionCode.js";
 
 /** Normalize Prisma DateTime (Date or ISO string) to Date for .getTime() / .toISOString() */
 function toDate(x: unknown): Date {
@@ -167,7 +168,6 @@ export async function calculateAvailability(
         { checkIn: { lt: endDate } },
         { checkOut: { gt: startDate } },
       ],
-      ...(roomCode && { roomCode: String(roomCode) }),
     },
     select: {
       id: true,
@@ -189,7 +189,6 @@ export async function calculateAvailability(
         { startDate: { lt: endDate } },
         { endDate: { gt: startDate } },
       ],
-      ...(roomCode && { roomCode: String(roomCode) }),
       ...(options?.excludeBlockId != null && { id: { not: options.excludeBlockId } }),
     },
     select: {
@@ -277,7 +276,11 @@ export async function calculateAvailability(
     const typeBookings = bookings.filter(b => {
       if (!b.roomCode) return false;
       if (roomCode) {
-        return b.roomCode === roomCode;
+        return matchingRoomSelectionCodes(
+          b.roomCode,
+          [String(roomCode)],
+          property.roomsSpec,
+        ).length > 0;
       }
       // Match room type pattern (e.g., "Single-1", "Single-2" -> "Single")
       return b.roomCode.startsWith(typeName);
@@ -286,7 +289,11 @@ export async function calculateAvailability(
     // Filter blocks for this room type
     const typeBlocks = blocks.filter(b => {
       if (roomCode) {
-        return b.roomCode === roomCode;
+        return matchingRoomSelectionCodes(
+          b.roomCode,
+          [String(roomCode)],
+          property.roomsSpec,
+        ).length > 0;
       }
       if (!b.roomCode) return false;
       return b.roomCode.startsWith(typeName);

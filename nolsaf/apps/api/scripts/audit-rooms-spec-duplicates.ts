@@ -1,94 +1,128 @@
 /**
- * Read-only. Writes nothing.
+ * Read-only room-code migration audit. Writes nothing.
  *
- * Lists properties that publish two or more roomsSpec options under one room
- * type, and counts the bookings already sold against those properties.
- *
- * Those bookings store the room type as their roomCode. Once the property's
- * options carry per-variant codes, the room type no longer matches any bucket,
- * so each of these bookings has to be decided on before the backfill runs.
+ * Despite the historical filename, this now audits every property whose
+ * roomsSpec would gain a stable code, plus every persisted Booking.roomCode
+ * and PropertyAvailabilityBlock.roomCode that may need reconciliation.
  *
  *   npx tsx scripts/audit-rooms-spec-duplicates.ts
  */
+import path from "node:path";
+import dotenv from "dotenv";
 import { prisma } from "@nolsaf/prisma";
+import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../src/lib/bookingStatus.js";
+import {
+  buildRoomCodeBackfillPlan,
+  type RoomCodeReference,
+} from "../src/lib/roomCodeBackfill.js";
 
-const BLOCKING = ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN"];
+dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
+dotenv.config();
 
-function roomTypeOf(entry: unknown): string {
-  if (!entry || typeof entry !== "object") return "";
-  const source = entry as Record<string, unknown>;
-  for (const value of [source.roomType, source.type, source.name, source.label]) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
+const activeStatuses = new Set<string>(AVAILABILITY_BLOCKING_BOOKING_STATUSES);
 
 async function main() {
+  const now = new Date();
   const properties = await prisma.property.findMany({
     select: { id: true, title: true, roomsSpec: true },
     orderBy: { id: "asc" },
   });
 
-  const affected: Array<{
-    propertyId: number;
-    title: string | null;
-    duplicatedTypes: string[];
-    alreadyCoded: number;
-    liveBookings: number;
-    liveBookingRoomCodes: string[];
-  }> = [];
+  const affected: any[] = [];
+  let referenceUpdates = 0;
+  let activeBlockers = 0;
+  let unresolvedHistorical = 0;
 
   for (const property of properties) {
-    const spec = property.roomsSpec;
-    if (!Array.isArray(spec) || spec.length < 2) continue;
+    const [bookings, blocks, units] = await Promise.all([
+      prisma.booking.findMany({
+        where: { propertyId: property.id, roomCode: { not: null } },
+        select: { id: true, roomCode: true, status: true, checkOut: true },
+        orderBy: { id: "asc" },
+      }),
+      prisma.propertyAvailabilityBlock.findMany({
+        where: { propertyId: property.id, roomCode: { not: null } },
+        select: { id: true, roomCode: true, endDate: true },
+        orderBy: { id: "asc" },
+      }),
+      prisma.roomUnit.findMany({
+        where: { propertyId: property.id },
+        select: { code: true },
+      }),
+    ]);
 
-    const counts = new Map<string, number>();
-    for (const entry of spec) {
-      const key = roomTypeOf(entry).toLowerCase();
-      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const duplicated = Array.from(counts.entries()).filter(([, n]) => n > 1);
-    if (!duplicated.length) continue;
-
-    const bookings = await prisma.booking.findMany({
-      where: { propertyId: property.id, status: { in: BLOCKING as any } },
-      select: { roomCode: true },
+    const references: RoomCodeReference[] = [
+      ...bookings.map((booking) => ({
+        kind: "booking" as const,
+        id: booking.id,
+        roomCode: booking.roomCode,
+        active: activeStatuses.has(String(booking.status)) && booking.checkOut > now,
+      })),
+      ...blocks.map((block) => ({
+        kind: "availabilityBlock" as const,
+        id: block.id,
+        roomCode: block.roomCode,
+        active: block.endDate > now,
+      })),
+    ];
+    const plan = buildRoomCodeBackfillPlan({
+      roomsSpec: property.roomsSpec,
+      references,
+      protectedRoomUnitCodes: units.map((unit) => unit.code),
     });
 
+    if (
+      !plan.roomsSpecChanged &&
+      plan.updates.length === 0 &&
+      plan.activeBlockers.length === 0 &&
+      plan.unresolvedHistorical.length === 0
+    ) continue;
+
+    referenceUpdates += plan.updates.length;
+    activeBlockers += plan.activeBlockers.length;
+    unresolvedHistorical += plan.unresolvedHistorical.length;
     affected.push({
       propertyId: property.id,
       title: property.title ?? null,
-      duplicatedTypes: duplicated.map(([type, n]) => `${type} x${n}`),
-      alreadyCoded: spec.filter(
-        (entry: any) => typeof entry?.code === "string" && entry.code.trim() !== "",
-      ).length,
-      liveBookings: bookings.length,
-      liveBookingRoomCodes: Array.from(
-        new Set(bookings.map((b) => String(b.roomCode ?? "(null)"))),
-      ),
+      roomsSpecChanged: plan.roomsSpecChanged,
+      targetCodes: plan.codes,
+      referenceUpdates: plan.updates,
+      activeBlockers: plan.activeBlockers.map((decision) => ({
+        kind: decision.kind,
+        id: decision.id,
+        roomCode: decision.roomCode,
+        resolution: decision.resolution,
+      })),
+      unresolvedHistorical: plan.unresolvedHistorical.map((decision) => ({
+        kind: decision.kind,
+        id: decision.id,
+        roomCode: decision.roomCode,
+        resolution: decision.resolution,
+      })),
     });
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        propertiesScanned: properties.length,
-        propertiesWithDuplicateRoomTypes: affected.length,
-        liveBookingsOnThoseProperties: affected.reduce((sum, a) => sum + a.liveBookings, 0),
-        affected,
-      },
-      null,
-      2,
-    ),
-  );
+  console.log(JSON.stringify({
+    ok: activeBlockers === 0,
+    mode: "read-only-audit",
+    auditedAt: now.toISOString(),
+    propertiesScanned: properties.length,
+    propertiesAffected: affected.length,
+    referenceUpdates,
+    activeBlockers,
+    unresolvedHistorical,
+    safeToApply: activeBlockers === 0,
+    affected,
+  }, null, 2));
+
+  if (activeBlockers > 0) process.exitCode = 2;
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
+  .catch((error) => {
+    console.error(error);
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    if (process.env.DATABASE_URL) await prisma.$disconnect();
   });

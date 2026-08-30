@@ -27,6 +27,11 @@
     "azp:disbursement:test": "tsx scripts/test-azampay-disbursement.ts",
     "generate:encryption-key": "node scripts/generate-encryption-key.js",
     "azp:ids": "tsx scripts/collect-azp-ids.ts",
+    "rooms:codes:audit": "tsx scripts/audit-rooms-spec-duplicates.ts",
+    "rooms:codes:backfill": "tsx scripts/backfill-rooms-spec-codes.ts",
+    "rooms:codes:backfill:apply": "tsx scripts/backfill-rooms-spec-codes.ts --apply",
+    "rooms:codes:backfill:runtime": "node dist/scripts/backfill-rooms-spec-codes.js",
+    "rooms:codes:backfill:runtime:apply": "node dist/scripts/backfill-rooms-spec-codes.js --apply",
     "ngrok:dev": "ngrok http 4000"
   },
   "dependencies": {

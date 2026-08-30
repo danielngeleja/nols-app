@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { ensureRoomsSpecCodes, roomSelectionCodeFor } from "./roomSelectionCode.js";
+import {
+  ensureRoomsSpecCodes,
+  matchingRoomSelectionCodes,
+  roomSelectionCodeFor,
+} from "./roomSelectionCode.js";
 
 type SpecEntry = Record<string, unknown>;
 
@@ -64,5 +68,63 @@ describe("ensureRoomsSpecCodes", () => {
 
   it("leaves a non-array roomsSpec untouched", () => {
     expect(ensureRoomsSpecCodes(null)).toBeNull();
+  });
+
+  it("codes the legacy nested roomsSpec shape", () => {
+    const spec = ensureRoomsSpecCodes({
+      rooms: [{ roomType: "Twin", beds: { twin: 2 } }],
+      note: "legacy shape",
+    });
+
+    expect(spec.rooms[0].code).toBe("Twin 2 Twin");
+    expect(spec.note).toBe("legacy shape");
+  });
+
+  it("maps an exact stable code to only its own availability bucket", () => {
+    const spec = ensureRoomsSpecCodes<SpecEntry[]>([
+      { roomType: "Single", beds: { queen: 1 } },
+      { roomType: "Single", beds: { king: 1 } },
+    ]);
+
+    expect(
+      matchingRoomSelectionCodes(
+        "Single 1 Queen",
+        ["Single 1 Queen", "Single 1 King"],
+        spec,
+      ),
+    ).toEqual(["Single 1 Queen"]);
+  });
+
+  it("fails closed by mapping an ambiguous legacy type to every current variant", () => {
+    const spec = ensureRoomsSpecCodes<SpecEntry[]>([
+      { roomType: "Single", beds: { queen: 1 } },
+      { roomType: "Single", beds: { king: 1 } },
+    ]);
+
+    expect(
+      matchingRoomSelectionCodes(
+        "Single",
+        ["Single 1 Queen", "Single 1 King"],
+        spec,
+      ),
+    ).toEqual(["Single 1 Queen", "Single 1 King"]);
+  });
+
+  it("maps a legacy type to its sole current variant", () => {
+    const spec = ensureRoomsSpecCodes<SpecEntry[]>([
+      { roomType: "Double", beds: { king: 1 } },
+    ]);
+
+    expect(
+      matchingRoomSelectionCodes("Double", ["Double 1 King"], spec),
+    ).toEqual(["Double 1 King"]);
+  });
+
+  it("keeps physical-unit compatibility with a bare type bucket", () => {
+    expect(
+      matchingRoomSelectionCodes("Suite-2", ["Suite"], [
+        { roomType: "Suite", code: "Suite" },
+      ]),
+    ).toEqual(["Suite"]);
   });
 });

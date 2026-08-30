@@ -37,6 +37,10 @@ function collapseSpaces(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function canonicalCode(value: unknown): string {
+  return collapseSpaces(String(value ?? "")).toLowerCase();
+}
+
 /**
  * A trailing "-<digits>" marks one physical room unit ("Suite-1"), which makes
  * capacity collapse to a single room. A generated type-level code must never
@@ -66,6 +70,20 @@ export function existingRoomCode(entry: unknown): string | null {
   return code || null;
 }
 
+/** The legacy/category name used before roomsSpec entries had stable codes. */
+export function roomTypeNameFor(entry: unknown): string {
+  const source = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+  return firstString(source.roomType, source.type, source.name, source.label);
+}
+
+/** Accept both roomsSpec shapes used by older property records. */
+export function roomsSpecEntries(roomsSpec: unknown): unknown[] {
+  if (Array.isArray(roomsSpec)) return roomsSpec;
+  if (!roomsSpec || typeof roomsSpec !== "object") return [];
+  const nested = (roomsSpec as Record<string, unknown>).rooms;
+  return Array.isArray(nested) ? nested : [];
+}
+
 /** Content-derived code for one roomsSpec entry, ignoring any existing code. */
 export function roomSelectionCodeFor(entry: unknown): string {
   const source = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
@@ -73,6 +91,56 @@ export function roomSelectionCodeFor(entry: unknown): string {
   const bedPart = bedsToCodePart(source.beds);
   const combined = collapseSpaces(bedPart ? `${base} ${bedPart}` : base);
   return avoidUnitCodeShape(combined.slice(0, MAX_CODE_LENGTH).trim());
+}
+
+/** The effective persisted identity for an entry, including legacy uncoded rows. */
+export function effectiveRoomSelectionCode(entry: unknown): string {
+  return existingRoomCode(entry) ?? roomSelectionCodeFor(entry);
+}
+
+/**
+ * Resolve a stored booking/block roomCode to the current availability buckets.
+ *
+ * An exact stable code maps to one bucket. A legacy bare room type ("Single")
+ * maps to every current variant of that type ("Single 1 Queen", "Single 1
+ * King"). Counting an ambiguous legacy reference against every candidate is
+ * deliberately conservative: it can temporarily reduce sellable inventory,
+ * but it can never make a room that was already sold appear free. The backfill
+ * resolves unambiguous references and reports ambiguous ones for an operator.
+ */
+export function matchingRoomSelectionCodes(
+  storedRoomCode: string | null | undefined,
+  bucketKeys: string[],
+  roomsSpec: unknown,
+): string[] {
+  const raw = collapseSpaces(String(storedRoomCode ?? ""));
+  if (!raw || bucketKeys.length === 0) return [];
+
+  const keyByCanonical = new Map<string, string>();
+  for (const key of bucketKeys) {
+    const canonical = canonicalCode(key);
+    if (canonical && !keyByCanonical.has(canonical)) keyByCanonical.set(canonical, key);
+  }
+
+  const exact = keyByCanonical.get(canonicalCode(raw));
+  if (exact) return [exact];
+
+  // Preserve support for physical unit codes such as "Suite-2" when the
+  // availability bucket is still the bare type "Suite".
+  const withoutUnitSuffix = raw.replace(/-\d+$/, "").trim();
+  const unitParent = keyByCanonical.get(canonicalCode(withoutUnitSuffix));
+  if (unitParent) return [unitParent];
+
+  const legacyType = canonicalCode(withoutUnitSuffix);
+  const matches: string[] = [];
+  for (const entry of roomsSpecEntries(roomsSpec)) {
+    if (canonicalCode(roomTypeNameFor(entry)) !== legacyType) continue;
+    const currentCode = effectiveRoomSelectionCode(entry);
+    const bucket = keyByCanonical.get(canonicalCode(currentCode));
+    if (bucket && !matches.includes(bucket)) matches.push(bucket);
+  }
+
+  return matches;
 }
 
 /**
@@ -87,7 +155,18 @@ export function roomSelectionCodeFor(entry: unknown): string {
  * an identity is assigned once, before anything is sold against it.
  */
 export function ensureRoomsSpecCodes<T>(roomsSpec: T): T {
-  if (!Array.isArray(roomsSpec)) return roomsSpec;
+  if (!Array.isArray(roomsSpec)) {
+    if (roomsSpec && typeof roomsSpec === "object") {
+      const source = roomsSpec as Record<string, unknown>;
+      if (Array.isArray(source.rooms)) {
+        return {
+          ...source,
+          rooms: ensureRoomsSpecCodes(source.rooms),
+        } as T;
+      }
+    }
+    return roomsSpec;
+  }
 
   const used = new Set<string>();
   for (const entry of roomsSpec) {
