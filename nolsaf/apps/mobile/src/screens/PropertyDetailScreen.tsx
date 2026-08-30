@@ -1087,7 +1087,9 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                       checkIn={checkIn}
                       checkOut={checkOut}
                       onPickDates={() => setCalendarVisible(true)}
-                      onBook={() => goToBooking(nr.roomType)}
+                      // The roomsSpec index uniquely identifies variants that
+                      // share a room type but have different beds or prices.
+                      onBook={() => goToBooking(String(i))}
                     />
                   );
                 })}

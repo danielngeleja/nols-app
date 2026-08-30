@@ -48,6 +48,8 @@ export function getBedDimensions(bedsSummary: string): string | null {
 }
 
 export type NormalizedRoom = {
+  /** Explicit code from roomsSpec, when the owner supplied one. */
+  sourceCode: string | null;
   roomType: string;
   roomsCount: number | null;
   bedsSummary: string;
@@ -92,6 +94,7 @@ export function normalizeRoom(
   fallbackBasePrice: number | null
 ): NormalizedRoom {
   const raw = r as Record<string, unknown>;
+  const sourceCode = String(r.code ?? raw.roomCode ?? "").trim() || null;
   const roomType = String(r.roomType || r.name || raw.label || `Room ${idx + 1}`).trim() || `Room ${idx + 1}`;
   const roomsCountRaw = raw.roomsCount ?? r.count ?? r.quantity ?? null;
   const roomsCount = roomsCountRaw == null ? null : Number.isFinite(Number(roomsCountRaw)) ? Number(roomsCountRaw) : null;
@@ -136,6 +139,7 @@ export function normalizeRoom(
     : [];
 
   return {
+    sourceCode,
     roomType,
     roomsCount,
     bedsSummary,
@@ -149,4 +153,24 @@ export function normalizeRoom(
     discountLabel,
     floors: roomFloors(raw)
   };
+}
+
+/**
+ * Resolve a booking-screen room choice to its exact roomsSpec entry.
+ *
+ * New mobile navigation stores the array index because owners may legitimately
+ * publish multiple entries with the same room type but different beds/prices.
+ * The code/type fallback keeps older navigation payloads working.
+ */
+export function resolveRoomOptionIndex(rooms: readonly NormalizedRoom[], selection: string | null | undefined): number | null {
+  const value = String(selection ?? "").trim();
+  if (!value) return null;
+
+  if (/^\d+$/.test(value)) {
+    const index = Number(value);
+    if (Number.isSafeInteger(index) && index >= 0 && index < rooms.length) return index;
+  }
+
+  const index = rooms.findIndex((room) => room.sourceCode === value || room.roomType === value);
+  return index >= 0 ? index : null;
 }

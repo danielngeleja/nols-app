@@ -35,7 +35,7 @@ export type RoomSpec = {
   quantity?: number;
   maxGuests?: number;
   capacity?: number;
-  beds?: number;
+  beds?: number | Record<string, number | string | null | undefined>;
   images?: string[];
   roomImages?: string[];
   [key: string]: unknown;

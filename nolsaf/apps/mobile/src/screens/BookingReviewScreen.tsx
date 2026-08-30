@@ -42,7 +42,13 @@ import { ApiError } from "../lib/apiClient";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { fetchTransportAvailability } from "../lib/serviceAvailability";
 import { RootStackParamList } from "../navigation/types";
-import { fetchAvailabilityRange, fetchPropertyDetail, normalizeRoom, type PublicPropertyDetail } from "../properties";
+import {
+  fetchAvailabilityRange,
+  fetchPropertyDetail,
+  normalizeRoom,
+  resolveRoomOptionIndex,
+  type PublicPropertyDetail
+} from "../properties";
 import { colors, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookingReview">;
@@ -232,10 +238,14 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     return (detail.roomsSpec || []).map((r, i) => normalizeRoom(r, i, detail.currency, detail.basePrice));
   }, [detail]);
 
-  const selectedRoom = useMemo(() => {
-    if (!roomCode) return null;
-    return roomOptions.find((r) => r.roomType === roomCode) ?? null;
+  const selectedRoomIndex = useMemo(() => {
+    return resolveRoomOptionIndex(roomOptions, roomCode);
   }, [roomOptions, roomCode]);
+  const selectedRoom = selectedRoomIndex == null ? null : roomOptions[selectedRoomIndex] ?? null;
+  // One value for both availability and booking. The room's own code keeps a
+  // Single with 1 Queen distinct from a Single with 1 King; the room type is
+  // the fallback for listings saved before codes existed.
+  const selectedRoomCode = selectedRoom ? selectedRoom.sourceCode || selectedRoom.roomType : null;
 
   const currency = detail?.currency || "TZS";
   const netPerNight = selectedRoom?.pricePerNight ?? (detail?.basePrice ? Number(detail.basePrice) : 0);
@@ -253,7 +263,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     }
     let cancelled = false;
     setAvailLoading(true);
-    fetchAvailabilityRange(propertyId, checkIn, checkOut, roomCode || undefined)
+    fetchAvailabilityRange(propertyId, checkIn, checkOut, selectedRoomCode || undefined)
       .then((res) => {
         if (!cancelled) setAvail(res.items[0]?.roomsAvailable ?? null);
       })
@@ -266,7 +276,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [propertyId, checkIn, checkOut, roomCode, nights]);
+  }, [propertyId, checkIn, checkOut, selectedRoomCode, nights]);
 
   const soldOut = avail === 0;
   const phoneValid = !!normalizeTzPhone(guestPhone);
@@ -275,7 +285,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
   const nameLocked = !!(user?.fullName || user?.name);
   const phoneLocked = !!user?.phone && phoneValid;
   const emailLocked = !!user?.email;
-  const roomOk = roomOptions.length === 0 || !!roomCode;
+  const roomOk = roomOptions.length === 0 || selectedRoomIndex != null;
   const canContinue =
     !!checkIn &&
     !!checkOut &&
@@ -335,7 +345,9 @@ export function BookingReviewScreen({ navigation, route }: Props) {
         children,
         pets,
         rooms,
-        roomCode: roomCode || null,
+        // Never the array index: it is a screen position, not an identity, and
+        // the stored roomCode is read back by availability, payment, and NRMS.
+        roomCode: selectedRoomCode,
         ...(transport.include ? transport.fields : {})
       });
 
@@ -503,13 +515,14 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                   {" *"}
                 </AppText>
               </AppText>
-              {roomOptions.map((room) => {
-                const active = roomCode === room.roomType;
+              {roomOptions.map((room, index) => {
+                const active = selectedRoomIndex === index;
                 return (
                   <Pressable
-                    key={room.roomType}
+                    key={`${room.sourceCode || room.roomType}-${index}`}
                     accessibilityRole="button"
-                    onPress={() => setRoomCode(active ? null : room.roomType)}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setRoomCode(active ? null : String(index))}
                     style={[styles.roomRow, active && styles.roomRowActive]}
                   >
                     <View style={styles.roomIcon}>

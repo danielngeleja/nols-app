@@ -65,7 +65,7 @@ export type RootStackParamList = {
   BookingReview: {
     propertyId: number;
     propertyTitle?: string;
-    /** Room type key preselected from the detail screen, if any. */
+    /** roomsSpec index preselected from detail; legacy room type/code is also accepted. */
     roomCode?: string | null;
     /** Preselected dates as YYYY-MM-DD, if the guest already picked them. */
     checkIn?: string | null;
