@@ -14,6 +14,7 @@ export function getReleaseMetadata(): ReleaseMetadata {
   return {
     revision: firstText(
       process.env.GIT_COMMIT_SHA,
+      process.env.RENDER_GIT_COMMIT,
       process.env.RAILWAY_GIT_COMMIT_SHA,
       process.env.VERCEL_GIT_COMMIT_SHA,
       process.env.APP_VERSION,
@@ -21,6 +22,7 @@ export function getReleaseMetadata(): ReleaseMetadata {
     ),
     repository: normalizeRepository(firstText(
       process.env.SOURCE_REPOSITORY_URL,
+      process.env.RENDER_GIT_REPO_SLUG,
       process.env.GITHUB_REPOSITORY,
       bundled?.repository,
     )),

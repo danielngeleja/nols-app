@@ -11,12 +11,14 @@ const output = path.join(apiDir, "dist", "release.json");
 
 const revision = firstText(
   process.env.GIT_COMMIT_SHA,
+  process.env.RENDER_GIT_COMMIT,
   process.env.VERCEL_GIT_COMMIT_SHA,
   process.env.RAILWAY_GIT_COMMIT_SHA,
   git(["rev-parse", "HEAD"]),
 );
 const repository = normalizeRepository(firstText(
   process.env.SOURCE_REPOSITORY_URL,
+  process.env.RENDER_GIT_REPO_SLUG,
   process.env.GITHUB_REPOSITORY,
   git(["config", "--get", "remote.origin.url"]),
 ));
