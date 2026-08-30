@@ -16,16 +16,14 @@ describe("ensureRoomsSpecCodes", () => {
     expect(spec[0].code).not.toBe(spec[1].code);
   });
 
-  it("leaves a property alone when every room type is already unambiguous", () => {
-    // Coding these would change the bucket key they are counted under, and
-    // bookings already sold carry the room type as their roomCode.
+  it("codes unambiguous room types too, so a later duplicate cannot recode them", () => {
     const spec = ensureRoomsSpecCodes<SpecEntry[]>([
       { roomType: "Single", beds: { queen: 1 } },
       { roomType: "Double", beds: { king: 1 } },
     ]);
 
-    expect(spec[0].code).toBeUndefined();
-    expect(spec[1].code).toBeUndefined();
+    expect(spec[0].code).toBe("Single 1 Queen");
+    expect(spec[1].code).toBe("Double 1 King");
   });
 
   it("keeps a code the owner or an NRMS import already set", () => {

@@ -5,7 +5,7 @@ vi.mock("@nolsaf/prisma", async (importOriginal) => {
   return { ...original, prisma: {} };
 });
 
-import { evaluateRestrictionRules } from "../lib/nrmsRestrictions";
+import { evaluateRestrictionRules, resolveRoomTypeIdForCode } from "../lib/nrmsRestrictions";
 
 const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
@@ -111,5 +111,47 @@ describe("rule scope filtering", () => {
 
   it("returns nothing for a stay with no nights", () => {
     expect(evaluateRestrictionRules([rule({ stopSell: true })], { ...stay, checkOut: stay.checkIn })).toHaveLength(0);
+  });
+});
+
+describe("resolveRoomTypeIdForCode", () => {
+  function fakeDb(types: Array<{ id: number; name: string; sourceSpecKey?: string | null }>): any {
+    return {
+      roomUnit: { findFirst: async () => null },
+      roomType: {
+        findFirst: async ({ where }: any) => {
+          const wanted = where.OR.map((clause: any) => clause.name ?? clause.sourceSpecKey);
+          return types.find((type) => wanted.includes(type.name) || wanted.includes(type.sourceSpecKey)) ?? null;
+        },
+        findMany: async () => types,
+      },
+    };
+  }
+
+  it("resolves a room type by its own name", async () => {
+    const db = fakeDb([{ id: 11, name: "Single", sourceSpecKey: "Single" }]);
+    await expect(resolveRoomTypeIdForCode(db, 7, "Single")).resolves.toBe(11);
+  });
+
+  it("resolves a roomsSpec variant code back to its room type", async () => {
+    // roomsSpec variants are coded "<room type> <beds>", but NRMS imports room
+    // types under the bare room type. Without this a room-scoped stop sell
+    // would stop closing marketplace dates.
+    const db = fakeDb([{ id: 11, name: "Single", sourceSpecKey: "Single" }]);
+    await expect(resolveRoomTypeIdForCode(db, 7, "Single 1 Queen")).resolves.toBe(11);
+  });
+
+  it("prefers the most specific room type name", async () => {
+    const db = fakeDb([
+      { id: 11, name: "Deluxe", sourceSpecKey: "Deluxe" },
+      { id: 12, name: "Deluxe Suite", sourceSpecKey: "Deluxe Suite" },
+    ]);
+    await expect(resolveRoomTypeIdForCode(db, 7, "Deluxe Suite 1 King")).resolves.toBe(12);
+  });
+
+  it("returns null when nothing matches", async () => {
+    const db = fakeDb([{ id: 11, name: "Single", sourceSpecKey: "Single" }]);
+    await expect(resolveRoomTypeIdForCode(db, 7, "Cottage 1 King")).resolves.toBeNull();
+    await expect(resolveRoomTypeIdForCode(db, 7, "")).resolves.toBeNull();
   });
 });

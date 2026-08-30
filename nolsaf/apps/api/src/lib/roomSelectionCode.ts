@@ -75,34 +75,19 @@ export function roomSelectionCodeFor(entry: unknown): string {
   return avoidUnitCodeShape(combined.slice(0, MAX_CODE_LENGTH).trim());
 }
 
-/** The room type an entry would bucket under today, with no code applied. */
-function roomTypeKeyOf(entry: unknown): string {
-  const source = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
-  return firstString(source.roomType, source.type, source.name, source.label).toLowerCase();
-}
-
 /**
  * Assign a code to every roomsSpec entry that lacks one, keeping codes unique
  * within the property. Existing codes are preserved so this is safe to run on
  * every save and on already-coded properties.
  *
- * Codes are only assigned when the property actually publishes two or more
- * options under one room type, which is the only case the room type cannot
- * describe. Leaving unambiguous properties untouched matters: a code changes
- * the bucket key a room is counted under, and bookings already sold carry the
- * room type as their roomCode. Recoding those properties would stop their
- * existing bookings from matching any bucket and quietly free sold rooms.
+ * Every entry is coded, not only the ambiguous ones. Coding a room changes the
+ * bucket key it is counted under, so a property that gains its first duplicate
+ * room type later would otherwise be recoded at that moment and orphan rooms it
+ * had already sold under the bare room type. Coding everything up front means
+ * an identity is assigned once, before anything is sold against it.
  */
 export function ensureRoomsSpecCodes<T>(roomsSpec: T): T {
   if (!Array.isArray(roomsSpec)) return roomsSpec;
-
-  const seenTypes = new Map<string, number>();
-  for (const entry of roomsSpec) {
-    const key = roomTypeKeyOf(entry);
-    if (key) seenTypes.set(key, (seenTypes.get(key) ?? 0) + 1);
-  }
-  const hasDuplicateType = Array.from(seenTypes.values()).some((count) => count > 1);
-  if (!hasDuplicateType) return roomsSpec;
 
   const used = new Set<string>();
   for (const entry of roomsSpec) {
