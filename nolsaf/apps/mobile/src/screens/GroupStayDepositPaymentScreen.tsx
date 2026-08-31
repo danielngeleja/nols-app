@@ -21,6 +21,7 @@ import {
 import { useSecureScreen } from "../lib/secureScreen";
 import { apiBaseUrl, ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
+import { classifyCardCheckoutResult } from "../lib/cardCheckout";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import {
   fetchGroupBookingById,
@@ -284,7 +285,38 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
         return;
       }
       setPaymentRef(res.paymentRef || res.transactionId || null);
-      await WebBrowser.openAuthSessionAsync(res.checkoutUrl, CARD_RETURN_URL);
+      const browserResult = await WebBrowser.openAuthSessionAsync(res.checkoutUrl, CARD_RETURN_URL);
+      const checkout = classifyCardCheckoutResult(browserResult);
+
+      let statusCheckFailed = false;
+      try {
+        const latest = await fetchGroupBookingDepositStatus(token, id);
+        setDeposit(latest);
+        if (latest.depositPaid) {
+          setStatus("success");
+          setError(null);
+          return;
+        }
+      } catch {
+        statusCheckFailed = true;
+        // Returned checkouts continue through polling; a closed browser returns
+        // to payment choices instead of pretending a payment is still active.
+      }
+
+      if (checkout.kind === "closed") {
+        setStatus("idle");
+        setError(
+          statusCheckFailed
+            ? "Card checkout was closed, but payment status could not be checked. Reconnect and reopen this payment before trying again."
+            : "Card checkout was closed. No payment was confirmed. You can try again or choose another method."
+        );
+        return;
+      }
+      if (checkout.status === "failed") {
+        setStatus("failed");
+        setError("The card payment was not completed. Please try again or choose another payment method.");
+        return;
+      }
       setStatus("pending");
       beginPolling();
     } catch (err) {

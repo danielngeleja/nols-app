@@ -15,7 +15,6 @@ import { CancelBookingScreen } from "../screens/CancelBookingScreen";
 import { CancellationDetailScreen } from "../screens/CancellationDetailScreen";
 import { MyCancellationsScreen } from "../screens/MyCancellationsScreen";
 import { CostCalculatorScreen } from "../screens/CostCalculatorScreen";
-import { CustomerHomeScreen } from "../screens/CustomerHomeScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 import { MyBookingsScreen } from "../screens/MyBookingsScreen";
@@ -100,7 +99,7 @@ export function AppNavigator() {
   return (
     <NavigationContainer theme={navigationTheme} linking={linking}>
       <Stack.Navigator
-        initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : status === "authenticated" ? "CustomerHome" : "Onboarding"}
+        initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : "Onboarding"}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.surface }
@@ -116,7 +115,6 @@ export function AppNavigator() {
           ) : (
           <>
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen name="CustomerHome" component={CustomerHomeScreen} />
             <Stack.Screen name="CostCalculator" component={CostCalculatorScreen} />
             <Stack.Screen name="MyRides" component={MyRidesScreen} />
             <Stack.Screen name="RideDetail" component={RideDetailScreen} />

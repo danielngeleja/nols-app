@@ -29,6 +29,7 @@ import {
 import { useSecureScreen } from "../lib/secureScreen";
 import { ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
+import { classifyCardCheckoutResult } from "../lib/cardCheckout";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
@@ -279,10 +280,41 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
         return;
       }
       setPaymentRef(res.paymentRef || res.transactionId || invoice.paymentRef || null);
-      // Open the hosted card checkout page. The session resolves when the user is
-      // redirected back or closes it; either way we confirm via polling, since
-      // the webhook is the authoritative "paid" signal.
-      await WebBrowser.openAuthSessionAsync(url, CARD_RETURN_URL);
+      const browserResult = await WebBrowser.openAuthSessionAsync(url, CARD_RETURN_URL);
+      const checkout = classifyCardCheckoutResult(browserResult);
+
+      // Always ask our API once after the browser returns. This catches a payment
+      // that settled just before the customer closed the browser without ever
+      // trusting the redirect itself as proof of payment.
+      let statusCheckFailed = false;
+      try {
+        const latest = await fetchInvoice(invoiceId, accessToken);
+        setInvoice(latest);
+        if (latest.status === "PAID") {
+          setStatus("success");
+          setError(null);
+          return;
+        }
+      } catch {
+        statusCheckFailed = true;
+        // A short API interruption must not turn a browser close into a fake
+        // waiting state. Returned checkouts can continue through normal polling.
+      }
+
+      if (checkout.kind === "closed") {
+        setStatus("idle");
+        setError(
+          statusCheckFailed
+            ? "Card checkout was closed, but payment status could not be checked. Reconnect and reopen this payment before trying again."
+            : "Card checkout was closed. No payment was confirmed. You can try again or choose another method."
+        );
+        return;
+      }
+      if (checkout.status === "failed") {
+        setStatus("failed");
+        setError("The card payment was not completed. Please try again or choose another payment method.");
+        return;
+      }
       setStatus("pending");
       beginPolling();
     } catch (err) {

@@ -3,7 +3,6 @@ export type RootStackParamList = {
   Login: undefined;
   ForgotPassword: undefined;
   Register: { ref?: string } | undefined;
-  CustomerHome: undefined;
   CostCalculator: undefined;
   MyRides: undefined;
   RideDetail: { id: number };
