@@ -1,4 +1,5 @@
 import { apiRequest } from "../lib/apiClient";
+import { AvailabilityRoomFilter, buildAvailabilityRangePath } from "./availability";
 import { PropertyListResponse, PropertySearchParams, PropertyVerificationResponse, PublicHomeSummary, PublicPropertyDetail, SavedPropertyListResponse } from "./types";
 
 export async function fetchPublicProperties(params: PropertySearchParams = {}) {
@@ -99,11 +100,14 @@ export async function fetchPropertiesAvailability(ids: number[], date: string) {
 }
 
 /** Rooms available for a check in to check out range for one property, optionally
- *  narrowed to a single room type. */
-export async function fetchAvailabilityRange(id: number, checkIn: string, checkOut: string, roomType?: string) {
-  const query = new URLSearchParams({ ids: String(id), checkIn, checkOut });
-  if (roomType) query.set("roomType", roomType);
-  return apiRequest<AvailabilityResponse>(`/api/public/properties/availability?${query.toString()}`);
+ * narrowed by exact stable room code or a legacy room type. */
+export async function fetchAvailabilityRange(
+  id: number,
+  checkIn: string,
+  checkOut: string,
+  filter: AvailabilityRoomFilter = {}
+) {
+  return apiRequest<AvailabilityResponse>(buildAvailabilityRangePath(id, checkIn, checkOut, filter));
 }
 
 /** List the authenticated traveller's saved properties. */

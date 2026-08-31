@@ -1,3 +1,4 @@
+export * from "./availability";
 export * from "./propertiesApi";
 export * from "./propertyServices";
 export * from "./roomSpec";

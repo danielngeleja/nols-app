@@ -1638,7 +1638,12 @@ function RoomCard({
     }
     let cancelled = false;
     setRoomAvailLoading(true);
-    fetchAvailabilityRange(propertyId, checkIn, checkOut, room.roomType)
+    fetchAvailabilityRange(
+      propertyId,
+      checkIn,
+      checkOut,
+      room.sourceCode ? { roomCode: room.sourceCode } : { roomType: room.roomType }
+    )
       .then((res) => {
         if (!cancelled) setRoomAvail(res.items[0]?.roomsAvailable ?? null);
       })
@@ -1651,9 +1656,12 @@ function RoomCard({
     return () => {
       cancelled = true;
     };
-  }, [propertyId, checkIn, checkOut, room.roomType]);
+  }, [propertyId, checkIn, checkOut, room.sourceCode, room.roomType]);
 
   const soldOut = roomAvail === 0;
+  const hasDates = !!checkIn && !!checkOut;
+  const availabilityUnknown = hasDates && !roomAvailLoading && roomAvail == null;
+  const bookingBlocked = hasDates && (roomAvailLoading || availabilityUnknown || soldOut);
   const floorChip = formatFloors(room.floors);
 
   return (
@@ -1814,7 +1822,11 @@ function RoomCard({
               </View>
             </View>
             <View style={styles.payBtn}>
-              <AppButton title={soldOut ? "Sold out" : "Pay now"} disabled={soldOut} onPress={onBook} />
+              <AppButton
+                title={roomAvailLoading ? "Checking" : soldOut ? "Sold out" : availabilityUnknown ? "Unavailable" : "Pay now"}
+                disabled={bookingBlocked}
+                onPress={onBook}
+              />
             </View>
           </View>
         </View>

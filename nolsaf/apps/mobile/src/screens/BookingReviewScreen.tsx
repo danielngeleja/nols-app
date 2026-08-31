@@ -46,6 +46,7 @@ import {
   fetchAvailabilityRange,
   fetchPropertyDetail,
   normalizeRoom,
+  resolveBookingAvailability,
   resolveRoomOptionIndex,
   type PublicPropertyDetail
 } from "../properties";
@@ -171,8 +172,10 @@ export function BookingReviewScreen({ navigation, route }: Props) {
   const [nationality, setNationality] = useState("");
   const [sex, setSex] = useState<GuestSex | "">("");
 
-  const [avail, setAvail] = useState<number | null | undefined>(undefined);
+  const [roomAvailability, setRoomAvailability] = useState<Array<number | null | undefined>>([]);
+  const [propertyAvailability, setPropertyAvailability] = useState<number | null | undefined>(undefined);
   const [availLoading, setAvailLoading] = useState(false);
+  const [availabilityRetry, setAvailabilityRetry] = useState(0);
 
   const [transport, setTransport] = useState<TransportSelection>({
     include: false,
@@ -248,37 +251,89 @@ export function BookingReviewScreen({ navigation, route }: Props) {
   const selectedRoomCode = selectedRoom ? selectedRoom.sourceCode || selectedRoom.roomType : null;
 
   const currency = detail?.currency || "TZS";
-  const netPerNight = selectedRoom?.pricePerNight ?? (detail?.basePrice ? Number(detail.basePrice) : 0);
+  const priceSelectionReady = roomOptions.length === 0 || selectedRoom != null;
+  const netPerNight = selectedRoom?.pricePerNight ?? (roomOptions.length === 0 && detail?.basePrice ? Number(detail.basePrice) : 0);
   const grossPerNight = priceWithCommission(netPerNight, commission);
   const nights = nightsBetween(checkIn, checkOut);
   const subtotal = grossPerNight * Math.max(1, nights) * rooms;
   const transportFare = transport.include ? transport.fare : 0;
   const total = subtotal + transportFare;
 
-  // Live availability for the chosen dates and room type.
+  // Check every displayed room by its exact stable identity. This lets the UI
+  // disable only unavailable variants instead of treating one selected room as
+  // proof that the whole property is sold out.
   useEffect(() => {
     if (!checkIn || !checkOut || nights <= 0) {
-      setAvail(undefined);
+      setRoomAvailability([]);
+      setPropertyAvailability(undefined);
+      setAvailLoading(false);
       return;
     }
     let cancelled = false;
     setAvailLoading(true);
-    fetchAvailabilityRange(propertyId, checkIn, checkOut, selectedRoomCode || undefined)
-      .then((res) => {
-        if (!cancelled) setAvail(res.items[0]?.roomsAvailable ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setAvail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setAvailLoading(false);
-      });
+    setRoomAvailability(roomOptions.map(() => undefined));
+    setPropertyAvailability(undefined);
+
+    const request = roomOptions.length
+      ? Promise.all(
+          roomOptions.map(async (room) => {
+            try {
+              const filter = room.sourceCode ? { roomCode: room.sourceCode } : { roomType: room.roomType };
+              const res = await fetchAvailabilityRange(propertyId, checkIn, checkOut, filter);
+              return res.items[0]?.roomsAvailable ?? null;
+            } catch {
+              return null;
+            }
+          })
+        ).then((values) => {
+          if (!cancelled) setRoomAvailability(values);
+        })
+      : fetchAvailabilityRange(propertyId, checkIn, checkOut)
+          .then((res) => {
+            if (!cancelled) setPropertyAvailability(res.items[0]?.roomsAvailable ?? null);
+          })
+          .catch(() => {
+            if (!cancelled) setPropertyAvailability(null);
+          });
+
+    request.finally(() => {
+      if (!cancelled) setAvailLoading(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [propertyId, checkIn, checkOut, selectedRoomCode, nights]);
+  }, [propertyId, checkIn, checkOut, nights, roomOptions, availabilityRetry]);
 
-  const soldOut = avail === 0;
+  const avail = roomOptions.length > 0 ? (selectedRoomIndex == null ? undefined : roomAvailability[selectedRoomIndex]) : propertyAvailability;
+  const availability = resolveBookingAvailability({
+    hasValidDates: !!checkIn && !!checkOut && nights > 0,
+    requiresRoomSelection: roomOptions.length > 0,
+    roomSelected: selectedRoomIndex != null,
+    loading: availLoading,
+    availableRooms: avail,
+    requestedRooms: rooms
+  });
+  const soldOut = availability.status === "sold_out";
+  const showTotal = availability.showTotal && priceSelectionReady;
+  const selectedRoomLabel = selectedRoom ? labelize(selectedRoom.roomType) : "Selected room";
+  const availabilityMessage = (() => {
+    switch (availability.status) {
+      case "dates_required":
+        return "Choose check-in and check-out dates before pricing.";
+      case "room_required":
+        return "Select an available room before pricing.";
+      case "checking":
+        return "Checking live room availability...";
+      case "unknown":
+        return "Availability could not be confirmed. Retry before payment.";
+      case "sold_out":
+        return `${selectedRoomLabel} is sold out for your dates. Choose another room.`;
+      case "insufficient":
+        return `Only ${avail} ${Number(avail) === 1 ? "room is" : "rooms are"} available. Reduce the number of rooms or choose another option.`;
+      default:
+        return `${avail} available for your dates`;
+    }
+  })();
   const phoneValid = !!normalizeTzPhone(guestPhone);
 
   // Lock the details that come from the verified account so they cannot be edited.
@@ -290,7 +345,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     !!checkIn &&
     !!checkOut &&
     nights > 0 &&
-    !soldOut &&
+    availability.canBook &&
     roomOk &&
     guestName.trim().length >= 2 &&
     phoneValid &&
@@ -303,6 +358,10 @@ export function BookingReviewScreen({ navigation, route }: Props) {
 
     if (!checkIn || !checkOut || nights <= 0) {
       setError("Please choose your check in and check out dates.");
+      return;
+    }
+    if (!availability.canBook) {
+      setError(availabilityMessage);
       return;
     }
     if (guestName.trim().length < 2) {
@@ -363,6 +422,40 @@ export function BookingReviewScreen({ navigation, route }: Props) {
       setSubmitting(false);
     }
   }
+
+  function handleBottomAction() {
+    if (availability.status === "dates_required") {
+      setCalendarVisible(true);
+      return;
+    }
+    if (availability.status === "unknown") {
+      setAvailabilityRetry((value) => value + 1);
+      return;
+    }
+    handleContinue();
+  }
+
+  const bottomActionTitle = (() => {
+    switch (availability.status) {
+      case "dates_required":
+        return "Choose dates";
+      case "room_required":
+        return "Select a room";
+      case "checking":
+        return "Checking availability";
+      case "unknown":
+        return "Retry availability";
+      case "sold_out":
+        return "Room unavailable";
+      case "insufficient":
+        return "Not enough rooms";
+      default:
+        return "Continue to payment";
+    }
+  })();
+
+  const bottomActionDisabled =
+    availability.status === "dates_required" || availability.status === "unknown" ? false : !canContinue;
 
   if (loading) {
     return (
@@ -488,16 +581,20 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                   <AppText variant="caption" weight="semiBold" tone="muted">
                     Checking availability...
                   </AppText>
+                ) : selectedRoomIndex == null && roomOptions.length > 0 ? (
+                  <AppText variant="caption" weight="semiBold" tone="muted">
+                    Select a room to see confirmed availability
+                  </AppText>
                 ) : avail != null ? (
                   <>
-                    {soldOut ? <XCircle color={colors.mutedText} size={13} /> : <CheckCircle2 color={colors.success} size={13} />}
-                    <AppText variant="caption" weight="bold" tone={soldOut ? "muted" : "success"}>
-                      {soldOut ? "Sold out for your dates" : `${avail} available for your dates`}
+                    {availability.canBook ? <CheckCircle2 color={colors.success} size={13} /> : <XCircle color={colors.mutedText} size={13} />}
+                    <AppText variant="caption" weight="bold" tone={availability.canBook ? "success" : "muted"}>
+                      {availabilityMessage}
                     </AppText>
                   </>
                 ) : (
                   <AppText variant="caption" weight="semiBold" tone="muted">
-                    Availability will be confirmed at payment
+                    Availability could not be confirmed. Use Retry availability below.
                   </AppText>
                 )}
               </View>
@@ -517,13 +614,17 @@ export function BookingReviewScreen({ navigation, route }: Props) {
               </AppText>
               {roomOptions.map((room, index) => {
                 const active = selectedRoomIndex === index;
+                const roomAvail = roomAvailability[index];
+                const hasDates = !!checkIn && !!checkOut && nights > 0;
+                const roomUnavailable = hasDates && !availLoading && (roomAvail == null || roomAvail <= 0);
                 return (
                   <Pressable
                     key={`${room.sourceCode || room.roomType}-${index}`}
                     accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
+                    accessibilityState={{ selected: active, disabled: roomUnavailable || (hasDates && availLoading) }}
+                    disabled={roomUnavailable || (hasDates && availLoading)}
                     onPress={() => setRoomCode(active ? null : String(index))}
-                    style={[styles.roomRow, active && styles.roomRowActive]}
+                    style={[styles.roomRow, active && styles.roomRowActive, roomUnavailable && styles.roomRowUnavailable]}
                   >
                     <View style={styles.roomIcon}>
                       <BedDouble color={colors.primary} size={16} />
@@ -537,9 +638,20 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                           {room.bedsSummary}
                         </AppText>
                       ) : null}
+                      {hasDates ? (
+                        <AppText variant="caption" weight="semiBold" tone={roomAvail != null && roomAvail > 0 ? "success" : "muted"} numberOfLines={1}>
+                          {availLoading
+                            ? "Checking availability..."
+                            : roomAvail == null
+                              ? "Availability unavailable"
+                              : roomAvail > 0
+                                ? `${roomAvail} available`
+                                : "Sold out"}
+                        </AppText>
+                      ) : null}
                     </View>
                     {room.pricePerNight != null ? (
-                      <AppText variant="caption" weight="semiBold" tone="soft">
+                      <AppText variant="caption" weight="semiBold" tone={roomUnavailable ? "muted" : "soft"}>
                         {priceWithCommission(room.pricePerNight, commission).toLocaleString()} {currency}
                       </AppText>
                     ) : null}
@@ -701,47 +813,60 @@ export function BookingReviewScreen({ navigation, route }: Props) {
             <AppText variant="label" weight="bold" tone="muted">
               PRICE
             </AppText>
-            <View style={styles.priceRow}>
-              <AppText variant="bodySmall" tone="muted" style={styles.flex}>
-                {grossPerNight.toLocaleString()} {currency} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
-                {rooms > 1 ? ` × ${rooms} rooms` : ""}
-              </AppText>
-              <AppText variant="bodySmall" weight="semiBold">
-                {subtotal.toLocaleString()} {currency}
-              </AppText>
-            </View>
-            {transportFare > 0 ? (
-              <AppStack gap={2}>
+            {showTotal ? (
+              <>
                 <View style={styles.priceRow}>
                   <AppText variant="bodySmall" tone="muted" style={styles.flex}>
-                    Ride to the stay
+                    {grossPerNight.toLocaleString()} {currency} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
+                    {rooms > 1 ? ` × ${rooms} rooms` : ""}
                   </AppText>
                   <AppText variant="bodySmall" weight="semiBold">
-                    {(transport.surgeAmount > 0 ? transport.fareSubtotal : transportFare).toLocaleString()} {currency}
+                    {subtotal.toLocaleString()} {currency}
                   </AppText>
                 </View>
-                {transport.surgeAmount > 0 ? (
-                  <View style={styles.priceRow}>
-                    <AppText variant="caption" tone="warning" weight="semiBold" style={styles.flex}>
-                      Peak fare ({Math.round((transport.surgeMultiplier - 1) * 100)}%)
-                    </AppText>
-                    <AppText variant="bodySmall" tone="warning" weight="semiBold">
-                      +{transport.surgeAmount.toLocaleString()} {currency}
-                    </AppText>
-                  </View>
+                {transportFare > 0 ? (
+                  <AppStack gap={2}>
+                    <View style={styles.priceRow}>
+                      <AppText variant="bodySmall" tone="muted" style={styles.flex}>
+                        Ride to the stay
+                      </AppText>
+                      <AppText variant="bodySmall" weight="semiBold">
+                        {(transport.surgeAmount > 0 ? transport.fareSubtotal : transportFare).toLocaleString()} {currency}
+                      </AppText>
+                    </View>
+                    {transport.surgeAmount > 0 ? (
+                      <View style={styles.priceRow}>
+                        <AppText variant="caption" tone="warning" weight="semiBold" style={styles.flex}>
+                          Peak fare ({Math.round((transport.surgeMultiplier - 1) * 100)}%)
+                        </AppText>
+                        <AppText variant="bodySmall" tone="warning" weight="semiBold">
+                          +{transport.surgeAmount.toLocaleString()} {currency}
+                        </AppText>
+                      </View>
+                    ) : null}
+                  </AppStack>
                 ) : null}
-              </AppStack>
-            ) : null}
-            <View style={styles.divider} />
-            <View style={styles.priceRow}>
-              <AppText variant="bodySmall" weight="bold" style={styles.flex}>
-                Total
-              </AppText>
-              <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" tone="primary" />
-            </View>
-            <AppText variant="caption" tone="soft">
-              You pay this securely on the next step.
-            </AppText>
+                <View style={styles.divider} />
+                <View style={styles.priceRow}>
+                  <AppText variant="bodySmall" weight="bold" style={styles.flex}>
+                    Total
+                  </AppText>
+                  <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" tone="primary" />
+                </View>
+                <AppText variant="caption" tone="soft">
+                  You pay this securely on the next step.
+                </AppText>
+              </>
+            ) : (
+              <View style={styles.priceUnavailable}>
+                <AppText variant="bodySmall" weight="semiBold" tone="muted">
+                  {availabilityMessage}
+                </AppText>
+                <AppText variant="caption" tone="soft">
+                  No payable total is shown until inventory is confirmed.
+                </AppText>
+              </View>
+            )}
           </AppStack>
         </AppCard>
 
@@ -758,15 +883,21 @@ export function BookingReviewScreen({ navigation, route }: Props) {
         <View style={styles.barRow}>
           <View style={styles.flex}>
             <AppText variant="caption" tone="soft">
-              Total
+              {showTotal ? "Total" : "No confirmed total"}
             </AppText>
-            <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" />
+            {showTotal ? (
+              <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" />
+            ) : (
+              <AppText variant="titleSm" weight="extraBold" tone="muted">
+                —
+              </AppText>
+            )}
           </View>
           <AppButton
-            title={soldOut ? "Sold out" : "Continue to payment"}
-            onPress={handleContinue}
+            title={bottomActionTitle}
+            onPress={handleBottomAction}
             loading={submitting}
-            disabled={!canContinue}
+            disabled={bottomActionDisabled}
             style={styles.barBtn}
           />
         </View>
@@ -778,6 +909,11 @@ export function BookingReviewScreen({ navigation, route }: Props) {
         checkOut={checkOut}
         onClose={() => setCalendarVisible(false)}
         onApply={(ci, co) => {
+          // Clear the previous range synchronously so it can never flash a
+          // stale total while the new range request starts.
+          setRoomAvailability([]);
+          setPropertyAvailability(undefined);
+          setAvailLoading(true);
           setCheckIn(ci);
           setCheckOut(co);
           setCalendarVisible(false);
@@ -860,6 +996,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3]
   },
   roomRowActive: { borderColor: colors.primary, backgroundColor: colors.brand[50] },
+  roomRowUnavailable: { opacity: 0.55 },
   roomIcon: {
     width: 32,
     height: 32,
@@ -924,6 +1061,7 @@ const styles = StyleSheet.create({
   },
   segmentItemOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   priceRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
+  priceUnavailable: { gap: spacing[2], paddingVertical: spacing[2] },
   errorBox: {
     borderRadius: radius.md,
     borderWidth: 1,
