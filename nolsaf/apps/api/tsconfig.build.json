@@ -4,7 +4,7 @@
     "sourceMap": true,
     "inlineSources": true
   },
-  "include": ["src"],
+  "include": ["src", "scripts/backfill-rooms-spec-codes.ts"],
   "exclude": [
     "node_modules",
     "dist",

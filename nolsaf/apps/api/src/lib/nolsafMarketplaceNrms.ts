@@ -5,6 +5,7 @@ import { computeDraftBookingAvailability, type DraftBookingAvailability } from "
 import { lockPropertyInventory } from "./nrmsAvailability.js";
 import { queueNrmsCheckInWelcome } from "./nrmsCheckInWelcome.js";
 import { resolveAllocationMealPlan } from "./nrmsMealPlan.js";
+import { resolveRoomTypeIdForCode } from "./nrmsRestrictions.js";
 
 type DbLike = any;
 
@@ -33,12 +34,6 @@ function reservationStatus(status: string): string | null {
     default:
       return null;
   }
-}
-
-function roomTypeKey(roomCode: string | null | undefined): string | null {
-  const value = String(roomCode ?? "").trim();
-  if (!value) return null;
-  return value.replace(/-\d+$/, "") || value;
 }
 
 function profileText(value: unknown, maxLength: number): string | null {
@@ -109,14 +104,8 @@ async function resolveRoom(db: DbLike, propertyId: number, roomCode: string | nu
   });
   if (unit) return { roomTypeId: unit.roomTypeId, roomUnitId: unit.id };
 
-  const key = roomTypeKey(roomCode);
-  const type = key
-    ? await db.roomType.findFirst({
-        where: { propertyId, OR: [{ name: key }, { sourceSpecKey: key }] },
-        select: { id: true },
-      })
-    : null;
-  return { roomTypeId: type?.id ?? null, roomUnitId: null as number | null };
+  const roomTypeId = await resolveRoomTypeIdForCode(db, propertyId, roomCode);
+  return { roomTypeId, roomUnitId: null as number | null };
 }
 
 /**

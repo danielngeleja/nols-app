@@ -173,6 +173,7 @@ try {
     Write-Host "-- Validating deployment bundle ..."
     $requiredFiles = @(
         "$ApiDir\dist\src\index.js",
+        "$ApiDir\dist\scripts\backfill-rooms-spec-codes.js",
         "$ApiDir\dist\release.json",
         "$VendorRoot\@nolsaf\prisma\package.json",
         "$VendorRoot\@nolsaf\prisma\dist\index.js",
@@ -197,7 +198,10 @@ try {
     }
     Write-Host "   Bundle contains $($migrationFiles.Count) Prisma migration files."
 
-    $compiledJavaScript = @(Get-ChildItem "$ApiDir\dist\src" -Filter "*.js" -File -Recurse)
+    $compiledJavaScript = @(
+        Get-ChildItem "$ApiDir\dist\src" -Filter "*.js" -File -Recurse
+        Get-Item "$ApiDir\dist\scripts\backfill-rooms-spec-codes.js"
+    )
     if ($compiledJavaScript.Count -eq 0) {
         throw "Deployment bundle contains no compiled API JavaScript files."
     }
@@ -209,7 +213,7 @@ try {
     if ($missingSourceMaps.Count -gt 0) {
         throw "Deployment bundle is missing $($missingSourceMaps.Count) adjacent API source maps."
     }
-    foreach ($excludedBuildPath in @("$ApiDir\dist\src\__tests__", "$ApiDir\dist\src\dev", "$ApiDir\dist\scripts")) {
+    foreach ($excludedBuildPath in @("$ApiDir\dist\src\__tests__", "$ApiDir\dist\src\dev")) {
         if (Test-Path -LiteralPath $excludedBuildPath) {
             throw "Production API build contains excluded test/development output: $excludedBuildPath"
         }

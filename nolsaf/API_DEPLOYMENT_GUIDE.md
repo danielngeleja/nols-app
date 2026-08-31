@@ -507,6 +507,55 @@ Resolve the API deployment failure without rerunning the migration or launching
 another deploy blindly. The schema expansion may already be committed and must
 remain backward-compatible with the rollback API version.
 
+### Run the guarded room-code backfill for stable room variants
+
+The deployed API contains the exact backfill runner under `dist/scripts`. Run
+its dry-run first from one Elastic Beanstalk instance; never run it concurrently
+from multiple instances.
+
+```powershell
+Set-Location $ApiDir
+& $Eb ssh $EbEnvironment
+```
+
+Inside the SSH session:
+
+```bash
+set -euo pipefail
+cd /var/app/current
+npm run rooms:codes:backfill:runtime
+```
+
+Required dry-run result:
+
+- `mode` is `dry-run`;
+- `activeBlockers` is `0`;
+- `safeToApply` is `true`;
+- every planned booking/block rewrite points to one explicit target code.
+
+An active ambiguous reference is a stop condition. Do not choose the first
+candidate. Reconcile the booking or availability block with the property owner,
+assign its exact variant code through a reviewed data correction, and rerun the
+dry-run. Historical unresolved references are reported but do not affect
+current or future inventory.
+
+After a clean dry-run, apply once and prove the rerun is empty:
+
+```bash
+npm run rooms:codes:backfill:runtime:apply
+npm run rooms:codes:backfill:runtime
+```
+
+The final dry-run must report `propertiesToChange: 0`,
+`plannedReferenceUpdates: 0`, and `activeBlockers: 0`. The runner locks and
+rechecks each property before writing, updates safe booking/block references in
+the same transaction as `roomsSpec`, and is idempotent. Preserve the RDS
+snapshot from section 4 until post-deployment verification is complete.
+
+```bash
+exit
+```
+
 ## 8. Verify the deployed bundle carries the applied migration head
 
 Connect to the production instance:

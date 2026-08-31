@@ -9,6 +9,7 @@ import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js"
 import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlocks.js";
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "../lib/nrmsRestrictions.js";
+import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
 
 export const router = Router();
 
@@ -29,6 +30,17 @@ function findBucketKey(roomCode: string | null | undefined, keys: string[]): str
   if (keys.includes(typeKey)) return typeKey;
   const rc = String(roomCode ?? "");
   return keys.find((k) => rc === k || (k && rc.startsWith(k + "-"))) || null;
+}
+
+function findBucketKeys(
+  roomCode: string | null | undefined,
+  keys: string[],
+  roomsSpec: unknown,
+): string[] {
+  const compatible = matchingRoomSelectionCodes(roomCode, keys, roomsSpec);
+  if (compatible.length) return compatible;
+  const legacy = findBucketKey(roomCode, keys);
+  return legacy ? [legacy] : [];
 }
 
 function parseAvailabilityDate(value: string): Date {
@@ -288,36 +300,40 @@ router.post("/check", availabilityLimiter, (async (req: Request, res: Response) 
     conflictingBookings.forEach((booking) => {
       if (requestedRoomCode && requestedIsSpecificRoom && booking.roomCode !== requestedRoomCode) return;
 
-      const mappedBucket = findBucketKey(booking.roomCode, keys);
+      const mappedBuckets = findBucketKeys(booking.roomCode, keys, property.roomsSpec);
       // When a type filter is active, a booking with an explicit roomCode that doesn't match
       // the requested type should be skipped — don't fall back to keys[0] and inflate counts.
       // Bookings with null/empty roomCode still fall back (legacy: no per-room tracking).
-      const hasExplicitMismatch = !!(booking.roomCode && !mappedBucket);
-      const bucket = hasExplicitMismatch
-        ? null
-        : (mappedBucket || (keys.length ? keys[0] : null));
-      if (!bucket || !availabilityByRoomType[bucket]) return;
-
-      const bedsPerRoom = bedsPerRoomFor(bucket);
-      availabilityByRoomType[bucket].bookedRooms += 1;
-      availabilityByRoomType[bucket].bookedBeds += bedsPerRoom;
+      const targets = mappedBuckets.length
+        ? mappedBuckets
+        : booking.roomCode
+          ? []
+          : keys.slice(0, 1);
+      for (const bucket of targets) {
+        if (!availabilityByRoomType[bucket]) continue;
+        const bedsPerRoom = bedsPerRoomFor(bucket);
+        availabilityByRoomType[bucket].bookedRooms += 1;
+        availabilityByRoomType[bucket].bookedBeds += bedsPerRoom;
+      }
     });
 
     // Count blocks by room type bucket (bedsBlocked represents number of rooms/beds blocked)
     availabilityBlocks.forEach((block) => {
       if (requestedRoomCode && requestedIsSpecificRoom && block.roomCode !== requestedRoomCode) return;
 
-      const mappedBucket = findBucketKey(block.roomCode, keys);
-      const hasExplicitMismatch = !!(block.roomCode && !mappedBucket);
-      const bucket = hasExplicitMismatch
-        ? null
-        : (mappedBucket || (keys.length ? keys[0] : null));
-      if (!bucket || !availabilityByRoomType[bucket]) return;
-
-      const roomsBlocked = Number(block.bedsBlocked ?? 1) || 1;
-      const bedsPerRoom = bedsPerRoomFor(bucket);
-      availabilityByRoomType[bucket].blockedRooms += roomsBlocked;
-      availabilityByRoomType[bucket].blockedBeds += roomsBlocked * bedsPerRoom;
+      const mappedBuckets = findBucketKeys(block.roomCode, keys, property.roomsSpec);
+      const targets = mappedBuckets.length
+        ? mappedBuckets
+        : block.roomCode
+          ? []
+          : keys.slice(0, 1);
+      for (const bucket of targets) {
+        if (!availabilityByRoomType[bucket]) continue;
+        const roomsBlocked = Number(block.bedsBlocked ?? 1) || 1;
+        const bedsPerRoom = bedsPerRoomFor(bucket);
+        availabilityByRoomType[bucket].blockedRooms += roomsBlocked;
+        availabilityByRoomType[bucket].blockedBeds += roomsBlocked * bedsPerRoom;
+      }
     });
 
     // Calculate available counts

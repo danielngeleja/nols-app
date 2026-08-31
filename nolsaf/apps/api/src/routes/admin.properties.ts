@@ -11,6 +11,7 @@ import {
   UnsuspendPropertyInput,
 } from "../schemas/adminPropertySchemas.js";
 import { toAdminPropertyDTO } from "../lib/adminPropertyDto.js";
+import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { emitEvent } from "../lib/events.js";
 import { notifyOwner } from "../lib/notifications.js";
 import {
@@ -1183,7 +1184,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         // Update roomsSpec in the property
         updated = await prisma.property.update({
           where: { id },
-          data: { roomsSpec: updatedRoomsSpec },
+          data: { roomsSpec: ensureRoomsSpecCodes(updatedRoomsSpec) },
           select: adminPropertyDTOSelect,
         });
         

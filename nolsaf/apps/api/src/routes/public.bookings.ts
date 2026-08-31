@@ -17,6 +17,7 @@ import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlo
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
+import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
 
 /** Sign a short-lived token proving the caller created this booking. */
 function signBookingAccessToken(bookingId: number): string {
@@ -213,6 +214,17 @@ function findBucketKey(roomCode: string | null | undefined, keys: string[]): str
   if (keys.includes(typeKey)) return typeKey;
   const rc = String(roomCode ?? "");
   return keys.find((k) => rc === k || (k && rc.startsWith(k + "-"))) || null;
+}
+
+function findBucketKeys(
+  roomCode: string | null | undefined,
+  keys: string[],
+  roomsSpec: unknown,
+): string[] {
+  const compatible = matchingRoomSelectionCodes(roomCode, keys, roomsSpec);
+  if (compatible.length) return compatible;
+  const legacy = findBucketKey(roomCode, keys);
+  return legacy ? [legacy] : [];
 }
 
 function isExplicitRoomUnitCode(roomCode: string | null | undefined): boolean {
@@ -710,8 +722,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       // Count bookings by room TYPE (e.g. "Suite-1","Suite-2" -> "Suite") so capacity is per type
       const keys = Object.keys(availabilityByRoomType);
       conflictingBookings.forEach((booking: any) => {
-        const code = findBucketKey(booking.roomCode, keys) || (booking.roomCode ? null : keys[0] || null);
-        if (code && availabilityByRoomType[code]) {
+        const codes = findBucketKeys(booking.roomCode, keys, propertyForCheck.roomsSpec);
+        const targets = codes.length ? codes : (booking.roomCode ? [] : keys.slice(0, 1));
+        for (const code of targets) {
+          if (!availabilityByRoomType[code]) continue;
           const bedsPerRoom = bedsPerRoomFor(code);
           const bookedRooms = Math.max(1, Number((booking as any).roomsQty ?? 1));
           availabilityByRoomType[code].bookedRooms += bookedRooms;
@@ -721,8 +735,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
 
       // Count blocks by room TYPE; use bedsBlocked for rooms (not just += 1)
       conflictingBlocks.forEach((block: any) => {
-        const code = findBucketKey(block.roomCode, keys) || (block.roomCode ? null : keys[0] || null);
-        if (code && availabilityByRoomType[code]) {
+        const codes = findBucketKeys(block.roomCode, keys, propertyForCheck.roomsSpec);
+        const targets = codes.length ? codes : (block.roomCode ? [] : keys.slice(0, 1));
+        for (const code of targets) {
+          if (!availabilityByRoomType[code]) continue;
           const roomsBlocked = Number(block.bedsBlocked ?? 1) || 1;
           const bedsPerRoom = bedsPerRoomFor(code);
           availabilityByRoomType[code].blockedRooms += roomsBlocked;
@@ -1146,8 +1162,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       // Count by room TYPE; blocks use bedsBlocked for rooms
       const finalKeys = Object.keys(finalAvailabilityByRoomType);
       finalConflictingBookings.forEach((booking: any) => {
-        const code = findBucketKey(booking.roomCode, finalKeys) || (booking.roomCode ? null : finalKeys[0] || null);
-        if (code && finalAvailabilityByRoomType[code]) {
+        const codes = findBucketKeys(booking.roomCode, finalKeys, propertyForFinalCheck.roomsSpec);
+        const targets = codes.length ? codes : (booking.roomCode ? [] : finalKeys.slice(0, 1));
+        for (const code of targets) {
+          if (!finalAvailabilityByRoomType[code]) continue;
           const bedsPerRoom = finalBedsPerRoomFor(code);
           const bookedRooms = Math.max(1, Number((booking as any).roomsQty ?? 1));
           finalAvailabilityByRoomType[code].bookedRooms += bookedRooms;
@@ -1155,8 +1173,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         }
       });
       finalConflictingBlocks.forEach((block: any) => {
-        const code = findBucketKey(block.roomCode, finalKeys) || (block.roomCode ? null : finalKeys[0] || null);
-        if (code && finalAvailabilityByRoomType[code]) {
+        const codes = findBucketKeys(block.roomCode, finalKeys, propertyForFinalCheck.roomsSpec);
+        const targets = codes.length ? codes : (block.roomCode ? [] : finalKeys.slice(0, 1));
+        for (const code of targets) {
+          if (!finalAvailabilityByRoomType[code]) continue;
           const roomsBlocked = Number(block.bedsBlocked ?? 1) || 1;
           const bedsPerRoom = finalBedsPerRoomFor(code);
           finalAvailabilityByRoomType[code].blockedRooms += roomsBlocked;

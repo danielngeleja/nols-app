@@ -54,6 +54,9 @@
     "smoke-test:staging": "API_URL=$npm_config_api_url node scripts/smoke-test.mjs",
     "uptime:check": "node scripts/uptime-check.mjs",
     "no4p-otp:cleanup": "node scripts/cleanup-no4p-otp.mjs",
+    "rooms:codes:audit": "npm --workspace=@nolsaf/api run rooms:codes:audit",
+    "rooms:codes:backfill": "npm --workspace=@nolsaf/api run rooms:codes:backfill",
+    "rooms:codes:backfill:apply": "npm --workspace=@nolsaf/api run rooms:codes:backfill:apply",
     "backfill:tour-operations": "tsx scripts/backfill-tour-operations.ts"
   },
   "dependencies": {

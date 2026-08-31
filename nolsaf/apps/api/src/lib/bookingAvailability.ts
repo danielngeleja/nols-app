@@ -1,6 +1,7 @@
 // apps/api/src/lib/bookingAvailability.ts
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
+import { matchingRoomSelectionCodes } from "./roomSelectionCode.js";
 
 /**
  * Check if a property is available for the given dates
@@ -14,8 +15,19 @@ export async function checkPropertyAvailability(
   excludeBookingId?: number,
   roomCode?: string | null
 ): Promise<{ available: boolean; conflictingBookings?: any[]; conflictingBlocks?: any[] }> {
+  const property = roomCode
+    ? await prisma.property.findUnique({ where: { id: propertyId }, select: { roomsSpec: true } })
+    : null;
+  const overlapsRequestedRoom = (existing: string | null | undefined) => {
+    if (!roomCode || !existing) return true;
+    return (
+      matchingRoomSelectionCodes(existing, [roomCode], property?.roomsSpec).length > 0 ||
+      matchingRoomSelectionCodes(roomCode, [existing], property?.roomsSpec).length > 0
+    );
+  };
+
   // Find all bookings for this property that overlap with the requested dates
-  const conflictingBookings = await prisma.booking.findMany({
+  const overlappingBookings = await prisma.booking.findMany({
     where: {
       propertyId,
       status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
@@ -35,8 +47,6 @@ export async function checkPropertyAvailability(
       ],
       // Exclude the current booking if updating
       ...(excludeBookingId && { id: { not: excludeBookingId } }),
-      // If roomCode specified, check for that specific room
-      ...(roomCode && { roomCode }),
     },
     select: {
       id: true,
@@ -47,9 +57,12 @@ export async function checkPropertyAvailability(
       roomCode: true,
     },
   });
+  const conflictingBookings = overlappingBookings.filter((booking) =>
+    overlapsRequestedRoom(booking.roomCode),
+  );
 
   // Find all availability blocks that overlap with the requested dates
-  const conflictingBlocks = await prisma.propertyAvailabilityBlock.findMany({
+  const overlappingBlocks = await prisma.propertyAvailabilityBlock.findMany({
     where: {
       propertyId,
       AND: [
@@ -64,8 +77,6 @@ export async function checkPropertyAvailability(
           },
         },
       ],
-      // If roomCode specified, check for that specific room
-      ...(roomCode && { roomCode }),
     },
     select: {
       id: true,
@@ -76,6 +87,9 @@ export async function checkPropertyAvailability(
       bedsBlocked: true,
     },
   });
+  const conflictingBlocks = overlappingBlocks.filter((block) =>
+    overlapsRequestedRoom(block.roomCode),
+  );
 
   const hasConflict = conflictingBookings.length > 0 || conflictingBlocks.length > 0;
 
