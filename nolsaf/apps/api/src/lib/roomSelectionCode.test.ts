@@ -71,7 +71,7 @@ describe("ensureRoomsSpecCodes", () => {
   });
 
   it("codes the legacy nested roomsSpec shape", () => {
-    const spec = ensureRoomsSpecCodes({
+    const spec = ensureRoomsSpecCodes<{ rooms: SpecEntry[]; note: string }>({
       rooms: [{ roomType: "Twin", beds: { twin: 2 } }],
       note: "legacy shape",
     });
