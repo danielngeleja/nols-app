@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 /**
- * Apple App Site Association (AASA) for passkeys in the native apps.
+ * Apple App Site Association (AASA) for passkeys and universal links in the
+ * native apps.
  *
  * iOS grants an app access to passkeys for this domain only when the app's
  * `webcredentials:<domain>` Associated Domains entitlement is matched by this
@@ -27,6 +28,13 @@ export async function GET() {
 
   return NextResponse.json(
     {
+      applinks: {
+        apps: [],
+        details: bundleIds.map((id) => ({
+          appID: `${teamId}.${id}`,
+          paths: ["/register*"],
+        })),
+      },
       webcredentials: {
         apps: bundleIds.map((id) => `${teamId}.${id}`),
       },

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 /**
- * Android Digital Asset Links for passkeys in the native apps.
+ * Android Digital Asset Links for passkeys and verified links in the native apps.
  *
  * Android Credential Manager lets an app use passkeys for this domain only
  * when the app's package name + signing-cert SHA-256 fingerprint appear here
- * with the `get_login_creds` relation.
+ * with the `get_login_creds` relation. The same statements also authorize
+ * verified App Links handled by the apps.
  *
  * Configure via env (Vercel project settings):
  *   ANDROID_PASSKEY_APPS  semicolon-separated entries of
@@ -35,7 +36,10 @@ export async function GET() {
         .filter(Boolean);
       if (!packageName || sha256.length === 0) return null;
       return {
-        relation: ["delegate_permission/common.get_login_creds"],
+        relation: [
+          "delegate_permission/common.get_login_creds",
+          "delegate_permission/common.handle_all_urls",
+        ],
         target: {
           namespace: "android_app",
           package_name: packageName,
