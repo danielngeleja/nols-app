@@ -8,7 +8,7 @@
 
 param(
     [switch]$ValidateOnly,
-    [string]$EnvironmentName = "nolsaf-api-production"
+    [string]$EnvironmentName = "nolsaf-api-production-alb"
 )
 
 Set-StrictMode -Off
@@ -28,6 +28,8 @@ $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\b
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
 $RedisCaCertPath = "$ApiDir\certs\redis_ca.pem"
+$RdsCaCertPath = "$ApiDir\certs\eu-north-1-rds-ca-rsa2048-g1.pem"
+$RdsCaPemSha256 = "E570A509BFA3B71A0416EB585AFC4B235AF129416B235678A4124D8CD04A63F4"
 $SocketProxyConfigPath = "$ApiDir\.platform\nginx\conf.d\elasticbeanstalk\01_socket_io.conf"
 
 $RuntimeArtifacts = @(
@@ -183,6 +185,7 @@ try {
         $EbLockArtifact,
         "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh",
         $RedisCaCertPath,
+        $RdsCaCertPath,
         $SocketProxyConfigPath
     )
     $requiredFiles += @($RuntimeArtifacts | ForEach-Object { $_.Destination })
@@ -191,6 +194,19 @@ try {
             throw "Deployment bundle is missing required file: $requiredFile"
         }
     }
+
+    $rdsCaPem = (Get-Content -LiteralPath $RdsCaCertPath -Raw).Replace("`r`n", "`n").Trim()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $rdsCaHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($rdsCaPem))
+    } finally {
+        $sha256.Dispose()
+    }
+    $actualRdsCaPemSha256 = ([System.BitConverter]::ToString($rdsCaHashBytes) -replace "-", "")
+    if ($actualRdsCaPemSha256 -ne $RdsCaPemSha256) {
+        throw "Bundled RDS CA certificate PEM hash mismatch: $actualRdsCaPemSha256"
+    }
+    Write-Host "   Verified eu-north-1 RDS RSA2048 root CA certificate."
 
     $migrationFiles = @(Get-ChildItem "$SchemaDir\migrations" -Filter "migration.sql" -File -Recurse)
     if ($migrationFiles.Count -eq 0) {

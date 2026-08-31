@@ -1,4 +1,6 @@
 // @prisma/client is CommonJS; in an ESM package (`type: "module"`) we import via default/namespace.
+import { readFileSync } from 'node:fs'
+
 import prismaPkg from '@prisma/client'
 import { PrismaMariaDb } from '@prisma/adapter-mariadb'
 import type { PrismaClient as PrismaClientType } from '@prisma/client'
@@ -19,6 +21,24 @@ function intFromEnv(name: string, fallback: number): number {
   if (raw == null || String(raw).trim() === '') return fallback
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback
+}
+
+function databaseSslCaFromEnvironment(): string {
+  const inlineCa = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim()
+  if (inlineCa) return inlineCa
+
+  const caFile = String(process.env.DB_SSL_CA_FILE || '').trim()
+  if (!caFile) return ''
+
+  let fileCa: string
+  try {
+    fileCa = readFileSync(caFile, 'utf8').trim()
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`Unable to read DB_SSL_CA_FILE at ${caFile}: ${reason}`)
+  }
+  if (!fileCa) throw new Error(`DB_SSL_CA_FILE is empty: ${caFile}`)
+  return fileCa
 }
 
 function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
@@ -49,7 +69,10 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   }
 
   const wantsSsl = isProduction || Boolean(sslAccept || sslMode)
-  const ca = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim()
+  const ca = databaseSslCaFromEnvironment()
+  if (isProduction && !ca) {
+    throw new Error('Production database TLS requires DB_SSL_CA or DB_SSL_CA_FILE.')
+  }
   const ssl = wantsSsl
     ? {
         rejectUnauthorized: isProduction || !acceptsInvalidCertificates,
