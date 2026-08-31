@@ -116,6 +116,25 @@ export type CalculateAvailabilityOptions = {
   excludeBlockId?: number;
 };
 
+export function availabilitySummaryOccupancy(
+  byRoomType: Record<string, { bookedRooms: number; blockedRooms: number }>,
+  rawBookingCount: number,
+  rawBlocks: Array<{ bedsBlocked?: number | null }>,
+  narrowedSelection: boolean,
+): { totalBookedRooms: number; totalBlockedRooms: number } {
+  if (narrowedSelection) {
+    return {
+      totalBookedRooms: Object.values(byRoomType).reduce((sum, bucket) => sum + bucket.bookedRooms, 0),
+      totalBlockedRooms: Object.values(byRoomType).reduce((sum, bucket) => sum + bucket.blockedRooms, 0),
+    };
+  }
+
+  return {
+    totalBookedRooms: rawBookingCount,
+    totalBlockedRooms: rawBlocks.reduce((sum, block) => sum + (block.bedsBlocked || 1), 0),
+  };
+}
+
 /**
  * Calculate comprehensive availability for a property
  * 
@@ -389,11 +408,17 @@ export async function calculateAvailability(
     };
   }
 
-  // Calculate summary
+  // Calculate summary. A narrowed request must not subtract bookings or blocks
+  // that belong to other room options; doing that can falsely report the
+  // selected option as sold out even when its own bucket has capacity.
   const totalRooms = roomTypes.reduce((sum, rt) => sum + rt.count, 0);
-  // Count totals from raw sources so bookings/blocks without roomCode still appear in summary.
-  const totalBookedRooms = bookings.length;
-  const totalBlockedRooms = blocks.reduce((sum, b) => sum + (b.bedsBlocked || 1), 0);
+  const narrowedSelection = !!roomCode || !!roomTypePattern;
+  const { totalBookedRooms, totalBlockedRooms } = availabilitySummaryOccupancy(
+    byRoomType,
+    bookings.length,
+    blocks,
+    narrowedSelection,
+  );
   const totalAvailableRooms = totalRooms - totalBookedRooms - totalBlockedRooms;
   const overallAvailabilityPercentage = totalRooms > 0
     ? Math.round((totalAvailableRooms / totalRooms) * 100)
@@ -465,7 +490,7 @@ export async function calculateAvailability(
 /**
  * Extract room types from property data
  */
-function extractRoomTypes(
+export function extractRoomTypes(
   roomsSpec: any,
   layout: any,
   roomCode?: string | null,
@@ -473,8 +498,26 @@ function extractRoomTypes(
 ): Array<{ type: string; count: number; codes: string[] }> {
   const roomTypes: Record<string, { count: number; codes: string[] }> = {};
 
-  // Try to extract from layout first (most accurate)
-  if (layout && typeof layout === 'object') {
+  let specRooms: any[] = [];
+  let specParseFailed = false;
+  if (roomsSpec) {
+    try {
+      const spec = typeof roomsSpec === 'string' ? JSON.parse(roomsSpec) : roomsSpec;
+      specRooms = Array.isArray(spec) ? spec : (spec && Array.isArray(spec.rooms) ? spec.rooms : []);
+    } catch {
+      specParseFailed = true;
+    }
+  }
+
+  const requestedCode = String(roomCode ?? '').trim().toLowerCase();
+  const exactStableSpecCode = !!requestedCode && specRooms.some((room) =>
+    [room?.code, room?.roomCode].some((value) => String(value ?? '').trim().toLowerCase() === requestedCode)
+  );
+
+  // Physical-unit requests use the layout. Exact marketplace option codes use
+  // roomsSpec because a code such as "Double 1 Full" represents that option's
+  // full capacity and intentionally does not exist as a physical unit id.
+  if (!exactStableSpecCode && layout && typeof layout === 'object') {
     try {
       const layoutData = typeof layout === 'string' ? JSON.parse(layout) : layout;
       if (layoutData.floors && Array.isArray(layoutData.floors)) {
@@ -503,12 +546,9 @@ function extractRoomTypes(
   }
 
   // Fall back to roomsSpec if layout didn't provide data
-  if (Object.keys(roomTypes).length === 0 && roomsSpec) {
+  if (Object.keys(roomTypes).length === 0 && specRooms.length > 0) {
     try {
-      const spec = typeof roomsSpec === 'string' ? JSON.parse(roomsSpec) : roomsSpec;
-      const rooms = Array.isArray(spec) ? spec : (spec && Array.isArray(spec.rooms) ? spec.rooms : []);
-      
-      for (const room of rooms) {
+      for (const room of specRooms) {
         const roomType = room.roomType || room.type || 'Room';
         const count = Number(room.roomsCount || room.count || 1);
         
@@ -527,6 +567,8 @@ function extractRoomTypes(
       // If parsing fails, create a default
       roomTypes['Room'] = { count: 1, codes: [roomCode || 'Room-1'] };
     }
+  } else if (Object.keys(roomTypes).length === 0 && specParseFailed) {
+    roomTypes['Room'] = { count: 1, codes: [roomCode || 'Room-1'] };
   }
 
   // Filter by roomCode if specified

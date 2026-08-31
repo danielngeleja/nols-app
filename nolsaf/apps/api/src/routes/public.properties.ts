@@ -7,6 +7,7 @@ import QRCode from "qrcode";
 import { withCache, cacheKeys, cacheTags, measureTime, publicCacheKey } from "../lib/performance.js";
 import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
+import { publicAvailabilityRoomFilter } from "../lib/publicAvailabilityFilter.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
 import { buildMenuUrl } from "../lib/nrmsOrderPoints.js";
 import { rateLimitWithRedis } from "../lib/redisRateLimitStore.js";
@@ -1423,6 +1424,7 @@ router.get("/verification", limitPropertyCertificate as RequestHandler, (async (
 
 /**
  * GET /api/public/properties/availability?ids=1,2,3&date=YYYY-MM-DD
+ * GET /api/public/properties/availability?ids=1&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&roomCode=Single-1
  * GET /api/public/properties/availability?ids=1&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&roomType=Single
  * Returns rooms-available counts for a set of properties on a given day
  * (or for a check-in/check-out range, optionally narrowed to a room type).
@@ -1437,7 +1439,7 @@ router.get("/availability", (async (req, res) => {
   const dateParam = req.query.date ? String(req.query.date) : undefined;
   const checkInParam = req.query.checkIn ? String(req.query.checkIn) : undefined;
   const checkOutParam = req.query.checkOut ? String(req.query.checkOut) : undefined;
-  const roomType = req.query.roomType ? String(req.query.roomType) : undefined;
+  const { roomCode, roomType } = publicAvailabilityRoomFilter(req.query as Record<string, unknown>);
 
   let startDate: Date;
   let endDate: Date;
@@ -1462,7 +1464,7 @@ router.get("/availability", (async (req, res) => {
   const items = await Promise.all(
     ids.map(async (id) => {
       try {
-        const result = await calculateAvailability(id, startDate, endDate, null, roomType);
+        const result = await calculateAvailability(id, startDate, endDate, roomCode, roomType);
         // Sellable, not physically free: an owner who closed these dates in
         // NRMS must read as unavailable here, or a guest is walked all the way
         // to payment before anything objects.
