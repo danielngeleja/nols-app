@@ -42,6 +42,9 @@ secrets/
 # to Redis without it (see apps/api/src/lib/redisTls.ts), and the Docker build
 # asserts its presence, so it has to travel with the repo.
 !apps/api/certs/redis_ca.pem
+# Exception: the Amazon RDS eu-north-1 root CA is public trust material used
+# to verify the production database server; it contains no private key.
+!apps/api/certs/eu-north-1-rds-ca-rsa2048-g1.pem
 *.secret
 *.private
 

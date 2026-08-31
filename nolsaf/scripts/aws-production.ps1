@@ -23,7 +23,7 @@ param(
     [string]$Profile,
     [string]$Region = "eu-north-1",
     [string]$ApplicationName = "nolsaf-api",
-    [string]$EnvironmentName = "nolsaf-api-production",
+    [string]$EnvironmentName = "nolsaf-api-production-alb",
     [string]$RdsInstance = "database-1",
     [string]$ApiUrl = "https://api.nolsaf.com",
 

@@ -5,6 +5,8 @@ import prismaPkg from '@prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import type { PrismaClient as PrismaClientType } from '@prisma/client';
 
+import { databaseSslCaFromEnvironment } from './databaseSslCa.js';
+
 const { PrismaClient } = prismaPkg as unknown as { PrismaClient: new (config?: any) => any };
 
 let prismaInstance: any;
@@ -50,7 +52,10 @@ function createMariaDbAdapterFromDatabaseUrl(databaseUrl: string) {
   }
 
   const wantsSsl = isProduction || Boolean(sslAccept || sslMode);
-  const ca = String(process.env.DB_SSL_CA || '').replace(/\\n/g, '\n').trim();
+  const ca = databaseSslCaFromEnvironment();
+  if (isProduction && !ca) {
+    throw new Error('Production database TLS requires DB_SSL_CA or DB_SSL_CA_FILE.');
+  }
   const ssl = wantsSsl
     ? {
         rejectUnauthorized: isProduction || !acceptsInvalidCertificates,

@@ -12,7 +12,7 @@ replace staging and clone qualification.
 | --- | --- |
 | AWS region | `eu-north-1` |
 | Elastic Beanstalk application | `nolsaf-api` |
-| Elastic Beanstalk environment | `nolsaf-api-production` |
+| Elastic Beanstalk environment | `nolsaf-api-production-alb` |
 | Production RDS instance | `database-1` |
 | Production database | `nolsaf_production` |
 | Production API health URL | `https://api.nolsaf.com/health` |
@@ -29,7 +29,7 @@ $RepoRoot = "D:\nolsapp2.1\nolsaf"
 $ApiDir = "$RepoRoot\apps\api"
 $Eb = "C:\Users\NoLS Tanzania\AppData\Roaming\Python\Python312\Scripts\eb.exe"
 $AwsRegion = "eu-north-1"
-$EbEnvironment = "nolsaf-api-production"
+$EbEnvironment = "nolsaf-api-production-alb"
 $RdsInstance = "database-1"
 ```
 
@@ -232,7 +232,7 @@ $BeforeDeploy.Content
 Required pre-deployment state:
 
 - The AWS account and region are correct.
-- Elastic Beanstalk points to `nolsaf-api-production`.
+- Elastic Beanstalk points to `nolsaf-api-production-alb`.
 - EB status is `Ready`.
 - The health endpoint returns HTTP `200`.
 
@@ -997,7 +997,7 @@ Do not combine an EB platform upgrade with a large application/database release.
 - AWS CLI is authenticated for the correct production account.
 - EB CLI is installed and configured for `eu-north-1`.
 - EB application is `nolsaf-api`.
-- EB environment is `nolsaf-api-production`.
+- EB environment is `nolsaf-api-production-alb`.
 - SSH key access to the EB instance works.
 - EB and RDS security groups allow the API to reach MariaDB on port `3306`.
 - Production environment variables are configured securely in AWS.
