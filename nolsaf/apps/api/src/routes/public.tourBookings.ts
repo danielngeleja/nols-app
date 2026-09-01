@@ -25,6 +25,7 @@ import {
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 
 const router = Router();
 
@@ -445,9 +446,17 @@ router.get(
 
 // ── POST /:id/initiate-payment ────────────────────────────────────────────────
 
+const tourMnoProviderSchema = z
+  .enum(["Airtel", "Tigo", "Mixx", "Mpesa", "MPESA", "Halopesa", "Azampesa"])
+  .transform((value): "Airtel" | "Tigo" | "Mpesa" | "Halopesa" | "Azampesa" => {
+    if (value === "Mixx") return "Tigo";
+    if (value === "MPESA") return "Mpesa";
+    return value;
+  });
+
 const initiatePaymentSchema = z.object({
   phoneNumber: z.string().min(9).max(15),
-  provider: z.enum(["Airtel", "Tigo", "Mpesa", "Halopesa"]).default("Airtel"),
+  provider: tourMnoProviderSchema.default("Airtel"),
   accessToken: z.string().min(20).max(1024),
 });
 
@@ -522,6 +531,15 @@ router.post(
         ok: false,
         error: "currency_not_supported",
         message: "Mobile money payments are only available for TZS bookings. Please use card payment.",
+      });
+    }
+
+    const walletPreflight = await verifyMnoWalletForCheckout({ phoneNumber: normalizedPhone, provider });
+    if (!walletPreflight.ok) {
+      return res.status(walletPreflight.status).json({
+        ok: false,
+        error: walletPreflight.code,
+        message: walletPreflight.message,
       });
     }
 

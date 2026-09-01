@@ -23,6 +23,7 @@ import { signGroupStayReceiptToken } from "../lib/groupStayReceiptToken.js";
 import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationPayout.js";
 import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -647,7 +648,7 @@ router.get("/:id/deposit-receipt-token", async (req, res) => {
 
 const initiateMnoSchema = z.object({
   phoneNumber: z.string().min(9).max(15),
-  provider: z.enum(["Airtel", "Tigo", "Mpesa", "Halopesa"]).default("Airtel"),
+  provider: z.enum(["Airtel", "Tigo", "Mpesa", "Halopesa", "Azampesa"]).default("Airtel"),
 });
 
 const initiateBankSchema = z.object({
@@ -730,6 +731,15 @@ router.post("/:id/deposit/initiate-mno", depositPaymentLimiter, async (req, res)
       return res.status(result.error.status).json(result.error.body);
     }
     const { booking, depositAmount, currency } = result;
+
+    const walletPreflight = await verifyMnoWalletForCheckout({ phoneNumber: normalizedPhone, provider });
+    if (!walletPreflight.ok) {
+      return res.status(walletPreflight.status).json({
+        ok: false,
+        error: walletPreflight.code,
+        message: walletPreflight.message,
+      });
+    }
 
     const paymentRef = booking.paymentRef ?? `GBDEP-${booking.id}-${Date.now()}`;
 
