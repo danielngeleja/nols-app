@@ -1,6 +1,6 @@
 # EAS archives from this Git root. Keep only source needed to install the npm
 # workspace and build the NoLSAF mobile application.
-.git/
+.git
 .agents/
 .codex*/
 .claude/
@@ -38,6 +38,7 @@ nolsaf/apps/driver/**
 nolsaf/backups/
 nolsaf/archives/
 nolsaf/artifacts/
+nolsaf/scripts/*.pdf
 nolsaf/docker-data/
 nolsaf/.elasticbeanstalk/
 nolsaf/.vercel/
