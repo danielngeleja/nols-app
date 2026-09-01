@@ -5,7 +5,13 @@ import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, TextI
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppText } from "./AppText";
 
-export type PickerOption = { value: string; label: string; description?: string; icon?: LucideIcon };
+export type PickerOption = {
+  value: string;
+  label: string;
+  description?: string;
+  icon?: LucideIcon;
+  badge?: string;
+};
 
 type Props = {
   visible: boolean;
@@ -15,9 +21,19 @@ type Props = {
   value?: string;
   onSelect: (value: string) => void;
   onClose: () => void;
+  appearance?: "list" | "cards";
 };
 
-export function OptionPickerSheet({ visible, title, subtitle, options, value, onSelect, onClose }: Props) {
+export function OptionPickerSheet({
+  visible,
+  title,
+  subtitle,
+  options,
+  value,
+  onSelect,
+  onClose,
+  appearance = "list"
+}: Props) {
   const [query, setQuery] = useState("");
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -52,7 +68,7 @@ export function OptionPickerSheet({ visible, title, subtitle, options, value, on
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+        <Animated.View style={[styles.sheet, appearance === "cards" && styles.cardSheet, { transform: [{ translateY }] }]}>
           <View {...panResponder.panHandlers}>
             <View style={styles.handleWrap}>
               <View style={styles.handle} />
@@ -93,7 +109,11 @@ export function OptionPickerSheet({ visible, title, subtitle, options, value, on
             </View>
           ) : null}
 
-          <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={[styles.listContent, appearance === "cards" && styles.cardListContent]}
+            keyboardShouldPersistTaps="handled"
+          >
             {filtered.length === 0 ? (
               <View style={styles.empty}>
                 <AppText variant="bodySmall" tone="muted">
@@ -104,17 +124,30 @@ export function OptionPickerSheet({ visible, title, subtitle, options, value, on
               filtered.map((option) => {
                 const active = option.value === value;
                 const Icon = option.icon;
+                const cardAppearance = appearance === "cards";
                 return (
                   <Pressable
                     key={option.value}
                     accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
                     onPress={() => {
                       onSelect(option.value);
                       onClose();
                     }}
-                    style={[styles.row, active && styles.rowActive]}
+                    style={[
+                      styles.row,
+                      cardAppearance && styles.rowCard,
+                      active && styles.rowActive,
+                      active && cardAppearance && styles.rowCardActive
+                    ]}
                   >
-                    {Icon ? (
+                    {option.badge ? (
+                      <View style={[styles.badge, active && styles.badgeActive]}>
+                        <AppText variant="caption" weight="extraBold" tone={active ? "primary" : "muted"}>
+                          {option.badge}
+                        </AppText>
+                      </View>
+                    ) : Icon ? (
                       <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
                         <Icon color={active ? colors.primary : colors.softText} size={18} />
                       </View>
@@ -129,7 +162,13 @@ export function OptionPickerSheet({ visible, title, subtitle, options, value, on
                         </AppText>
                       ) : null}
                     </View>
-                    {active ? <Check color={colors.primary} size={18} /> : null}
+                    {cardAppearance ? (
+                      <View style={[styles.selectionMark, active && styles.selectionMarkActive]}>
+                        {active ? <Check color={colors.white} size={15} strokeWidth={3} /> : null}
+                      </View>
+                    ) : active ? (
+                      <Check color={colors.primary} size={18} />
+                    ) : null}
                   </Pressable>
                 );
               })
@@ -154,6 +193,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing[3],
     maxHeight: "80%",
     ...shadows.sheet
+  },
+  cardSheet: {
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
+    paddingHorizontal: spacing[4]
   },
   handleWrap: { alignItems: "center", paddingVertical: spacing[2] },
   handle: {
@@ -186,6 +231,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, minWidth: 0, color: colors.ink, fontSize: 15, padding: 0 },
   list: { alignSelf: "stretch" },
   listContent: { paddingBottom: spacing[5], gap: spacing[1] },
+  cardListContent: { gap: spacing[2] },
   empty: { alignItems: "center", gap: spacing[2], paddingVertical: spacing[10] },
   row: {
     flexDirection: "row",
@@ -197,6 +243,30 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3]
   },
   rowActive: { backgroundColor: colors.brand[50] },
+  rowCard: {
+    minHeight: 72,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingVertical: spacing[2]
+  },
+  rowCardActive: {
+    borderColor: colors.brand[200]
+  },
+  badge: {
+    width: 48,
+    height: 40,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface
+  },
+  badgeActive: {
+    borderColor: colors.brand[100],
+    backgroundColor: colors.white
+  },
   iconWrap: {
     width: 36,
     height: 36,
@@ -210,5 +280,19 @@ const styles = StyleSheet.create({
   iconWrapActive: {
     backgroundColor: colors.white,
     borderColor: colors.brand[100]
+  },
+  selectionMark: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white
+  },
+  selectionMarkActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary
   }
 });

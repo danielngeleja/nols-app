@@ -23,6 +23,7 @@ import { getBankOtpInstruction } from "../lib/bankOtp";
 import { classifyCardCheckoutResult } from "../lib/cardCheckout";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
+import { capTanzaniaMnoNationalInput, inspectTanzaniaMnoInput, withTanzaniaMnoCountryCode } from "../payments";
 import {
   fetchTourPaymentStatus,
   initiateTourBankPayment,
@@ -33,6 +34,7 @@ import {
 import { colors, radius, spacing } from "../theme";
 
 import airtelLogo from "../../assets/payments/airtel.png";
+import azampesaLogo from "../../assets/payments/azampesa.png";
 import crdbLogo from "../../assets/payments/crdb.png";
 import halopesaLogo from "../../assets/payments/halopesa.png";
 import mastercardLogo from "../../assets/payments/mastercard.png";
@@ -44,25 +46,27 @@ import visaLogo from "../../assets/payments/visa.png";
 type Props = NativeStackScreenProps<RootStackParamList, "TourBookingPayment">;
 type Status = "idle" | "pending" | "success" | "timeout" | "failed";
 type Channel = "MNO" | "BANK" | "CARD";
-type MnoProvider = "Mpesa" | "Tigo" | "Airtel" | "Halopesa";
-type TourMnoProviderCode = "MPESA" | "Mixx" | "Airtel" | "Halopesa";
+type MnoProvider = "Mpesa" | "Tigo" | "Airtel" | "Halopesa" | "Azampesa";
+type TourMnoProviderCode = "MPESA" | "Mixx" | "Airtel" | "Halopesa" | "Azampesa";
 
 const CARD_RETURN_URL = "nolsaf://tour-card-return";
 const PAYMENT_WAIT_SECONDS = 4 * 60;
 const POLL_MAX_ATTEMPTS = 45;
 
 const PROVIDERS: Array<{ id: MnoProvider; name: string; logo: ImageSourcePropType }> = [
-  { id: "Mpesa", name: "Mpesa", logo: mpesaLogo },
-  { id: "Tigo", name: "Tigo", logo: mixxLogo },
+  { id: "Mpesa", name: "M-Pesa", logo: mpesaLogo },
+  { id: "Tigo", name: "Mixx by Yas", logo: mixxLogo },
   { id: "Airtel", name: "Airtel Money", logo: airtelLogo },
-  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo }
+  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo },
+  { id: "Azampesa", name: "AzamPesa", logo: azampesaLogo }
 ];
 
 const TOUR_PROVIDER_CODES: Record<MnoProvider, TourMnoProviderCode> = {
   Mpesa: "MPESA",
   Tigo: "Mixx",
   Airtel: "Airtel",
-  Halopesa: "Halopesa"
+  Halopesa: "Halopesa",
+  Azampesa: "Azampesa"
 };
 
 const BANKS: Array<{ code: "CRDB" | "NMB"; name: string; logo: ImageSourcePropType }> = [
@@ -99,6 +103,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
+  const mnoPhoneState = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -181,15 +186,16 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function payMobileMoney() {
-    const phoneForApi = normalizeTzPhone(phone);
     if (!provider) {
       setError("Choose a mobile money provider.");
       return;
     }
-    if (!phoneForApi) {
-      setError("Enter a valid phone number.");
+    const phoneCheck = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
+    if (!phoneCheck.canSubmit || !phoneCheck.normalizedPhone) {
+      setError(phoneCheck.message);
       return;
     }
+    const phoneForApi = phoneCheck.normalizedPhone;
     setError(null);
     setStatus("pending");
     try {
@@ -487,12 +493,27 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
                 </View>
                 <AppInput
                   label="Mobile money number"
+                  prefix="+255"
                   value={phone}
-                  onChangeText={(value) => setPhone(capTzPhoneInput(value))}
-                  placeholder="07XXXXXXXX or +255 7XXXXXXXX"
+                  onChangeText={(value) => setPhone(capTanzaniaMnoNationalInput(value))}
+                  placeholder="765 012 370"
                   keyboardType="phone-pad"
                   maxLength={13}
                 />
+                <AppText
+                  variant="caption"
+                  tone={
+                    mnoPhoneState.level === "error"
+                      ? "danger"
+                      : mnoPhoneState.level === "warning"
+                        ? "warning"
+                        : mnoPhoneState.level === "success"
+                          ? "success"
+                          : "soft"
+                  }
+                >
+                  {mnoPhoneState.message}
+                </AppText>
               </>
             ) : channel === "BANK" ? (
               <>
@@ -593,7 +614,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
         <AppButton
           title={`Pay ${total.toLocaleString()} ${currency}`}
           onPress={channel === "BANK" ? payBank : channel === "CARD" ? payCard : payMobileMoney}
-          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim()}
+          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !mnoPhoneState.canSubmit}
           icon={channel === "BANK" ? <Landmark color={colors.white} size={18} /> : channel === "CARD" ? <CreditCard color={colors.white} size={18} /> : <Smartphone color={colors.white} size={18} />}
         />
       </BottomActionBar>

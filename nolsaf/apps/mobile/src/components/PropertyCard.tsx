@@ -5,7 +5,7 @@ import { Animated, Image, Platform, Pressable, StyleSheet, View } from "react-na
 import { getPropertyCommission, priceWithCommission } from "../bookings/priceUtils";
 import { PublicPropertyCard } from "../properties";
 import { colors, radius, shadows, spacing } from "../theme";
-import { AmountText } from "./AmountText";
+import { StayPrice } from "./DisplayPrice";
 import { AppText } from "./AppText";
 
 type PropertyCardProps = {
@@ -160,9 +160,10 @@ export function PropertyCard({ property, onPress, onInteractChange, autoSlidePho
         </View>
 
         {grossBasePrice != null ? (
-          <AmountText
+          <StayPrice
             amount={grossBasePrice}
             currency={property.currency || "TZS"}
+            showSettlementNote={false}
             variant="titleSm"
             weight="bold"
             tone="primary"

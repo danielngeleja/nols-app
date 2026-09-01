@@ -7,6 +7,7 @@ import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
 
 import airtelLogo from "../../assets/payments/airtel.png";
+import azampesaLogo from "../../assets/payments/azampesa.png";
 import crdbLogo from "../../assets/payments/crdb.png";
 import halopesaLogo from "../../assets/payments/halopesa.png";
 import mastercardLogo from "../../assets/payments/mastercard.png";
@@ -23,7 +24,8 @@ const MNO_PROVIDERS: Array<{ name: string; logo: ImageSourcePropType }> = [
   { name: "Mpesa", logo: mpesaLogo },
   { name: "Mixx by Yas", logo: mixxLogo },
   { name: "Airtel Money", logo: airtelLogo },
-  { name: "HaloPesa", logo: halopesaLogo }
+  { name: "HaloPesa", logo: halopesaLogo },
+  { name: "AzamPesa", logo: azampesaLogo }
 ];
 
 const BANKS: Array<{ name: string; logo: ImageSourcePropType }> = [

@@ -75,7 +75,6 @@ import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from "react-native-svg"
 import { useAuth } from "../auth";
 import {
   AmenityGrid,
-  AmountText,
   AppButton,
   AppCard,
   AppStack,
@@ -84,6 +83,7 @@ import {
   CalendarRangeSheet,
   LocationMapCard,
   ReviewSheet,
+  StayPrice,
   StateView
 } from "../components";
 import airtelLogo from "../../assets/payments/airtel.png";
@@ -985,7 +985,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                   STARTING FROM
                 </AppText>
                 {grossBasePrice != null ? (
-                  <AmountText amount={grossBasePrice} currency={detail.currency || "TZS"} variant="headline" weight="extraBold" />
+                  <StayPrice amount={grossBasePrice} currency={detail.currency || "TZS"} variant="headline" weight="extraBold" />
                 ) : (
                   <AppText variant="titleSm" weight="bold" tone="muted">
                     Price on request
@@ -1366,7 +1366,14 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
         <View style={styles.reserveRow}>
           <View style={styles.flex}>
             {grossBasePrice != null ? (
-              <AmountText amount={grossBasePrice} currency={detail.currency || "TZS"} variant="titleSm" weight="bold" tone="primary" />
+              <StayPrice
+                amount={grossBasePrice}
+                currency={detail.currency || "TZS"}
+                showSettlementNote={false}
+                variant="titleSm"
+                weight="bold"
+                tone="primary"
+              />
             ) : (
               <AppText variant="bodySmall" weight="semiBold" tone="muted">
                 Price on request
@@ -1801,7 +1808,13 @@ function RoomCard({
           <View style={styles.bookRow}>
             <View style={styles.flex}>
               {room.pricePerNight != null ? (
-                <AmountText amount={priceWithCommission(room.pricePerNight, commission)} currency={currency} variant="title" weight="extraBold" tone="primary" />
+                <StayPrice
+                  amount={priceWithCommission(room.pricePerNight, commission)}
+                  currency={currency}
+                  variant="title"
+                  weight="extraBold"
+                  tone="primary"
+                />
               ) : (
                 <AppText variant="bodySmall" weight="semiBold" tone="muted">
                   Price on request

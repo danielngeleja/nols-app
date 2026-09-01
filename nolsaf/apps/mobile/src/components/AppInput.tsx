@@ -12,9 +12,11 @@ type AppInputProps = TextInputProps & {
   required?: boolean;
   /** Optional adornment shown at the right of the label row (e.g. a status). */
   hint?: ReactNode;
+  /** Fixed, non-editable value shown inside the left side of the field. */
+  prefix?: string;
 };
 
-export function AppInput({ label, error, required, hint, style, ...props }: AppInputProps) {
+export function AppInput({ label, error, required, hint, prefix, style, ...props }: AppInputProps) {
   // On Android, a custom fontFamily on a secureTextEntry input breaks masking and
   // renders the password in plain text. Use the system font for secure fields so
   // the characters are always masked.
@@ -28,6 +30,7 @@ export function AppInput({ label, error, required, hint, style, ...props }: AppI
         styles.input,
         secure ? styles.secureInput : styles.brandInput,
         secure && styles.inputWithAdornment,
+        prefix && styles.inputWithPrefix,
         error && styles.errorInput,
         style
       ]}
@@ -66,6 +69,15 @@ export function AppInput({ label, error, required, hint, style, ...props }: AppI
               <Eye color={colors.mutedText} size={20} />
             )}
           </Pressable>
+        </View>
+      ) : prefix ? (
+        <View style={styles.prefixWrap}>
+          {field}
+          <View pointerEvents="none" style={styles.prefixBox}>
+            <AppText variant="body" weight="semiBold" tone="primary">
+              {prefix}
+            </AppText>
+          </View>
         </View>
       ) : (
         field
@@ -110,6 +122,27 @@ const styles = StyleSheet.create({
   // Leaves room for the eye toggle so the text never sits under it.
   inputWithAdornment: {
     paddingRight: 48
+  },
+  inputWithPrefix: {
+    paddingLeft: 86
+  },
+  prefixWrap: {
+    position: "relative",
+    justifyContent: "center"
+  },
+  prefixBox: {
+    position: "absolute",
+    left: 1,
+    top: 1,
+    bottom: 1,
+    width: 70,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.brand[50],
+    borderTopLeftRadius: radius.md - 1,
+    borderBottomLeftRadius: radius.md - 1
   },
   secureWrap: {
     position: "relative",

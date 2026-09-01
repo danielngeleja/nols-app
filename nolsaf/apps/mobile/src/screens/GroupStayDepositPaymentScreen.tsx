@@ -34,9 +34,11 @@ import {
   initiateGroupBookingDepositMno
 } from "../groupStays";
 import { RootStackParamList } from "../navigation/types";
+import { capTanzaniaMnoNationalInput, inspectTanzaniaMnoInput, withTanzaniaMnoCountryCode } from "../payments";
 import { colors, radius, spacing } from "../theme";
 
 import airtelLogo from "../../assets/payments/airtel.png";
+import azampesaLogo from "../../assets/payments/azampesa.png";
 import crdbLogo from "../../assets/payments/crdb.png";
 import halopesaLogo from "../../assets/payments/halopesa.png";
 import mastercardLogo from "../../assets/payments/mastercard.png";
@@ -48,17 +50,18 @@ import visaLogo from "../../assets/payments/visa.png";
 type Props = NativeStackScreenProps<RootStackParamList, "GroupStayDeposit">;
 type Status = "idle" | "pending" | "success" | "timeout" | "failed";
 type Channel = "MNO" | "BANK" | "CARD";
-type MnoProvider = "Mpesa" | "Tigo" | "Airtel" | "Halopesa";
+type MnoProvider = "Mpesa" | "Tigo" | "Airtel" | "Halopesa" | "Azampesa";
 
 const CARD_RETURN_URL = "nolsaf://group-stay-card-return";
 const PAYMENT_WAIT_SECONDS = 4 * 60;
 const POLL_MAX_ATTEMPTS = 45;
 
 const PROVIDERS: Array<{ id: MnoProvider; name: string; logo: ImageSourcePropType }> = [
-  { id: "Mpesa", name: "Mpesa", logo: mpesaLogo },
-  { id: "Tigo", name: "Tigo", logo: mixxLogo },
+  { id: "Mpesa", name: "M-Pesa", logo: mpesaLogo },
+  { id: "Tigo", name: "Mixx by Yas", logo: mixxLogo },
   { id: "Airtel", name: "Airtel Money", logo: airtelLogo },
-  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo }
+  { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo },
+  { id: "Azampesa", name: "AzamPesa", logo: azampesaLogo }
 ];
 
 const BANKS: Array<{ code: "CRDB" | "NMB"; name: string; logo: ImageSourcePropType }> = [
@@ -110,6 +113,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
   const [now, setNow] = useState(() => Date.now());
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const mnoPhoneState = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -220,15 +224,16 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
 
   async function payMobileMoney() {
     if (!token) return;
-    const phoneForApi = normalizeTzPhone(phone);
     if (!provider) {
       setError("Choose a mobile money provider.");
       return;
     }
-    if (!phoneForApi) {
-      setError("Enter a valid phone number.");
+    const phoneCheck = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
+    if (!phoneCheck.canSubmit || !phoneCheck.normalizedPhone) {
+      setError(phoneCheck.message);
       return;
     }
+    const phoneForApi = phoneCheck.normalizedPhone;
     setError(null);
     setStatus("pending");
     try {
@@ -587,12 +592,27 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
                 </View>
                 <AppInput
                   label="Mobile money number"
+                  prefix="+255"
                   value={phone}
-                  onChangeText={(value) => setPhone(capTzPhoneInput(value))}
-                  placeholder="07XXXXXXXX or +255 7XXXXXXXX"
+                  onChangeText={(value) => setPhone(capTanzaniaMnoNationalInput(value))}
+                  placeholder="765 012 370"
                   keyboardType="phone-pad"
                   maxLength={13}
                 />
+                <AppText
+                  variant="caption"
+                  tone={
+                    mnoPhoneState.level === "error"
+                      ? "danger"
+                      : mnoPhoneState.level === "warning"
+                        ? "warning"
+                        : mnoPhoneState.level === "success"
+                          ? "success"
+                          : "soft"
+                  }
+                >
+                  {mnoPhoneState.message}
+                </AppText>
               </>
             ) : channel === "BANK" ? (
               <>
@@ -693,7 +713,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
         <AppButton
           title={`Pay ${depositAmount.toLocaleString()} ${currency}`}
           onPress={channel === "BANK" ? payBank : channel === "CARD" ? payCard : payMobileMoney}
-          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim()}
+          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !mnoPhoneState.canSubmit}
           icon={channel === "BANK" ? <Landmark color={colors.white} size={18} /> : channel === "CARD" ? <CreditCard color={colors.white} size={18} /> : <Smartphone color={colors.white} size={18} />}
         />
       </BottomActionBar>

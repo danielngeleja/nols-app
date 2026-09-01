@@ -8,6 +8,7 @@ import { configureApiClient } from "@nolsaf/native-ui";
 
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { NolsafLogoMark } from "./src/components";
+import { CurrencyProvider } from "./src/currency";
 import { apiBaseUrl } from "./src/lib/apiClient";
 import { initSslPinning } from "./src/lib/sslPinning";
 import { AppLockGate, AppLockProvider } from "./src/lock";
@@ -161,7 +162,9 @@ export default function App() {
         <AuthProvider>
           <AppLockProvider>
             <AppLockGate>
-              <AppContent />
+              <CurrencyProvider>
+                <AppContent />
+              </CurrencyProvider>
             </AppLockGate>
           </AppLockProvider>
         </AuthProvider>

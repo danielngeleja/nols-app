@@ -32,6 +32,7 @@ import { getBankOtpInstruction } from "../lib/bankOtp";
 import { classifyCardCheckoutResult } from "../lib/cardCheckout";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
+import { capTanzaniaMnoNationalInput, inspectTanzaniaMnoInput, withTanzaniaMnoCountryCode } from "../payments";
 import { colors, radius, spacing } from "../theme";
 
 import { fetchPaymentMethodAvailability, toAvailabilityMap } from "../lib/serviceAvailability";
@@ -56,7 +57,7 @@ const PAYMENT_WAIT_SECONDS = 4 * 60;
 const POLL_MAX_ATTEMPTS = 45;
 
 const PROVIDERS: Array<{ id: MnoProvider; name: string; logo: ImageSourcePropType }> = [
-  { id: "Mpesa", name: "Mpesa", logo: mpesaLogo },
+  { id: "Mpesa", name: "M-Pesa", logo: mpesaLogo },
   { id: "Tigo", name: "Mixx by Yas", logo: mixxLogo },
   { id: "Airtel", name: "Airtel Money", logo: airtelLogo },
   { id: "Halopesa", name: "HaloPesa", logo: halopesaLogo },
@@ -96,6 +97,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
+  const mnoPhoneState = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
 
   // Admin-controlled availability, fetched live so nothing is hardcoded. Fails
   // open (empty map = everything enabled) so a network hiccup never blocks paying.
@@ -211,11 +213,12 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
       setError("Choose a mobile network to continue.");
       return;
     }
-    const phoneForApi = normalizeTzPhone(phone);
-    if (!phoneForApi) {
-      setError("Enter a valid phone, for example 0712 345 678 or +255 712 345 678.");
+    const phoneCheck = inspectTanzaniaMnoInput(withTanzaniaMnoCountryCode(phone), provider);
+    if (!phoneCheck.canSubmit || !phoneCheck.normalizedPhone) {
+      setError(phoneCheck.message);
       return;
     }
+    const phoneForApi = phoneCheck.normalizedPhone;
 
     setError(null);
     setStatus("pending");
@@ -599,18 +602,28 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                   })}
                 </View>
                 <AppInput
-                  label="Phone number"
+                  label="Mobile money number"
+                  prefix="+255"
                   value={phone}
-                  onChangeText={(t) => setPhone(capTzPhoneInput(t))}
-                  placeholder="07XXXXXXXX or +255 7XXXXXXXX"
+                  onChangeText={(value) => setPhone(capTanzaniaMnoNationalInput(value))}
+                  placeholder="765 012 370"
                   keyboardType="phone-pad"
                   maxLength={13}
                 />
-                {provider ? (
-                  <AppText variant="caption" tone="soft">
-                    Enter the number linked to your {PROVIDERS.find((p) => p.id === provider)?.name} account.
-                  </AppText>
-                ) : null}
+                <AppText
+                  variant="caption"
+                  tone={
+                    mnoPhoneState.level === "error"
+                      ? "danger"
+                      : mnoPhoneState.level === "warning"
+                        ? "warning"
+                        : mnoPhoneState.level === "success"
+                          ? "success"
+                          : "soft"
+                  }
+                >
+                  {mnoPhoneState.message}
+                </AppText>
               </>
             ) : channel === "BANK" ? (
               <>
@@ -785,7 +798,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
               ? !bankReady || !methodGate(`BANK_${bankCode}`).isEnabled
               : channel === "CARD"
                 ? !methodGate("CARD").isEnabled
-                : !provider || !phone.trim() || !methodGate(provider).isEnabled
+                : !provider || !mnoPhoneState.canSubmit || !methodGate(provider).isEnabled
           }
         />
       </BottomActionBar>

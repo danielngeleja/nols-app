@@ -6,7 +6,7 @@ import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleShe
 import { useAuth } from "../auth";
 import { getPropertyCommission, priceWithCommission } from "../bookings/priceUtils";
 import { fetchSystemCommission } from "../bookings/checkoutApi";
-import { AmountText, AppText, CustomerBottomNav, SafeScreen, StateView } from "../components";
+import { AppText, CustomerBottomNav, SafeScreen, StateView, StayPrice } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { fetchSavedProperties, SavedPropertyItem, unsaveProperty } from "../properties";
 import { colors, radius, shadows, spacing } from "../theme";
@@ -127,9 +127,10 @@ export function SavedPropertiesScreen({ navigation }: Props) {
                     {item.location}
                   </AppText>
                   {item.basePrice != null ? (
-                    <AmountText
+                    <StayPrice
                       amount={priceWithCommission(item.basePrice, getPropertyCommission(item.services, systemCommission))}
                       currency={item.currency || "TZS"}
+                      showSettlementNote={false}
                       variant="bodySmall"
                       weight="bold"
                       tone="primary"

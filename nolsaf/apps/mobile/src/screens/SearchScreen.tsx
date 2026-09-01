@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ArrowRight, Building2, Car, Clock, Compass, TicketsPlane, UsersRound, Wallet } from "lucide-react-native";
+import { ArrowRight, ArrowUpRight, Building2, Car, Clock, Compass, TicketsPlane, UsersRound, Wallet } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
@@ -31,6 +31,13 @@ type IconType = typeof Building2;
 const RECENT_SEARCHES_KEY = "nolsaf:recentDestinationSearches";
 const MAX_RECENT_SEARCHES = 5;
 
+const SERVICE_TONES = {
+  stays: { accent: colors.primary, tint: colors.brand[50] },
+  tours: { accent: "#9A5A13", tint: "#FFF7E8" },
+  groups: { accent: "#4F5FA8", tint: "#F1F3FB" },
+  rides: { accent: "#176B78", tint: "#EDF7F8" }
+} as const;
+
 export function SearchScreen({ navigation, route }: Props) {
   const { status } = useAuth();
   const isAuthed = status === "authenticated";
@@ -58,32 +65,45 @@ export function SearchScreen({ navigation, route }: Props) {
           </AppCard>
 
           <AppStack gap={3}>
-            <AppText variant="titleSm" weight="bold">
-              Our services
-            </AppText>
+            <View style={styles.sectionHeading}>
+              <AppText variant="titleSm" weight="extraBold">
+                Our services
+              </AppText>
+              <AppText variant="caption" tone="muted">
+                Trusted essentials for every part of your journey.
+              </AppText>
+            </View>
             <View style={styles.serviceGrid}>
               <ServiceCard
                 Icon={Building2}
+                eyebrow="ACCOMMODATION"
                 title="Verified Stays"
                 text="Approved hotels, lodges and stays"
+                {...SERVICE_TONES.stays}
                 onPress={() => navigation.navigate("VerifiedStays")}
               />
               <ServiceCard
                 Icon={TicketsPlane}
+                eyebrow="EXPERIENCES"
                 title="Tour Packages"
                 text="Curated tours from trusted operators"
+                {...SERVICE_TONES.tours}
                 onPress={() => navigation.navigate("TourPackages")}
               />
               <ServiceCard
                 Icon={UsersRound}
+                eyebrow="GROUP TRAVEL"
                 title="Group Stays"
                 text="Plan and book trips together"
+                {...SERVICE_TONES.groups}
                 onPress={() => navigation.navigate(isAuthed ? "GroupStayRequest" : "Login")}
               />
               <ServiceCard
                 Icon={Car}
+                eyebrow="TRANSPORT"
                 title="Rides"
                 text="Airport transfers and local rides"
+                {...SERVICE_TONES.rides}
                 onPress={() => navigation.navigate(isAuthed ? "MyRides" : "Login")}
               />
             </View>
@@ -126,18 +146,49 @@ export function SearchScreen({ navigation, route }: Props) {
   );
 }
 
-function ServiceCard({ Icon, title, text, onPress }: { Icon: IconType; title: string; text: string; onPress: () => void }) {
+function ServiceCard({
+  Icon,
+  eyebrow,
+  title,
+  text,
+  accent,
+  tint,
+  onPress
+}: {
+  Icon: IconType;
+  eyebrow: string;
+  title: string;
+  text: string;
+  accent: string;
+  tint: string;
+  onPress: () => void;
+}) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.serviceTile, pressed && styles.pressed]}>
-      <View style={styles.serviceIcon}>
-        <Icon color={colors.primary} size={18} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${text}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.serviceTile, pressed && styles.serviceTilePressed]}
+    >
+      <View style={styles.serviceTopRow}>
+        <View style={[styles.serviceIcon, { backgroundColor: tint }]}>
+          <Icon color={accent} size={19} strokeWidth={2.1} />
+        </View>
+        <AppText variant="label" weight="extraBold" style={[styles.serviceEyebrow, { color: accent }]} numberOfLines={1}>
+          {eyebrow}
+        </AppText>
+        <View style={[styles.serviceArrow, { backgroundColor: tint }]}>
+          <ArrowUpRight color={accent} size={16} strokeWidth={2.3} />
+        </View>
       </View>
-      <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>
-        {title}
-      </AppText>
-      <AppText variant="caption" tone="muted" numberOfLines={2}>
-        {text}
-      </AppText>
+      <View style={styles.serviceCopy}>
+        <AppText variant="titleSm" weight="extraBold" numberOfLines={1}>
+          {title}
+        </AppText>
+        <AppText variant="caption" tone="muted" numberOfLines={2}>
+          {text}
+        </AppText>
+      </View>
     </Pressable>
   );
 }
@@ -360,28 +411,62 @@ const styles = StyleSheet.create({
   screen: {
     paddingBottom: spacing[4]
   },
+  sectionHeading: {
+    gap: spacing[1]
+  },
   serviceGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing[2]
+    gap: spacing[3]
   },
   serviceTile: {
-    width: "48.5%",
-    minHeight: 118,
-    gap: spacing[2],
+    flexBasis: "47%",
+    flexGrow: 1,
+    minWidth: 150,
+    minHeight: 148,
+    gap: spacing[3],
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    padding: spacing[3]
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3],
+    overflow: "hidden"
+  },
+  serviceTopRow: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2]
   },
   serviceIcon: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[50]
+    borderRadius: radius.sm
+  },
+  serviceEyebrow: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    letterSpacing: 0.6
+  },
+  serviceArrow: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm
+  },
+  serviceCopy: {
+    flex: 1,
+    justifyContent: "flex-end",
+    gap: spacing[1]
+  },
+  serviceTilePressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.985 }]
   },
   placesRow: {
     flexDirection: "row",

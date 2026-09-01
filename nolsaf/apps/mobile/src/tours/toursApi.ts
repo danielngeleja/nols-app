@@ -627,7 +627,7 @@ export async function initiateTourMnoPayment(params: {
   bookingId: number;
   accessToken: string;
   phoneNumber: string;
-  provider: "Airtel" | "Mixx" | "MPESA" | "Halopesa";
+  provider: "Airtel" | "Mixx" | "MPESA" | "Halopesa" | "Azampesa";
 }) {
   return apiRequest<TourPaymentInitiateResult>(`/api/public/tour-bookings/${params.bookingId}/initiate-payment`, {
     method: "POST",

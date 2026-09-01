@@ -13,6 +13,7 @@ import {
   AppStack,
   AppText,
   countAdvancedFilters,
+  CurrencySelector,
   DEFAULT_PROPERTY_FILTERS,
   GuestBottomNav,
   PROPERTY_TYPES,
@@ -261,7 +262,10 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
             </View>
           </View>
 
-          <AnimatedCounter value={total} variant="display" weight="extraBold" tone="primary" />
+          <View style={styles.heroFooter}>
+            <AnimatedCounter value={total} variant="display" weight="extraBold" tone="primary" />
+            <CurrencySelector compact />
+          </View>
         </AppStack>
       </AppCard>
 
@@ -496,6 +500,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing[3],
     alignItems: "center"
+  },
+  heroFooter: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing[3]
   },
   backButton: {
     width: 44,

@@ -24,7 +24,6 @@ import {
   type GuestSex
 } from "../bookings";
 import {
-  AmountText,
   AppButton,
   AppCard,
   AppInput,
@@ -35,9 +34,11 @@ import {
   SafeScreen,
   ScreenHeader,
   StateView,
+  StayPrice,
   TransportBundle,
   type TransportSelection
 } from "../components";
+import { convertFromTzs, formatCurrency, useCurrency } from "../currency";
 import { ApiError } from "../lib/apiClient";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { fetchTransportAvailability } from "../lib/serviceAvailability";
@@ -149,6 +150,7 @@ function LockedField({ label, value }: { label: string; value: string }) {
 
 export function BookingReviewScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
+  const { currency: displayCurrency, tzsPerUnit } = useCurrency();
   const { propertyId, propertyTitle } = route.params;
 
   const [loading, setLoading] = useState(true);
@@ -258,6 +260,12 @@ export function BookingReviewScreen({ navigation, route }: Props) {
   const subtotal = grossPerNight * Math.max(1, nights) * rooms;
   const transportFare = transport.include ? transport.fare : 0;
   const total = subtotal + transportFare;
+  const isTzsStay = currency.toUpperCase() === "TZS";
+  const formatStayAmount = (amount: number): string => {
+    if (!isTzsStay) return `${amount.toLocaleString()} ${currency}`;
+    const converted = convertFromTzs(amount, displayCurrency, tzsPerUnit);
+    return converted == null ? formatCurrency(amount, "TZS") : formatCurrency(converted, displayCurrency);
+  };
 
   // Check every displayed room by its exact stable identity. This lets the UI
   // disable only unavailable variants instead of treating one selected room as
@@ -652,7 +660,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                     </View>
                     {room.pricePerNight != null ? (
                       <AppText variant="caption" weight="semiBold" tone={roomUnavailable ? "muted" : "soft"}>
-                        {priceWithCommission(room.pricePerNight, commission).toLocaleString()} {currency}
+                        {formatStayAmount(priceWithCommission(room.pricePerNight, commission))}
                       </AppText>
                     ) : null}
                     <View style={[styles.radio, active && styles.radioOn]}>{active ? <View style={styles.radioDot} /> : null}</View>
@@ -817,11 +825,11 @@ export function BookingReviewScreen({ navigation, route }: Props) {
               <>
                 <View style={styles.priceRow}>
                   <AppText variant="bodySmall" tone="muted" style={styles.flex}>
-                    {grossPerNight.toLocaleString()} {currency} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
+                    {formatStayAmount(grossPerNight)} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
                     {rooms > 1 ? ` × ${rooms} rooms` : ""}
                   </AppText>
                   <AppText variant="bodySmall" weight="semiBold">
-                    {subtotal.toLocaleString()} {currency}
+                    {formatStayAmount(subtotal)}
                   </AppText>
                 </View>
                 {transportFare > 0 ? (
@@ -831,7 +839,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                         Ride to the stay
                       </AppText>
                       <AppText variant="bodySmall" weight="semiBold">
-                        {(transport.surgeAmount > 0 ? transport.fareSubtotal : transportFare).toLocaleString()} {currency}
+                        {formatStayAmount(transport.surgeAmount > 0 ? transport.fareSubtotal : transportFare)}
                       </AppText>
                     </View>
                     {transport.surgeAmount > 0 ? (
@@ -840,7 +848,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                           Peak fare ({Math.round((transport.surgeMultiplier - 1) * 100)}%)
                         </AppText>
                         <AppText variant="bodySmall" tone="warning" weight="semiBold">
-                          +{transport.surgeAmount.toLocaleString()} {currency}
+                          +{formatStayAmount(transport.surgeAmount)}
                         </AppText>
                       </View>
                     ) : null}
@@ -851,10 +859,19 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                   <AppText variant="bodySmall" weight="bold" style={styles.flex}>
                     Total
                   </AppText>
-                  <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" tone="primary" />
+                  <StayPrice
+                    amount={total}
+                    currency={currency}
+                    showSettlementNote={false}
+                    variant="titleSm"
+                    weight="extraBold"
+                    tone="primary"
+                  />
                 </View>
                 <AppText variant="caption" tone="soft">
-                  You pay this securely on the next step.
+                  {isTzsStay && displayCurrency !== "TZS"
+                    ? `Display estimate only. Payment remains ${formatCurrency(total, "TZS")}.`
+                    : "You pay this securely on the next step."}
                 </AppText>
               </>
             ) : (
@@ -886,7 +903,13 @@ export function BookingReviewScreen({ navigation, route }: Props) {
               {showTotal ? "Total" : "No confirmed total"}
             </AppText>
             {showTotal ? (
-              <AmountText amount={total} currency={currency} variant="titleSm" weight="extraBold" />
+              <StayPrice
+                amount={total}
+                currency={currency}
+                showSettlementNote={false}
+                variant="titleSm"
+                weight="extraBold"
+              />
             ) : (
               <AppText variant="titleSm" weight="extraBold" tone="muted">
                 —

@@ -7,7 +7,7 @@ import { StyleSheet } from "react-native";
 import { useAuth } from "../auth";
 import { deleteMyAccount, fetchNotificationPreferences, updateNotificationPreferences } from "../accountPreferences";
 import { NotificationPreferences } from "../accountPreferences/types";
-import { AppButton, AppCard, AppInput, AppStack, AppText, ConfirmSheet, SafeScreen, ScreenHeader } from "../components";
+import { AppButton, AppCard, AppInput, AppStack, AppText, ConfirmSheet, CurrencySelector, SafeScreen, ScreenHeader } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
@@ -93,6 +93,16 @@ export function AccountPreferencesScreen({ navigation }: Props) {
           subtitle="Choose what NoLSAF notifies you about, and manage account-level controls."
           onBack={() => navigation.goBack()}
         />
+
+        <AppCard style={styles.section}>
+          <AppText variant="titleSm" weight="extraBold">
+            Currency
+          </AppText>
+          <AppText variant="caption" tone="muted">
+            Choose how TZS stay prices are displayed. Bookings and payments keep their original amount and currency.
+          </AppText>
+          <CurrencySelector />
+        </AppCard>
 
         <AppCard style={styles.section}>
           <AppText variant="titleSm" weight="extraBold">

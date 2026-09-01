@@ -62,7 +62,7 @@ export function fetchGroupBookingDepositStatus(token: string, id: number) {
 export function initiateGroupBookingDepositMno(
   token: string,
   id: number,
-  params: { phoneNumber: string; provider: "Airtel" | "Tigo" | "Mpesa" | "Halopesa" }
+  params: { phoneNumber: string; provider: "Airtel" | "Tigo" | "Mpesa" | "Halopesa" | "Azampesa" }
 ) {
   return apiRequest<DepositPaymentInitiateResult>(`/api/customer/group-stays/${id}/deposit/initiate-mno`, {
     method: "POST",
