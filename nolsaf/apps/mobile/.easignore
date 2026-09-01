@@ -2,8 +2,13 @@
 android/
 ios/
 node_modules/
+.npm-cache/
+**/.npm-cache/
 .npm-cache-eas/
 **/.npm-cache-eas/
+artifacts/source-maps/
+apps/web/public/assets/
+scripts/*.pdf
 dist/
 web-build/
 .env

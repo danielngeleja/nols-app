@@ -5,6 +5,7 @@ NOLSAF_STRATEGY.md
 *_CONFIDENTIAL.md
 
 node_modules/
+.npm-cache/
 .npm-cache-eas/
 .pnp.*
 .env
