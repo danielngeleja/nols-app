@@ -79,10 +79,44 @@ export async function expireUnpaidAgentBookings(client: any, opts: { batchSize?:
       await lockPropertyInventory(tx, row.reservation.propertyId);
       const request = await tx.nrmsGuestPaymentRequest.findUnique({
         where: { id: row.id },
-        select: { id: true, status: true, dueAt: true, cancelledAt: true, amount: true, reservationId: true, reservation: { select: { id: true, status: true, amountPaid: true, agentBookingRequest: { select: { id: true, status: true } } } } },
+        select: {
+          id: true, status: true, dueAt: true, cancelledAt: true, amount: true, reservationId: true,
+          reservation: {
+            select: {
+              id: true, status: true, amountPaid: true,
+              agentBookingRequest: {
+                select: {
+                  id: true, status: true,
+                  masterFolio: {
+                    select: {
+                      status: true,
+                      payments: { where: { voidedAt: null }, select: { amount: true } },
+                      refunds: { where: { voidedAt: null }, select: { amount: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
       if (!request || request.cancelledAt || !["PENDING", "PROCESSING"].includes(request.status) || !request.dueAt || request.dueAt >= now) return;
-      if (!request.reservation || request.reservation.status !== "CONFIRMED" || Number(request.reservation.amountPaid) >= Number(request.amount)) return;
+      if (!request.reservation || request.reservation.status !== "CONFIRMED") return;
+      const masterFolio = request.reservation.agentBookingRequest?.masterFolio;
+      const masterPaid = masterFolio
+        ? (masterFolio.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0)
+          - (masterFolio.refunds ?? []).reduce((sum: number, refund: any) => sum + Number(refund.amount ?? 0), 0)
+        : 0;
+      // The master folio superseded the old Reservation.amountPaid mirror. A
+      // legacy payment request must reconcile to that ledger, never cancel a
+      // stay whose agency payment the hotel already confirmed.
+      if (["SETTLED", "CREDIT"].includes(String(masterFolio?.status || "")) || masterPaid >= Number(request.amount) || Number(request.reservation.amountPaid) >= Number(request.amount)) {
+        await tx.nrmsGuestPaymentRequest.updateMany({
+          where: { id: request.id, status: { in: ["PENDING", "PROCESSING"] }, cancelledAt: null },
+          data: { status: "SETTLED", settledAt: now },
+        });
+        return;
+      }
       const paymentChanged = await tx.nrmsGuestPaymentRequest.updateMany({ where: { id: request.id, status: { in: ["PENDING", "PROCESSING"] }, cancelledAt: null, dueAt: { lt: now } }, data: { status: "EXPIRED", cancelledAt: now } });
       if (paymentChanged.count !== 1) return;
       const reservationChanged = await tx.reservation.updateMany({ where: { id: request.reservation.id, status: "CONFIRMED" }, data: { status: "CANCELLED", cancelledAt: now, cancelReason: "Agent prepayment deadline expired" } });

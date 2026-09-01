@@ -8,7 +8,7 @@
 
 param(
     [switch]$ValidateOnly,
-    [string]$EnvironmentName = "nolsaf-api-production"
+    [string]$EnvironmentName = "nolsaf-api-production-alb"
 )
 
 Set-StrictMode -Off
@@ -27,6 +27,10 @@ $EbLockScript = "$ApiDir\scripts\prepare-eb-package-lock.mjs"
 $PrismaTypeScriptCompiler = "$RepoRoot\packages\prisma\node_modules\typescript\bin\tsc"
 $SharedTypeScriptCompiler = "$RepoRoot\packages\shared\node_modules\typescript\bin\tsc"
 $ApiTypeScriptCompiler = "$ApiDir\node_modules\typescript\bin\tsc"
+$RedisCaCertPath = "$ApiDir\certs\redis_ca.pem"
+$RdsCaCertPath = "$ApiDir\certs\eu-north-1-rds-ca-rsa2048-g1.pem"
+$RdsCaPemSha256 = "E570A509BFA3B71A0416EB585AFC4B235AF129416B235678A4124D8CD04A63F4"
+$SocketProxyConfigPath = "$ApiDir\.platform\nginx\conf.d\elasticbeanstalk\01_socket_io.conf"
 
 $RuntimeArtifacts = @(
     [PSCustomObject]@{
@@ -131,6 +135,8 @@ try {
         Assert-CommandSucceeded "Building @nolsaf/api"
         node scripts/fix-esm-imports.mjs
         Assert-CommandSucceeded "Fixing API ESM imports"
+        node scripts/write-release-metadata.mjs
+        Assert-CommandSucceeded "Embedding API release metadata"
     }
 
     # 5. Stage Prisma schema and migrations into the EB bundle.
@@ -169,13 +175,18 @@ try {
     Write-Host "-- Validating deployment bundle ..."
     $requiredFiles = @(
         "$ApiDir\dist\src\index.js",
+        "$ApiDir\dist\scripts\backfill-rooms-spec-codes.js",
+        "$ApiDir\dist\release.json",
         "$VendorRoot\@nolsaf\prisma\package.json",
         "$VendorRoot\@nolsaf\prisma\dist\index.js",
         "$VendorRoot\@nolsaf\shared\package.json",
         "$SchemaDir\schema.prisma",
         $PkgLockPath,
         $EbLockArtifact,
-        "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh"
+        "$ApiDir\.platform\hooks\predeploy\generate-prisma.sh",
+        $RedisCaCertPath,
+        $RdsCaCertPath,
+        $SocketProxyConfigPath
     )
     $requiredFiles += @($RuntimeArtifacts | ForEach-Object { $_.Destination })
     foreach ($requiredFile in $requiredFiles) {
@@ -184,13 +195,29 @@ try {
         }
     }
 
+    $rdsCaPem = (Get-Content -LiteralPath $RdsCaCertPath -Raw).Replace("`r`n", "`n").Trim()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $rdsCaHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($rdsCaPem))
+    } finally {
+        $sha256.Dispose()
+    }
+    $actualRdsCaPemSha256 = ([System.BitConverter]::ToString($rdsCaHashBytes) -replace "-", "")
+    if ($actualRdsCaPemSha256 -ne $RdsCaPemSha256) {
+        throw "Bundled RDS CA certificate PEM hash mismatch: $actualRdsCaPemSha256"
+    }
+    Write-Host "   Verified eu-north-1 RDS RSA2048 root CA certificate."
+
     $migrationFiles = @(Get-ChildItem "$SchemaDir\migrations" -Filter "migration.sql" -File -Recurse)
     if ($migrationFiles.Count -eq 0) {
         throw "Deployment bundle contains no Prisma migration.sql files."
     }
     Write-Host "   Bundle contains $($migrationFiles.Count) Prisma migration files."
 
-    $compiledJavaScript = @(Get-ChildItem "$ApiDir\dist\src" -Filter "*.js" -File -Recurse)
+    $compiledJavaScript = @(
+        Get-ChildItem "$ApiDir\dist\src" -Filter "*.js" -File -Recurse
+        Get-Item "$ApiDir\dist\scripts\backfill-rooms-spec-codes.js"
+    )
     if ($compiledJavaScript.Count -eq 0) {
         throw "Deployment bundle contains no compiled API JavaScript files."
     }
@@ -202,7 +229,7 @@ try {
     if ($missingSourceMaps.Count -gt 0) {
         throw "Deployment bundle is missing $($missingSourceMaps.Count) adjacent API source maps."
     }
-    foreach ($excludedBuildPath in @("$ApiDir\dist\src\__tests__", "$ApiDir\dist\src\dev", "$ApiDir\dist\scripts")) {
+    foreach ($excludedBuildPath in @("$ApiDir\dist\src\__tests__", "$ApiDir\dist\src\dev")) {
         if (Test-Path -LiteralPath $excludedBuildPath) {
             throw "Production API build contains excluded test/development output: $excludedBuildPath"
         }

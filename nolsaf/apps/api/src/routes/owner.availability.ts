@@ -8,6 +8,19 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js";
+import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
+
+function roomReferencesOverlap(
+  requested: string | null | undefined,
+  existing: string | null | undefined,
+  roomsSpec: unknown,
+): boolean {
+  if (!requested || !existing) return true;
+  return (
+    matchingRoomSelectionCodes(existing, [requested], roomsSpec).length > 0 ||
+    matchingRoomSelectionCodes(requested, [existing], roomsSpec).length > 0
+  );
+}
 
 // Helper to emit availability updates via Socket.IO
 function emitAvailabilityUpdate(req: Request, propertyId: number, event: 'block_created' | 'block_updated' | 'block_deleted' | 'bulk_updated', data: any) {
@@ -261,15 +274,19 @@ router.post("/blocks", (async (req: AuthedRequest, res: Response) => {
     }
 
     // Conflict check: reject if active bookings overlap with the requested date range.
-    const conflictingBookings = await prisma.booking.findMany({
+    const overlappingBookings = await prisma.booking.findMany({
       where: {
         propertyId: data.propertyId,
         status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
         AND: [{ checkIn: { lt: endDate } }, { checkOut: { gt: startDate } }],
-        ...(data.roomCode ? { roomCode: data.roomCode } : {}),
       },
       select: { id: true, checkIn: true, checkOut: true, status: true, guestName: true, roomCode: true },
     });
+    const conflictingBookings = data.roomCode
+      ? overlappingBookings.filter((booking) =>
+          roomReferencesOverlap(data.roomCode, booking.roomCode, property.roomsSpec),
+        )
+      : overlappingBookings;
 
     if (conflictingBookings.length > 0) {
       res.status(409).json({
@@ -295,10 +312,11 @@ router.post("/blocks", (async (req: AuthedRequest, res: Response) => {
     // avoiding a second sequential DB call when we need to list alternatives.
     if (data.roomCode) {
       const roomType = (data.roomCode || "").replace(/-\d+$/, "") || data.roomCode || "";
-      const all = await calculateAvailability(data.propertyId, startDate, endDate, null, undefined, {});
+      const all = await calculateAvailability(data.propertyId, startDate, endDate, data.roomCode, undefined, {});
       const rt =
         all.byRoomType[roomType] ??
-        Object.entries(all.byRoomType).find(([k]) => k.toLowerCase() === (roomType || "").toLowerCase())?.[1];
+        Object.entries(all.byRoomType).find(([k]) => k.toLowerCase() === (roomType || "").toLowerCase())?.[1] ??
+        Object.values(all.byRoomType)[0];
       const beds = data.bedsBlocked ?? 1;
       const roomsLeft = rt?.availableRooms ?? 0;
       if (rt && beds > roomsLeft) {
@@ -470,13 +488,14 @@ router.put("/blocks/:id", (async (req: AuthedRequest, res: Response) => {
         existingBlock.propertyId,
         effectiveStart,
         effectiveEnd,
-        null,
+        effectiveRoomCode,
         undefined,
         { excludeBlockId: blockId }
       );
       const rt =
         all.byRoomType[roomType] ??
-        Object.entries(all.byRoomType).find(([k]) => k.toLowerCase() === (roomType || "").toLowerCase())?.[1];
+        Object.entries(all.byRoomType).find(([k]) => k.toLowerCase() === (roomType || "").toLowerCase())?.[1] ??
+        Object.values(all.byRoomType)[0];
       const roomsLeft = rt?.availableRooms ?? 0;
       if (rt && effectiveBeds > roomsLeft) {
         const otherRoomTypes = Object.entries(all.byRoomType)
@@ -626,7 +645,7 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
     }
 
     // Get all bookings in date range
-    const bookings = await prisma.booking.findMany({
+    const allBookings = await prisma.booking.findMany({
       where: {
         propertyId: propertyIdNum,
         status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
@@ -634,7 +653,6 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
           { checkIn: { lt: end } },
           { checkOut: { gt: start } },
         ],
-        ...(roomCode && { roomCode: String(roomCode) }),
       },
       select: {
         id: true,
@@ -647,9 +665,14 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
       },
       orderBy: { checkIn: "asc" },
     });
+    const bookings = roomCode
+      ? allBookings.filter((booking) =>
+          roomReferencesOverlap(String(roomCode), booking.roomCode, property.roomsSpec),
+        )
+      : allBookings;
 
     // Get all availability blocks in date range
-    const blocks = await prisma.propertyAvailabilityBlock.findMany({
+    const allBlocks = await prisma.propertyAvailabilityBlock.findMany({
       where: {
         propertyId: propertyIdNum,
         ownerId,
@@ -657,7 +680,6 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
           { startDate: { lt: end } },
           { endDate: { gt: start } },
         ],
-        ...(roomCode && { roomCode: String(roomCode) }),
       },
       select: {
         id: true,
@@ -673,6 +695,11 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
       },
       orderBy: { startDate: "asc" },
     });
+    const blocks = roomCode
+      ? allBlocks.filter((block) =>
+          roomReferencesOverlap(String(roomCode), block.roomCode, property.roomsSpec),
+        )
+      : allBlocks;
 
     // Parse roomsSpec to get room types
     const roomsSpec = property.roomsSpec as any;
@@ -685,7 +712,7 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         title: property.title,
         roomTypes: roomTypes.map((r: any) => ({
           roomType: r.roomType || r.name || "Unknown",
-          roomCode: r.roomCode || null,
+          roomCode: r.code || r.roomCode || null,
           roomsCount: r.roomsCount || r.count || 0,
           basePrice: Number(r.pricePerNight ?? r.price ?? property.basePrice ?? 0) || null,
           currency: r.currency || property.currency || "TZS",
@@ -866,7 +893,7 @@ router.get("/check-conflicts", (async (req: AuthedRequest, res: Response) => {
     }
 
     // Check for conflicting bookings
-    const conflictingBookings = await prisma.booking.findMany({
+    const overlappingBookings = await prisma.booking.findMany({
       where: {
         propertyId: propertyIdNum,
         status: { in: [...AVAILABILITY_BLOCKING_BOOKING_STATUSES] },
@@ -874,7 +901,6 @@ router.get("/check-conflicts", (async (req: AuthedRequest, res: Response) => {
           { checkIn: { lt: end } },
           { checkOut: { gt: start } },
         ],
-        ...(roomCode && { roomCode: String(roomCode) }),
       },
       select: {
         id: true,
@@ -886,16 +912,20 @@ router.get("/check-conflicts", (async (req: AuthedRequest, res: Response) => {
         totalAmount: true,
       },
     });
+    const conflictingBookings = roomCode
+      ? overlappingBookings.filter((booking) =>
+          roomReferencesOverlap(String(roomCode), booking.roomCode, property.roomsSpec),
+        )
+      : overlappingBookings;
 
     // Check for conflicting blocks
-    const conflictingBlocks = await prisma.propertyAvailabilityBlock.findMany({
+    const overlappingBlocks = await prisma.propertyAvailabilityBlock.findMany({
       where: {
         propertyId: propertyIdNum,
         AND: [
           { startDate: { lt: end } },
           { endDate: { gt: start } },
         ],
-        ...(roomCode && { roomCode: String(roomCode) }),
         ...(excludeBlockId && { id: { not: Number(excludeBlockId) } }),
       },
       select: {
@@ -907,6 +937,11 @@ router.get("/check-conflicts", (async (req: AuthedRequest, res: Response) => {
         bedsBlocked: true,
       },
     });
+    const conflictingBlocks = roomCode
+      ? overlappingBlocks.filter((block) =>
+          roomReferencesOverlap(String(roomCode), block.roomCode, property.roomsSpec),
+        )
+      : overlappingBlocks;
 
     const hasConflicts = conflictingBookings.length > 0 || conflictingBlocks.length > 0;
 

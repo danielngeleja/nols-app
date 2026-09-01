@@ -857,6 +857,18 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
 
 // ─── 4. NRMS Guest Invoice ────────────────────────────────────────────────────
 
+/** Room labels for a document line, counted rather than repeated: a ten-room
+ * agency stay reads "10 × Double" instead of the word ten times. */
+function roomSummary(rooms: Array<{ label: string }>): string {
+  const tally = new Map<string, number>();
+  for (const room of rooms) {
+    const label = String(room?.label ?? "").trim();
+    if (!label) continue;
+    tally.set(label, (tally.get(label) ?? 0) + 1);
+  }
+  return [...tally.entries()].map(([label, count]) => (count > 1 ? `${count} × ${label}` : label)).join(", ");
+}
+
 export interface NrmsInvoiceData {
   invoiceNumber: string;
   issuedAt: Date | string;
@@ -866,6 +878,9 @@ export interface NrmsInvoiceData {
   propertyLocation?: string | null;
   guestName: string;
   guestPhone?: string | null;
+  /** Who the bill is addressed to when that is not the guest, e.g. the agency
+   * that booked and paid for the stay as an authorised partner. */
+  billedTo?: { name: string; phone?: string | null; note?: string | null } | null;
   checkIn: Date | string;
   checkOut: Date | string;
   /** Active room allocations, e.g. unit code or room type name */
@@ -1056,11 +1071,20 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
     doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
       .text("BILLED TO", M + 8, y, { characterSpacing: 1, lineBreak: false })
       .text("STAY DETAILS", colR + 8, y, { characterSpacing: 1, lineBreak: false });
+    // A stay an agency booked and paid for is billed to the agency, not to the
+    // traveller sleeping in the room.
+    const billName = data.billedTo?.name || data.guestName;
+    const billPhone = data.billedTo ? data.billedTo.phone ?? null : data.guestPhone ?? null;
     doc.font(fonts.bold).fontSize(9).fillColor(TEXT_MAIN)
-      .text(data.guestName, M + 8, y + 11, { width: infoCardW - 16, lineBreak: false, ellipsis: true });
-    if (data.guestPhone) {
+      .text(billName, M + 8, y + 11, { width: infoCardW - 16, lineBreak: false, ellipsis: true });
+    const billSubtitle = data.billedTo?.note || billPhone;
+    if (billSubtitle) {
       doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
-        .text(data.guestPhone, M + 8, y + 24, { lineBreak: false });
+        .text(billSubtitle, M + 8, y + 24, { width: infoCardW - 16, lineBreak: false, ellipsis: true });
+    }
+    if (data.billedTo?.note && billPhone) {
+      doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+        .text(billPhone, M + 8, y + 34, { width: infoCardW - 16, lineBreak: false, ellipsis: true });
     }
     const nights = Math.max(1, Math.ceil(
       (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000
@@ -1069,7 +1093,7 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       ["Check-in", fmtIsoDate(data.checkIn)],
       ["Check-out", fmtIsoDate(data.checkOut)],
       ["Nights", String(nights)],
-      ...(data.rooms.length ? ([["Room", data.rooms.map((r) => r.label).join(", ")]] as Array<[string, string]>) : []),
+      ...(data.rooms.length ? ([["Room", roomSummary(data.rooms)]] as Array<[string, string]>) : []),
     ];
     let sy = y + 11;
     for (const [label, value] of stayPairs) {
@@ -1087,7 +1111,7 @@ export async function generateNrmsInvoicePdf(data: NrmsInvoiceData): Promise<Buf
       "Accommodation",
       fmtMoney(data.roomTotal, cur),
       false,
-      `${nights} night${nights !== 1 ? "s" : ""}${data.rooms.length ? ` · ${data.rooms.map((r) => r.label).join(", ")}` : ""}`,
+      `${nights} night${nights !== 1 ? "s" : ""}${data.rooms.length ? ` · ${roomSummary(data.rooms)}` : ""}`,
     );
     for (const charge of data.charges) {
       const category = charge.category.replace(/_/g, " ").toLowerCase();

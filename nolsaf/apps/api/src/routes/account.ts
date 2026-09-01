@@ -38,6 +38,7 @@ import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
 import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
+import { buildDriverVerificationCode } from "../lib/driverVerificationCode.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -734,6 +735,15 @@ const getMe: RequestHandler = async (req, res) => {
           (user as any).vehicleRegFileUrl = latra?.url ?? null;
           (user as any).insuranceUrl = ins?.url ?? null;
           (user as any).insuranceFileUrl = ins?.url ?? null;
+          // The identifier printed on the driver ID card. Built server side
+          // because it carries an HMAC check segment: the card must show the
+          // same code the public check will accept, and the client has no way
+          // to derive it.
+          try {
+            (user as any).driverVerificationCode = buildDriverVerificationCode(Number(userId));
+          } catch {
+            (user as any).driverVerificationCode = null;
+          }
         }
       }
     } catch (e) {
@@ -861,10 +871,23 @@ const getReferral: RequestHandler = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, referralCode: true },
+      select: { id: true, role: true },
     });
     if (!user) return sendError(res, 404, "User not found");
-    const code = user.referralCode || String(user.id);
+
+    /**
+     * The code must be built from the user's own id in the format registration
+     * accepts (`DRIVER-<id>` or `CUSTOMER-<id>`, parsed in auth.ts). Two bugs
+     * lived here:
+     *
+     * 1. `String(user.id)` produced a bare number, which matches neither
+     *    pattern, so every customer referral was silently discarded.
+     * 2. `user.referralCode` stores the code this user ARRIVED with, meaning a
+     *    referred customer's own share link credited whoever referred them.
+     */
+    const code = String(user.role || "").toUpperCase() === "DRIVER"
+      ? `DRIVER-${user.id}`
+      : `CUSTOMER-${user.id}`;
     sendSuccess(res, { code, link: `${publicWebOrigin()}/account/register?ref=${encodeURIComponent(code)}` });
   } catch {
     sendError(res, 500, "Failed to fetch referral info");

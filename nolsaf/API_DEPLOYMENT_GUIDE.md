@@ -12,7 +12,7 @@ replace staging and clone qualification.
 | --- | --- |
 | AWS region | `eu-north-1` |
 | Elastic Beanstalk application | `nolsaf-api` |
-| Elastic Beanstalk environment | `nolsaf-api-production` |
+| Elastic Beanstalk environment | `nolsaf-api-production-alb` |
 | Production RDS instance | `database-1` |
 | Production database | `nolsaf_production` |
 | Production API health URL | `https://api.nolsaf.com/health` |
@@ -20,6 +20,7 @@ replace staging and clone qualification.
 | Prisma schema | `prisma/schema.prisma` |
 | Prisma migrations | `prisma/migrations/` |
 | API deployment script | `apps/api/scripts/deploy-eb.ps1` |
+| Operator entry point | `scripts/aws-production.ps1` |
 
 The commands below assume Windows PowerShell.
 
@@ -28,7 +29,7 @@ $RepoRoot = "D:\nolsapp2.1\nolsaf"
 $ApiDir = "$RepoRoot\apps\api"
 $Eb = "C:\Users\NoLS Tanzania\AppData\Roaming\Python\Python312\Scripts\eb.exe"
 $AwsRegion = "eu-north-1"
-$EbEnvironment = "nolsaf-api-production"
+$EbEnvironment = "nolsaf-api-production-alb"
 $RdsInstance = "database-1"
 ```
 
@@ -62,6 +63,58 @@ remain available.
 - If Elastic Beanstalk is `Red`, the API health check fails, migration files are
   missing, or Prisma reports a failed migration, stop and investigate before
   continuing.
+
+## Operator entry point
+
+`scripts/aws-production.ps1` is the guarded local entry point for the AWS-facing
+steps of this runbook. It is a wrapper, not a replacement: it does not perform
+staging QA, promotion, snapshots, or migrations, and it never removes the need
+for the approvals and evidence required by
+[`docs/ENGINEERING_DELIVERY_POLICY.md`](docs/ENGINEERING_DELIVERY_POLICY.md).
+
+Run it from the repository root:
+
+```powershell
+Set-Location $RepoRoot
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\aws-production.ps1 help
+```
+
+| Action | Runbook section | Effect on AWS |
+| --- | --- | --- |
+| `preflight` | 3 | Read-only |
+| `status` | 3, 9 | Read-only |
+| `validate` | 5 | None; local bundle build only |
+| `deploy` | 7 | Deploys a new application version |
+| `health` | 3, 9 | Read-only |
+| `events` | 7, 9 | Read-only |
+| `logs` | 7, 9 | Read-only |
+| `ssh` | 6, 8 | Opens an interactive session |
+| `open`, `console` | Any | Read-only |
+
+The `deploy` action fails closed. It requires `-ConfirmProduction`, an explicit
+`-DatabaseChange` state, and a clean `main` checkout whose `HEAD` matches
+`origin/main`. It then runs `apps/api/scripts/deploy-eb.ps1` and prints EB, RDS,
+and public health status.
+
+```powershell
+# Application-only release with no Prisma or database-compatibility change
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+
+# Schema-bearing release, only after section 6 completed and was verified
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange AppliedAndVerified
+```
+
+`-DatabaseChange AppliedAndVerified` is an operator acknowledgement, not a check.
+The script cannot prove that the exact `main` migration artifact was applied and
+verified by the designated runner. Never pass it to skip section 6.
+
+Use `-Profile <name>` when the correct production credentials are not the default
+AWS profile. The AWS region defaults to `eu-north-1`.
+
+The manual commands in the sections below remain authoritative. Use them
+directly whenever the wrapper is unavailable, when its output is ambiguous, or
+when a release is being investigated after a failure.
 
 ## 1. QA the staging branch
 
@@ -179,12 +232,19 @@ $BeforeDeploy.Content
 Required pre-deployment state:
 
 - The AWS account and region are correct.
-- Elastic Beanstalk points to `nolsaf-api-production`.
+- Elastic Beanstalk points to `nolsaf-api-production-alb`.
 - EB status is `Ready`.
 - The health endpoint returns HTTP `200`.
 
 Record the current `Deployed Version` from `eb status`. It is the application
 rollback candidate if the new API bundle fails.
+
+The same read-only checks, plus RDS instance state, are available as:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 status
+```
 
 ## 4. Create and verify the production RDS snapshot
 
@@ -240,6 +300,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\deploy-eb.ps1 `
   -ValidateOnly
 ```
+
+The wrapper equivalent is `.\scripts\aws-production.ps1 validate` from
+`$RepoRoot`. Either form must end with the same result.
 
 Expected ending:
 
@@ -366,6 +429,11 @@ EOF
 ./node_modules/.bin/prisma migrate status \
   --config "$RUNNER_ROOT/prisma-production.config.cjs"
 
+# Stop here when the release contains
+# 20260822170000_add_user_registration_lifecycle. Use the guarded prefix and
+# recovery sequence in docs/CASE_SENSITIVE_DATABASE_RECOVERY.md instead of the
+# next migrate-deploy command.
+
 ./node_modules/.bin/prisma migrate deploy \
   --config "$RUNNER_ROOT/prisma-production.config.cjs"
 
@@ -392,6 +460,17 @@ $env:PYTHONUTF8 = "1"
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\deploy-eb.ps1
 ```
+
+The guarded wrapper form re-checks the release checkout before deploying and
+prints EB, RDS, and health status afterwards:
+
+```powershell
+Set-Location $RepoRoot
+.\scripts\aws-production.ps1 deploy -ConfirmProduction -DatabaseChange None
+```
+
+Use `-DatabaseChange AppliedAndVerified` instead when section 6 applied and
+verified migrations for this release.
 
 Do not run another deploy while this command is active. A successful deployment
 ends with:
@@ -427,6 +506,55 @@ If deployment fails:
 Resolve the API deployment failure without rerunning the migration or launching
 another deploy blindly. The schema expansion may already be committed and must
 remain backward-compatible with the rollback API version.
+
+### Run the guarded room-code backfill for stable room variants
+
+The deployed API contains the exact backfill runner under `dist/scripts`. Run
+its dry-run first from one Elastic Beanstalk instance; never run it concurrently
+from multiple instances.
+
+```powershell
+Set-Location $ApiDir
+& $Eb ssh $EbEnvironment
+```
+
+Inside the SSH session:
+
+```bash
+set -euo pipefail
+cd /var/app/current
+npm run rooms:codes:backfill:runtime
+```
+
+Required dry-run result:
+
+- `mode` is `dry-run`;
+- `activeBlockers` is `0`;
+- `safeToApply` is `true`;
+- every planned booking/block rewrite points to one explicit target code.
+
+An active ambiguous reference is a stop condition. Do not choose the first
+candidate. Reconcile the booking or availability block with the property owner,
+assign its exact variant code through a reviewed data correction, and rerun the
+dry-run. Historical unresolved references are reported but do not affect
+current or future inventory.
+
+After a clean dry-run, apply once and prove the rerun is empty:
+
+```bash
+npm run rooms:codes:backfill:runtime:apply
+npm run rooms:codes:backfill:runtime
+```
+
+The final dry-run must report `propertiesToChange: 0`,
+`plannedReferenceUpdates: 0`, and `activeBlockers: 0`. The runner locks and
+rechecks each property before writing, updates safe booking/block references in
+the same transaction as `roomsSpec`, and is idempotent. Preserve the RDS
+snapshot from section 4 until post-deployment verification is complete.
+
+```bash
+exit
+```
 
 ## 8. Verify the deployed bundle carries the applied migration head
 
@@ -465,6 +593,46 @@ The migration count must match the local migration count from the QA step. The
 JavaScript and source-map counts must match, and test/development output must be
 absent. If any required artifact is missing, exit and redeploy with
 `scripts/deploy-eb.ps1`.
+
+### Private production error symbolication
+
+The API bundle contains `dist/release.json`, generated from the exact Git commit
+and repository remote during the build. API JavaScript source maps remain
+adjacent to compiled files inside the private EB bundle. Browser source maps are
+removed from public Next.js assets and uploaded by the Vercel production build
+to a private S3 prefix keyed by the same Git commit.
+
+Elastic Beanstalk requires these non-secret settings:
+
+```text
+SOURCE_MAP_BUCKET=<private bucket name>
+SOURCE_MAP_AWS_REGION=eu-north-1
+SOURCE_MAP_S3_PREFIX=source-maps
+```
+
+Its instance profile must have `s3:GetObject` only for
+`arn:aws:s3:::<bucket>/source-maps/*`.
+
+Vercel production builds require:
+
+```text
+SOURCE_MAP_UPLOAD_BUCKET=<private bucket name>
+SOURCE_MAP_AWS_REGION=eu-north-1
+SOURCE_MAP_S3_PREFIX=source-maps
+SOURCE_MAP_UPLOAD_REQUIRED=true
+SOURCE_MAP_AWS_ROLE_ARN=<Vercel production OIDC upload role ARN>
+```
+
+The Vercel role uses OIDC federation and short-lived credentials. Do not create
+or store an IAM access key in Vercel. Its role may only call `s3:PutObject` under
+the private `source-maps/*` prefix. The bucket must block all public access and
+retain server-side encryption.
+
+When an error is captured, the diagnostic service uses its release SHA and
+generated chunk path to retrieve the matching private map, then emits the
+original TypeScript file, line, bounded code context, fingerprint, and immutable
+GitHub commit link. Source-map retrieval is outside normal request handling and
+fails closed when storage is unavailable.
 
 Load the production URL without printing it. Prisma's schema engine does not
 use the API's MariaDB driver TLS settings, so also download the official AWS RDS
@@ -572,6 +740,9 @@ Set-Location $ApiDir
 & $Eb logs $EbEnvironment --all
 ```
 
+The wrapper exposes the same read-only views as
+`.\scripts\aws-production.ps1 status`, `events`, `logs`, and `health`.
+
 ## 10. Record the release
 
 Use
@@ -591,6 +762,12 @@ Keep the pre-migration snapshot according to the production backup-retention
 policy. Do not delete it immediately after deployment.
 
 ## Failed Prisma migration procedure
+
+For the known immutable case-sensitive migrations beginning with
+`20260822170000_add_user_registration_lifecycle`, use the guarded, clone-first
+procedure in
+[`docs/CASE_SENSITIVE_DATABASE_RECOVERY.md`](docs/CASE_SENSITIVE_DATABASE_RECOVERY.md).
+Do not substitute an ad-hoc SQL session or edit the shared migrations.
 
 A failed MariaDB migration can be partially applied because many DDL statements
 automatically commit. Never assume that a failed migration changed nothing.
@@ -820,7 +997,7 @@ Do not combine an EB platform upgrade with a large application/database release.
 - AWS CLI is authenticated for the correct production account.
 - EB CLI is installed and configured for `eu-north-1`.
 - EB application is `nolsaf-api`.
-- EB environment is `nolsaf-api-production`.
+- EB environment is `nolsaf-api-production-alb`.
 - SSH key access to the EB instance works.
 - EB and RDS security groups allow the API to reach MariaDB on port `3306`.
 - Production environment variables are configured securely in AWS.

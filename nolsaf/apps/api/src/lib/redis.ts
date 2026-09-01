@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { getRedisTlsOptions } from "./redisTls.js";
 
 let client: Redis | null = null;
 let connectionAttempts = 0;
@@ -25,6 +26,7 @@ function resolveRedisUrl(): string | null {
 
 function createRedisClient(url: string): Redis {
   return new Redis(url, {
+    ...getRedisTlsOptions(url),
     connectTimeout: CONNECTION_TIMEOUT,
     lazyConnect: true, // Connection happens automatically on first command
     retryStrategy: (times) => {

@@ -13,6 +13,7 @@ import { requireNrms, loadOwnedActiveNrmsProperty, NRMS_BILLING_BLOCKING_STATUSE
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { finalizeNrmsCheckout } from "../lib/nrmsBilling.js";
+import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
@@ -30,6 +31,7 @@ import {
   masterFolioJoinConflict,
   routeChargeToMasterFolio,
   routeRoomToMasterFolio,
+  summarizeAgentBookingSettlement,
   summarizeReservationMasterSettlement,
   syncRoutedRoomAmount,
   transferredToMasterForReservation,
@@ -92,6 +94,7 @@ const guestInput = z.object({
 });
 
 const createReservationSchema = z.object({
+  inquiryId: z.number().int().positive().optional(),
   source: z.enum(RESERVATION_SOURCES),
   status: z.enum(["HELD", "CONFIRMED"]).default("CONFIRMED"),
   holdExpiresAt: dayString.optional(),
@@ -199,7 +202,27 @@ function formatReservation(r: any) {
   const transferredToMaster = Array.isArray(r.masterFolioItems)
     ? r.masterFolioItems.filter((item: any) => !item.voidedAt).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0)
     : 0;
-  const agencySettlement = summarizeReservationMasterSettlement(r.group, transferredToMaster);
+  // An agency stay reports what the agency paid on its folio. The reservation's
+  // own amountPaid is not a second payment: on rows written before the folio
+  // became the single source of truth it is a mirror of this same money, and
+  // the room charge on the folio is a charge, not a payment. Counting any of
+  // them twice is what turned a settled stay into a negative balance.
+  // Once the booking is split, this row is the placeholder the rooms replaced.
+  // Its money moved to the per-room stays, so it must not keep presenting the
+  // agency bill, or a settled booking reads as demanding payment all over again.
+  const supersededByRooms = Boolean(r.agentBookingRequest?.masterFolio?.blockId);
+  const agentSettlement = supersededByRooms ? null : summarizeAgentBookingSettlement(r.agentBookingRequest);
+  // A stay is settled by an agency through a group master folio or through an
+  // agent booking's own folio. Both read the same way to the front desk.
+  const agencySettlement = summarizeReservationMasterSettlement(r.group, transferredToMaster) ?? agentSettlement;
+  const settledTransfer = r.agentBookingRequest ? 0 : transferredToMaster;
+  const effectivePaid = supersededByRooms ? 0 : agentSettlement ? agentSettlement.paidAmount : Number(r.amountPaid ?? 0) + settledTransfer;
+  const operationalAgentRequest = r.materializedAgentBookingRequest ?? r.agentBookingRequest ?? null;
+  const agentGuests = Array.isArray(r.agentBookingGuests) && r.agentBookingGuests.length
+    ? r.agentBookingGuests
+    : Array.isArray(operationalAgentRequest?.guests) ? operationalAgentRequest.guests : [];
+  const agentLead = agentGuests.find((guest: any) => guest.isLead && guest.fullName) ?? agentGuests.find((guest: any) => guest.fullName) ?? null;
+  const agentAccount = operationalAgentRequest?.link?.agentAccount ?? null;
   return {
     id: r.id,
     propertyId: r.propertyId,
@@ -226,10 +249,18 @@ function formatReservation(r: any) {
     openOutletOrderCount: Array.isArray(r.outletOrders)
       ? r.outletOrders.filter((order: any) => !order.status || ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status)).length
       : undefined,
-    balance:
-      decimal(r.totalAmount) != null && decimal(r.amountPaid) != null
-        ? computeGuestBalance(r.totalAmount, r.chargesTotal, Number(r.amountPaid) + transferredToMaster)
+    balance: supersededByRooms
+      ? null
+      : decimal(r.totalAmount) != null && decimal(r.amountPaid) != null
+        ? computeGuestBalance(r.totalAmount, r.chargesTotal, effectivePaid)
         : null,
+    /** True for the original agent booking record after its rooms were split
+     * out. It is history: the stays carry the money and the operations. */
+    supersededByRooms,
+    /** What has genuinely been collected against this stay, from whichever
+     * ledger holds it. Views should read this rather than adding amountPaid and
+     * transfers themselves. */
+    effectivePaid,
     confirmedAt: r.confirmedAt,
     checkedInAt: r.checkedInAt,
     checkedOutAt: r.checkedOutAt,
@@ -265,12 +296,16 @@ function formatReservation(r: any) {
           paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
         }
       : null,
-    agentBooking: r.agentBookingRequest
+    agentBooking: operationalAgentRequest
       ? {
-          requestId: r.agentBookingRequest.id,
-          guestManifestStatus: r.agentBookingRequest.guestManifestStatus,
-          incidentalBilling: r.agentBookingRequest.incidentalBilling,
-          travellerCount: r.agentBookingRequest.guests?.length ?? 0,
+          requestId: operationalAgentRequest.id,
+          guestManifestStatus: operationalAgentRequest.guestManifestStatus,
+          incidentalBilling: operationalAgentRequest.incidentalBilling,
+          travellerCount: agentGuests.length,
+          agencyName: agentAccount?.tradingName || agentAccount?.legalName || null,
+          leadGuest: agentLead
+            ? { fullName: agentLead.fullName, phone: agentLead.phone ?? null, nationality: agentLead.nationality ?? null }
+            : null,
         }
       : null,
     allocations: Array.isArray(r.allocations)
@@ -387,12 +422,34 @@ const reservationGroupSelect = {
 
 const detailInclude = {
   guestProfile: true,
+  agentBookingGuests: {
+    orderBy: [{ isLead: "desc" as const }, { guestType: "asc" as const }, { id: "asc" as const }],
+    select: { id: true, isLead: true, guestType: true, fullName: true, phone: true, nationality: true },
+  },
   agentBookingRequest: {
     select: {
       id: true,
       guestManifestStatus: true,
       incidentalBilling: true,
-      guests: { select: { id: true } },
+      // The lead traveller stands in for the guest identity: an agent booking
+      // is created from room counts alone, so the reservation itself carries no
+      // guest profile until someone checks in.
+      guests: { select: { id: true, isLead: true, fullName: true, phone: true, nationality: true } },
+      link: { select: { agentAccount: { select: { id: true, legalName: true, tradingName: true } } } },
+      masterFolio: {
+        select: {
+          reference: true, status: true, settledAt: true, billingMode: true, blockId: true,
+          payments: { select: { method: true, amount: true, voidedAt: true } },
+        },
+      },
+    },
+  },
+  materializedAgentBookingRequest: {
+    select: {
+      id: true,
+      guestManifestStatus: true,
+      incidentalBilling: true,
+      link: { select: { agentAccount: { select: { id: true, legalName: true, tradingName: true } } } },
     },
   },
   booking: {
@@ -536,6 +593,17 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const where: any = { propertyId: property.id as number };
     if (status) where.status = String(status);
     if (source) where.source = String(source);
+    // The placeholder an agency booking was split out of is history, not work:
+    // it is cancelled, holds no rooms and carries no money. It stays in the
+    // database, because the approval, the invoice and the payment events all
+    // hang off it, but it is kept out of the working list unless somebody asks
+    // for cancelled reservations on purpose.
+    if (String(status || "").toUpperCase() !== "CANCELLED") {
+      where.NOT = [
+        ...(Array.isArray(where.NOT) ? where.NOT : []),
+        { AND: [{ status: "CANCELLED" }, { agentBookingRequest: { masterFolio: { blockId: { not: null } } } }] },
+      ];
+    }
     if (from) where.checkOut = { gt: new Date(String(from)) };
     if (to) where.checkIn = { lt: new Date(String(to)) };
     if (q) {
@@ -552,6 +620,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         include: {
           guestProfile: true,
           booking: detailInclude.booking,
+          agentBookingRequest: detailInclude.agentBookingRequest,
           group: { select: reservationGroupSelect },
           allocations: {
             where: { status: "ACTIVE" },
@@ -580,6 +649,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
 
 const groupMemberInclude = {
   guestProfile: { select: { id: true, fullName: true, phone: true } },
+  agentBookingGuests: {
+    orderBy: [{ isLead: "desc" as const }, { guestType: "asc" as const }, { id: "asc" as const }],
+    select: { id: true, fullName: true, guestType: true, isLead: true, phone: true, nationality: true },
+  },
   allocations: {
     where: { status: "ACTIVE" },
     include: { roomType: { select: { name: true } }, roomUnit: { select: { id: true, code: true, housekeepingStatus: true } } },
@@ -603,7 +676,7 @@ const groupInclude = {
       id: true,
       reference: true,
       billingMode: true,
-      masterFolio: { select: { reference: true, status: true } },
+      masterFolio: { select: { reference: true, status: true, agentBookingRequestId: true } },
     },
   },
   _count: { select: { reservations: true } },
@@ -641,6 +714,14 @@ function groupMemberSummary(member: any) {
     transferredToMaster,
     balance: computeGuestBalance(member.totalAmount, chargesTotal, amountPaid + transferredToMaster),
     guestProfile: member.guestProfile,
+    occupants: (member.agentBookingGuests ?? []).map((guest: any) => ({
+      id: guest.id,
+      fullName: guest.fullName,
+      guestType: guest.guestType,
+      isLead: guest.isLead,
+      phone: guest.phone,
+      nationality: guest.nationality,
+    })),
     rooms: (member.allocations ?? []).map((allocation: any) => ({
       id: allocation.id,
       roomTypeName: allocation.roomType?.name ?? null,
@@ -666,6 +747,7 @@ function formatGroup(group: any) {
           reference: group.block.reference,
           masterFolioReference: group.block.masterFolio?.reference ?? null,
           masterFolioStatus: group.block.masterFolio?.status ?? null,
+          agentBookingRequestId: group.block.masterFolio?.agentBookingRequestId ?? null,
         }
       : null,
     memberCount: group._count?.reservations ?? group.reservations?.length ?? 0,
@@ -1312,6 +1394,7 @@ router.post("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response)
     const ownerId = loaded.access.ownerId;
 
     const data = parsed.data;
+
     if (!data.assignments?.length && !data.autoAssignRemaining) {
       return res.status(400).json({ error: "Choose rooms to assign, or let the desk fill the remaining ones automatically" });
     }
@@ -1692,6 +1775,12 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
     }
     const data = parsed.data;
 
+    const inquiry = data.inquiryId
+      ? await prisma.nrmsGuestInquiry.findFirst({ where: { id: data.inquiryId, propertyId, ownerId, reservationId: null, status: { notIn: ["CONVERTED", "CLOSED"] } }, select: { id: true, reference: true, roomTypeId: true, channel: true } })
+      : null;
+    if (data.inquiryId && !inquiry) return res.status(409).json({ error: "This inquiry was already converted or no longer belongs to this property", code: "INQUIRY_NOT_CONVERTIBLE" });
+    if (inquiry?.roomTypeId && !data.rooms.some((room) => room.roomTypeId === inquiry.roomTypeId)) return res.status(400).json({ error: "The reservation room must match the room selected in the inquiry" });
+
     const checkIn = new Date(data.checkIn);
     const checkOut = new Date(data.checkOut);
     if (reservationDateKey(data.checkIn) < dateKeyInNrmsTimeZone(new Date())) {
@@ -1846,9 +1935,18 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
           reservationId: reservation.id,
           type: "CREATED",
           actorId: ownerId,
-          data: { source: data.source, status: data.status, rooms: data.rooms },
+          data: { source: data.source, status: data.status, rooms: data.rooms, inquiryId: inquiry?.id ?? null },
         },
       });
+
+      if (inquiry) {
+        const linked = await tx.nrmsGuestInquiry.updateMany({
+          where: { id: inquiry.id, propertyId, reservationId: null, status: { notIn: ["CONVERTED", "CLOSED"] } },
+          data: { reservationId: reservation.id, status: "CONVERTED", activeConversationKey: null, convertedAt: new Date(), lastMessageAt: new Date(), version: { increment: 1 } },
+        });
+        if (!linked.count) throw new Error("INQUIRY_CONVERSION_CONFLICT");
+        await tx.nrmsGuestMessage.create({ data: { inquiryId: inquiry.id, channel: inquiry.channel, direction: "SYSTEM", body: `Converted to reservation ${reservation.id}.`, senderName: req.user!.name ?? "NRMS", sentById: ownerId } });
+      }
 
       return { reservationId: reservation.id };
     }, EXTENDED_TX_OPTIONS);
@@ -1871,6 +1969,7 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
     const created = await prisma.reservation.findUnique({ where: { id: (result as any).reservationId }, include: detailInclude });
     res.status(201).json({ reservation: formatReservation(created) });
   } catch (err) {
+    if (err instanceof Error && err.message === "INQUIRY_CONVERSION_CONFLICT") return res.status(409).json({ error: "This inquiry was converted on another device", code: "INQUIRY_CONVERSION_CONFLICT" });
     console.error("[owner.nrms.reservations] create failed", err);
     res.status(500).json({ error: "Failed to create reservation" });
   }
@@ -2024,11 +2123,24 @@ function transition(
       // explicit front-desk gate: secured inventory alone is never sufficient
       // to check anonymous travellers in.
       if (eventType === "CHECKED_IN" && reservation.agentPropertyLinkId != null) {
-        const manifest = await prisma.nrmsAgentBookingRequest.findUnique({
-          where: { reservationId: reservation.id },
-          select: { guestManifestStatus: true, adults: true, children: true, _count: { select: { guests: true } } },
+        const manifest = await prisma.nrmsAgentBookingRequest.findFirst({
+          where: {
+            OR: [
+              { reservationId: reservation.id },
+              { materializedReservations: { some: { id: reservation.id } } },
+            ],
+          },
+          select: {
+            reservationId: true,
+            guestManifestStatus: true,
+            adults: true,
+            children: true,
+            guests: { where: { reservationId: reservation.id }, take: 1, select: { id: true } },
+            _count: { select: { guests: true } },
+          },
         });
-        if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children) {
+        const roomOccupantsLinked = manifest?.reservationId === reservation.id || Boolean(manifest?.guests.length);
+        if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children || !roomOccupantsLinked) {
           return res.status(409).json({
             error: "Verify every traveller's identity document before checking in this agent booking",
             code: "AGENT_GUEST_MANIFEST_REQUIRED",
@@ -2048,11 +2160,24 @@ function transition(
           }
         }
         if (eventType === "CHECKED_IN" && reservation.agentPropertyLinkId != null) {
-          const manifest = await tx.nrmsAgentBookingRequest.findUnique({
-            where: { reservationId: reservation.id },
-            select: { guestManifestStatus: true, adults: true, children: true, _count: { select: { guests: true } } },
+          const manifest = await tx.nrmsAgentBookingRequest.findFirst({
+            where: {
+              OR: [
+                { reservationId: reservation.id },
+                { materializedReservations: { some: { id: reservation.id } } },
+              ],
+            },
+            select: {
+              reservationId: true,
+              guestManifestStatus: true,
+              adults: true,
+              children: true,
+              guests: { where: { reservationId: reservation.id }, take: 1, select: { id: true } },
+              _count: { select: { guests: true } },
+            },
           });
-          if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children) {
+          const roomOccupantsLinked = manifest?.reservationId === reservation.id || Boolean(manifest?.guests.length);
+          if (!manifest || manifest.guestManifestStatus !== "VERIFIED" || manifest._count.guests !== manifest.adults + manifest.children || !roomOccupantsLinked) {
             throw new Error("NRMS_AGENT_GUEST_MANIFEST_REQUIRED");
           }
         }
@@ -2380,7 +2505,7 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
       const currentOutstanding = current ? computeOutstanding(current.totalAmount, current.chargesTotal, Number(current.amountPaid) + currentTransfer) : 0;
       if (currentOutstanding <= 0) throw new Error("NRMS_PAYMENT_COMPLETE");
       if (data.amount > currentOutstanding) throw new Error(`NRMS_PAYMENT_EXCEEDS_BALANCE:${currentOutstanding}`);
-      await tx.externalPaymentRecord.create({
+      const payment = await tx.externalPaymentRecord.create({
         data: {
           reservationId: reservation.id,
           amount: data.amount,
@@ -2391,6 +2516,18 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
           note: normalizedNote,
           recordedById: ownerId,
         },
+      });
+      // The guest paying the folio is the taxable event, not the charges landing
+      // on it. Queues a TRA document only for properties that have fiscal
+      // receipting switched on; a no-op for everyone else. The duplicate guard
+      // above already returned, so a replayed idempotency key never reaches here.
+      await fiscaliseSettlement(tx, {
+        propertyId: reservation.propertyId,
+        sourceType: "FOLIO_PAYMENT",
+        sourceId: payment.id,
+        saleOccurredAt: payment.createdAt ?? new Date(),
+        currency: reservation.currency,
+        grossAmount: data.amount,
       });
       const amountPaid = await recomputeAmountPaid(tx, reservation.id);
       const pendingRequests = await tx.nrmsGuestPaymentRequest.findMany({ where: { reservationId: reservation.id, status: "PENDING" } });
@@ -2630,13 +2767,24 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     const transferredToMaster = reservation.masterFolioItems
       .filter((item: any) => !item.voidedAt)
       .reduce((sum: number, item: any) => sum + (decimal(item.amount) ?? 0), 0);
-    const balanceDue = computeGuestBalance(reservation.totalAmount, reservation.chargesTotal, amountPaid + transferredToMaster);
+    // An agent booking's room charge sits on the agency's own master folio, and
+    // the agency's payment against that folio is already mirrored onto
+    // reservation.amountPaid. Counting the transfer as well would report one
+    // payment twice, so it contributes nothing here.
+    const agentRequest = (reservation as any).agentBookingRequest ?? null;
+    const agentAccount = agentRequest?.link?.agentAccount ?? null;
+    const agentSettlement = summarizeAgentBookingSettlement(agentRequest);
+    const settledTransfer = agentRequest ? 0 : transferredToMaster;
+    // For an agency stay the folio is the ledger, so the document reports what
+    // the agency paid there rather than the reservation's own figure.
+    const collected = agentSettlement ? agentSettlement.paidAmount : amountPaid;
+    const balanceDue = computeGuestBalance(reservation.totalAmount, reservation.chargesTotal, collected + settledTransfer);
     const validPayments = reservation.payments.filter((payment) => !payment.voidedAt);
     const validOutletPayments = reservation.outletOrders.filter((order: any) =>
       order.settlementMode === "OUTLET_PAYMENT" && order.status === "SETTLED" && !order.voidedAt,
     );
     const outletPaidTotal = validOutletPayments.reduce((sum: number, order: any) => sum + (decimal(order.total) ?? 0), 0);
-    const settled = balanceDue <= 0 && Number(amountPaid) + outletPaidTotal > 0;
+    const settled = balanceDue <= 0 && Number(collected) + outletPaidTotal > 0;
     const settlementDates = [
       ...validPayments.map((payment) => payment.createdAt),
       ...validOutletPayments.map((order: any) => order.settledAt || order.createdAt),
@@ -2678,6 +2826,13 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       propertyLocation: location || null,
       guestName: reservation.guestProfile?.fullName ?? "Guest",
       guestPhone: reservation.guestProfile?.phone ?? null,
+      billedTo: agentAccount
+        ? {
+            name: agentAccount.tradingName || agentAccount.legalName,
+            phone: null,
+            note: "Authorised partner agency",
+          }
+        : null,
       checkIn: reservation.checkIn,
       checkOut: reservation.checkOut,
       rooms: activeAllocations.map((a: any) => ({ label: a.roomUnit?.code ?? a.roomType?.name ?? "Room" })),
@@ -2698,8 +2853,8 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
         amount: decimal(order.total) ?? 0,
       })),
       chargesTotal: decimal(reservation.chargesTotal) ?? 0,
-      amountPaid,
-      transferredToMaster,
+      amountPaid: collected,
+      transferredToMaster: settledTransfer,
       balanceDue,
     });
 

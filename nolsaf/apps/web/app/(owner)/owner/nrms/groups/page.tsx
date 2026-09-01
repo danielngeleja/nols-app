@@ -124,6 +124,15 @@ export default function NrmsGroupReservationsPage() {
     [selectParam],
   );
 
+  // ?group=<id> opens that party straight away, so a verified agency manifest
+  // can hand the desk to its rooms in one click.
+  const groupParam = Number(searchParams.get("group"));
+  useEffect(() => {
+    if (!Number.isInteger(groupParam) || groupParam <= 0) return;
+    setTab("GROUPS");
+    setOpenGroupId(groupParam);
+  }, [groupParam]);
+
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
     setLoading(true);

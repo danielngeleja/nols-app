@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, History, Loader2, Star } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, History, Loader2, Search, Star, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type Attendant = { id: number; fullName?: string | null; name?: string | null; role: string; outletId: number | null };
+type OutletOption = { id: number; name: string };
 type InHouse = { guestProfile: { fullName: string } | null; allocations: Array<{ roomUnit: { code: string } | null; roomType: { name: string } | null }> };
 type Order = {
   id: number; orderNumber: string; status: string; settlementMode: string; currency: string; total: number; createdAt: string;
@@ -39,7 +41,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function money(value: number, currency: string) { return `${currency} ${value.toLocaleString()}`; }
-function roomLabel(reservation: InHouse) { return reservation.allocations.map((row) => row.roomUnit?.code ?? row.roomType?.name).filter(Boolean).join(", ") || "No room"; }
+function roomLabel(reservation: InHouse) { return tallyRoomLabels(reservation.allocations.map((row) => row.roomUnit?.code ?? row.roomType?.name), "No room"); }
 function orderGuestLabel(order: Order) { return order.reservation ? (order.reservation.guestProfile?.fullName ?? "Guest") : (order.customerLabel || "Walk-in"); }
 function orderRoomLabel(order: Order) { return order.reservation ? roomLabel(order.reservation) : "Walk-in"; }
 // Table orders identify by which table, not a guest/room pairing that never applies to them.
@@ -62,21 +64,37 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
   const [role, setRole] = useState("OWNER");
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [attendants, setAttendants] = useState<Attendant[]>([]);
+  const [outletOptions, setOutletOptions] = useState<OutletOption[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [status, setStatus] = useState("");
+  const [outletId, setOutletId] = useState("");
+  const [period, setPeriod] = useState("");
+  const [search, setSearch] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reasonOrderId, setReasonOrderId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [tipAction, setTipAction] = useState<{ order: Order; amountReceived: string; tipAmount: string; recipientId: string; method: string } | null>(null);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQueryText(search.trim());
+      setPage(0);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const load = useCallback(async () => {
     setError(null);
     try {
       const query = new URLSearchParams({ view: "history", scope, limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) });
       if (status) query.set("status", status);
+      if (outletId) query.set("outletId", outletId);
+      if (queryText) query.set("q", queryText);
+      if (period) query.set("from", new Date(Date.now() - Number(period) * 86_400_000).toISOString());
       const [contextResponse, historyResponse] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${propertyId}/context`),
         apiClient.get(`/api/nrms/operations/property/${propertyId}/orders?${query.toString()}`),
@@ -84,16 +102,18 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
       setRole(contextResponse.data?.access?.role ?? "OWNER");
       setCurrentUserId(Number(contextResponse.data?.access?.userId) || null);
       setAttendants(contextResponse.data?.attendants ?? []);
+      setOutletOptions((contextResponse.data?.outlets ?? []).map((outlet: any) => ({ id: Number(outlet.id), name: String(outlet.name) })));
       setOrders(historyResponse.data?.orders ?? []);
       setTotal(historyResponse.data?.total ?? 0);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load order history");
     }
-  }, [page, propertyId, scope, status]);
+  }, [outletId, page, period, propertyId, queryText, scope, status]);
 
   useEffect(() => { void load(); }, [load]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasFilters = Boolean(status || outletId || period || search);
   const canAssignOthers = ["OWNER", "MANAGER", "OUTLET_SUPERVISOR"].includes(role);
   const tipEligibleAttendants = tipAction
     ? attendants.filter((attendant) => (attendant.outletId == null || attendant.outletId === tipAction.order.outlet.id) && (canAssignOthers || attendant.id === currentUserId))
@@ -155,14 +175,22 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
     <section id="order-history" className="scroll-mt-24 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white"><History className="h-[18px] w-[18px]" /></span><div><h3 className="m-0 text-base font-bold text-neutral-900">{copy.title}</h3><p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">{copy.description}</p></div></div>
-        <div className="flex items-center gap-2"><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }} className="box-border !h-10 rounded-lg border border-neutral-200 bg-white px-3 py-0 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500">{FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select><span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-neutral-500">{total} saved</span></div>
+        <span className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-500 shadow-sm">{total} saved</span>
+      </div>
+
+      <div className="grid min-w-0 gap-2 border-b border-neutral-200 bg-white px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(14rem,1fr)_minmax(10rem,.55fr)_minmax(11rem,.65fr)_minmax(9rem,.45fr)_auto]">
+        <label className="relative min-w-0"><span className="sr-only">Search order history</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, guest, outlet or item" className="box-border h-10 w-full rounded-lg border border-neutral-200 bg-neutral-50 pl-9 pr-3 text-xs font-medium text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
+        <label className="min-w-0"><span className="sr-only">Filter by outlet</span><select value={outletId} onChange={(event) => { setOutletId(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500"><option value="">All outlets</option>{outletOptions.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label>
+        <label className="min-w-0"><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500">{FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
+        <label className="min-w-0"><span className="sr-only">Filter by period</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500"><option value="">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
+        {hasFilters && <button type="button" onClick={() => { setSearch(""); setQueryText(""); setOutletId(""); setStatus(""); setPeriod(""); setPage(0); }} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-800"><X className="h-3.5 w-3.5" />Clear</button>}
       </div>
 
       {error && <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}
 
-      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain lg:max-h-[70vh] lg:overflow-auto">
         <div className="lg:min-w-[1500px]">
-          <div className="hidden min-w-0 grid-cols-[minmax(10rem,1fr)_minmax(9rem,.85fr)_minmax(12rem,1.2fr)_minmax(10rem,.9fr)_minmax(9rem,.8fr)_minmax(12rem,1fr)_8rem_9rem] items-center gap-4 border-b border-neutral-200 bg-white px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-500 lg:grid">
+          <div className="sticky top-0 z-10 hidden min-w-0 grid-cols-[minmax(10rem,1fr)_minmax(9rem,.85fr)_minmax(12rem,1.2fr)_minmax(10rem,.9fr)_minmax(9rem,.8fr)_minmax(12rem,1fr)_8rem_9rem] items-center gap-4 border-b border-neutral-300 bg-neutral-100 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600 shadow-sm lg:grid">
             <span>Order</span>
             <span>{scope === "table" ? "Location" : "Guest and room"}</span>
             <span>Items ordered</span>
@@ -184,7 +212,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
                 : order.settlementMode === "OUTLET_PAYMENT" ? "Record payment details" : "Record tip";
 
               return (
-                <article key={order.id} className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-4 px-4 py-4 transition-colors hover:bg-neutral-50/70 lg:grid-cols-[minmax(10rem,1fr)_minmax(9rem,.85fr)_minmax(12rem,1.2fr)_minmax(10rem,.9fr)_minmax(9rem,.8fr)_minmax(12rem,1fr)_8rem_9rem] lg:items-start lg:gap-4">
+                <article key={order.id} className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-4 border-l-[3px] border-l-transparent px-4 py-4 transition-colors even:bg-neutral-50/60 hover:border-l-emerald-400 hover:bg-emerald-50/40 lg:grid-cols-[minmax(10rem,1fr)_minmax(9rem,.85fr)_minmax(12rem,1.2fr)_minmax(10rem,.9fr)_minmax(9rem,.8fr)_minmax(12rem,1fr)_8rem_9rem] lg:items-start lg:gap-4">
                   <div className="col-span-2 min-w-0 lg:col-span-1">
                     <span className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-neutral-400 lg:hidden">Order</span>
                     <p className="m-0 truncate text-sm font-bold text-neutral-900">{order.orderNumber}</p>
@@ -243,7 +271,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
                   <div className="flex min-w-0 flex-col items-end gap-2">
                     <span className="mb-[-2px] block text-[9px] font-bold uppercase tracking-wider text-neutral-400 lg:hidden">Status and actions</span>
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status.replaceAll("_", " ")}</span>
-                    {(order.status === "POSTED_TO_FOLIO" || order.status === "SETTLED") && role !== "FRONT_DESK" && <button type="button" onClick={() => setReasonOrderId(order.id)} className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[10px] font-bold text-red-600 transition hover:bg-red-50">Void order</button>}
+                    {(order.status === "POSTED_TO_FOLIO" || order.status === "SETTLED") && role !== "FRONT_DESK" && <button type="button" onClick={() => setReasonOrderId(order.id)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">Void order</button>}
                   </div>
                 </article>
               );

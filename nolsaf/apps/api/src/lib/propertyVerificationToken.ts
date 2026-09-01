@@ -1,4 +1,5 @@
 import jwt, { type Algorithm } from "jsonwebtoken";
+import { publicLinkSigningSecret, verifyWithAnyPublicLinkSecret } from "./publicLinkSecrets.js";
 
 export type PropertyVerificationTokenPayload = {
   typ: "PROPERTY_VERIFICATION";
@@ -11,16 +12,7 @@ const ALGS: Algorithm[] = ["HS256"];
 const MAX_TOKEN_LENGTH = 2048;
 
 function getSecret(): string {
-  const secret =
-    process.env.PUBLIC_LINK_TOKEN_SECRET ||
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV !== "production" ? process.env.DEV_JWT_SECRET || "dev_jwt_secret" : "");
-
-  if (!secret) {
-    throw new Error("property_verification_secret_missing");
-  }
-
-  return secret;
+  return publicLinkSigningSecret("property_verification_secret_missing");
 }
 
 export function signPropertyVerificationToken(propertyId: number, verificationId: number): string {
@@ -38,7 +30,11 @@ export function signPropertyVerificationToken(propertyId: number, verificationId
 export function verifyPropertyVerificationToken(token: string): PropertyVerificationTokenPayload | null {
   try {
     if (typeof token !== "string" || token.length === 0 || token.length > MAX_TOKEN_LENGTH) return null;
-    const decoded = jwt.verify(token, getSecret(), { issuer: ISSUER, algorithms: ALGS }) as PropertyVerificationTokenPayload;
+    const decoded = verifyWithAnyPublicLinkSecret<PropertyVerificationTokenPayload>(token, {
+      issuer: ISSUER,
+      algorithms: ALGS,
+    });
+    if (!decoded) return null;
     if (decoded?.typ !== "PROPERTY_VERIFICATION") return null;
     if (!Number.isFinite(Number(decoded.propertyId)) || !Number.isFinite(Number(decoded.verificationId))) return null;
     return {

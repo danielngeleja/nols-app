@@ -26,9 +26,18 @@ export function registerEarlyRoutes(app: Express): void {
 }
 
 export function registerRouteBodyParsers(app: Express): void {
+  // AzamPay signs the exact callback bytes. This must be registered before the
+  // global JSON parser; the raw parser inside the payment router is mounted too
+  // late to recover bytes that express.json() has already consumed.
+  app.use(
+    "/webhooks/azampay",
+    express.raw({ type: ["application/json", "text/plain"], limit: "1mb" }),
+  );
   // Expedia webhook signatures cover the exact bytes received. Keep this
   // route raw and tightly bounded before the global JSON parser runs.
   app.use("/webhooks/expedia", express.raw({ type: "application/json", limit: "256kb" }));
+  // Meta signs the exact Instagram/WhatsApp request bytes.
+  app.use("/webhooks/meta", express.raw({ type: "application/json", limit: "512kb" }));
   // Apply larger body size limit for property routes BEFORE global middleware.
   app.use("/owner/properties", express.json({ limit: "25mb", strict: true }));
   app.use("/owner/properties", express.urlencoded({ extended: true, limit: "25mb", parameterLimit: 200 }));

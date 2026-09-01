@@ -6,14 +6,19 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { ArrowLeft, BadgeCheck, BedDouble, CalendarDays, CreditCard, Download, FilePlus2, FileSearch, FileText, Loader2, ReceiptText, RotateCcw, Send, ShieldCheck, Users, WalletCards } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeCheck, BedDouble, CalendarDays, CreditCard, Download, FilePlus2, FileSearch, FileText, Loader2, ReceiptText, RotateCcw, Send, ShieldCheck, Users, WalletCards } from "lucide-react";
 
-type Guest = { id: number; roomNumber: number; guestType: string; isLead: boolean; fullName: string | null; phone: string | null; email: string | null; nationality: string | null; dateOfBirth: string | null; documentType: string | null; documentNumber: string | null; documentExpiry: string | null; documentUploaded: boolean; status: string; reviewNote: string | null };
+type Guest = { id: number; reservationId: number | null; roomNumber: number; guestType: string; isLead: boolean; fullName: string | null; phone: string | null; email: string | null; nationality: string | null; dateOfBirth: string | null; documentType: string | null; documentNumber: string | null; documentExpiry: string | null; documentUploaded: boolean; status: string; reviewNote: string | null };
 type Data = {
   booking: { id: number; status: string; agency: { legalName: string; tradingName: string | null } | null; property: { title: string }; checkIn: string; checkOut: string; adults: number; children: number; rooms: number; receiptNumber: string | null; financials: { currency: string; total: number; amountPaid: number; balance: number; status: string; invoice: Invoice | null; payments: Array<{ id: number; amount: number; method: string; reference: string | null; receiptNumber: string; createdAt: string }> } };
-  manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; requiredGuests: number; guestsAdded: number; reviewNote: string | null };
+  rooms: {
+    blockId: number; blockReference: string; blockStatus: string; groupId: number | null;
+    stays: Array<{ reservationId: number; reference: string | null; status: string; guestName: string | null; roomCode: string | null; roomTypeName: string | null }>;
+  } | null;
+  manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; incidentalCover: IncidentalCover; requiredGuests: number; guestsAdded: number; reviewNote: string | null };
   guests: Guest[];
 };
+type IncidentalCover = { billing: string | null; scope: string | null; categories: string[]; capAmount: number | null; capBasis: string | null; headline: string; detail: string };
 type Invoice = { id: number; number: string; revision: number; status: string; currency: string; quotedTotal: number; paidNow: number; liveBalance: number; dueAt: string; sentAt: string | null; sentToEmail: string | null; payerMarkedPaidAt: string | null; payerPaymentReference: string | null; payerPaymentMethod: string | null; payerPaymentAccountName: string | null };
 
 const fmt = (value: string) => new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -32,6 +37,7 @@ const daysFromToday = (value: string) => {
   const now = new Date();
   return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000);
 };
+const paymentMutationId = (requestId: number) => `agent-payment-${requestId}-${crypto.randomUUID()}`;
 
 export default function HotelAgentManifestReviewPage() {
   const params = useParams<{ id: string }>();
@@ -49,6 +55,9 @@ export default function HotelAgentManifestReviewPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
   const [paymentReference, setPaymentReference] = useState("");
+  // Retained after a lost/failed response; only a confirmed response rotates
+  // the key for a genuinely new payment.
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => paymentMutationId(requestId));
 
   // The owner types a percentage, but the invoice API takes the absolute money
   // amount and validates it against the same quoted total shown here.
@@ -62,6 +71,21 @@ export default function HotelAgentManifestReviewPage() {
     catch (cause: any) { setError(cause?.response?.data?.error || "The manifest could not be loaded"); }
   }, [requestId]);
   useEffect(() => { if (requestId > 0) void load(); }, [load, requestId]);
+
+  // Verification splits the booking by itself. This is for a manifest verified
+  // before that shipped, so the desk can still move it into the workspace.
+  const splitIntoRooms = async () => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/agents/requests/${requestId}/rooms`, {});
+      const unnamed = Number(response.data?.unnamed ?? 0);
+      setNotice(response.data?.repaired
+        ? `Agency bill re-checked across ${response.data?.reservations ?? 0} room stays. The folio now reads ${String(response.data?.folioStatus || "").toLowerCase() || "updated"}.`
+        : `${response.data?.created ?? 0} traveller stays created.${unnamed > 0 ? ` ${unnamed} room${unnamed === 1 ? "" : "s"} still need a name.` : ""}`);
+      await load();
+    } catch (cause: any) { setError(cause?.response?.data?.error || "The booking could not be split into rooms"); }
+    finally { setBusy(false); }
+  };
 
   const decide = async (action: "VERIFY" | "RETURN") => {
     if (action === "RETURN" && !note.trim() && !Object.values(issues).some((value) => value.trim())) { setError("Add an overall note or mark the traveller details that need correction."); return; }
@@ -92,7 +116,8 @@ export default function HotelAgentManifestReviewPage() {
   const confirmPayment = async () => {
     setCommercialBusy("payment"); setError(null); setNotice(null);
     try {
-      await apiClient.post(`/api/owner/nrms/agents/requests/${requestId}/payments/confirm`, { amount: Number(paymentAmount), method: paymentMethod, reference: paymentReference.trim() || undefined, idempotencyKey: `agent-${requestId}-${Date.now()}` });
+      await apiClient.post(`/api/owner/nrms/agents/requests/${requestId}/payments/confirm`, { amount: Number(paymentAmount), method: paymentMethod, reference: paymentReference.trim() || undefined, idempotencyKey: paymentIdempotencyKey });
+      setPaymentIdempotencyKey(paymentMutationId(requestId));
       setNotice("Payment receipt recorded. The voucher was released and traveller entry is now open."); await load();
     } catch (cause: any) { setError(cause?.response?.data?.error || "The payment could not be confirmed"); }
     finally { setCommercialBusy(null); }
@@ -101,6 +126,9 @@ export default function HotelAgentManifestReviewPage() {
   if (!data && !error) return <div className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading secure guest manifest…</div>;
   if (!data) return <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   const reviewable = data.manifest.status === "SUBMITTED";
+  // Cards exist to be reviewed one at a time. Once the identities are verified
+  // the desk is reading a list, not judging it, so it reads as a list.
+  const verified = data.manifest.status === "VERIFIED";
   const progress = data.manifest.requiredGuests > 0 ? Math.min(100, Math.round((data.manifest.guestsAdded / data.manifest.requiredGuests) * 100)) : 0;
 
   const paymentStatus = data.booking.financials.balance <= 0 && data.booking.financials.total > 0 ? "Paid in full" : data.booking.financials.invoice?.payerMarkedPaidAt ? "Agency says paid · verify account" : data.booking.financials.invoice?.sentAt ? "Invoice sent" : data.booking.financials.invoice ? "Invoice draft" : "Awaiting invoice";
@@ -125,9 +153,35 @@ export default function HotelAgentManifestReviewPage() {
         <SummaryCell tone="violet" icon={<BedDouble className="h-4 w-4" />} label="Rooms & reference" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} detail={data.booking.receiptNumber || `Request #${data.booking.id}`} />
         <SummaryCell tone="amber" icon={<Users className="h-4 w-4" />} label="Booked occupancy" value={`${data.booking.adults + data.booking.children} travellers`} detail={`${data.booking.adults} adult${data.booking.adults === 1 ? "" : "s"}${data.booking.children ? ` · ${data.booking.children} child${data.booking.children === 1 ? "" : "ren"}` : ""}`} />
         <SummaryCell tone="emerald" icon={<CreditCard className="h-4 w-4" />} label="Payment" value={`${data.booking.financials.currency} ${money(data.booking.financials.amountPaid)} received`} detail={`${paymentStatus} · ${data.booking.financials.currency} ${money(data.booking.financials.balance)} due`} />
-        <SummaryCell tone="rose" icon={<WalletCards className="h-4 w-4" />} label="Food, drinks & extras" value={data.manifest.incidentalBilling === "AGENCY" ? "Agency covers charges" : "Guests settle individually"} detail="Declared billing responsibility" />
+        <SummaryCell tone="rose" icon={<WalletCards className="h-4 w-4" />} label="Food, drinks & extras" value={data.manifest.incidentalCover?.headline ?? "Not declared"} detail={data.manifest.incidentalCover?.detail ?? "Declared billing responsibility"} />
       </div>
     </section>
+    {data.rooms?.groupId ? <section className="flex flex-col gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-emerald-700 text-white"><BedDouble className="h-4 w-4" /></span>
+        <div className="min-w-0">
+          <h2 className="m-0 text-sm font-extrabold text-neutral-900">Rooms are split into individual stays</h2>
+          <p className="m-0 mt-0.5 text-[11px] leading-4 text-emerald-900">Assign rooms, check in and check out each traveller in the group workspace. Block {data.rooms.blockReference}.</p>
+        </div>
+      </div>
+      <div className="flex flex-none flex-wrap items-center gap-2">
+        {/* A booking split before the double-charge was found still carries the
+            duplicate room lines that reopened its bill, so the desk can put it
+            right without support touching the database. */}
+        {data.booking.financials.status !== "SETTLED" ? <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className="box-border inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-800 disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Re-check agency bill</button> : null}
+        <Link href={`/owner/nrms/groups?group=${data.rooms.groupId}`} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white no-underline">Open group workspace <ArrowRight className="h-4 w-4" /></Link>
+      </div>
+    </section> : null}
+    {verified && !data.rooms?.groupId ? <section className="flex flex-col gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-amber-500 text-white"><BedDouble className="h-4 w-4" /></span>
+        <div className="min-w-0">
+          <h2 className="m-0 text-sm font-extrabold text-neutral-900">This booking is still one record for every room</h2>
+          <p className="m-0 mt-0.5 text-[11px] leading-4 text-amber-900">Split it to give each traveller their own room, folio, check-in and check-out.</p>
+        </div>
+      </div>
+      <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-neutral-950 px-4 text-xs font-bold text-white disabled:bg-neutral-300">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BedDouble className="h-4 w-4" />} Split into rooms</button>
+    </section> : null}
     {notice ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div> : null}
     {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
@@ -156,7 +210,7 @@ export default function HotelAgentManifestReviewPage() {
       </>}
     </section>
 
-    {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-solid border-neutral-300 bg-white p-5 sm:flex-row sm:items-center"><span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-500"><ReceiptText className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-extrabold text-neutral-800">Traveller details have not been started</h2><p className="mb-0 mt-1 max-w-3xl text-[13px] leading-5 text-neutral-500">The booking is secured, but the agency has not submitted guest names or identity documents yet. This page will populate automatically as their manifest progresses.</p></div></section> : <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
+    {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-solid border-neutral-300 bg-white p-5 sm:flex-row sm:items-center"><span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-500"><ReceiptText className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-extrabold text-neutral-800">Traveller details have not been started</h2><p className="mb-0 mt-1 max-w-3xl text-[13px] leading-5 text-neutral-500">The booking is secured, but the agency has not submitted guest names or identity documents yet. This page will populate automatically as their manifest progresses.</p></div></section> : verified ? <VerifiedTravellerTable guests={data.guests} requestId={requestId} stays={data.rooms?.stays ?? []} /> : <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-neutral-100"><Users className="h-4 w-4 text-neutral-600" /></span><div><h2 className="m-0 text-sm font-extrabold text-neutral-900">{guest.fullName || "Traveller details in progress"}</h2><p className="m-0 mt-0.5 text-[10px] text-neutral-500">Room {guest.roomNumber} · {guest.guestType.toLowerCase()}{guest.isLead ? " · lead guest" : ""}</p></div></div>{guest.status === "ACCEPTED" ? <BadgeCheck className="h-5 w-5 text-emerald-600" /> : null}</div>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-0 border-t border-solid border-neutral-100 pt-3"><Meta label="Nationality" value={guest.nationality || "Not provided"} /><Meta label="Date of birth" value={guest.dateOfBirth ? fmt(guest.dateOfBirth) : "Not provided"} /><Meta label="Document" value={guest.documentType && guest.documentNumber ? `${guest.documentType.replace(/_/g, " ")} · ${guest.documentNumber}` : "Not provided"} /><Meta label="Valid until" value={guest.documentExpiry ? fmt(guest.documentExpiry) : "Not provided"} /><Meta label="Phone" value={guest.phone || "Not provided"} /><Meta label="Email" value={guest.email || "Not provided"} /></dl>
       {guest.documentUploaded ? <a href={`/api/owner/nrms/agents/requests/${requestId}/guests/${guest.id}/document`} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline hover:border-neutral-400"><FileSearch className="h-4 w-4" /> Review protected document</a> : <span className="mt-3 inline-flex h-9 items-center rounded-lg bg-neutral-100 px-3 text-xs font-semibold text-neutral-500">Document not uploaded</span>}
@@ -165,6 +219,110 @@ export default function HotelAgentManifestReviewPage() {
 
     {reviewable ? <section className="sticky bottom-3 z-10 rounded-2xl border border-solid border-neutral-200 bg-white/95 p-3 shadow-lg backdrop-blur"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional overall review note" className="min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-xs outline-none focus:border-emerald-400" /><div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button disabled={busy} onClick={() => void decide("RETURN")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-800"><RotateCcw className="h-4 w-4" /> Return for correction</button><button disabled={busy} onClick={() => void decide("VERIFY")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Verify all travellers</button></div></section> : null}
   </div>;
+}
+
+/** The verified manifest as a register: one row per traveller, scannable down
+ * a column, which is how a front desk actually reads a party of twelve. */
+// One tint per sharing party, so a twelve-row register reads as the six parties
+// it actually is. Solo travellers stay on white rather than being given a
+// colour that would imply they are grouped with somebody.
+const PARTY_TINTS = [
+  { row: "bg-emerald-50/60", accent: "bg-emerald-500" },
+  { row: "bg-sky-50/60", accent: "bg-sky-500" },
+  { row: "bg-violet-50/60", accent: "bg-violet-500" },
+  { row: "bg-amber-50/60", accent: "bg-amber-500" },
+  { row: "bg-rose-50/60", accent: "bg-rose-500" },
+  { row: "bg-teal-50/60", accent: "bg-teal-500" },
+];
+
+function VerifiedTravellerTable({ guests, requestId, stays }: { guests: Guest[]; requestId: number; stays: Data["rooms"] extends null ? never : NonNullable<Data["rooms"]>["stays"] }) {
+  // No room column: a room number is assigned at the front desk, in the group
+  // workspace. What the agency declared is only which travellers share, and
+  // that is worth saying in names rather than in a party number nobody can
+  // interpret at a glance.
+  const columns = ["Traveller", "Type", "Sharing with", "Room", "Nationality", "Date of birth", "Identity document", "Valid until", "Phone", "Document"];
+  const sharingWith = (guest: Guest) => guests
+    .filter((other) => other.id !== guest.id && other.roomNumber === guest.roomNumber && other.fullName)
+    .map((other) => other.fullName as string);
+
+  // Parties in the order they appear, so the colours stay stable between loads.
+  const partyOrder = [...new Set(guests.map((guest) => guest.roomNumber))];
+  const partySize = new Map<number, number>();
+  for (const guest of guests) partySize.set(guest.roomNumber, (partySize.get(guest.roomNumber) ?? 0) + 1);
+
+  // Stable relational identity: every occupant carries the exact stay id.
+  // Duplicate legal names can therefore never display another party's room.
+  const stayFor = (guest: Guest) => guest.reservationId == null
+    ? null
+    : stays.find((stay) => stay.reservationId === guest.reservationId) ?? null;
+  const assigned = stays.filter((stay) => stay.roomCode).length;
+  return <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-200 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <BadgeCheck className="h-4 w-4 flex-none text-emerald-600" />
+        <h2 className="m-0 text-sm font-extrabold text-neutral-900">Verified travellers</h2>
+      </div>
+      <span className="text-right text-[11px] font-bold text-neutral-500">{guests.length} on the manifest</span>
+    </div>
+    <p className="m-0 border-0 border-b border-solid border-neutral-100 bg-neutral-50/60 px-4 py-2 text-[11px] leading-4 text-neutral-500">
+      Travellers sharing a room carry the same colour. {stays.length === 0
+        ? "Room numbers appear here once the booking is split into individual stays."
+        : `Rooms are chosen in the group workspace and appear here: ${assigned} of ${stays.length} assigned.`}
+    </p>
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[68rem] border-collapse text-left text-[12px]">
+        <thead>
+          <tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 text-[9px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+            {columns.map((column) => <th key={column} className="whitespace-nowrap px-4 py-2.5 font-extrabold">{column}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {guests.map((guest) => {
+            const sharers = sharingWith(guest);
+            const shares = (partySize.get(guest.roomNumber) ?? 1) > 1;
+            const tint = shares ? PARTY_TINTS[partyOrder.indexOf(guest.roomNumber) % PARTY_TINTS.length] : null;
+            const stay = stayFor(guest);
+            return <tr key={guest.id} className={`border-0 border-b border-solid border-neutral-100 last:border-b-0 ${tint?.row ?? ""}`}>
+            <td className="relative whitespace-nowrap px-4 py-2.5">
+              {tint ? <span className={`absolute inset-y-0 left-0 w-1 ${tint.accent}`} aria-hidden /> : null}
+              <span className="block font-bold text-neutral-900">{guest.fullName || "Not provided"}</span>
+              {guest.isLead ? <span className="mt-0.5 block text-[10px] font-bold text-emerald-700">Lead guest</span> : null}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2.5">
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${guest.guestType === "CHILD" ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-600"}`}>{guest.guestType === "CHILD" ? "Child" : "Adult"}</span>
+            </td>
+            <td className="px-4 py-2.5 text-neutral-700" title={sharers.join(", ")}>
+              {sharers.length === 0
+                ? <span className="text-neutral-400">Room to themselves</span>
+                : sharers.length === 1
+                  ? sharers[0]
+                  : <>{sharers[0]} <span className="text-neutral-400">and {sharers.length - 1} more</span></>}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2.5">
+              {/* Fills in by itself: the room is chosen in the group workspace,
+                  and this reads the stay that party was split into. */}
+              {stay?.roomCode
+                ? <span className="box-border inline-flex items-center gap-1 rounded-md border border-solid border-neutral-300 bg-white px-2 py-0.5 text-[11px] font-bold text-neutral-800"><BedDouble className="h-3 w-3 text-neutral-400" />{stay.roomCode}</span>
+                : stay
+                  ? <span className="text-[11px] font-semibold text-amber-700">Not assigned</span>
+                  : <span className="text-[11px] font-semibold text-neutral-400">Not split yet</span>}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2.5 text-neutral-700">{guest.nationality || "Not provided"}</td>
+            <td className="whitespace-nowrap px-4 py-2.5 text-neutral-700">{guest.dateOfBirth ? fmt(guest.dateOfBirth) : "Not provided"}</td>
+            <td className="whitespace-nowrap px-4 py-2.5 text-neutral-700">{guest.documentType && guest.documentNumber ? `${guest.documentType.replace(/_/g, " ")} · ${guest.documentNumber}` : "Not provided"}</td>
+            <td className="whitespace-nowrap px-4 py-2.5 text-neutral-700">{guest.documentExpiry ? fmt(guest.documentExpiry) : "Not provided"}</td>
+            <td className="whitespace-nowrap px-4 py-2.5 text-neutral-700">{guest.phone || "Not provided"}</td>
+            <td className="whitespace-nowrap px-4 py-2.5">
+              {guest.documentUploaded
+                ? <a href={`/api/owner/nrms/agents/requests/${requestId}/guests/${guest.id}/document`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 no-underline hover:underline"><FileSearch className="h-3.5 w-3.5" /> Open</a>
+                : <span className="text-[11px] font-semibold text-neutral-400">Not uploaded</span>}
+            </td>
+          </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+  </section>;
 }
 
 function DocumentCard({ href, icon, kind, number, detail, tone = "neutral" }: { href: string; icon: ReactNode; kind: string; number: string; detail: string; tone?: "neutral" | "emerald" }) {

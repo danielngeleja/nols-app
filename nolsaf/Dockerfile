@@ -13,6 +13,12 @@ RUN apt-get update -y \
 
 WORKDIR /app
 
+# Render exposes deploy metadata to Docker builds as build arguments. Declaring
+# these makes the exact immutable revision and repository available to the API
+# release-metadata writer even though the Docker context does not contain .git.
+ARG RENDER_GIT_COMMIT
+ARG RENDER_GIT_REPO_SLUG
+
 # Copy the monorepo (Render will build from the repo root you select)
 COPY . .
 
@@ -41,7 +47,8 @@ RUN set -eu; \
 	npm run --workspace=@nolsaf/shared build; \
 	npm run --workspace=@nolsaf/prisma build; \
 	npm run --workspace=@nolsaf/api build; \
-	test -f "$ROOT/apps/api/dist/src/index.js"
+	test -f "$ROOT/apps/api/dist/src/index.js"; \
+	test -f "$ROOT/apps/api/certs/redis_ca.pem"
 
 ENV NODE_ENV=production
 

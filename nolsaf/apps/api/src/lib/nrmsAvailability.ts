@@ -178,7 +178,7 @@ export async function getRoomTypesAvailability(
     const matchesType = (code: string | null | undefined) => {
       const value = String(code ?? "").trim().toLowerCase();
       const name = roomType.name.trim().toLowerCase();
-      return value === name || value.startsWith(`${name}-`);
+      return value === name || value.startsWith(`${name}-`) || value.startsWith(`${name} `);
     };
     const nrmsCount = consumers.filter((row) => row.roomTypeId === roomType.id).length;
     const bookingCount = bookings
@@ -261,7 +261,7 @@ export async function getRoomTypeDailyAvailability(
   const name = roomType.name.trim().toLowerCase();
   const matchesType = (code: string | null | undefined) => {
     const value = String(code ?? "").trim().toLowerCase();
-    return value === name || value.startsWith(`${name}-`);
+    return value === name || value.startsWith(`${name}-`) || value.startsWith(`${name} `);
   };
 
   // One pass over each consumer, adding its weight to every night it covers,
@@ -398,9 +398,14 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
       if (unit) return { roomTypeId: type.id, roomUnitId: unit.id };
     }
     const key = value.replace(/-\d+$/, "").toLowerCase();
-    const type = roomTypes.find((candidate) =>
-      candidate.name.toLowerCase() === key || String(candidate.sourceSpecKey ?? "").toLowerCase() === key,
-    );
+    const type = roomTypes
+      .filter((candidate) =>
+        [candidate.name, candidate.sourceSpecKey].some((raw) => {
+          const name = String(raw ?? "").trim().toLowerCase();
+          return name !== "" && (name === key || key.startsWith(`${name} `));
+        }),
+      )
+      .sort((a, b) => b.name.length - a.name.length)[0];
     return { roomTypeId: type?.id ?? null, roomUnitId: null };
   };
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Handshake, Hotel, Loader2, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Handshake, Hotel, Loader2, MessageCircle, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "./_components/CommercialUi";
 
 type Enrollment = {
@@ -175,6 +175,7 @@ export default function AdminNrmsDirectoryPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <Link href="/admin/nrms/messaging" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><MessageCircle className="h-4 w-4" /> Meta messaging</Link>
             <Link href="/admin/nrms/agents" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldCheck className="h-4 w-4" /> Verify agencies</Link>
             <Link href="/admin/nrms/partnerships" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Handshake className="h-4 w-4" /> Partnerships</Link>
             <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Wallet className="h-4 w-4" /> PAYG billing board</Link>

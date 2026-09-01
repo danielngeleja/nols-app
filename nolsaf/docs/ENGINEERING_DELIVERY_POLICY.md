@@ -231,6 +231,13 @@ missing clone evidence for Prisma changes, non-zero physical diff, missing
 recovery point, or application deployment before required schema readiness.
 Markdown describes the control; automation must fail closed wherever possible.
 
+`scripts/aws-production.ps1` currently enforces only the deployment-time subset:
+a clean working tree, `main` matching `origin/main`, an explicit production
+confirmation, and an explicit database-change state. Clone evidence, physical
+diff, recovery point, and migration readiness remain operator-attested through
+the runbook and the release record. Do not treat a successful wrapper run as
+evidence that those gates were satisfied.
+
 ## 13. Required release record
 
 Use [`RELEASE_EVIDENCE_TEMPLATE.md`](RELEASE_EVIDENCE_TEMPLATE.md) in the

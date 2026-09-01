@@ -9,7 +9,7 @@ import { approveAgentHold, createAgentHold, expireAgentHolds, releaseAgentHold }
 
 const link = { id: 7, propertyId: 2, ownerId: 3, bookingMode: "REQUEST" };
 const quote = { currency: "TZS", nightly: [{ date: "2026-09-01", rate: 90000 }, { date: "2026-09-02", rate: 90000 }], subtotal: 180000, tax: 0, fees: 0, total: 180000 };
-const baseInput = () => ({ link: { ...link }, roomTypeId: 10, ratePlanId: 5, checkIn: new Date("2026-09-01T00:00:00Z"), checkOut: new Date("2026-09-03T00:00:00Z"), adults: 2, children: 0, roomsRequested: 1, incidentalBilling: "INDIVIDUAL_GUEST" as const, quote, createdByUserId: 99 });
+const baseInput = () => ({ link: { ...link }, clientMutationId: "booking-attempt-123456", roomTypeId: 10, ratePlanId: 5, checkIn: new Date("2026-09-01T00:00:00Z"), checkOut: new Date("2026-09-03T00:00:00Z"), adults: 2, children: 0, roomsRequested: 1, incidentalBilling: "INDIVIDUAL_GUEST" as const, quote, createdByUserId: 99 });
 
 /** Fake interactive-transaction client capturing writes. */
 function makeTx(overrides: Record<string, any> = {}) {
@@ -60,7 +60,7 @@ describe("createAgentHold", () => {
     expect(resData.holdExpiresAt).toBeInstanceOf(Date);
     expect(resData.allocations.create).toHaveLength(1);
     const reqData = tx.nrmsAgentBookingRequest.create.mock.calls[0]![0].data;
-    expect(reqData).toMatchObject({ status: "PENDING", linkId: 7, reservationId: 500, roomsRequested: 1 });
+    expect(reqData).toMatchObject({ status: "PENDING", linkId: 7, clientMutationId: "booking-attempt-123456", reservationId: 500, roomsRequested: 1 });
   });
 
   it("creates a CONFIRMED reservation with no hold in INSTANT mode", async () => {

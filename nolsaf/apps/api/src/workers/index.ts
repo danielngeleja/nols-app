@@ -4,16 +4,18 @@ import { startExpireAgentHoldsWorker } from "./expireAgentHolds.js";
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
 import { startTransportAutoDispatch } from "./transportAutoDispatch.js";
-import { acquireLeaderLock, setLeadershipLostHandler } from "./leaderLock.js";
+import { setLeadershipLostHandler, startLeaderElection } from "./leaderLock.js";
 import { startLifecycleHealthWorker } from "./lifecycleHealth.js";
 import { startGuestSmsCampaignWorker } from "./guestSmsCampaigns.js";
 import { startDailyOccupiedHousekeepingWorker } from "./dailyOccupiedHousekeeping.js";
 import { startNrmsDunningWorker } from "./nrmsDunning.js";
+import { startNrmsFiscalDeliveryWorker } from "./nrmsFiscalDelivery.js";
 import { startNrmsPaymentReconcileAlertWorker } from "./nrmsPaymentReconcileAlert.js";
 import { startNrmsIntegritySignalsWorker } from "./nrmsIntegritySignals.js";
 import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
+import { startNrmsMetaMessagingWorker } from "./nrmsMetaMessaging.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
@@ -38,7 +40,7 @@ import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
  *                   production deploy runs the workers WITHOUT needing any AWS
  *                   env var, while a developer's machine never runs them by
  *                   accident. Duplicate safety across instances is handled by
- *                   the distributed lease in acquireLeaderLock().
+ *                   the distributed lease in startLeaderElection().
  */
 function shouldRunBackgroundWorkers(): boolean {
   if (process.env.NODE_ENV === "test") return false;
@@ -73,83 +75,87 @@ export function startBackgroundWorkers(io: SocketServer): void {
   // run them. The distributed lease decides — every instance can attempt this,
   // and exactly one wins, so we're safe on a single instance, under
   // auto-scaling, and during rolling deploys without any AWS configuration.
-  void acquireLeaderLock().then((isLeader) => {
-    if (!isLeader) {
-      console.log(
-        "[workers] Another process holds the worker lease; this instance will stay idle (web traffic only)."
-      );
-      return;
-    }
+  startLeaderElection(
+    () => {
+      console.log("[workers] Background workers enabled for this process (worker lease acquired).");
 
-    console.log("[workers] Background workers enabled for this process (worker lease acquired).");
+      // Kill-switch for outgoing AzamPay disbursements. Until the production
+      // disbursement credentials are provisioned the feature is not live, so
+      // DISBURSEMENTS_ENABLED=false keeps the batch *sender* dark. The
+      // reconciliation worker below is intentionally NOT gated: it is a cheap
+      // no-op when nothing is in flight, and leaving it on means this flag can
+      // never strand an already-submitted payout. Unset or set to "true" (the
+      // default) once the disbursement keys are in place.
+      const disbursementSenderEnabled = process.env.DISBURSEMENTS_ENABLED !== "false";
+      if (!disbursementSenderEnabled) {
+        console.log("[workers] Disbursement batch sender DISABLED (DISBURSEMENTS_ENABLED=false).");
+      }
 
-    // Kill-switch for outgoing AzamPay disbursements. Until the production
-    // disbursement credentials are provisioned the feature is not live, so
-    // DISBURSEMENTS_ENABLED=false keeps the batch *sender* dark. The
-    // reconciliation worker below is intentionally NOT gated: it is a cheap
-    // no-op when nothing is in flight, and leaving it on means this flag can
-    // never strand an already-submitted payout. Unset or set to "true" (the
-    // default) once the disbursement keys are in place.
-    const disbursementSenderEnabled = process.env.DISBURSEMENTS_ENABLED !== "false";
-    if (!disbursementSenderEnabled) {
-      console.log("[workers] Disbursement batch sender DISABLED (DISBURSEMENTS_ENABLED=false).");
-    }
-
-    // Auto-assign near-term paid transport bookings. If no driver is assigned
-    // within the grace window, the trip will later become claimable.
-    startTransportAutoDispatch({ io });
-    startOwnerBusinessLicenceExpiryReminders({ io });
-    // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
-    startExpireStaleBookings();
-    // Expire group stay offers whose 24h deposit window has passed.
-    startExpireGroupBookingDeposits();
-    // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.
-    startExpireAgentHoldsWorker();
-    startGuestSmsCampaignWorker();
-    startDailyOccupiedHousekeepingWorker();
-    startNrmsUsageAccrualWorker();
-    startNrmsDunningWorker();
-    startNrmsPaymentReconcileAlertWorker();
-    startNrmsIntegritySignalsWorker();
-    startNrmsRetentionWorker();
-    startNrmsGuestAutomationWorker();
-    startSalesCommissionLifecycleWorker();
-    startAuditRetentionWorker();
-    // Fallback for missed/delayed AzamPay disbursement callbacks: polls
-    // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
-    // applies the result through the same idempotent ledger path a callback
-    // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
-    startDisbursementReconciliationWorker();
-    // The same fallback for money coming IN. A SUCCESS callback writes its
-    // PaymentEvent before settlement runs, so a crash in between leaves a paid
-    // customer with an unconfirmed booking. This re-runs the idempotent
-    // settlement path and escalates anything that will not settle.
-    startUnsettledPaymentReconciliationWorker();
-    // Submits authorized batches to AzamPay. Authorization is the human
-    // decision; this is what actually moves the money, so that an HTTP
-    // timeout can never strand a released batch half-submitted.
-    if (disbursementSenderEnabled) startDisbursementBatchWorker();
-    startChannelOperationsWorker();
-    // Calendar feeds need no credentials and no provider partnership, so this
-    // one runs unconditionally: with no feeds attached it is a single indexed
-    // query per tick.
-    startIcalCalendarSyncWorker();
-    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
-      startBookingComReservationSyncWorker();
-      startBookingComOutboundDeliveryWorker();
-    } else {
-      console.log("[booking-com-reservations] worker disabled (set RUN_BOOKING_COM_WORKER=true to enable)");
-    }
-    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_EXPEDIA_WORKER || "").trim().toLowerCase())) {
-      startExpediaReservationSyncWorker();
-      startExpediaOutboundDeliveryWorker();
-    } else {
-      console.log("[expedia-reservations] worker disabled (set RUN_EXPEDIA_WORKER=true to enable)");
-    }
-    if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
-      startLifecycleHealthWorker();
-    } else {
-      console.log("[lifecycle-health] worker disabled (set RUN_LIFECYCLE_HEALTH_WORKER=true to enable)");
-    }
-  });
+      // Auto-assign near-term paid transport bookings. If no driver is assigned
+      // within the grace window, the trip will later become claimable.
+      startTransportAutoDispatch({ io });
+      startOwnerBusinessLicenceExpiryReminders({ io });
+      // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
+      startExpireStaleBookings();
+      // Expire group stay offers whose 24h deposit window has passed.
+      startExpireGroupBookingDeposits();
+      // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.
+      startExpireAgentHoldsWorker();
+      startGuestSmsCampaignWorker();
+      startDailyOccupiedHousekeepingWorker();
+      startNrmsUsageAccrualWorker();
+      startNrmsDunningWorker();
+      startNrmsPaymentReconcileAlertWorker();
+      startNrmsFiscalDeliveryWorker();
+      startNrmsIntegritySignalsWorker();
+      startNrmsRetentionWorker();
+      startNrmsGuestAutomationWorker();
+      startNrmsMetaMessagingWorker();
+      startSalesCommissionLifecycleWorker();
+      startAuditRetentionWorker();
+      // Fallback for missed/delayed AzamPay disbursement callbacks: polls
+      // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
+      // applies the result through the same idempotent ledger path a callback
+      // uses. Cheap when idle (no AzamPay call unless a stale payout exists).
+      startDisbursementReconciliationWorker();
+      // The same fallback for money coming IN. A SUCCESS callback writes its
+      // PaymentEvent before settlement runs, so a crash in between leaves a paid
+      // customer with an unconfirmed booking. This re-runs the idempotent
+      // settlement path and escalates anything that will not settle.
+      startUnsettledPaymentReconciliationWorker();
+      // Submits authorized batches to AzamPay. Authorization is the human
+      // decision; this is what actually moves the money, so that an HTTP
+      // timeout can never strand a released batch half-submitted.
+      if (disbursementSenderEnabled) startDisbursementBatchWorker();
+      startChannelOperationsWorker();
+      // Calendar feeds need no credentials and no provider partnership, so this
+      // one runs unconditionally: with no feeds attached it is a single indexed
+      // query per tick.
+      startIcalCalendarSyncWorker();
+      if (["1", "true", "yes", "on"].includes(String(process.env.RUN_BOOKING_COM_WORKER || "").trim().toLowerCase())) {
+        startBookingComReservationSyncWorker();
+        startBookingComOutboundDeliveryWorker();
+      } else {
+        console.log("[booking-com-reservations] worker disabled (set RUN_BOOKING_COM_WORKER=true to enable)");
+      }
+      if (["1", "true", "yes", "on"].includes(String(process.env.RUN_EXPEDIA_WORKER || "").trim().toLowerCase())) {
+        startExpediaReservationSyncWorker();
+        startExpediaOutboundDeliveryWorker();
+      } else {
+        console.log("[expedia-reservations] worker disabled (set RUN_EXPEDIA_WORKER=true to enable)");
+      }
+      if (["1", "true", "yes", "on"].includes(String(process.env.RUN_LIFECYCLE_HEALTH_WORKER || "").trim().toLowerCase())) {
+        startLifecycleHealthWorker();
+      } else {
+        console.log("[lifecycle-health] worker disabled (set RUN_LIFECYCLE_HEALTH_WORKER=true to enable)");
+      }
+    },
+    {
+      onWaiting: (retryIntervalMs) => {
+        console.log(
+          `[workers] Another process holds the worker lease; this instance will retry in ${Math.round(retryIntervalMs / 1000)} seconds.`,
+        );
+      },
+    },
+  );
 }

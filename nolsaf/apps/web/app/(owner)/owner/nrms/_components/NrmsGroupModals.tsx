@@ -12,6 +12,7 @@ import apiClient from "@/lib/apiClient";
 import { AlertTriangle, ArrowRight, BedDouble, Check, CheckCircle2, CreditCard, Loader2, LogIn, LogOut, Users, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsGroupRoomsModal from "./NrmsGroupRoomsModal";
+import { tallyRoomLabels } from "@/lib/roomLabels";
 
 export type GroupPickReservation = {
   id: number;
@@ -32,6 +33,7 @@ export type ReservationGroup = {
     reference: string;
     masterFolioReference: string | null;
     masterFolioStatus: string | null;
+    agentBookingRequestId: number | null;
   } | null;
   memberCount: number;
   members: Array<{
@@ -40,6 +42,7 @@ export type ReservationGroup = {
     checkIn: string;
     checkOut: string;
     guestProfile: { id: number; fullName: string; phone: string | null } | null;
+    occupants: Array<{ id: number; fullName: string | null; guestType: string; isLead: boolean; phone: string | null; nationality: string | null }>;
     rooms: Array<{ roomUnitCode: string | null; roomTypeName: string | null }>;
   }>;
 };
@@ -138,7 +141,7 @@ export function CreateReservationGroupModal({
             {reservations.map((reservation) => (
               <div key={reservation.id} className="min-w-0 rounded-lg bg-white px-3 py-2 text-xs">
                 <p className="truncate font-bold text-neutral-900" title={reservation.guestProfile?.fullName ?? "Guest"}>{reservation.guestProfile?.fullName ?? "Guest"}</p>
-                <p className="mt-0.5 truncate text-neutral-500">{reservation.allocations?.map((allocation) => allocation.roomUnitCode || allocation.roomTypeName).filter(Boolean).join(", ") || "Room not assigned"} · {reservation.status.replace(/_/g, " ")}</p>
+                <p className="mt-0.5 truncate text-neutral-500">{tallyRoomLabels((reservation.allocations ?? []).map((allocation) => allocation.roomUnitCode || allocation.roomTypeName), "Room not assigned")} · {reservation.status.replace(/_/g, " ")}</p>
               </div>
             ))}
           </div>
@@ -389,6 +392,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                     <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${agencyBilled ? "bg-blue-50 text-blue-700" : "bg-neutral-100 text-neutral-600"}`}>{billingLabel}</span>
                   </div>
                   {group.notes && <p className="mb-0 mt-1 truncate text-[10px] text-neutral-500">{group.notes}</p>}
+                  {group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${group.sourceBlock.agentBookingRequestId}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
                 </div>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
@@ -442,13 +446,15 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             <div className="max-h-80 overflow-y-auto">
               {group.members.map((member) => {
                 const inspected = preview?.find((item) => item.reservation.id === member.id);
-                const rooms = member.rooms.map((room) => room.roomUnitCode || room.roomTypeName).filter(Boolean).join(", ") || "Not assigned";
+                const rooms = tallyRoomLabels(member.rooms.map((room) => room.roomUnitCode || room.roomTypeName), "Not assigned");
                 const stay = `${fmtDate(member.checkIn)} to ${fmtDate(member.checkOut)}`;
+                const occupantNames = member.occupants.map((occupant) => occupant.fullName).filter(Boolean) as string[];
                 return (
                   <div key={member.id} className="border-0 border-b border-solid border-neutral-100 last:border-b-0">
                     <div className={`${groupRowCls} py-2.5`}>
                       <div className="min-w-0">
                         <p className="m-0 truncate text-sm font-semibold text-neutral-900" title={member.guestProfile?.fullName ?? "Guest"}>{member.guestProfile?.fullName ?? "Guest"}</p>
+                        {occupantNames.length > 1 ? <p className="m-0 mt-0.5 truncate text-[10px] text-neutral-500" title={occupantNames.join(", ")}>{occupantNames.length} occupants · {occupantNames.join(", ")}</p> : null}
                         <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400 sm:hidden">{rooms} · {stay}</p>
                       </div>
                       <p className="m-0 hidden truncate text-xs text-neutral-600 sm:block" title={rooms}>{rooms}</p>

@@ -44,8 +44,8 @@ function parseReason(req: AuthedRequest, res: Response): string | null {
   return sanitizeText(parsed.data.reason);
 }
 
-async function audit(adminId: number, action: string, targetUserId: number | null, details: Record<string, unknown>) {
-  await db.adminAudit.create({ data: { adminId, targetUserId, action, details } });
+async function audit(adminId: number, action: string, targetUserId: number | null, details: Record<string, unknown>, client: any = db) {
+  await client.adminAudit.create({ data: { adminId, targetUserId, action, details } });
 }
 
 async function loadNrmsProperty(res: Response, propertyId: number) {
@@ -160,6 +160,69 @@ router.post("/property/:propertyId/freeze", requireNrmsFinanceApprover as unknow
   await notifyOwner(property.ownerId, "nrms_property_frozen", { propertyTitle: property.title, reason, referenceCode: restriction.referenceCode });
   const emailDelivery = await sendRestrictionOpenedEmail(restriction, property.title);
   res.json({ account: { id: account.id, status: "FROZEN", previousStatus: account.status }, referenceCode: restriction.referenceCode, emailDelivery });
+}) as RequestHandler);
+
+// ── Property-level: suspend / restore TRA fiscal receipting (2FA) ───────────
+//
+// Admin observes and can stop, never operates. NoLSAF is not a party to the
+// property's TRA registration, so there is no approval gate to pass here and
+// nothing in these two actions can read a credential, issue a receipt or void
+// one. Suspension exists for the case where something is clearly wrong, for
+// example a TIN that does not belong to the business using it.
+//
+// Queued receipts are deliberately left alone. They belong to sales that really
+// happened, and deleting a property's tax record is not an admin's call.
+
+router.post("/property/:propertyId/fiscal/suspend", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  const property = await loadNrmsProperty(res, Number(req.params.propertyId));
+  if (!property) return;
+  const reason = parseReason(req, res);
+  if (!reason) return;
+  const connection = await db.nrmsFiscalConnection.findUnique({ where: { propertyId: property.id } });
+  if (!connection) return res.status(404).json({ error: "This property has no TRA registration on file" });
+  if (connection.status === "SUSPENDED") return res.status(409).json({ error: "Fiscal receipting is already suspended for this property" });
+
+  await db.$transaction(async (tx: any) => {
+    await tx.nrmsFiscalConnection.update({
+      where: { id: connection.id },
+      // Keep the typed reason only in the protected audit record. Operational
+      // health fields contain allow-listed codes safe for owner/admin APIs.
+      data: { status: "SUSPENDED", suspendedFromStatus: connection.status, activatesOnBusinessDate: null, lastError: "FISCAL_DELIVERY_INTERRUPTED", lastErrorAt: new Date() },
+    });
+    // Fence an in-flight worker. Its confirmation CAS cannot succeed after the
+    // lease is cleared, while the stable submission key keeps later retry safe.
+    await tx.nrmsFiscalReceipt.updateMany({
+      where: { connectionId: connection.id, status: "SENDING" },
+      data: { status: "PENDING", deliveryLeaseToken: null, deliveryLeaseExpiresAt: null, nextAttemptAt: new Date(), lastError: "FISCAL_DELIVERY_INTERRUPTED" },
+    });
+    await audit(req.user!.id, "NRMS_FISCAL_SUSPEND", property.ownerId, { propertyId: property.id, connectionId: connection.id, previousStatus: connection.status, mode: connection.mode, reason }, tx);
+  });
+  await notifyOwner(property.ownerId, "nrms_fiscal_suspended", { propertyTitle: property.title, reason });
+  res.json({ fiscal: { status: "SUSPENDED", previousStatus: connection.status, mode: connection.mode } });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/fiscal/restore", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {
+  const property = await loadNrmsProperty(res, Number(req.params.propertyId));
+  if (!property) return;
+  const reason = parseReason(req, res);
+  if (!reason) return;
+  const connection = await db.nrmsFiscalConnection.findUnique({ where: { propertyId: property.id } });
+  if (!connection) return res.status(404).json({ error: "This property has no TRA registration on file" });
+  if (connection.status !== "SUSPENDED") return res.status(409).json({ error: "Fiscal receipting is not suspended for this property" });
+
+  const previousStatus = String(connection.suspendedFromStatus || "");
+  const restoredStatus = connection.mode === "OFF"
+    ? "DISABLED"
+    : (["ACTIVE", "FAILED"].includes(previousStatus) ? previousStatus : "VALIDATED");
+  await db.$transaction(async (tx: any) => {
+    await tx.nrmsFiscalConnection.update({
+      where: { id: connection.id },
+      data: { status: restoredStatus, suspendedFromStatus: null, lastError: null },
+    });
+    await audit(req.user!.id, "NRMS_FISCAL_RESTORE", property.ownerId, { propertyId: property.id, connectionId: connection.id, mode: connection.mode, restoredStatus, reason }, tx);
+  });
+  await notifyOwner(property.ownerId, "nrms_fiscal_restored", { propertyTitle: property.title, reason });
+  res.json({ fiscal: { status: restoredStatus, mode: connection.mode } });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/unfreeze", requireNrmsFinanceApprover as unknown as RequestHandler, requireFinanceGrant as unknown as RequestHandler, (async (req: AuthedRequest, res: Response) => {

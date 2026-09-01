@@ -50,6 +50,7 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.956.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
     "@types/node": "20.19.20",
@@ -59,6 +60,7 @@
     "@types/sanitize-html": "^2.16.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
+    "@vercel/oidc-aws-credentials-provider": "^3.3.5",
     "autoprefixer": "^10.4.23",
     "baseline-browser-mapping": "^2.9.13",
     "eslint": "^9.39.5",

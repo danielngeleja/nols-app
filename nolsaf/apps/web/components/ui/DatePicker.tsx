@@ -287,9 +287,10 @@ export default function DatePicker({
         onFocus={() => setFocusedIdx(idx + refOffset)}
         className={`
           relative aspect-square flex items-center justify-center rounded-md text-sm font-medium
+          box-border appearance-none border-0 p-0
           transition-all duration-150 outline-none focus:ring-2 focus:ring-[#02665e]/40 focus:ring-offset-1
           ${!cell.currentMonth ? "text-gray-300" : ""}
-          ${sel ? "bg-[#02665e] text-white shadow-sm" : isToday ? "text-[#02665e] font-bold ring-2 ring-[#02665e]/40" : isDisabled ? "text-gray-300 cursor-not-allowed" : "text-gray-700 hover:bg-[#02665e]/10 hover:text-[#02665e] active:scale-95"}
+          ${sel ? "bg-[#02665e] text-white shadow-sm" : isToday ? "bg-transparent text-[#02665e] font-bold ring-2 ring-[#02665e]/40" : isDisabled ? "bg-transparent text-gray-300 cursor-not-allowed" : "bg-transparent text-gray-700 cursor-pointer hover:bg-[#02665e]/10 hover:text-[#02665e] active:scale-95"}
           ${hasCount && !sel ? "font-semibold" : ""}
         `}
         title={perDayCounts[isoKey] ? Object.entries(perDayCounts[isoKey].statuses).map(([k, v]) => `${k}: ${v}`).join(", ") : undefined}
@@ -302,13 +303,13 @@ export default function DatePicker({
   };
 
   return (
-    <div ref={rootRef} className={`bg-white p-4 rounded-lg border border-slate-200 shadow-lg ${twoMonths ? "w-max" : "w-[min(20rem,calc(100vw-1rem))]"}`}>
+    <div ref={rootRef} className={`box-border bg-white p-4 rounded-lg border border-solid border-slate-200 shadow-lg ${twoMonths ? "w-max" : "w-full max-w-[min(20rem,calc(100vw-1rem))]"}`}>
       {/* Header with month/year navigation */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
         <button
           type="button"
           onClick={() => setView((v) => ({ year: v.month === 0 ? v.year - 1 : v.year, month: (v.month + 11) % 12 }))}
-          className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
+          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
           aria-label="Previous month"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -350,7 +351,7 @@ export default function DatePicker({
         <button
           type="button"
           onClick={() => setView((v) => ({ year: v.month === 11 ? v.year + 1 : v.year, month: (v.month + 1) % 12 }))}
-          className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
+          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
           aria-label="Next month"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

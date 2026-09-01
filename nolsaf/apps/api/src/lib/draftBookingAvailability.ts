@@ -3,6 +3,7 @@ import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "./groupStayAvailabilityBlocks.js";
 import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
 import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "./nrmsRestrictions.js";
+import { matchingRoomSelectionCodes } from "./roomSelectionCode.js";
 
 export type DraftBookingAvailability = {
   available: boolean;
@@ -201,11 +202,23 @@ export async function computeDraftBookingAvailability(
   const applyToBucket = (sourceRoomCode: string | null | undefined, count: number, kind: "bookedRooms" | "blockedRooms") => {
     if (roomCode && isSpecificRoom(roomCode) && sourceRoomCode !== roomCode) return;
 
-    const mapped = findBucketKey(sourceRoomCode, keys);
-    const explicitMismatch = !!(sourceRoomCode && !mapped);
-    const bucketKey = explicitMismatch ? null : mapped || keys[0] || null;
-    if (!bucketKey || !buckets[bucketKey]) return;
-    buckets[bucketKey][kind] += Math.max(1, count);
+    const mapped = matchingRoomSelectionCodes(
+      sourceRoomCode,
+      keys,
+      booking.property.roomsSpec,
+    );
+    const legacyMapped = mapped.length ? mapped : (() => {
+      const oldBucket = findBucketKey(sourceRoomCode, keys);
+      return oldBucket ? [oldBucket] : [];
+    })();
+    const bucketKeys = legacyMapped.length
+      ? legacyMapped
+      : sourceRoomCode
+        ? []
+        : keys.slice(0, 1);
+    for (const bucketKey of bucketKeys) {
+      if (buckets[bucketKey]) buckets[bucketKey][kind] += Math.max(1, count);
+    }
   };
 
   for (const row of conflictingBookings) {

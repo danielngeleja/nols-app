@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import jwt, { type Algorithm } from "jsonwebtoken";
+import { publicLinkSigningSecret, verifyWithAnyPublicLinkSecret } from "./publicLinkSecrets.js";
 
 export const OWNER_PAYOUT_RECEIPT_TIME_ZONE = "Africa/Dar_es_Salaam";
 export const OWNER_PAYOUT_RECEIPT_DISCLAIMER =
@@ -68,12 +69,7 @@ const ALGORITHMS: Algorithm[] = ["HS256"];
 const MAX_TOKEN_LENGTH = 4096;
 
 function signingSecret(): string {
-  const secret =
-    process.env.PUBLIC_LINK_TOKEN_SECRET ||
-    process.env.JWT_SECRET ||
-    (process.env.NODE_ENV !== "production" ? process.env.DEV_JWT_SECRET || "dev_jwt_secret" : "");
-  if (!secret) throw new Error("owner_payout_receipt_seal_secret_missing");
-  return secret;
+  return publicLinkSigningSecret("owner_payout_receipt_seal_secret_missing");
 }
 
 export function maskPayoutDestination(value: string): string {
@@ -131,11 +127,12 @@ export function signOwnerPayoutReceipt(snapshot: OwnerPayoutReceiptSnapshot): st
 export function verifyOwnerPayoutReceipt(token: string): OwnerPayoutReceiptSealPayload | null {
   try {
     if (!token || token.length > MAX_TOKEN_LENGTH) return null;
-    const decoded = jwt.verify(token, signingSecret(), {
+    const decoded = verifyWithAnyPublicLinkSecret<OwnerPayoutReceiptSealPayload>(token, {
       issuer: ISSUER,
       audience: AUDIENCE,
       algorithms: ALGORITHMS,
-    }) as OwnerPayoutReceiptSealPayload;
+    });
+    if (!decoded) return null;
     if (
       decoded?.typ !== "OWNER_PAYOUT_RECEIPT" ||
       decoded.issuer !== "NoLS Africa Co Ltd" ||

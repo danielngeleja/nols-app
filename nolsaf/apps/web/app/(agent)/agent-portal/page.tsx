@@ -246,6 +246,9 @@ function BookConfirm({ hotel, room, query, nights, onClose, onDone, onError }: {
   const [bookingAdults, setBookingAdults] = useState(query.adults);
   const [bookingChildren, setBookingChildren] = useState(query.children);
   const [incidentalBilling, setIncidentalBilling] = useState<"AGENCY" | "INDIVIDUAL_GUEST">("INDIVIDUAL_GUEST");
+  // Kept for the lifetime of this confirmation dialog. If the response is
+  // lost, retrying sends the same key and the API returns the original hold.
+  const [clientMutationId] = useState(() => `agent-book-${crypto.randomUUID()}`);
   const [saving, setSaving] = useState(false);
   const maxRooms = Math.max(1, Math.min(10, room.available));
   const adultsPerRoom = Math.ceil(bookingAdults / roomsQty);
@@ -264,6 +267,7 @@ function BookConfirm({ hotel, room, query, nights, onClose, onDone, onError }: {
     setSaving(true);
     try {
       const res = await apiClient.post<any>(`/api/agent-portal/hotels/${hotel.linkId}/book`, {
+        clientMutationId,
         roomTypeId: room.roomType.id, ratePlanId: room.ratePlan.id,
         checkIn: query.checkIn, checkOut: query.checkOut, adults: bookingAdults, children: bookingChildren,
         rooms: roomsQty, incidentalBilling,
@@ -271,7 +275,6 @@ function BookConfirm({ hotel, room, query, nights, onClose, onDone, onError }: {
       onDone("Request sent to the hotel for review. If accepted, the property will issue its invoice; traveller details open after the hotel confirms receipt of payment.", Number(res.data?.requestId), false);
     } catch (e: any) {
       onError(e?.response?.data?.error || "The booking could not be created");
-      onClose();
     } finally {
       setSaving(false);
     }

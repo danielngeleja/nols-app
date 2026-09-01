@@ -39,11 +39,11 @@ describe("ensureAgentPrepayRequest", () => {
 });
 
 describe("expireUnpaidAgentBookings", () => {
-  function expiryDb(amountPaid = 0) {
+  function expiryDb(amountPaid = 0, masterFolio: any = null) {
     const dueAt = new Date(Date.now() - 60_000);
     const tx: any = {
       $executeRawUnsafe: vi.fn(),
-      nrmsGuestPaymentRequest: { findUnique: vi.fn(async () => ({ id: 9, status: "PENDING", dueAt, cancelledAt: null, amount: 100, reservationId: 5, reservation: { id: 5, status: "CONFIRMED", amountPaid, agentBookingRequest: { id: 12, status: "CONFIRMED" } } })), updateMany: vi.fn(async () => ({ count: 1 })) },
+      nrmsGuestPaymentRequest: { findUnique: vi.fn(async () => ({ id: 9, status: "PENDING", dueAt, cancelledAt: null, amount: 100, reservationId: 5, reservation: { id: 5, status: "CONFIRMED", amountPaid, agentBookingRequest: { id: 12, status: "CONFIRMED", masterFolio } } })), updateMany: vi.fn(async () => ({ count: 1 })) },
       reservation: { updateMany: vi.fn(async () => ({ count: 1 })) },
       reservationRoomAllocation: { updateMany: vi.fn(async () => ({ count: 1 })) },
       reservationEvent: { create: vi.fn(async () => ({})) },
@@ -67,7 +67,14 @@ describe("expireUnpaidAgentBookings", () => {
   it("does not expire a booking that settled while the worker was waiting", async () => {
     const { client, tx } = expiryDb(100);
     expect(await expireUnpaidAgentBookings(client)).toBe(0);
-    expect(tx.nrmsGuestPaymentRequest.updateMany).not.toHaveBeenCalled();
+    expect(tx.nrmsGuestPaymentRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SETTLED" }) }));
+    expect(tx.reservation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a legacy request from the paid master folio", async () => {
+    const { client, tx } = expiryDb(0, { status: "SETTLED", payments: [{ amount: 100 }], refunds: [] });
+    expect(await expireUnpaidAgentBookings(client)).toBe(0);
+    expect(tx.nrmsGuestPaymentRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SETTLED" }) }));
     expect(tx.reservation.updateMany).not.toHaveBeenCalled();
   });
 });

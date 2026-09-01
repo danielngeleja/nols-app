@@ -6,7 +6,7 @@
     "predev": "npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
     "dev": "tsx watch src/index.ts",
     "prebuild": "node scripts/prepare-eb-package-lock.mjs --validate && npm --prefix ../../packages/prisma run generate && npm --prefix ../../packages/prisma run build",
-    "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs && node scripts/write-release-metadata.mjs",
     "eb:lock:validate": "node scripts/prepare-eb-package-lock.mjs --validate",
     "start": "node dist/src/index.js",
     "lint": "eslint .",
@@ -27,6 +27,11 @@
     "azp:disbursement:test": "tsx scripts/test-azampay-disbursement.ts",
     "generate:encryption-key": "node scripts/generate-encryption-key.js",
     "azp:ids": "tsx scripts/collect-azp-ids.ts",
+    "rooms:codes:audit": "tsx scripts/audit-rooms-spec-duplicates.ts",
+    "rooms:codes:backfill": "tsx scripts/backfill-rooms-spec-codes.ts",
+    "rooms:codes:backfill:apply": "tsx scripts/backfill-rooms-spec-codes.ts --apply",
+    "rooms:codes:backfill:runtime": "node dist/scripts/backfill-rooms-spec-codes.js",
+    "rooms:codes:backfill:runtime:apply": "node dist/scripts/backfill-rooms-spec-codes.js --apply",
     "ngrok:dev": "ngrok http 4000"
   },
   "dependencies": {

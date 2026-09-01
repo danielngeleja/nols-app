@@ -1,3 +1,4 @@
+import { fiscaliseSettlement } from "./nrmsFiscal.js";
 import { routeChargeToMasterFolio } from "./nrmsMasterFolio.js";
 import { assertNrmsBusinessDayWritable } from "./nrmsShifts.js";
 
@@ -80,6 +81,18 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
   if (order.settlementMode === "OUTLET_PAYMENT") {
     if (!input.settlementMethod) throw new Error("NRMS_ORDER_TENDER_REQUIRED");
     await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "SETTLED", servedAt: now, settledAt: now, settlementMethod: input.settlementMethod, settledById: input.actorId } });
+    // The guest has paid at the outlet, so this is a taxable sale. Queues a TRA
+    // document for properties that have switched fiscal receipting on, and does
+    // nothing at all for everyone else. Never calls TRA from here: delivery is a
+    // worker's job so an unreachable tax service cannot fail this settle.
+    await fiscaliseSettlement(tx, {
+      propertyId: order.propertyId,
+      sourceType: "OUTLET_SALE",
+      sourceId: order.id,
+      saleOccurredAt: now,
+      currency: order.currency,
+      grossAmount: amount(order.total),
+    });
     return { status: "SETTLED", folioChargeId: null };
   }
 

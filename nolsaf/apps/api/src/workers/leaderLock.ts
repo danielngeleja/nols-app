@@ -13,6 +13,7 @@ const LOCK_KEY = "nolsaf:workers:leader";
 const LEASE_TTL_SECONDS = 60;
 const RENEW_INTERVAL_MS = 25_000;
 const LEASE_SAFETY_MARGIN_MS = 5_000;
+const ACQUIRE_RETRY_INTERVAL_MS = 30_000;
 
 const RENEW_SCRIPT = `
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -30,7 +31,11 @@ const instanceId = `${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
 
 let renewTimer: NodeJS.Timeout | null = null;
 let leaseDeadlineTimer: NodeJS.Timeout | null = null;
+let acquireRetryTimer: NodeJS.Timeout | null = null;
 let holdsLease = false;
+let electionRunning = false;
+let acquisitionInFlight = false;
+let electionGeneration = 0;
 let leadershipLostHandler: ((reason: string) => void) | null = null;
 
 function envEnabled(name: string): boolean {
@@ -49,6 +54,65 @@ export function setLeadershipLostHandler(handler: (reason: string) => void): voi
 
 export function hasLeaderLease(): boolean {
   return holdsLease;
+}
+
+type LeaderElectionOptions = {
+  retryIntervalMs?: number;
+  onWaiting?: (retryIntervalMs: number) => void;
+};
+
+/**
+ * Keep trying to acquire worker leadership until this process succeeds or the
+ * election is stopped. A one-shot attempt is unsafe under Auto Scaling: if a
+ * follower survives scale-in while the leader is terminated, no new process
+ * is guaranteed to start and the worker set can otherwise remain offline.
+ */
+export function startLeaderElection(
+  onAcquired: () => void,
+  options: LeaderElectionOptions = {},
+): void {
+  if (electionRunning || holdsLease) return;
+
+  electionRunning = true;
+  const generation = ++electionGeneration;
+  const retryIntervalMs = Math.max(1, options.retryIntervalMs ?? ACQUIRE_RETRY_INTERVAL_MS);
+  let waitingReported = false;
+
+  const attempt = async (): Promise<void> => {
+    acquireRetryTimer = null;
+    if (!electionRunning || generation !== electionGeneration || holdsLease || acquisitionInFlight) {
+      return;
+    }
+
+    acquisitionInFlight = true;
+    let acquired = false;
+    try {
+      acquired = await acquireLeaderLock();
+    } finally {
+      acquisitionInFlight = false;
+    }
+
+    // A shutdown can race an in-flight Redis command. Release any lease that
+    // completed after this election generation was stopped.
+    if (!electionRunning || generation !== electionGeneration) {
+      if (acquired) await releaseLeaderLock();
+      return;
+    }
+
+    if (acquired) {
+      onAcquired();
+      return;
+    }
+
+    if (!waitingReported) {
+      waitingReported = true;
+      options.onWaiting?.(retryIntervalMs);
+    }
+    acquireRetryTimer = setTimeout(() => void attempt(), retryIntervalMs);
+    acquireRetryTimer.unref?.();
+  };
+
+  void attempt();
 }
 
 export async function acquireLeaderLock(): Promise<boolean> {
@@ -142,8 +206,18 @@ function stopRenewal(): void {
   }
 }
 
+function stopLeaderElection(): void {
+  electionRunning = false;
+  electionGeneration += 1;
+  if (acquireRetryTimer) {
+    clearTimeout(acquireRetryTimer);
+    acquireRetryTimer = null;
+  }
+}
+
 /** Best-effort ownership-checked release during graceful shutdown. */
 export async function releaseLeaderLock(): Promise<void> {
+  stopLeaderElection();
   stopRenewal();
   if (!holdsLease) return;
   holdsLease = false;

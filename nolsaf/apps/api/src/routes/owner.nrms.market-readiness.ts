@@ -8,6 +8,7 @@ import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
 import { NRMS_REVIEW_CATEGORIES, NRMS_REVIEW_CATEGORY_KEYS, averageCategoryRatings, resolveReviewCategories } from "../lib/nrmsReviewCategories.js";
 import { NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME } from "../lib/nrmsCheckInWelcome.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
+import { nrmsGuestContactSchema, parseNrmsGuestContactSettings } from "../lib/nrmsGuestContact.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -110,6 +111,20 @@ async function owned(req: AuthedRequest, res: Response) {
   return loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
 }
 
+router.put("/:propertyId/guest-contact", (async (req: AuthedRequest, res: Response) => {
+  const parsed = nrmsGuestContactSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Enter valid guest contact details", details: parsed.error.flatten() });
+  try {
+    const active = await owned(req, res); if (!active) return;
+    const propertyId = Number(req.params.propertyId);
+    await prisma.property.update({ where: { id: propertyId }, data: { nrmsGuestContactSettings: json(parsed.data) } });
+    res.json({ guestContact: parsed.data });
+  } catch (error) {
+    console.error("[owner.nrms.market-readiness] guest contact failed", error);
+    res.status(500).json({ error: "Failed to save guest contact channels" });
+  }
+}) as RequestHandler);
+
 /**
  * Reputation summary for the owner: overall average, per-category averages and
  * how departing guests answered the NoLSAF repeat-use question. Category scores
@@ -129,6 +144,18 @@ function buildReviewInsights(rows: Array<{ rating: number | null; categoryRating
     selectedCategories: resolveReviewCategories(storedCategories),
     availableCategories: NRMS_REVIEW_CATEGORIES.map((item) => ({ key: item.key, label: item.label })),
   };
+}
+
+function buildDirectConversionSummary(rows: Array<{ kind: string; count: number }>) {
+  const events: Record<string, number> = {};
+  const sources: Record<string, number> = {};
+  for (const row of rows) {
+    const [namespace, event, source] = row.kind.split(":");
+    if (namespace !== "DIRECT" || !event || !source) continue;
+    events[event] = (events[event] ?? 0) + row.count;
+    sources[source] = (sources[source] ?? 0) + row.count;
+  }
+  return { periodDays: 30, events, sources };
 }
 
 router.put("/:propertyId/review-categories", (async (req: AuthedRequest, res: Response) => {
@@ -158,7 +185,8 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
     const active = await owned(req, res); if (!active) return;
     const propertyId = Number(req.params.propertyId);
-    const [ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewResponses, reviewSettings] = await Promise.all([
+    const metricFrom = new Date(); metricFrom.setUTCDate(metricFrom.getUTCDate() - 29); metricFrom.setUTCHours(0, 0, 0, 0);
+    const [ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewResponses, propertySettings, directMetrics] = await Promise.all([
       prisma.nrmsRatePlan.findMany({ where: { propertyId }, include: { roomType: { select: { id: true, name: true } }, seasons: { orderBy: [{ priority: "desc" }, { startDate: "asc" }] } }, orderBy: [{ isDefault: "desc" }, { name: "asc" }] }),
       prisma.nrmsRateRestriction.findMany({ where: { propertyId, status: { in: ["ACTIVE", "PAUSED"] } }, include: { roomType: { select: { id: true, name: true } }, ratePlan: { select: { id: true, name: true } } }, orderBy: { startDate: "asc" } }),
       prisma.nrmsOnboardingRun.findFirst({ where: { propertyId, status: { not: "ROLLED_BACK" } }, include: { checks: { orderBy: { id: "asc" } } }, orderBy: { createdAt: "desc" } }),
@@ -175,9 +203,10 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
       prisma.reservation.findMany({ where: { propertyId, status: { in: ["HELD", "CONFIRMED", "CHECKED_IN"] } }, select: { id: true, receiptNumber: true, status: true, currency: true, totalAmount: true, amountPaid: true, chargesTotal: true, guestProfile: { select: { fullName: true, phone: true } } }, orderBy: { checkIn: "asc" }, take: 100 }),
       prisma.property.findMany({ where: { ownerId: req.user!.id, nrmsActivatedAt: { not: null } }, select: { id: true, title: true, status: true }, orderBy: { title: "asc" } }),
       prisma.nrmsReviewRequest.findMany({ where: { propertyId, respondedAt: { not: null } }, select: { rating: true, categoryRatings: true }, orderBy: { respondedAt: "desc" }, take: 500 }),
-      prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsReviewCategories: true } }),
+      prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsReviewCategories: true, nrmsGuestContactSettings: true } }),
+      prisma.nrmsPublicMetric.findMany({ where: { propertyId, metricDate: { gte: metricFrom }, kind: { startsWith: "DIRECT:" } }, select: { kind: true, count: true } }),
     ]);
-    res.json({ property: active.property, ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewInsights: buildReviewInsights(reviewResponses, reviewSettings?.nrmsReviewCategories) });
+    res.json({ property: active.property, guestContact: parseNrmsGuestContactSettings(propertySettings?.nrmsGuestContactSettings), directConversion: buildDirectConversionSummary(directMetrics), ratePlans, restrictions, onboarding, serviceCases, paymentRequests, journeys, forecast, recommendations, loyalty, reviews, portfolios, roomTypes, roomUnits, eligibleReservations, ownerProperties, reviewInsights: buildReviewInsights(reviewResponses, propertySettings?.nrmsReviewCategories) });
   } catch (error) { console.error("[owner.nrms.market-readiness] dashboard failed", error); res.status(500).json({ error: "Failed to load hotel controls" }); }
 }) as RequestHandler);
 

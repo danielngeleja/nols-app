@@ -62,7 +62,17 @@ const acceptedHistoricalMigrationHashes = {
       new Set(["967481159ca53ff3941e8d5f4dce39d552865d64abcbd7db7b0eed4e4e105b98"]),
     ],
   ]),
-  local: new Map(),
+  local: new Map([
+    // Observed on the local Railway-tunnel database on 2026-08-24. The
+    // original migration file was absent from the checkout, but its four
+    // incidental-cover columns were verified physically before the semantic
+    // migration was restored. Preserve the database checksum as history; do
+    // not rewrite _prisma_migrations to match the restored source file.
+    [
+      "20260824090000_add_agent_incidental_cover",
+      new Set(["10c17a55927aad424d34c9799927fdf05e7f08e23ce508014073501da24e184f"]),
+    ],
+  ]),
 };
 
 for (const [environmentName, migrations] of Object.entries(acceptedHistoricalMigrationHashes)) {

@@ -3,6 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import { SourceMap } from "module";
 import { fileURLToPath } from "url";
+import { loadPrivateSourceMap, type PrivateSourceMapPayload } from "./privateSourceMaps.js";
+import { getReleaseMetadata } from "./releaseMetadata.js";
 
 export type DiagnosticCodeLine = {
   line: number;
@@ -39,14 +41,8 @@ type DiagnosticInput = {
   release?: unknown;
 };
 
-type SourceMapPayload = {
-  sources?: string[];
-  sourcesContent?: Array<string | null>;
-  [key: string]: unknown;
-};
-
 export async function buildErrorDiagnostic(input: DiagnosticInput): Promise<ErrorDiagnostic> {
-  const release = cleanText(input.release, 160);
+  const release = cleanText(input.release, 160) ?? getReleaseMetadata().revision;
   const stack = cleanText(input.stack, 12_000);
   const source = cleanSource(input.source);
   const fallbackLine = positiveInteger(input.line);
@@ -66,7 +62,7 @@ export async function buildErrorDiagnostic(input: DiagnosticInput): Promise<Erro
 
   const frames: DiagnosticFrame[] = [];
   for (const frame of parsed.slice(0, 16)) {
-    frames.push(await mapFrame(frame, release));
+    frames.push(await mapFrame(frame, release, input.service));
   }
 
   const primaryFrame = frames.find((frame) => frame.inApp) ?? frames[0] ?? null;
@@ -114,9 +110,13 @@ function parseStack(stack: string | null): DiagnosticFrame[] {
   return frames;
 }
 
-async function mapFrame(frame: DiagnosticFrame, release: string | null): Promise<DiagnosticFrame> {
+async function mapFrame(
+  frame: DiagnosticFrame,
+  release: string | null,
+  service: "web" | "api",
+): Promise<DiagnosticFrame> {
   if (frame.mapped) {
-    return { ...frame, sourceLink: buildSourceLink(frame.file, frame.line, release) };
+    return { ...frame, sourceLink: buildSourceLink(frame.file, frame.line, release, service) };
   }
   if (!frame.line || !frame.column) return frame;
 
@@ -128,12 +128,16 @@ async function mapFrame(frame: DiagnosticFrame, release: string | null): Promise
     if (mapFile) break;
     mapFile = await findSourceMapFile(sourceMapDir, frame.file, release);
   }
-  if (!mapFile) return frame;
-
   try {
-    const raw = await fs.readFile(mapFile, "utf8");
-    if (raw.length > 25_000_000) return frame;
-    const payload = JSON.parse(raw) as SourceMapPayload;
+    let payload: PrivateSourceMapPayload | null = null;
+    if (mapFile) {
+      const raw = await fs.readFile(mapFile, "utf8");
+      if (raw.length > 25_000_000) return frame;
+      payload = JSON.parse(raw) as PrivateSourceMapPayload;
+    } else {
+      payload = await loadPrivateSourceMap(frame.file, release);
+    }
+    if (!payload) return frame;
     const sourceMap = new SourceMap(payload as any);
     const entry = sourceMap.findEntry(
       Math.max(0, frame.line - 1),
@@ -160,7 +164,7 @@ async function mapFrame(frame: DiagnosticFrame, release: string | null): Promise
       inApp: true,
       mapped: true,
       codeContext: sourceContent ? getCodeContext(sourceContent, originalLine) : undefined,
-      sourceLink: buildSourceLink(originalFile, originalLine, release),
+      sourceLink: buildSourceLink(originalFile, originalLine, release, service),
     };
   } catch {
     return frame;
@@ -231,13 +235,28 @@ function getCodeContext(source: string, targetLine: number): DiagnosticCodeLine[
   return context;
 }
 
-function buildSourceLink(file: string, line: number | null, release: string | null) {
-  const repository = cleanText(process.env.SOURCE_REPOSITORY_URL || process.env.GITHUB_REPOSITORY, 500);
+function buildSourceLink(
+  file: string,
+  line: number | null,
+  release: string | null,
+  service: "web" | "api",
+) {
+  const metadata = getReleaseMetadata();
+  const repository = cleanText(metadata.repository, 500);
   if (!repository || !isOriginalSourceFile(file)) return null;
-  const base = repository.startsWith("http") ? repository.replace(/\/$/, "") : `https://github.com/${repository}`;
-  const revision = encodeURIComponent(release || process.env.SOURCE_REVISION || "main");
-  const cleanFile = file.replace(/^\/+/, "").replace(/^\.\//, "");
+  const base = repository.replace(/\/$/, "");
+  const revision = encodeURIComponent(release || metadata.revision || process.env.SOURCE_REVISION || "main");
+  const cleanFile = repositoryFilePath(file, service, metadata.projectPath);
   return `${base}/blob/${revision}/${cleanFile}${line ? `#L${line}` : ""}`;
+}
+
+function repositoryFilePath(file: string, service: "web" | "api", projectPath: string | null) {
+  const clean = file.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "");
+  if (projectPath && (clean === projectPath || clean.startsWith(`${projectPath}/`))) return clean;
+  const projectRelative = /^(?:apps|packages|prisma|scripts)\//.test(clean)
+    ? clean
+    : `apps/${service}/${clean}`;
+  return projectPath ? `${projectPath}/${projectRelative}` : projectRelative;
 }
 
 function cleanSource(value: unknown) {

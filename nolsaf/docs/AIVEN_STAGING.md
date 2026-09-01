@@ -40,7 +40,10 @@ Use the guarded staging migration command from the `nolsaf/` repository root. It
 loads `apps/api/.env.staging`, verifies that the target is Aiven staging, repairs
 the repository's known legacy migration-name aliases when their checksums and
 database structures match, recovers the known idempotent NRMS staff-invite
-migration failures, and then runs `prisma migrate deploy`:
+migration failures, recovers the known exact-case `User`/`user` registration
+lifecycle failure only after verifying its columns, indexes, and data backfill,
+and reconciles the related property-share and trust-table foreign keys against
+their lowercase physical tables before running `prisma migrate deploy`:
 
 ```powershell
 npm run prisma:migrate:staging

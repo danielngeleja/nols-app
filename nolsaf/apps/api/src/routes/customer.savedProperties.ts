@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
+import { randomBytes } from "crypto";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { z } from "zod";
@@ -27,6 +28,37 @@ const queryParamsSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().positive().max(100, "Page size cannot exceed 100")),
 });
+
+/**
+ * Share tokens are opaque and short enough to survive a WhatsApp message
+ * without wrapping. 16 chars of base32 alphabet is ~80 bits, far beyond
+ * guessing range for a link that only reveals a public listing anyway.
+ */
+const SHARE_TOKEN_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+
+function newShareToken(): string {
+  const bytes = randomBytes(16);
+  let token = "";
+  for (let i = 0; i < 16; i += 1) {
+    token += SHARE_TOKEN_ALPHABET[bytes[i] % SHARE_TOKEN_ALPHABET.length];
+  }
+  return token;
+}
+
+const SHARE_CHANNELS = ["WHATSAPP", "COPY_LINK", "NATIVE", "SMS", "EMAIL"];
+
+function parseShareChannel(raw: unknown): string | null {
+  const value = String(raw || "").trim().toUpperCase();
+  return SHARE_CHANNELS.includes(value) ? value : null;
+}
+
+function buildShareUrl(token: string, propertyId: number, title: string | null): string {
+  const origin = process.env.WEB_ORIGIN || process.env.FRONTEND_URL || process.env.APP_ORIGIN || "";
+  // Same canonical listing URL the rest of the app links to, with the token as
+  // a query param. No new route, and the SEO canonical is unaffected.
+  const slug = buildPropertySlug(title || "", propertyId);
+  return `${origin}/public/properties/${slug}?s=${encodeURIComponent(token)}`;
+}
 
 const propertyIdParamSchema = z.object({
   id: z
@@ -560,7 +592,8 @@ router.post(
         });
       }
 
-      // Update sharedAt - set to current time if not already set, otherwise keep existing
+      // `sharedAt` keeps its first value so existing reads and the Shared tab
+      // behave exactly as before. Attribution lives on the new share row.
       const updated = await prisma.savedProperty.update({
         where: {
           id: savedProperty.id,
@@ -570,6 +603,24 @@ router.post(
         },
       });
 
+      // One row per share, so re-shares and per-channel performance are both
+      // visible. Fail-soft: an older deployment without the table must still be
+      // able to share, just without attribution (expand and contract).
+      const channel = parseShareChannel((req.body as any)?.channel);
+      let share: { token: string; url: string } | null = null;
+      try {
+        const [created, property] = await Promise.all([
+          prisma.propertyShare.create({
+            data: { token: newShareToken(), sharerId: userId, propertyId, channel },
+            select: { token: true },
+          }),
+          prisma.property.findUnique({ where: { id: propertyId }, select: { title: true } }),
+        ]);
+        share = { token: created.token, url: buildShareUrl(created.token, propertyId, property?.title ?? null) };
+      } catch (shareError) {
+        console.warn("Property share attribution unavailable", shareError);
+      }
+
       logAction("share", userId, propertyId, true);
 
       res.json({
@@ -577,6 +628,8 @@ router.post(
         data: {
           id: updated.propertyId,
           sharedAt: updated.sharedAt?.toISOString() || null,
+          shareToken: share?.token || null,
+          shareUrl: share?.url || null,
         },
       });
     } catch (error: unknown) {

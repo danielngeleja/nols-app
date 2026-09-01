@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import {
   ArrowRight,
   BadgeCheck,
@@ -24,8 +26,12 @@ import {
 } from "lucide-react";
 
 import LayoutFrame from "@/components/LayoutFrame";
+import { SITE_URL } from "@/lib/seo";
+import { serializeJsonLd } from "@/lib/safeJsonLd";
 import { HelpFooter, HelpHeader } from "../HelpChrome";
 import HelpBackLink from "../HelpBackLink";
+
+const PAGE_URL = `${SITE_URL}/help/nrms-guide`;
 
 const MODULES = [
   {
@@ -112,9 +118,67 @@ const FAQS = [
   },
 ];
 
-export default function HelpNrmsGuidePage() {
+// The help layout only sets a generic "Help Centre" title, which left this
+// page competing for NRMS queries with no title, description or canonical of
+// its own. It is a full product guide, so it carries its own metadata.
+export const metadata: Metadata = {
+  title: "NRMS guide: how the rooms management system works",
+  description:
+    "A step by step guide to NRMS, NoLSAF's rooms management system for hotels, lodges and guest houses in Tanzania: front desk, room calendar, housekeeping, restaurant and bar, staff roles, night audit and pay-as-you-go billing.",
+  keywords: [
+    "NRMS guide",
+    "how to use NRMS",
+    "hotel management system guide",
+    "property management system Tanzania",
+    "hotel front desk software Tanzania",
+    "night audit guide",
+    "PAYG hotel software",
+  ],
+  alternates: { canonical: PAGE_URL },
+  openGraph: {
+    type: "article",
+    title: "NRMS guide: how the rooms management system works | NoLSAF",
+    description:
+      "Front desk, room calendar, housekeeping, restaurant and bar, staff roles, night audit and pay-as-you-go billing, explained module by module.",
+    url: PAGE_URL,
+  },
+  robots: { index: true, follow: true },
+};
+
+function buildJsonLd() {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "@id": `${PAGE_URL}#guide`,
+      headline: "NRMS guide: how the rooms management system works",
+      url: PAGE_URL,
+      about: { "@type": "SoftwareApplication", name: "NRMS (NoLSAF Rooms Management System)", url: `${SITE_URL}/nrms` },
+      publisher: { "@type": "Organization", name: "NoLSAF", url: SITE_URL },
+      articleSection: MODULES.map((module) => module.title),
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "@id": `${PAGE_URL}#faq`,
+      mainEntity: FAQS.map((faq) => ({
+        "@type": "Question",
+        name: faq.q,
+        acceptedAnswer: { "@type": "Answer", text: faq.a },
+      })),
+    },
+  ];
+}
+
+export default async function HelpNrmsGuidePage() {
+  const nonce = (await headers()).get("x-nonce") || undefined;
   return (
     <>
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildJsonLd()) }}
+      />
       <HelpHeader />
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
