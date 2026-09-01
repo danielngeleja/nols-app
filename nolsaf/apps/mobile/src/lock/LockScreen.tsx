@@ -1,11 +1,12 @@
-import { Fingerprint, LockKeyhole } from "lucide-react-native";
+import { CircleAlert, Fingerprint, KeyRound, LockKeyhole } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth";
 import { NolsafLogoMark } from "../components";
+import { useReducedMotion } from "../lib/useReducedMotion";
 import { colors, radius, spacing } from "../theme";
 import { useAppLock } from "./AppLockProvider";
 
@@ -15,6 +16,8 @@ export function LockScreen() {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const promptedRef = useRef(false);
+  const reducedMotion = useReducedMotion();
+  const biometricScale = useRef(new Animated.Value(1)).current;
 
   const attempt = useCallback(async () => {
     if (busy) return;
@@ -31,6 +34,23 @@ export function LockScreen() {
     promptedRef.current = true;
     void attempt();
   }, [attempt]);
+
+  useEffect(() => {
+    biometricScale.stopAnimation();
+    if (!busy || reducedMotion) {
+      biometricScale.setValue(1);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(biometricScale, { toValue: 1.08, duration: 620, useNativeDriver: true }),
+        Animated.timing(biometricScale, { toValue: 1, duration: 620, useNativeDriver: true })
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [biometricScale, busy, reducedMotion]);
 
   const displayName = user?.name || user?.fullName || null;
   const name = displayName ? displayName.trim().split(/\s+/)[0] : user?.email || null;
@@ -56,17 +76,28 @@ export function LockScreen() {
 
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={biometric ? "Unlock with biometrics" : "Unlock with device passcode"}
           onPress={attempt}
           disabled={busy}
-          style={({ pressed }) => [styles.unlockButton, pressed && styles.unlockButtonPressed]}
+          style={({ pressed }) => [styles.unlockButton, busy && styles.unlockButtonBusy, pressed && styles.unlockButtonPressed]}
         >
-          <Fingerprint color={colors.primary} size={20} />
-          <Text style={styles.unlockText}>
-            {busy ? "Waiting for confirmation..." : biometric ? "Unlock with biometrics" : "Unlock with passcode"}
-          </Text>
+          <View style={styles.unlockIcon}>
+            <Animated.View style={{ transform: [{ scale: biometricScale }] }}>
+              {biometric ? (
+                <Fingerprint color={colors.primary} size={28} strokeWidth={2.1} />
+              ) : (
+                <KeyRound color={colors.primary} size={27} strokeWidth={2.1} />
+              )}
+            </Animated.View>
+          </View>
         </Pressable>
 
-        {failed ? <Text style={styles.failed}>Not confirmed. Try again to continue.</Text> : null}
+        {failed ? (
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.failedRow}>
+            <CircleAlert color="#fbbf24" size={16} strokeWidth={2.3} />
+            <Text style={styles.failed}>Not confirmed. Try again.</Text>
+          </View>
+        ) : null}
       </View>
 
       <Pressable accessibilityRole="button" onPress={() => void signOut()} style={styles.signOut}>
@@ -104,7 +135,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)"
   },
-  center: { alignItems: "center", gap: 12 },
+  center: { width: "100%", alignItems: "center", gap: 12 },
   logoFrame: {
     width: 88,
     height: 88,
@@ -147,18 +178,30 @@ const styles = StyleSheet.create({
   },
   unlockButton: {
     marginTop: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 72,
+    height: 72,
+    borderRadius: radius.xl
+  },
+  unlockIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.white
+  },
+  unlockButtonPressed: { opacity: 0.86, transform: [{ scale: 0.97 }] },
+  unlockButtonBusy: { opacity: 0.94 },
+  failedRow: {
+    marginTop: spacing[2],
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    minHeight: 52,
-    paddingHorizontal: spacing[6],
-    borderRadius: radius.full,
-    backgroundColor: colors.white
+    gap: spacing[2]
   },
-  unlockButtonPressed: { opacity: 0.85 },
-  unlockText: { color: colors.primary, fontSize: 15, fontWeight: "800" },
-  failed: { marginTop: 12, color: "#fecaca", fontSize: 13, fontWeight: "600", textAlign: "center" },
+  failed: { color: "rgba(255,255,255,0.82)", fontSize: 13, fontWeight: "600", textAlign: "center" },
   signOut: { position: "absolute", bottom: spacing[8], padding: spacing[3] },
   signOutText: { color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: "700" }
 });
