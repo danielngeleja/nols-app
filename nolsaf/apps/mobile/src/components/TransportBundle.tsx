@@ -376,6 +376,7 @@ export function TransportBundle({
         {/* Header / toggle */}
         <Pressable
           accessibilityRole="switch"
+          accessibilityLabel={available ? "Add a ride to your stay" : "Ride service, unavailable"}
           accessibilityState={{ checked: include, disabled: !available }}
           disabled={!available}
           onPress={() => setInclude((v) => !v)}
@@ -384,30 +385,33 @@ export function TransportBundle({
           <View style={[styles.headerIcon, !available && styles.headerIconOff]}>
             <Car color={colors.primary} size={18} />
           </View>
-          <View style={styles.flex}>
-            <AppText variant="caption" weight="bold" tone="primary" style={styles.eyebrow}>
-              ONE TRIP · ONE TAP
-            </AppText>
+          <View style={styles.headerCopy}>
+            <View style={styles.headerTopLine}>
+              <AppText variant="caption" weight="bold" tone="primary" style={styles.eyebrow}>
+                ONE TRIP · ONE TAP
+              </AppText>
+              {!available ? (
+                <View style={styles.unavailablePill}>
+                  <AppText variant="caption" weight="semiBold" style={styles.unavailablePillText}>
+                    Unavailable
+                  </AppText>
+                </View>
+              ) : null}
+            </View>
             <AppText variant="bodySmall" weight="bold" tone={available ? "default" : "muted"}>
               Add a ride to your stay
             </AppText>
             <AppText variant="caption" tone={available ? "soft" : "muted"}>
               {available
                 ? "Door to door pickup, straight to this booked stay."
-                : unavailableReason || "Rides are not available in this area yet."}
+                : unavailableReason || "No drivers are available in this area yet."}
             </AppText>
           </View>
           {available ? (
             <View style={[styles.switch, include && styles.switchOn]}>
               <View style={[styles.knob, include && styles.knobOn]} />
             </View>
-          ) : (
-            <View style={styles.unavailablePill}>
-              <AppText variant="caption" weight="semiBold" style={styles.unavailablePillText}>
-                Unavailable
-              </AppText>
-            </View>
-          )}
+          ) : null}
         </Pressable>
 
         {available && include ? (
@@ -668,6 +672,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   eyebrow: { letterSpacing: 1, marginBottom: 1 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 2 },
+  headerTopLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing[2] },
   headerIconOff: { opacity: 0.5 },
   unavailablePill: {
     backgroundColor: colors.warningSurface,

@@ -14,6 +14,7 @@ import {
   AppText,
   BottomActionBar,
   CodeText,
+  MnoPhoneStatus,
   SafeScreen,
   ScreenHeader,
   StateView
@@ -599,20 +600,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
                   keyboardType="phone-pad"
                   maxLength={13}
                 />
-                <AppText
-                  variant="caption"
-                  tone={
-                    mnoPhoneState.level === "error"
-                      ? "danger"
-                      : mnoPhoneState.level === "warning"
-                        ? "warning"
-                        : mnoPhoneState.level === "success"
-                          ? "success"
-                          : "soft"
-                  }
-                >
-                  {mnoPhoneState.message}
-                </AppText>
+                <MnoPhoneStatus state={mnoPhoneState} selectedProvider={provider} />
               </>
             ) : channel === "BANK" ? (
               <>

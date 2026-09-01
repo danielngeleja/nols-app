@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CheckCircle2, Clock3, CreditCard, Landmark, ReceiptText, ShieldCheck, Smartphone } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, ImageSourcePropType, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Image, ImageSourcePropType, Pressable, StyleSheet, View } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 
 import { useAuth } from "../auth";
@@ -22,6 +22,7 @@ import {
   AppText,
   BottomActionBar,
   CodeText,
+  MnoPhoneStatus,
   SafeScreen,
   ScreenHeader,
   StateView
@@ -55,6 +56,11 @@ const CARD_RETURN_URL = "nolsaf://card-return";
 
 const PAYMENT_WAIT_SECONDS = 4 * 60;
 const POLL_MAX_ATTEMPTS = 45;
+const UNAVAILABLE_FALLBACK = "This payment method is temporarily unavailable. Please choose another method.";
+
+function explainUnavailableMethod(name: string, reason: string | null) {
+  Alert.alert(`${name} unavailable`, reason?.trim() || UNAVAILABLE_FALLBACK, [{ text: "Got it" }]);
+}
 
 const PROVIDERS: Array<{ id: MnoProvider; name: string; logo: ImageSourcePropType }> = [
   { id: "Mpesa", name: "M-Pesa", logo: mpesaLogo },
@@ -568,11 +574,17 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                     return (
                       <Pressable
                         key={p.id}
-                        disabled={disabled}
                         accessibilityRole="button"
-                        accessibilityLabel={p.name}
+                        accessibilityLabel={disabled ? `${p.name}, unavailable` : p.name}
+                        accessibilityHint={disabled ? "Shows why this payment method is unavailable" : undefined}
                         accessibilityState={{ disabled, selected: active }}
-                        onPress={() => setProvider(p.id)}
+                        onPress={() => {
+                          if (disabled) {
+                            explainUnavailableMethod(p.name, gate.reason);
+                            return;
+                          }
+                          setProvider(p.id);
+                        }}
                         style={[styles.providerTile, active && styles.providerTileOn, disabled && styles.methodTileOff]}
                       >
                         <Image
@@ -590,7 +602,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                         </AppText>
                         {disabled ? (
                           <AppText variant="caption" weight="semiBold" numberOfLines={1} style={styles.methodOffLabel}>
-                            {gate.reason || "Unavailable"}
+                            Unavailable
                           </AppText>
                         ) : active ? (
                           <View style={styles.providerCheck}>
@@ -610,20 +622,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                   keyboardType="phone-pad"
                   maxLength={13}
                 />
-                <AppText
-                  variant="caption"
-                  tone={
-                    mnoPhoneState.level === "error"
-                      ? "danger"
-                      : mnoPhoneState.level === "warning"
-                        ? "warning"
-                        : mnoPhoneState.level === "success"
-                          ? "success"
-                          : "soft"
-                  }
-                >
-                  {mnoPhoneState.message}
-                </AppText>
+                <MnoPhoneStatus state={mnoPhoneState} selectedProvider={provider} />
               </>
             ) : channel === "BANK" ? (
               <>
@@ -638,10 +637,17 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                     return (
                       <Pressable
                         key={b.code}
-                        disabled={disabled}
                         accessibilityRole="button"
+                        accessibilityLabel={disabled ? `${b.name}, unavailable` : b.name}
+                        accessibilityHint={disabled ? "Shows why this payment method is unavailable" : undefined}
                         accessibilityState={{ disabled, selected: active }}
-                        onPress={() => setBankCode(b.code)}
+                        onPress={() => {
+                          if (disabled) {
+                            explainUnavailableMethod(b.name, gate.reason);
+                            return;
+                          }
+                          setBankCode(b.code);
+                        }}
                         style={[styles.bankTile, active && styles.bankTileOn, disabled && styles.methodTileOff]}
                       >
                         {b.logo ? (
@@ -661,13 +667,11 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                           <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
                             {b.name}
                           </AppText>
-                          <AppText
-                            variant="caption"
-                            tone={disabled ? "muted" : "soft"}
-                            numberOfLines={1}
-                          >
-                            {disabled ? gate.reason || "Currently unavailable" : b.tagline}
-                          </AppText>
+                          {!disabled ? (
+                            <AppText variant="caption" tone="soft" numberOfLines={1}>
+                              {b.tagline}
+                            </AppText>
+                          ) : null}
                         </View>
                         {disabled ? (
                           <View style={styles.unavailablePill}>
@@ -745,11 +749,18 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                     </AppText>
                   </View>
                 ) : (
-                  <View style={styles.methodOffNote}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Card payments, unavailable"
+                    accessibilityHint="Shows why card payments are unavailable"
+                    accessibilityState={{ disabled: true }}
+                    onPress={() => explainUnavailableMethod("Card payments", methodGate("CARD").reason)}
+                    style={styles.methodOffNote}
+                  >
                     <AppText variant="caption" weight="semiBold" style={styles.methodOffNoteText}>
-                      {methodGate("CARD").reason || "Card payments are temporarily unavailable. Please use mobile money or bank."}
+                      Unavailable · Tap for details
                     </AppText>
-                  </View>
+                  </Pressable>
                 )}
               </>
             )}
@@ -942,8 +953,7 @@ const styles = StyleSheet.create({
   providerTileOn: { borderColor: colors.primary, backgroundColor: colors.brand[50] },
   providerLogo: { width: 64, height: 28 },
   providerCheck: { position: "absolute", top: 6, right: 6 },
-  // "Unavailable" treatment for admin-disabled methods: the reason stays legible
-  // and an amber pill flags the state (not an alarming red, not a faded-out row).
+  // Keep disabled methods concise; their admin-provided reason is shown on tap.
   methodTileOff: { backgroundColor: colors.surface, borderColor: colors.border },
   methodLogoOff: { opacity: 0.5 },
   methodOffLabel: { marginTop: 2, color: colors.warningText },
