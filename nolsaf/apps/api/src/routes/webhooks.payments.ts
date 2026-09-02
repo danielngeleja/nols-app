@@ -1364,8 +1364,8 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // (a repeat with no target is acked above, before reaching here).
     if (normalizedStatus === "SUCCESS" && !invoice && !tourBooking && !groupBooking && !nrmsPaymentToken) {
       console.error(
-        `[WEBHOOK] UNMATCHED successful payment: event=${eventId} amount=${amount} ` +
-        `paymentRef=${paymentRef ?? "-"} phone=${phone ?? "-"}. Recorded as PaymentEvent ${recorded.id}.`
+        `[WEBHOOK] UNMATCHED successful payment: paymentEvent=${recorded.id} amount=${amount} ` +
+        `channel=${paymentChannel ?? "UNKNOWN"}. External references and payer details are retained only in restricted records.`
       );
       await notifyAdmins("payment_unmatched", {
         paymentEventId: recorded.id,

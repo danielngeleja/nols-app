@@ -20,6 +20,7 @@ import { getAzamPayToken, invalidateAzamPayToken } from "../lib/azampay.auth.js"
 import { requireAuth } from "../middleware/auth.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 import {
   AZAMPAY_API_URL,
   AZAMPAY_MNO_API_URL,
@@ -216,6 +217,14 @@ router.post("/initiate", requireAuth, paymentUserLimiter, paymentTargetLimiter, 
     const currency = invoice.booking?.property?.currency ?? "TZS";
     if (!Number.isFinite(amount) || amount <= 0)
       return res.status(400).json({ error: "invalid_amount", message: "Invoice has no payable amount" });
+
+    const walletPreflight = await verifyMnoWalletForCheckout({ phoneNumber: normalizedPhone, provider });
+    if (!walletPreflight.ok) {
+      return res.status(walletPreflight.status).json({
+        error: walletPreflight.code,
+        message: walletPreflight.message,
+      });
+    }
 
     // 5. Payment ref (normalizedPhone already computed and validated above)
     const paymentRef = `INV-${invoice.id}-${Date.now()}`;
