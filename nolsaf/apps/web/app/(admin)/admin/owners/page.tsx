@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Search, X, Eye, Download, ArrowUpDown, ArrowUp, ArrowDown, User, Mail, Phone, Calendar, FileText, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { Building2, Search, X, Eye, Download, ArrowUpDown, ArrowUp, ArrowDown, User, Mail, Phone, Calendar, FileText, Filter, ChevronLeft, ChevronRight, Radar, Wallet } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
@@ -12,8 +12,14 @@ const api = apiClient;
 
 type Row = {
   id:number; name:string|null; email:string; phone:string|null;
-  createdAt:string; suspendedAt:string|null; kycStatus:string;
+  createdAt:string; suspendedAt:string|null; kycStatus:string|null;
   _count: { properties:number };
+  /** True when at least one of the owner's properties has NRMS switched on.
+   *  null when the lookup did not run, which is not the same as false. */
+  nrmsActive?: boolean | null;
+  /** True when a live merchant link of theirs has an ACTIVE provider account,
+   *  i.e. money can actually move. A draft application does not count. */
+  paymentsActive?: boolean | null;
 };
 
 export default function AdminOwnersPage() {
@@ -31,6 +37,9 @@ export default function AdminOwnersPage() {
     PENDING_KYC: 0,
     APPROVED_KYC: 0,
     REJECTED_KYC: 0,
+    NRMS_ACTIVE: 0,
+    PAYMENTS_ACTIVE: 0,
+    NRMS_NO_PAYMENTS: 0,
   });
 
   // Sorting
@@ -49,6 +58,10 @@ export default function AdminOwnersPage() {
   const [pickerToAnim, setPickerToAnim] = useState(false);
   const [propertiesMin, setPropertiesMin] = useState<string>("");
   const [propertiesMax, setPropertiesMax] = useState<string>("");
+  // Capability filters. "" means no filter, "yes"/"no" are sent to the API and
+  // applied to the whole table, not just the loaded page.
+  const [nrmsFilter, setNrmsFilter] = useState<"" | "yes" | "no">("");
+  const [paymentsFilter, setPaymentsFilter] = useState<"" | "yes" | "no">("");
   
   // Sync date picker selections with dateFrom/dateTo
   useEffect(() => {
@@ -95,6 +108,8 @@ export default function AdminOwnersPage() {
       if (dateTo) params.to = dateTo;
       if (propertiesMin) params.propertiesMin = propertiesMin;
       if (propertiesMax) params.propertiesMax = propertiesMax;
+      if (nrmsFilter) params.nrms = nrmsFilter;
+      if (paymentsFilter) params.payments = paymentsFilter;
       const r = await api.get<OwnersResponse>("/api/admin/owners", { params });
       let sortedItems = r.data.items ?? [];
       
@@ -141,7 +156,7 @@ export default function AdminOwnersPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, status, page, sortBy, sortDir, dateFrom, dateTo, propertiesMin, propertiesMax]);
+  }, [q, status, page, sortBy, sortDir, dateFrom, dateTo, propertiesMin, propertiesMax, nrmsFilter, paymentsFilter]);
   
   // Sort handler
   const handleSort = (column: string) => {
@@ -232,7 +247,7 @@ export default function AdminOwnersPage() {
   const pages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total]);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
+    <div className="max-w-7xl 2xl:max-w-[1720px] mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
       {/* Header */}
       <div
         className="relative rounded-2xl overflow-hidden shadow-xl"
@@ -295,10 +310,13 @@ export default function AdminOwnersPage() {
         </svg>
 
         {/* ── Content ── */}
-        <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 sm:py-14">
+        {/* Title and chips sit on separate rows: sharing one row squeezed the
+            subtitle down to a word per line on laptop widths. */}
+        <div className="relative z-10 px-6 py-8 sm:py-10">
+        <div className="flex flex-col items-center gap-x-8 gap-y-5 text-center lg:flex-row lg:items-center lg:text-left">
           {/* Icon orb */}
           <div
-            className="mb-5 inline-flex items-center justify-center rounded-full"
+            className="inline-flex shrink-0 items-center justify-center rounded-full"
             style={{
               width: 64, height: 64,
               background: "rgba(255,255,255,0.10)",
@@ -310,6 +328,7 @@ export default function AdminOwnersPage() {
           </div>
 
           {/* Title */}
+          <div className="min-w-0 lg:flex-1">
           <h1
             className="text-2xl sm:text-3xl font-bold tracking-tight"
             style={{ color: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}
@@ -321,29 +340,10 @@ export default function AdminOwnersPage() {
           <p className="mt-2 text-sm sm:text-base" style={{ color: "rgba(255,255,255,0.58)" }}>
             Manage platform owners and KYC status
           </p>
-
-          {/* KPI chips */}
-          <div className="mt-5 flex items-center gap-3 flex-wrap justify-center">
-            {[
-              { label: "Total", value: counts[""] || 0, color: "rgba(255,255,255,0.15)" },
-              { label: "Active", value: counts["ACTIVE"] || 0, color: "rgba(16,185,129,0.22)" },
-              { label: "Pending KYC", value: counts["PENDING_KYC"] || 0, color: "rgba(245,158,11,0.22)" },
-              { label: "Approved KYC", value: counts["APPROVED_KYC"] || 0, color: "rgba(59,130,246,0.22)" },
-              { label: "Suspended", value: counts["SUSPENDED"] || 0, color: "rgba(239,68,68,0.20)" },
-            ].map(({ label, value, color }) => (
-              <div
-                key={label}
-                className="flex flex-col items-center rounded-xl px-4 py-2"
-                style={{ background: color, border: "1px solid rgba(255,255,255,0.10)" }}
-              >
-                <span className="text-lg font-bold leading-none" style={{ color: "#fff" }}>{value}</span>
-                <span className="text-[10px] mt-0.5 font-medium uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.55)" }}>{label}</span>
-              </div>
-            ))}
           </div>
 
           {/* Export button */}
-          <div className="mt-6">
+          <div className="shrink-0">
             <button
               className="inline-flex items-center gap-2 rounded-xl font-semibold text-sm transition-all duration-200"
               style={{
@@ -399,10 +399,31 @@ export default function AdminOwnersPage() {
             </button>
           </div>
         </div>
+
+        {/* KPI chips */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 lg:justify-start">
+          {[
+            { label: "Total", value: counts[""] || 0, color: "rgba(255,255,255,0.15)" },
+            { label: "Active", value: counts["ACTIVE"] || 0, color: "rgba(16,185,129,0.22)" },
+            { label: "Pending KYC", value: counts["PENDING_KYC"] || 0, color: "rgba(245,158,11,0.22)" },
+            { label: "Approved KYC", value: counts["APPROVED_KYC"] || 0, color: "rgba(59,130,246,0.22)" },
+            { label: "Suspended", value: counts["SUSPENDED"] || 0, color: "rgba(239,68,68,0.20)" },
+          ].map(({ label, value, color }) => (
+            <div
+              key={label}
+              className="flex min-w-[104px] flex-1 flex-col items-center rounded-xl px-4 py-2 sm:flex-none"
+              style={{ background: color, border: "1px solid rgba(255,255,255,0.10)" }}
+            >
+              <span className="text-lg font-bold leading-none" style={{ color: "#fff" }}>{value}</span>
+              <span className="text-[10px] mt-0.5 font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "rgba(255,255,255,0.55)" }}>{label}</span>
+            </div>
+          ))}
+        </div>
+        </div>
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 lg:p-6 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl ring-1 ring-gray-200 p-3 sm:p-4 lg:p-6 shadow-sm overflow-hidden">
         <div className="flex flex-col gap-3 sm:gap-4">
           {/* Search Box */}
           <div className="w-full min-w-0 max-w-full">
@@ -438,7 +459,7 @@ export default function AdminOwnersPage() {
             {/* Suggestions dropdown */}
             {suggestions.length > 0 && (
               <div className="absolute left-0 right-0 mt-2 z-10">
-                <div className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
+                <div className="bg-white ring-1 ring-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
                   {suggestions.map((s) => (
                     <button
                       key={s.id}
@@ -497,6 +518,53 @@ export default function AdminOwnersPage() {
               );
             })}
 
+            {/* Capability filters. These run server side, so they answer the
+                question across every owner rather than the loaded page. */}
+            <span className="mx-1 hidden h-4 w-px bg-gray-200 sm:inline-block" aria-hidden />
+            {[
+              { key: "nrms" as const, on: nrmsFilter, set: setNrmsFilter, icon: Radar, yes: "On NRMS", no: "No NRMS", count: counts.NRMS_ACTIVE },
+              { key: "payments" as const, on: paymentsFilter, set: setPaymentsFilter, icon: Wallet, yes: "Can take payment", no: "No payment method", count: counts.PAYMENTS_ACTIVE },
+            ].map(({ key, on, set, icon: Icon, yes, no, count }) => {
+              // One chip cycles all three states: off, yes, no.
+              const next = on === "" ? "yes" : on === "yes" ? "no" : "";
+              const skin =
+                on === "yes" ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+                on === "no" ? "bg-amber-50 border-amber-300 text-amber-800" :
+                "bg-white hover:bg-gray-50 text-gray-700";
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => { set(next); setPage(1); }}
+                  className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full border text-xs flex items-center gap-1 sm:gap-1.5 transition-all duration-200 flex-shrink-0 whitespace-nowrap ${skin}`}
+                  title={on === "" ? `Show only owners ${yes.toLowerCase()}` : on === "yes" ? `Show only owners with ${no.toLowerCase()}` : "Clear this filter"}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden />
+                  <span className="whitespace-nowrap">{on === "no" ? no : yes}</span>
+                  {on === "" ? (
+                    <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-gray-100 text-gray-800 flex-shrink-0">{count ?? 0}</span>
+                  ) : null}
+                </button>
+              );
+            })}
+            {counts.NRMS_NO_PAYMENTS > 0 ? (
+              <button
+                type="button"
+                onClick={() => { setNrmsFilter("yes"); setPaymentsFilter("no"); setPage(1); }}
+                className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full border text-xs flex items-center gap-1 sm:gap-1.5 transition-all duration-200 flex-shrink-0 whitespace-nowrap ${
+                  nrmsFilter === "yes" && paymentsFilter === "no"
+                    ? "bg-amber-50 border-amber-300 text-amber-800"
+                    : "bg-white hover:bg-amber-50 text-gray-700"
+                }`}
+                title="Owners running NRMS who still cannot take a payment"
+              >
+                <span className="whitespace-nowrap">NRMS, no payment</span>
+                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 flex-shrink-0">
+                  {counts.NRMS_NO_PAYMENTS}
+                </span>
+              </button>
+            ) : null}
+
             {/* Advanced Filters Toggle */}
             <button
               type="button"
@@ -512,7 +580,7 @@ export default function AdminOwnersPage() {
 
           {/* Advanced Filters Panel */}
           {showAdvancedFilters && (
-            <div className="border-t border-gray-200 pt-3 sm:pt-4 space-y-3 sm:space-y-4">
+            <div className="shadow-[inset_0_1px_0_0_#e5e7eb] pt-3 sm:pt-4 space-y-3 sm:space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-900">Advanced Filters</h3>
                 <button
@@ -640,13 +708,13 @@ export default function AdminOwnersPage() {
 
       {/* Mobile Card Layout */}
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 shadow-sm">
+        <div className="bg-white rounded-xl ring-1 ring-gray-200 p-12 shadow-sm">
           <div className="flex items-center justify-center">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-emerald-600"></div>
           </div>
         </div>
       ) : itemsCount === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 shadow-sm text-center">
+        <div className="bg-white rounded-xl ring-1 ring-gray-200 p-12 shadow-sm text-center">
           <FileText className="h-12 w-12 text-gray-300 mx-auto mb-3" />
           <p className="text-sm text-gray-500">No owners found.</p>
           <p className="text-xs text-gray-400 mt-1">Try adjusting your filters or search query.</p>
@@ -658,17 +726,17 @@ export default function AdminOwnersPage() {
             {items.map((o) => (
               <div
                 key={o.id}
-                className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
+                className="bg-white rounded-xl ring-1 ring-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
                       <div className="text-sm font-semibold text-gray-900 truncate">
-                        {o.name ?? o.email}
+                        {o.name?.trim() || "Name not set"}
                       </div>
                     </div>
-                    <div className="text-xs text-gray-500 ml-6">{o.email}</div>
+                    <div className="text-xs text-gray-400 ml-6 tabular-nums">{o.id}</div>
                   </div>
                   <Link
                     href={`/admin/owners/${o.id}`}
@@ -701,7 +769,7 @@ export default function AdminOwnersPage() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+                  <div className="grid grid-cols-2 gap-3 pt-3 shadow-[inset_0_1px_0_0_#f3f4f6]">
                     <div>
                       <div className="text-xs text-gray-500">KYC Status</div>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${badge(o.kycStatus)}`}>
@@ -711,14 +779,32 @@ export default function AdminOwnersPage() {
                     <div>
                       <div className="text-xs text-gray-500">Account Status</div>
                       {o.suspendedAt ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200 mt-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200 mt-1">
                           Suspended
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 mt-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 mt-1">
                           Active
                         </span>
                       )}
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1.5">
+                        <Radar className="h-3.5 w-3.5 text-gray-400" aria-hidden />
+                        NRMS
+                      </div>
+                      <div className="mt-1">
+                        <CapabilityPill on={o.nrmsActive} offLabel="Not activated" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1.5">
+                        <Wallet className="h-3.5 w-3.5 text-gray-400" aria-hidden />
+                        Payments
+                      </div>
+                      <div className="mt-1">
+                        <CapabilityPill on={o.paymentsActive} offLabel="No method" />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -727,11 +813,11 @@ export default function AdminOwnersPage() {
           </div>
 
           {/* Desktop Table - Hidden on mobile */}
-          <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="hidden md:block bg-white rounded-xl ring-1 ring-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full border-collapse">
             <thead className="bg-gray-50">
-              <tr>
+              <tr className="[&>th]:shadow-[inset_0_-1px_0_0_#e5e7eb]">
                     <th 
                       className="px-3 sm:px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                       onClick={() => handleSort("name")}
@@ -762,6 +848,18 @@ export default function AdminOwnersPage() {
                       </div>
                     </th>
                     <th className="px-3 sm:px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Radar className="h-3.5 w-3.5 text-gray-400" aria-hidden />
+                        NRMS
+                      </span>
+                    </th>
+                    <th className="px-3 sm:px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Wallet className="h-3.5 w-3.5 text-gray-400" aria-hidden />
+                        Payments
+                      </span>
+                    </th>
+                    <th className="px-3 sm:px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                       KYC
                     </th>
                     <th className="px-3 sm:px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -785,17 +883,17 @@ export default function AdminOwnersPage() {
                     </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white">
                   {items.map((o) => (
-                  <TableRow key={o.id}>
+                  <TableRow key={o.id} className="[&>td]:shadow-[inset_0_1px_0_0_#f3f4f6]">
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2 min-w-0">
                           <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-gray-900 truncate">{o.name ?? o.email}</div>
-                            {o.name && (
-                              <div className="text-xs text-gray-500 truncate">{o.email}</div>
-                            )}
+                            <div className="text-sm font-semibold text-gray-900 truncate">
+                              {o.name?.trim() || "Name not set"}
+                            </div>
+                            <div className="text-xs text-gray-400 tabular-nums">{o.id}</div>
                           </div>
                       </div>
                     </td>
@@ -810,17 +908,23 @@ export default function AdminOwnersPage() {
                         </div>
                     </td>
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
+                        <CapabilityPill on={o.nrmsActive} offLabel="Not activated" />
+                      </td>
+                      <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
+                        <CapabilityPill on={o.paymentsActive} offLabel="No method" />
+                      </td>
+                      <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${badge(o.kycStatus)}`} aria-label={`KYC: ${kycLabel(o.kycStatus)}`}>
                         {kycLabel(o.kycStatus)}
                       </span>
                     </td>
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
                       {o.suspendedAt ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200">
                           Suspended
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
                           Active
                         </span>
                       )}
@@ -856,7 +960,7 @@ export default function AdminOwnersPage() {
       )}
 
       {/* Pagination */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+      <div className="bg-white rounded-xl ring-1 ring-gray-200 p-4 shadow-sm">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-sm text-gray-600">
               Showing <span className="font-semibold text-gray-900">{(page - 1) * pageSize + 1}</span> to{" "}
@@ -914,15 +1018,49 @@ export default function AdminOwnersPage() {
   );
 }
 
-function badge(status:string){
+/** Preflight is disabled project-wide, so `border` on a <span> paints nothing.
+ *  Outlines here have to come from `ring-*`. */
+function badge(status:string|null){
   // Use similar semantic colors as the status buttons (slightly stronger bg)
-  if (status === "APPROVED_KYC") return "bg-emerald-50 border border-emerald-200 text-emerald-700";
-  if (status === "REJECTED_KYC") return "bg-red-50 border border-red-200 text-red-700";
-  if (status === "PENDING_KYC") return "bg-amber-50 border border-amber-200 text-amber-800";
-  return "bg-gray-50 border border-gray-200 text-gray-700";
+  if (status === "APPROVED_KYC") return "bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700";
+  if (status === "REJECTED_KYC") return "bg-red-50 ring-1 ring-red-200 text-red-700";
+  if (status === "PENDING_KYC") return "bg-amber-50 ring-1 ring-amber-200 text-amber-800";
+  return "bg-gray-50 ring-1 ring-gray-200 text-gray-600";
 }
 
-function kycLabel(status: string) {
+/** Shared "switched on / not switched on" cell for the NRMS and Payments
+ *  columns. Green means the capability is genuinely live, not merely started. */
+function CapabilityPill({ on, offLabel }: { on: boolean | null | undefined; offLabel: string }) {
+  // null means the lookup did not run. Rendering that as "not activated" would
+  // be a silent lie on a column people make sales decisions from.
+  if (on === null || on === undefined) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-gray-400 outline outline-1 outline-dashed outline-gray-300"
+        title="This lookup did not run for this page. Reload to try again."
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-gray-300" aria-hidden />
+        Unknown
+      </span>
+    );
+  }
+  if (on) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+        Active
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-2.5 py-0.5 text-xs font-medium text-gray-500 ring-1 ring-gray-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-gray-300" aria-hidden />
+      {offLabel}
+    </span>
+  );
+}
+
+function kycLabel(status: string|null) {
   switch (status) {
     case "APPROVED_KYC":
       return "Approved";
@@ -932,7 +1070,7 @@ function kycLabel(status: string) {
       return "Pending";
     default:
       // fallback: prettify unknown codes
-      return status ? status.replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (t) => t.toUpperCase()) : "Unknown";
+      return status ? status.replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (t) => t.toUpperCase()) : "Not submitted";
   }
 }
 

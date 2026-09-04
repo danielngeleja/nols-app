@@ -23,6 +23,7 @@ import ownerNrmsRoomingListRouter from "./owner.nrms.roomingList";
 import ownerNrmsGuestsRouter from "./owner.nrms.guests";
 import ownerNrmsSmsRouter from "./owner.nrms.sms";
 import ownerNrmsBillingRouter from "./owner.nrms.billing";
+import ownerPaymentsMerchantRouter from "./owner.payments.merchant.js";
 import ownerNrmsReportsRouter from "./owner.nrms.reports";
 import ownerNrmsSalesChannelsRouter from "./owner.nrms.salesChannels";
 import ownerNrmsFinanceRouter from "./owner.nrms.finance";
@@ -62,6 +63,7 @@ export function registerOwnerBusinessRoutes(app: Express): void {
   app.use("/api/owner/nrms/guests", ownerNrmsGuestsRouter as RequestHandler);
   app.use("/api/owner/nrms/sms", ownerNrmsSmsRouter as RequestHandler);
   app.use("/api/owner/nrms/billing", ownerNrmsBillingRouter as RequestHandler);
+  app.use("/api/owner/payments/merchant", ownerPaymentsMerchantRouter as RequestHandler);
   app.use("/api/owner/nrms/reports", ownerNrmsReportsRouter as RequestHandler);
   app.use("/api/owner/nrms/sales-channels", ownerNrmsSalesChannelsRouter as RequestHandler);
   app.use("/api/owner/nrms/finance", ownerNrmsFinanceRouter as RequestHandler);

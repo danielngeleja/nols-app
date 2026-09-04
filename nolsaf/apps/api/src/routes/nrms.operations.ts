@@ -39,6 +39,7 @@ import {
   buildMenuUrl,
   isValidOrderPointType,
 } from "../lib/nrmsOrderPoints.js";
+import { NRMS_STAFF_ROLES } from "../lib/nrmsStaffRoles.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -57,7 +58,7 @@ const LIVE_ORDER_STATUSES = ["PLACED", "CONFIRMED", "PREPARING", "SERVING"];
 // service (handled in Tables & tabs). Every live order falls in exactly one.
 const ROOM_ORDER_FILTER = { OR: [{ reservationId: { not: null } }, { orderPoint: { is: { type: "ROOM" } } }] };
 const TABLE_ORDER_FILTER = { reservationId: null, OR: [{ orderPointId: null }, { orderPoint: { is: { type: "TABLE" } } }] };
-const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "HOUSEKEEPER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
+const STAFF_ROLES = NRMS_STAFF_ROLES;
 const OUTLET_TYPES = ["RESTAURANT", "BAR", "OTHER"] as const;
 const ORDER_SETTLEMENTS = ["ROOM_FOLIO", "OUTLET_PAYMENT"] as const;
 

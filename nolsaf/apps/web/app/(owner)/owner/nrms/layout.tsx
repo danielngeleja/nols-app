@@ -3,7 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BarChart3,
   BedDouble,
@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ClipboardList,
   ClipboardCheck,
+  CircleDollarSign,
   Coffee,
   DoorOpen,
   FileText,
@@ -189,6 +190,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Payments",
+    sections: [
+      {
+        items: [
+          { href: "/owner/nrms/payments", label: "NoLSAF Payments", icon: CircleDollarSign },
+        ],
+      },
+    ],
+  },
+  {
     label: "Finance",
     sections: [
       {
@@ -214,6 +225,14 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+function badgeLabel(href: string, count: number): string {
+  if (href === "/owner/nrms/inquiries") return `${count} reception inquiries need attention`;
+  if (href === "/owner/nrms/agents") return `${count} travel agent items need attention`;
+  if (href === "/owner/nrms/payments") return "Your payment application needs your attention";
+  if (href === "/owner/nrms/tables") return `${count} open table orders`;
+  return `${count} active orders`;
+}
 
 function isActive(pathname: string, item: { href: string; exact?: boolean }) {
   const path = item.href.split("?")[0]!;
@@ -294,7 +313,9 @@ function PropertyActivationGate() {
 function NrmsShell({ children }: { children: ReactNode }) {
   const { loading, error, entitled, restriction, properties, selectedPropertyId, selectedProperty, setSelectedPropertyId, refresh } = useNrms();
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const paymentsHome = pathname === "/owner/nrms/payments" && !searchParams.has("property");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [travelAgentsOpen, setTravelAgentsOpen] = useState(() => pathname.startsWith("/owner/nrms/agents"));
@@ -309,10 +330,12 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [liveOrders, setLiveOrders] = useState<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number; byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }> } | null>(null);
   const [agentWorkload, setAgentWorkload] = useState<{ partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number } | null>(null);
   const [inquiryWorkload, setInquiryWorkload] = useState<{ new: number; open: number; overdue: number; total: number } | null>(null);
+  const [paymentsWorkload, setPaymentsWorkload] = useState<{ status: string | null; actionRequired: number; total: number } | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const prevPlacedRef = useRef<number | null>(null);
   const prevAgentWorkloadRef = useRef<number | null>(null);
   const prevInquiryWorkloadRef = useRef<number | null>(null);
+  const prevPaymentsWorkloadRef = useRef<number | null>(null);
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const exitHref = accessRole === "OWNER" ? "/owner" : "/account";
@@ -465,6 +488,41 @@ function NrmsShell({ children }: { children: ReactNode }) {
     return () => { active = false; clearInterval(id); };
   }, [selectedPropertyId, accessRole, chime]);
 
+  // A returned merchant application is the owner's move and it can sit unseen
+  // for days, because nothing on the workspace pointed at it. Same poll shape
+  // as Restaurant & bar and Travel agents; only states the owner can clear
+  // raise the marker, so an application waiting on NoLSAF never nags them.
+  useEffect(() => {
+    const canSee = roleCanSee("/owner/nrms/payments", accessRole);
+    const hasPaymentProperties = properties.some((property) => property.nrmsAccessRole === "OWNER" && property.status === "APPROVED" && property.nrmsActivatedAt);
+    // The Payments home loads the same portfolio status for its cards, while a
+    // detail page loads the full overview. Do not duplicate either request in
+    // the background merely to badge the already-open sidebar item.
+    if (!canSee || !hasPaymentProperties || pathname.startsWith("/owner/nrms/payments")) {
+      setPaymentsWorkload(null);
+      prevPaymentsWorkloadRef.current = null;
+      return;
+    }
+    let active = true;
+    const fetchCount = async () => {
+      try {
+        const response = await apiClient.get<{ actionRequired: number; total: number }>("/api/owner/payments/merchant/live-counts");
+        if (!active) return;
+        const next = {
+          status: null,
+          actionRequired: response.data.actionRequired,
+          total: response.data.total,
+        };
+        setPaymentsWorkload(next);
+        if (prevPaymentsWorkloadRef.current !== null && next.total > prevPaymentsWorkloadRef.current) chime();
+        prevPaymentsWorkloadRef.current = next.total;
+      } catch { /* transient; keep the last known count */ }
+    };
+    void fetchCount();
+    const id = setInterval(fetchCount, 20000);
+    return () => { active = false; clearInterval(id); };
+  }, [properties, pathname, accessRole, chime]);
+
   const toggleCollapsed = () => {
     setCollapsed((current) => {
       const next = !current;
@@ -523,7 +581,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const propertyNeedsActivation = Boolean(accessRole === "OWNER" && selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help") && !pathname.startsWith("/owner/nrms/policy"));
+  const propertyNeedsActivation = Boolean(accessRole === "OWNER" && selectedProperty && !selectedProperty.nrmsActivatedAt && !pathname.startsWith("/owner/nrms/rooms") && !pathname.startsWith("/owner/nrms/help") && !pathname.startsWith("/owner/nrms/policy") && !pathname.startsWith("/owner/nrms/payments"));
 
   // The workspace introduces itself by what the person does, not by the product.
   const roleSubtitle = accessRole === "BAR" ? "Bar service"
@@ -590,6 +648,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   ? (!active && liveOrders?.placedRoom ? liveOrders.placedRoom : null)
                   : item.href === "/owner/nrms/agents"
                   ? (agentWorkload?.total ? agentWorkload.total : null)
+                  // A returned merchant application needs the owner, not a
+                  // queue of items, so it marks the entry rather than counting.
+                  : item.href === "/owner/nrms/payments"
+                  ? (paymentsWorkload?.actionRequired ? paymentsWorkload.actionRequired : null)
                   : null;
                 if (isNestedGroup && !collapsed) {
                   return (
@@ -603,7 +665,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
                       >
                         <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                         <span className="min-w-0 flex-1 truncate">{label}</span>
-                        {badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={item.href === "/owner/nrms/orders" ? `${badge} active orders` : `${badge} travel agent items need attention`}>{badge > 99 ? "99+" : badge}</span>}
+                        {badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={badgeLabel(item.href, badge)}>{badge > 99 ? "99+" : badge}</span>}
                         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${nestedOpen ? "rotate-180" : ""}`} aria-hidden />
                       </button>
                       {nestedOpen && (
@@ -638,8 +700,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                     {!collapsed && <span className="flex-1 truncate">{label}</span>}
-                    {!collapsed && badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={item.href === "/owner/nrms/inquiries" ? `${badge} reception inquiries need attention` : `${badge} active orders`}>{badge > 99 ? "99+" : badge}</span>}
-                    {collapsed && badge != null && <span className={`absolute right-0.5 top-0.5 min-w-[16px] rounded-full px-1 text-center text-[8px] font-bold leading-4 text-white ${active ? "bg-emerald-950" : "animate-pulse bg-violet-500"}`} aria-label={item.href === "/owner/nrms/inquiries" ? `${badge} reception inquiries need attention` : `${badge} active orders`}>{badge > 9 ? "9+" : badge}</span>}
+                    {!collapsed && badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 99 ? "99+" : badge}</span>}
+                    {collapsed && badge != null && <span className={`absolute right-0.5 top-0.5 min-w-[16px] rounded-full px-1 text-center text-[8px] font-bold leading-4 text-white ${active ? "bg-emerald-950" : "animate-pulse bg-violet-500"}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 9 ? "9+" : badge}</span>}
                   </Link>
                 );
                   })}
@@ -679,17 +741,28 @@ function NrmsShell({ children }: { children: ReactNode }) {
           <div className="flex min-h-[4.75rem] items-center gap-3 px-3 sm:px-5">
             <button type="button" onClick={() => setMobileOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-700 lg:hidden" aria-label="Open NRMS navigation"><Menu className="h-5 w-5" /></button>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2"><p className="m-0 truncate text-sm font-bold text-neutral-950">{selectedProperty?.title ?? "NRMS property"}</p>{daysLeft != null && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">{daysLeft} days trial</span>}</div>
-              <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Live property operations</p>
+              <div className="flex items-center gap-2"><p className="m-0 truncate text-sm font-bold text-neutral-950">{paymentsHome ? "NoLSAF Payments" : selectedProperty?.title ?? "NRMS property"}</p>{!paymentsHome && daysLeft != null && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">{daysLeft} days trial</span>}</div>
+              <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{paymentsHome ? "Payment onboarding across your properties" : "Live property operations"}</p>
             </div>
             {/* Only an owner with more than one property may switch. Staff are
                 scoped to the property behind their assignment and must never be
                 offered a way to change or see another one, so they get a static
                 label, not a select. The API enforces this too; this is the UI half. */}
-            {accessRole === "OWNER" && properties.length > 1 ? (
+            {paymentsHome ? null : accessRole === "OWNER" && properties.length > 1 ? (
               <label className="hidden min-w-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 sm:flex">
                 <Building2 className="h-4 w-4 shrink-0 text-emerald-700" />
-                <select value={selectedPropertyId ?? ""} onChange={(event) => setSelectedPropertyId(Number(event.target.value))} className="max-w-52 border-0 bg-transparent p-0 text-xs font-bold text-neutral-800 outline-none" aria-label="Select NRMS property">
+                <select
+                  value={selectedPropertyId ?? ""}
+                  onChange={(event) => {
+                    const propertyId = Number(event.target.value);
+                    setSelectedPropertyId(propertyId);
+                    if (pathname === "/owner/nrms/payments" && searchParams.has("property")) {
+                      router.replace(`/owner/nrms/payments?property=${propertyId}`);
+                    }
+                  }}
+                  className="max-w-52 border-0 bg-transparent p-0 text-xs font-bold text-neutral-800 outline-none"
+                  aria-label="Select NRMS property"
+                >
                   {properties.map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}
                 </select>
               </label>

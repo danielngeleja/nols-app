@@ -8,9 +8,75 @@ import { sendMail } from '../lib/mailer.js';
 import { sendSms } from '../lib/sms.js';
 import { getAdminRevocationEmail, getAdminRevocationSms } from '../lib/adminEmailTemplates.js';
 import { revokeUserAuthorization } from '../lib/authorizationInvalidation.js';
+import { resolveUserRoles } from '../lib/userRoles.js';
+import { NRMS_STAFF_ROLES, nrmsStaffRoleLabel } from '../lib/nrmsStaffRoles.js';
+import { buildCustomerStatement } from '../lib/customerStatement.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
+
+/**
+ * Roles a CUSTOMER account can hold in addition to its account role.
+ *
+ * Deliberately only these two sources. Becoming a tour operator or a travel
+ * agency changes User.role to AGENT / NRMS_AGENT (see admin.agents.ts), so
+ * those accounts leave this list entirely and a filter for them could only
+ * ever return nothing. NRMS staff invites and sales partner onboarding do not
+ * touch User.role, so those genuinely sit alongside it.
+ */
+const ADDITIVE_STAFF_ROLES = NRMS_STAFF_ROLES;
+
+/**
+ * The "also holds" filter options, in display order, built from the shared
+ * role list. Adding an NRMS sub-role in nrmsStaffRoles.ts adds its chip here
+ * and on the client automatically: the client renders whatever this returns
+ * rather than keeping its own copy of the vocabulary.
+ */
+function holdsRoleOptions(): { value: string; label: string; hint: string; group: string; groupLabel: string }[] {
+  const SCOPE = { group: 'SCOPE', groupLabel: 'Any additional role' };
+  const PARTNER = { group: 'PARTNER', groupLabel: 'NoLSAF partner' };
+  const STAFF = { group: 'PROPERTY_STAFF', groupLabel: 'Property staff' };
+  return [
+    { value: 'ANY', label: 'Holds a role', hint: 'Customers who also hold a staff role or are a sales partner', ...SCOPE },
+    { value: 'NONE', label: 'Traveller only', hint: 'Customers who hold no additional role', ...SCOPE },
+    { value: 'SALES_PARTNER', label: 'Sales partner', hint: 'Customers who are also NoLSAF sales partners', ...PARTNER },
+    ...NRMS_STAFF_ROLES.map((code) => ({
+      value: code,
+      label: nrmsStaffRoleLabel(code),
+      hint: `Customers who also hold the ${nrmsStaffRoleLabel(code).toLowerCase()} role at a property`,
+      ...STAFF,
+    })),
+  ];
+}
+
+/**
+ * Prisma `where` fragment for the "also holds" filter.
+ *
+ * Matches a role that is on record, active or not, which is what the row badge
+ * shows: an unaccepted bar invite still explains why the account appears in a
+ * property's staff list. The badge colour carries the active/inactive
+ * distinction, so the filter does not need to.
+ *
+ * Returns null when the value is absent or unrecognised, meaning no filter.
+ */
+function holdsRoleWhere(raw: unknown): any | null {
+  const value = String(raw ?? '').toUpperCase().trim();
+  if (!value) return null;
+
+  if (value === 'SALES_PARTNER') return { salesPartnerProfile: { isNot: null } };
+  if (value === 'ANY_STAFF') return { nrmsStaffMemberships: { some: {} } };
+  if (value === 'ANY') {
+    return { OR: [{ nrmsStaffMemberships: { some: {} } }, { salesPartnerProfile: { isNot: null } }] };
+  }
+  // Customers holding no additional role at all: the plain travellers.
+  if (value === 'NONE') {
+    return { AND: [{ nrmsStaffMemberships: { none: {} } }, { salesPartnerProfile: { is: null } }] };
+  }
+  if ((ADDITIVE_STAFF_ROLES as readonly string[]).includes(value)) {
+    return { nrmsStaffMemberships: { some: { role: value } } };
+  }
+  return null;
+}
 
 function sendJsonSafe(res: any, payload: unknown, status = 200) {
   try {
@@ -100,7 +166,7 @@ router.get('/', async (req, res) => {
     // Explicitly set Content-Type to JSON
     res.setHeader('Content-Type', 'application/json');
     
-    const { page = '1', perPage = '25', q, role, status, registrationStatus } = req.query as any;
+    const { page = '1', perPage = '25', q, role, status, registrationStatus, holdsRole } = req.query as any;
     const p = Math.max(1, Number(page) || 1);
     const pp = Math.max(1, Math.min(200, Number(perPage) || 25));
 
@@ -135,6 +201,32 @@ router.get('/', async (req, res) => {
 
     const where: any = { ...baseWhere };
     if (role) where.role = String(role);
+
+    // Applied to the main query so "every traveller who also tends a bar" is
+    // answered across the whole table rather than within the loaded page.
+    const holdsRoleClause = holdsRoleWhere(holdsRole);
+    if (holdsRoleClause) where.AND = [...(where.AND ?? []), holdsRoleClause];
+
+    // Counts for the "also holds" chips, scoped to the same account role and
+    // filters the list is showing, so a chip count always matches what
+    // clicking it returns.
+    let holdsRoleFilters: { value: string; label: string; hint: string; group: string; groupLabel: string; count: number }[] = [];
+    try {
+      const options = holdsRoleOptions();
+      const chipWhere = { ...baseWhere, ...(role ? { role: String(role) } : {}) };
+      const results = await Promise.all(
+        options.map((option) => {
+          const clause = holdsRoleWhere(option.value);
+          if (!clause) return Promise.resolve(0);
+          return prisma.user.count({ where: { ...chipWhere, AND: [...(chipWhere as any).AND ?? [], clause] } });
+        }),
+      );
+      holdsRoleFilters = options.map((option, index) => ({ ...option, count: results[index] ?? 0 }));
+    } catch (countError: any) {
+      // Chips fall back to labels without counts rather than blocking the list.
+      console.warn('Failed to compute holdsRole counts:', countError?.message);
+      holdsRoleFilters = holdsRoleOptions().map((option) => ({ ...option, count: -1 }));
+    }
 
     const [total, users, roleCountsRaw] = await Promise.all([
       prisma.user.count({ where }),
@@ -267,7 +359,57 @@ router.get('/', async (req, res) => {
       };
     }));
 
-    return res.json({ meta: { page: p, perPage: pp, total, countsByRole }, data: usersWithStats });
+    // Extra roles for the loaded page only. This is what makes a bar attendant
+    // or a sales partner visible in the list without opening every record.
+    //
+    // Deliberately limited to the two roles that can coexist with the account
+    // role this list filters on. A tour operator or travel agency account has
+    // had User.role changed to AGENT / NRMS_AGENT (see admin.agents.ts), so
+    // querying for those here could never match a row and would be dead work
+    // on every page load.
+    //
+    // Non-blocking: a failure leaves the badges absent, never falsely empty.
+    let withRoles = usersWithStats;
+    try {
+      const pageIds = usersWithStats.map((u: any) => u.id);
+      if (pageIds.length > 0) {
+        const [staff, partners] = await Promise.all([
+          prisma.nrmsStaffMembership.findMany({
+            where: { userId: { in: pageIds } },
+            select: { userId: true, role: true, status: true },
+          }),
+          prisma.salesPartnerProfile.findMany({
+            where: { userId: { in: pageIds } },
+            select: { userId: true, status: true },
+          }),
+        ]);
+
+        const badges = new Map<number, { label: string; active: boolean }[]>();
+        const push = (userId: number, label: string, active: boolean) => {
+          const list = badges.get(userId) ?? [];
+          if (!list.some(entry => entry.label === label)) list.push({ label, active });
+          badges.set(userId, list);
+        };
+
+        for (const row of staff) {
+          const code = String(row.role || '').toUpperCase();
+          push(row.userId, nrmsStaffRoleLabel(code), String(row.status || '').toUpperCase() === 'ACTIVE');
+        }
+        for (const row of partners) {
+          push(row.userId, 'Sales partner', String(row.status || '').toUpperCase() === 'ACTIVE');
+        }
+        withRoles = usersWithStats.map((u: any) => ({
+          ...u,
+          // Active roles first, so a live bar attendant is not pushed off the
+          // end of the cell by a stale invitation.
+          extraRoles: (badges.get(u.id) ?? []).sort((a, b) => Number(b.active) - Number(a.active)),
+        }));
+      }
+    } catch (rolesError: any) {
+      console.warn('Failed to fetch list roles, continuing without them:', rolesError?.message);
+    }
+
+    return res.json({ meta: { page: p, perPage: pp, total, countsByRole, holdsRoleFilters }, data: withRoles });
   } catch (err: any) {
     console.error('Error in GET /admin/users:', err);
     res.setHeader('Content-Type', 'application/json');
@@ -996,11 +1138,17 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
     const lastBooking = bookings.length > 0 ? bookings[0] : null;
 
+    // Every hat this account wears. User.role is one column and cannot say
+    // that a customer also tends a bar and sells as a partner.
+    stage = 'roles';
+    const roles = await resolveUserRoles(prisma, id);
+
     stage = 'respond';
     
     // Build response payload
     const responsePayload = {
       user,
+      roles,
       bookings,
       activities,
       activityCounts: {
@@ -1094,6 +1242,85 @@ router.get('/:id', asyncHandler(async (req, res) => {
       200,
     );
   }
+}));
+
+/** GET /admin/users/:id/statement?from=&to=
+ *
+ * One customer's whole relationship with NoLSAF, assembled for a printable
+ * statement: who they are, every role they hold, how much they have used the
+ * platform, what they booked, and what they paid across every service.
+ *
+ * Read-only. `from`/`to` are optional; omitting both gives the whole history.
+ */
+router.get('/:id/statement', asyncHandler(async (req: any, res: any) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true, name: true, email: true, phone: true, role: true,
+      createdAt: true, suspendedAt: true, isDisabled: true,
+      emailVerifiedAt: true, phoneVerifiedAt: true,
+      referralCode: true, referredBy: true,
+    },
+  });
+  if (!user) return res.status(404).json({ error: 'not found' });
+
+  const { from, to } = req.query as Record<string, string | undefined>;
+  const fromDate = from ? new Date(String(from)) : null;
+  const toDate = to ? new Date(String(to)) : null;
+  if (fromDate && Number.isNaN(fromDate.getTime())) return res.status(400).json({ error: 'invalid from date' });
+  if (toDate && Number.isNaN(toDate.getTime())) return res.status(400).json({ error: 'invalid to date' });
+  // Inclusive end date: "to 30 Sept" must include everything on the 30th.
+  if (toDate) toDate.setHours(23, 59, 59, 999);
+
+  const generatedAt = new Date();
+  const iso = (d: any) => (d ? new Date(d).toISOString() : null);
+
+  const [roles, statement] = await Promise.all([
+    resolveUserRoles(prisma, id),
+    buildCustomerStatement(prisma, id, { from: fromDate, to: toDate }),
+  ]);
+
+  // The session carries only id/role/email, so name the generating admin from
+  // the database. A statement that cannot say who produced it is not filable.
+  const adminId = req.user?.id ?? null;
+  const generatedByUser = adminId
+    ? await prisma.user.findUnique({
+        where: { id: adminId },
+        select: { id: true, name: true, email: true },
+      }).catch(() => null)
+    : null;
+
+  return sendJsonSafe(res, {
+    generatedAt: generatedAt.toISOString(),
+    generatedBy: {
+      id: generatedByUser?.id ?? adminId,
+      name: generatedByUser?.name ?? null,
+      email: generatedByUser?.email ?? req.user?.email ?? null,
+    },
+    // `period` is what was asked for; either end may be open. `coverage`
+    // resolves the open ends so a report reference can carry real dates.
+    period: { from: iso(fromDate), to: iso(toDate) },
+    coverage: {
+      from: iso(fromDate ?? user.createdAt),
+      to: iso(toDate ?? generatedAt),
+    },
+    customer: {
+      ...user,
+      createdAt: iso(user.createdAt),
+      suspendedAt: iso(user.suspendedAt),
+      emailVerifiedAt: iso((user as any).emailVerifiedAt),
+      phoneVerifiedAt: iso((user as any).phoneVerifiedAt),
+    },
+    roles,
+    services: statement.services,
+    totals: statement.totals,
+    usage: statement.usage,
+    refunds: statement.refunds,
+    entries: statement.entries,
+  });
 }));
 
 /**

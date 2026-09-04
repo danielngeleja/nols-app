@@ -174,6 +174,9 @@
     "20260825173000_repair_meta_message_reliability_drift": "3e3e9cb3687e17bfdf47746d577f105cead365b2d89e633b9c67507c4da989eb",
     "20260828090000_add_nrms_fiscal_receipts": "ba1afa91b1f2ab1c9f3d7acf72a9305d2a96178322c4defde5438133515beae9",
     "20260828171000_harden_nrms_fiscal_security": "c08abb05a89202662b833c6ca36677907d705d70382388dc4b45f077432c0d2c",
-    "20260829210000_reconcile_nrms_fiscal_updated_at_defaults": "c91f3068a26f66bee1b9aebdaa8b69e72718eab435c07eb6caaabf10e96f1863"
+    "20260829210000_reconcile_nrms_fiscal_updated_at_defaults": "c91f3068a26f66bee1b9aebdaa8b69e72718eab435c07eb6caaabf10e96f1863",
+    "20260904120000_add_payment_orchestration_core": "4dc7fa0749496843483ed2d2aa1d6d092b62260427b56a8ed113c69391d1e274",
+    "20260904160000_link_merchant_documents_to_user_documents": "17218dd19ff59b81ae58c3b171c3825d7742c27edba31e7b5c5266c23857bd47",
+    "20260904170000_release_closed_merchant_scope_keys": "9cecf1dc45539122cd07a7e407a8bc93427d7032cb885912d8dc3f34deb460c8"
   }
 }

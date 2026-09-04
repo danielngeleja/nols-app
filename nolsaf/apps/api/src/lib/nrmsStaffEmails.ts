@@ -1,8 +1,16 @@
 import { proEmail, proDetailRows, proButton, proNoteCard, proDivider, BRAND_TEAL } from "./emailBase.js";
+import type { NrmsStaffRole } from "./nrmsStaffRoles.js";
 
-export const NRMS_STAFF_ROLE_LABELS: Record<string, string> = {
+/**
+ * Staff-facing wording for the invite email, which is deliberately warmer than
+ * the admin console's labels. Typed as a complete record over NrmsStaffRole so
+ * a new sub-role cannot be added without giving it wording here: HOUSEKEEPER
+ * was previously absent and staff were emailed the raw code.
+ */
+export const NRMS_STAFF_ROLE_LABELS: Record<NrmsStaffRole, string> = {
   MANAGER: "NRMS manager",
   FRONT_DESK: "Front desk",
+  HOUSEKEEPER: "Housekeeping",
   RESTAURANT: "Restaurant staff",
   BAR: "Bar staff",
   OUTLET_SUPERVISOR: "Outlet supervisor",
@@ -16,7 +24,7 @@ export function nrmsStaffInviteEmail(params: {
   assignedByName: string;
   confirmUrl: string;
 }): { subject: string; html: string } {
-  const roleLabel = NRMS_STAFF_ROLE_LABELS[params.role] ?? params.role;
+  const roleLabel = NRMS_STAFF_ROLE_LABELS[params.role as NrmsStaffRole] ?? params.role;
   const scope = params.outletName ?? "All property";
   const subject = `You have been assigned to the team at ${params.propertyTitle}`;
 

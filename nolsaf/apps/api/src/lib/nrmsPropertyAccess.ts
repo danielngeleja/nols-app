@@ -3,8 +3,11 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { findOpenRestrictionCase, RESTRICTION_SCOPE } from "./restrictionCases.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "./nrms.js";
+import type { NrmsStaffRole } from "./nrmsStaffRoles.js";
 
-export type NrmsPropertyAccessRole = "OWNER" | "MANAGER" | "FRONT_DESK" | "HOUSEKEEPER" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
+/** The owner plus every staff role. Derived so a new sub-role is granted
+ *  access-type coverage automatically instead of being silently excluded. */
+export type NrmsPropertyAccessRole = "OWNER" | NrmsStaffRole;
 
 export type NrmsPropertyAccess = {
   role: NrmsPropertyAccessRole;

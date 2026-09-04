@@ -1,0 +1,431 @@
+NOLSAF MERCHANT PAYMENT POLICY
+Policy ID: merchant-payments
+Version: 1.0
+Issued: 4 September 2026
+
+Read this document in full before you accept it. Your acceptance is recorded
+against this exact version and against a fingerprint of this exact text. If the
+document changes in any way, you will be asked to read and accept the new
+version before you can continue.
+
+
+1. Scope of this policy
+
+1.1  This policy governs one thing only: the optional payment capability inside
+     NRMS that lets your guests pay your property online, into a payment account
+     that belongs to you.
+
+1.2  It explains what that capability is, what NoLSAF does and does not do, what
+     you are agreeing to supply, who decides whether your payment account is
+     opened, and what happens when something goes wrong.
+
+1.3  It does not replace your NoLSAF service agreement, and it does not replace
+     the agreement you will enter into directly with the payment provider. Where
+     this policy and one of those agreements cover the same subject, those
+     agreements govern the commercial relationship and this policy governs how
+     the capability behaves inside NRMS.
+
+1.4  This policy sets no prices. Service fees, provider charges, settlement
+     timing and any commission are governed by your NoLSAF service agreement and
+     by the provider's own agreement and schedules. Accepting this policy does
+     not create, vary or waive any of those terms.
+
+1.5  In this policy, "you" means the property owner or the legal entity that
+     operates the property and holds the NoLSAF Owner account. "We" and "NoLSAF"
+     mean NoLSAF and the NRMS platform.
+
+
+2. Definitions
+
+2.1  NRMS is the NoLSAF Property Management System: the software your property
+     uses to run its day to day operations. Section 3 lists what it does.
+
+2.2  Payment provider (or "provider") means the licensed payment institution
+     that actually moves money, holds the merchant account and settles funds to
+     you. AzamPay is the first provider available under this policy. Other
+     providers may be added later, each under its own agreement.
+
+2.3  Merchant account and wallet mean the payment account the provider opens in
+     the name of your business, and into which your guests' payments are paid.
+     It is the provider's product, opened under the provider's rules, in your
+     business name, not in the name of NoLSAF.
+
+2.4  Application means the package of business details and supporting documents
+     you complete in NRMS so that the provider can assess you. An application
+     has a version number. Each correction after review creates a new version.
+
+2.5  NoLSAF review means our internal completeness and eligibility check of your
+     application. It is not a compliance decision and it is not approval by the
+     provider. See section 8.
+
+2.6  Activation means the provider has completed its own compliance review,
+     opened your merchant account and confirmed it as live. Only the provider
+     can cause activation. See section 9.
+
+2.7  Owner account means your personal NoLSAF login as the owner of the
+     property, including the email address and phone number recorded on it.
+
+2.8  Staff account means any other NRMS user at your property: managers,
+     receptionists, cashiers, waiters, accountants and any other role.
+
+
+3. What NRMS does without any payment provider
+
+3.1  NRMS is a property management system. It holds the record of what your
+     property sold, to whom, when, at what price, and what is still owed. That
+     record is the business truth. A payment provider is a separate thing: it is
+     a rail that moves money. NRMS does not become a payment company by talking
+     to one.
+
+3.2  The following NRMS capabilities do not require any payment provider, and
+     continue to work in full whether or not you ever subscribe to online
+     payment:
+
+     (a)  reservations, availability, rates, room inventory, check in, check
+          out, and guest profiles;
+     (b)  room folios, guest folios, group folios, agent folios and master
+          folios;
+     (c)  restaurant, bar, room service, transport, minibar, laundry and other
+          operational charges;
+     (d)  restaurant and bar ordering, room and table QR ordering, stock and
+          order fulfilment;
+     (e)  cash settlement and cashier shift controls;
+     (f)  your existing external bank details, mobile money till, card terminal
+          or other payment instructions, where you have configured them;
+     (g)  recording payments you received outside NRMS, under the existing
+          evidence and audit controls;
+     (h)  night audit, property ledger, reports, and eligible fiscal receipt
+          workflows;
+     (i)  payment reminders and instructions, provided they do not claim to be
+          initiated or verified by a provider.
+
+3.3  This list is the boundary of what you keep in every circumstance described
+     in this policy. Nothing in section 10 or section 11 removes it.
+
+
+4. What the payment capability does
+
+4.1  When your merchant account is active, NRMS can present your guest with an
+     online way to pay, and can then record the result against the correct
+     booking, folio or outlet order automatically.
+
+4.2  The payment purposes this capability is intended to support are:
+
+     (a)  a deposit, a balance, or a full payment for a direct accommodation
+          booking;
+     (b)  the same, taken at the front desk for a reservation;
+     (c)  a room folio balance that combines room, restaurant, bar and service
+          charges;
+     (d)  a contracted agency or master folio balance;
+     (e)  a restaurant or bar order paid by a walk in guest;
+     (f)  a restaurant or bar order paid immediately by a resident guest;
+     (g)  room service charged to a room and paid with the folio;
+     (h)  transport or another property service, paid directly or charged to a
+          folio.
+
+4.3  For all of the above, the recipient is your approved merchant account, or,
+     where you have explicitly contracted a separate outlet merchant, that
+     outlet's approved merchant account.
+
+4.4  NRMS decides the destination of a payment on the server, before the payment
+     starts, and records that decision. A guest may choose an offered payment
+     channel. A guest can never choose, supply or influence the merchant or
+     wallet that receives the money.
+
+4.5  Every payment attempt is recorded under a single NRMS payment intent, with
+     the provider and provider account that were used at the time. Changing
+     provider later never rewrites what already happened.
+
+4.6  If a provider is unavailable or rejects a request, NRMS does not silently
+     re-route an uncertain or still processing payment to a different provider.
+     Doing so risks charging your guest twice. NRMS stops and reports instead.
+
+4.7  A payment account belongs to the registered company, not to a single
+     property. Where one company operates several properties, those properties
+     share one application, one review and one payment account, and each
+     property's payments are still recorded against that property in NRMS. A
+     property that trades under a different registered company, with its own
+     TIN, needs its own application and gets its own payment account.
+
+
+5. What it never does
+
+These are hard boundaries. They are built into the system, not just stated here.
+
+5.1  NoLSAF does not hold your money. Guest payments for your property are paid
+     into your merchant account with the provider. NoLSAF is not the recipient,
+     not the custodian, and not an escrow agent for those funds.
+
+5.2  NoLSAF is not a bank, and is not a licensed payment service provider. It
+     does not issue accounts, hold balances or settle funds. The provider does.
+
+5.3  There is no fallback to a NoLSAF account. If your merchant account is not
+     active, is misconfigured, or is temporarily unavailable, the payment fails
+     with a clear message. It is never redirected to NoLSAF and collected on
+     your behalf.
+
+5.4  Payments owed to NoLSAF are kept separate from payments owed to you, at
+     every level: the data, the provider reference, the ledger and the reports.
+     An NRMS subscription or service fee is a different payment purpose from a
+     guest paying for a stay, and the two are never mixed.
+
+5.5  This capability does not cover payroll, supplier payments, withdrawals from
+     your wallet, changes to your bank account, or any other disbursement. Those
+     need their own authorisation and their own provider contract, even where a
+     provider happens to offer them.
+
+5.6  Subscribing to NRMS does not subscribe you to online payment. Creating a
+     draft application does not open a wallet, does not submit anything to a
+     provider, and cannot accept money.
+
+5.7  Approval by a NoLSAF administrator is not activation, and cannot become
+     activation. See sections 8 and 9.
+
+
+6. The account security contact
+
+6.1  The provider needs an email address and a phone number for the merchant
+     account. Those two contacts are not ordinary business details. They are the
+     credentials of last resort: they receive sign in verification, they are
+     used to recover the account, and they are used to confirm instructions that
+     move money.
+
+6.2  For that reason NRMS does not let anyone type them into the application
+     form. They are taken from your Owner account, and only after that email
+     address and that phone number have been verified.
+
+6.3  If either is unverified, the application cannot be submitted. Verify them
+     in My Profile first. This is deliberate and there is no way around it.
+
+6.4  Your staff may hold NRMS accounts, may operate the property, and may
+     receive operational notifications about payments. Your staff may not be the
+     owner of the provider account, may not be its verification destination, may
+     not be its recovery contact, and may not control the wallet. Those roles
+     belong to the Owner account only.
+
+6.5  If your own email address or phone number changes, update and re-verify it
+     on your Owner account. The application uses the verified values as they
+     stand when you submit.
+
+6.6  Keep control of your Owner account. Anyone who controls it, and who can
+     receive its verification messages, is in a position to affect where your
+     money goes.
+
+
+7. What you supply
+
+7.1  You supply, in the application form:
+
+     (a)  the registered legal name of the business, exactly as it appears on
+          the company registration;
+     (b)  the trading name, if it differs;
+     (c)  the company registration number;
+     (d)  the company Taxpayer Identification Number (TIN);
+     (e)  the country of registration.
+
+7.2  The TIN you enter must match the Company TIN already saved on your Owner
+     Workspace profile. NRMS checks this and will not let you submit a
+     mismatched TIN. This stops one owner account from being used to open a
+     merchant account for a different business.
+
+7.3  You supply, as evidence, the documents already held on your NoLSAF profile:
+
+     (a)  a current business licence;
+     (b)  a TIN certificate.
+
+     NRMS links to the copies you have already uploaded rather than asking you
+     for them again. A document that is missing, expired or previously rejected
+     counts as not supplied.
+
+7.4  When you submit, NRMS records which specific document uploads formed the
+     package, and the state each was in at that moment. If you later replace a
+     document on your profile, that does not silently change what a reviewer
+     approved.
+
+7.5  When you submit, NRMS also freezes the details in your application and
+     stores a fingerprint of them. This is what allows anyone later to prove
+     that what was sent to the provider is exactly what was reviewed and
+     approved, unaltered.
+
+7.6  You confirm that the information and documents are accurate, current, and
+     genuinely yours to supply, and that you are authorised to accept this
+     policy for the business named in the application.
+
+7.7  By accepting this policy you consent to NoLSAF transmitting your
+     application, including the identity information and supporting documents
+     described above, to the payment provider for the purpose of assessing and
+     opening your merchant account.
+
+7.8  We record who accepted this policy, which version, at what time, and the
+     network address and browser the acceptance came from. That record is kept
+     as evidence of consent.
+
+
+8. NoLSAF review and approval
+
+8.1  A NoLSAF administrator reviews a complete application before anything is
+     sent to the provider.
+
+8.2  That review checks completeness, internal consistency and eligibility. It
+     is not a compliance decision, not a creditworthiness decision, and not a
+     decision the provider is bound by in any way.
+
+8.3  The administrator may:
+
+     (a)  return the application for correction, with a reason. Correcting it
+          creates a new version, so the version the reviewer saw stays intact;
+     (b)  reject the application, with a reason;
+     (c)  approve the application, which queues it for submission to the
+          provider and does nothing else.
+
+8.4  An approval never activates a merchant account, never opens a wallet and
+     never enables checkout. The system cannot record an active account as a
+     result of an internal approval, by any route.
+
+8.5  An administrator who also administers the merchant cannot decide on that
+     merchant's own application.
+
+8.6  Every decision is recorded with the administrator, the time, the reason and
+     the state before and after. You are notified of the outcome.
+
+8.7  Once an application is approved, its business details are final. The legal
+     name, trading name, registration number, TIN and country cannot be changed
+     from your workspace at any point after that, because they are the package
+     the provider was given and assessed. The same applies to an application
+     that was rejected. If any of those details is wrong, or changes later,
+     contact NoLSAF support so it can be handled through a controlled process
+     with the provider rather than by editing an approved record.
+
+
+9. Provider review and activation
+
+9.1  The provider performs its own compliance and risk review, under its own
+     rules and legal obligations.
+
+9.2  The provider alone decides whether to open, restrict, refuse, suspend or
+     close your merchant account and wallet. NoLSAF cannot overrule that
+     decision and does not attempt to.
+
+9.3  Your merchant account becomes active in NRMS only when the provider
+     confirms it, with the identifiers that payment routing needs. Until then,
+     online payment stays off for your property.
+
+9.4  The provider may ask for corrections or further information at any stage,
+     including after activation.
+
+9.5  Where the provider requires a direct agreement with you, that agreement
+     governs your relationship with the provider, including how and when funds
+     are settled to you.
+
+9.6  NoLSAF may act as platform administrator with the provider in order to
+     orchestrate payments, support you, reconcile transactions, apply risk
+     controls and report. That role is for those purposes. It does not make
+     NoLSAF the recipient of your money, its custodian, or an unrestricted
+     controller of your account.
+
+
+10. Refunds, reversals and disputes
+
+10.1 A refund or a reversal is a separate, recorded event. It never erases the
+     original payment, and it never rewrites history.
+
+10.2 Cancelling or voiding an unpaid order is an operational action and does not
+     create a refund. Voiding an order that was paid must create an auditable
+     refund or reversal.
+
+10.3 Refunds are executed by the provider and are subject to what that provider
+     supports. Some providers do not support partial refunds. Where a capability
+     is not supported, NRMS disables it rather than pretending it works.
+
+10.4 Guest disputes and chargebacks, where the provider's rules allow them, are
+     handled under the provider's process. You are responsible for the goods and
+     services you sold and for responding with evidence.
+
+10.5 You remain responsible for your own refund and cancellation terms towards
+     your guests. NRMS records and executes them; it does not set them.
+
+
+11. Suspension and withdrawal
+
+11.1 You may stop using the payment capability. Doing so removes only that
+     capability.
+
+11.2 If the provider rejects, restricts or suspends your merchant account, the
+     effect is confined to that provider account and the channels that depend on
+     it. It does not suspend your property, does not erase historical payments,
+     does not block cash or manual settlement, and does not disable unrelated
+     NRMS services.
+
+11.3 A provider outage does not stop restaurant service, folio posting, front
+     desk work or cash collection. Payments already in progress remain protected
+     against duplicate charging.
+
+11.4 NoLSAF may suspend the payment capability for your property where it is
+     required to by law or by the provider, where there is credible evidence of
+     fraud or misuse, or where continuing would put guests' money at risk. We
+     will tell you the reason unless we are legally prevented from doing so.
+
+11.5 No owner is automatically enrolled in, migrated to, or forced onto a
+     provider. Enabling one adds capability. Disabling one removes only that
+     capability.
+
+
+12. Your obligations
+
+12.1 Supply accurate information and genuine documents, and keep them current.
+
+12.2 Replace documents before they expire, and resolve anything a reviewer or
+     the provider returns to you.
+
+12.3 Keep your Owner account email and phone verified, and keep control of both.
+
+12.4 Do not use the capability to collect money for a business other than the
+     one named in the approved application.
+
+12.5 Comply with the law that applies to you, including tax and fiscal receipt
+     obligations, and with the provider's rules.
+
+12.6 Make sure your staff understand that operational access to NRMS is not
+     control of the payment account.
+
+
+13. Data, records and privacy
+
+13.1 The identity information and documents described in section 7 are sent to
+     the provider for the purpose of opening and maintaining your merchant
+     account, and for no other purpose.
+
+13.2 NRMS records the state of your application, the decisions taken on it, the
+     documents linked to it and the acceptance of this policy. These records are
+     kept for as long as we are required to keep them, and to resolve disputes.
+
+13.3 Payment data is handled under the provider's rules and ours. NRMS stores
+     the references it needs to reconcile a payment. It does not store your
+     guests' card numbers or wallet credentials.
+
+13.4 Every meaningful action on an application is written to an audit trail with
+     the actor, the time and the reason.
+
+
+14. Changes to this policy
+
+14.1 This policy is versioned. Your acceptance is bound to the version number
+     and to a fingerprint of this exact text.
+
+14.2 If we change the text, the version changes with it. Your previous
+     acceptance is retained as a record but is marked as superseded, and you
+     will be asked to read and accept the new version.
+
+14.3 If the policy is updated while you have the page open, your acceptance will
+     be refused and you will be shown the current version. This is intentional:
+     you cannot be recorded as having accepted terms you were not shown.
+
+
+15. Contact
+
+For questions about this policy or about your application, contact NoLSAF at
+payments@nolsaf.com. For questions about your merchant account, its balance or
+its settlement, contact the payment provider directly.
+
+
+End of policy. Version 1.0.

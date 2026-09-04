@@ -303,57 +303,57 @@ model User {
   tripEstimates TripEstimate[]
 
   // NRMS (NoLSAF Rooms Management System)
-  serviceEnrollments         OwnerServiceEnrollment[]     @relation("OwnerServiceEnrollments")
-  nrmsReservationsOwned      Reservation[]                @relation("NrmsReservationOwner")
-  nrmsReservationsCreated    Reservation[]                @relation("NrmsReservationCreator")
-  nrmsGuestInquiriesOwned    NrmsGuestInquiry[]           @relation("NrmsGuestInquiryOwner")
-  nrmsGuestInquiriesAssigned NrmsGuestInquiry[]           @relation("NrmsGuestInquiryAssignee")
-  nrmsMessagingConnections   NrmsMessagingConnection[]    @relation("NrmsMessagingConnectionOwner")
-  nrmsReservationGroups      NrmsReservationGroup[]       @relation("NrmsReservationGroupOwner")
-  nrmsGroupBlocksOwned       NrmsGroupBlock[]             @relation("NrmsGroupBlockOwner")
-  nrmsGroupBlocksCreated     NrmsGroupBlock[]             @relation("NrmsGroupBlockCreator")
-  nrmsMasterFoliosOwned      NrmsMasterFolio[]            @relation("NrmsMasterFolioOwner")
-  nrmsMasterPaymentsMade     NrmsMasterFolioPayment[]     @relation("NrmsMasterPaymentRecordedBy")
-  nrmsMasterRefundsMade      NrmsMasterFolioRefund[]      @relation("NrmsMasterRefundRecordedBy")
-  nrmsProFormasCreated       NrmsMasterFolioProForma[]    @relation("NrmsProFormaCreatedBy")
-  nrmsProFormasSent          NrmsMasterFolioProForma[]    @relation("NrmsProFormaSentBy")
-  nrmsManualBanksOwned       NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankOwner")
-  nrmsManualBanksAccepted    NrmsProFormaBankAccount[]    @relation("NrmsProFormaBankPolicyAcceptedBy")
-  nrmsRoomingListsMade       NrmsRoomingList[]            @relation("NrmsRoomingListCreator")
-  nrmsRoomingListsReviewed   NrmsRoomingList[]            @relation("NrmsRoomingListReviewer")
-  nrmsReservationGroupsMade  NrmsReservationGroup[]       @relation("NrmsReservationGroupCreator")
-  nrmsGuestProfiles          GuestProfile[]               @relation("NrmsGuestProfileOwner")
-  roomUnitStatusChanges      RoomUnitStatusHistory[]      @relation("RoomUnitStatusChangedBy")
-  nrmsReservationEvents      ReservationEvent[]           @relation("NrmsReservationEventActor")
-  nrmsPaymentsRecorded       ExternalPaymentRecord[]      @relation("NrmsPaymentRecordedBy")
-  nrmsChargesPosted          ReservationCharge[]          @relation("NrmsChargePostedBy")
-  nrmsExpensesRecorded       NrmsExpense[]                @relation("NrmsExpenseRecordedBy")
-  nrmsStaffMemberships       NrmsStaffMembership[]        @relation("NrmsStaffUser")
-  nrmsHkTasksAssigned        NrmsHousekeepingTask[]       @relation("NrmsHkTaskAssignedTo")
-  nrmsHkTasksCreated         NrmsHousekeepingTask[]       @relation("NrmsHkTaskCreatedBy")
-  nrmsHkTasksCompleted       NrmsHousekeepingTask[]       @relation("NrmsHkTaskCompletedBy")
-  nrmsFiscalAcknowledged     NrmsFiscalConnection[]       @relation("NrmsFiscalAcknowledgedBy")
+  serviceEnrollments         OwnerServiceEnrollment[]      @relation("OwnerServiceEnrollments")
+  nrmsReservationsOwned      Reservation[]                 @relation("NrmsReservationOwner")
+  nrmsReservationsCreated    Reservation[]                 @relation("NrmsReservationCreator")
+  nrmsGuestInquiriesOwned    NrmsGuestInquiry[]            @relation("NrmsGuestInquiryOwner")
+  nrmsGuestInquiriesAssigned NrmsGuestInquiry[]            @relation("NrmsGuestInquiryAssignee")
+  nrmsMessagingConnections   NrmsMessagingConnection[]     @relation("NrmsMessagingConnectionOwner")
+  nrmsReservationGroups      NrmsReservationGroup[]        @relation("NrmsReservationGroupOwner")
+  nrmsGroupBlocksOwned       NrmsGroupBlock[]              @relation("NrmsGroupBlockOwner")
+  nrmsGroupBlocksCreated     NrmsGroupBlock[]              @relation("NrmsGroupBlockCreator")
+  nrmsMasterFoliosOwned      NrmsMasterFolio[]             @relation("NrmsMasterFolioOwner")
+  nrmsMasterPaymentsMade     NrmsMasterFolioPayment[]      @relation("NrmsMasterPaymentRecordedBy")
+  nrmsMasterRefundsMade      NrmsMasterFolioRefund[]       @relation("NrmsMasterRefundRecordedBy")
+  nrmsProFormasCreated       NrmsMasterFolioProForma[]     @relation("NrmsProFormaCreatedBy")
+  nrmsProFormasSent          NrmsMasterFolioProForma[]     @relation("NrmsProFormaSentBy")
+  nrmsManualBanksOwned       NrmsProFormaBankAccount[]     @relation("NrmsProFormaBankOwner")
+  nrmsManualBanksAccepted    NrmsProFormaBankAccount[]     @relation("NrmsProFormaBankPolicyAcceptedBy")
+  nrmsRoomingListsMade       NrmsRoomingList[]             @relation("NrmsRoomingListCreator")
+  nrmsRoomingListsReviewed   NrmsRoomingList[]             @relation("NrmsRoomingListReviewer")
+  nrmsReservationGroupsMade  NrmsReservationGroup[]        @relation("NrmsReservationGroupCreator")
+  nrmsGuestProfiles          GuestProfile[]                @relation("NrmsGuestProfileOwner")
+  roomUnitStatusChanges      RoomUnitStatusHistory[]       @relation("RoomUnitStatusChangedBy")
+  nrmsReservationEvents      ReservationEvent[]            @relation("NrmsReservationEventActor")
+  nrmsPaymentsRecorded       ExternalPaymentRecord[]       @relation("NrmsPaymentRecordedBy")
+  nrmsChargesPosted          ReservationCharge[]           @relation("NrmsChargePostedBy")
+  nrmsExpensesRecorded       NrmsExpense[]                 @relation("NrmsExpenseRecordedBy")
+  nrmsStaffMemberships       NrmsStaffMembership[]         @relation("NrmsStaffUser")
+  nrmsHkTasksAssigned        NrmsHousekeepingTask[]        @relation("NrmsHkTaskAssignedTo")
+  nrmsHkTasksCreated         NrmsHousekeepingTask[]        @relation("NrmsHkTaskCreatedBy")
+  nrmsHkTasksCompleted       NrmsHousekeepingTask[]        @relation("NrmsHkTaskCompletedBy")
+  nrmsFiscalAcknowledged     NrmsFiscalConnection[]        @relation("NrmsFiscalAcknowledgedBy")
   nrmsFiscalCredentials      NrmsFiscalCredentialVersion[] @relation("NrmsFiscalCredentialCreatedBy")
-  nrmsOrdersCreated          NrmsOutletOrder[]            @relation("NrmsOrderCreatedBy")
-  nrmsOrdersConfirmed        NrmsOutletOrder[]            @relation("NrmsOrderConfirmedBy")
-  nrmsOrdersSettled          NrmsOutletOrder[]            @relation("NrmsOrderSettledBy")
-  nrmsTipsReceived           NrmsOutletOrder[]            @relation("NrmsOrderTipRecipient")
-  nrmsTipsConfirmed          NrmsOutletOrder[]            @relation("NrmsOrderTipConfirmedBy")
-  nrmsBusinessDaysOpened     NrmsBusinessDay[]            @relation("NrmsBusinessDayOpenedBy")
-  nrmsBusinessDaysClosed     NrmsBusinessDay[]            @relation("NrmsBusinessDayClosedBy")
-  nrmsNightAuditsStarted     NrmsNightAuditRun[]          @relation("NrmsNightAuditStartedBy")
-  nrmsNightAuditsClosed      NrmsNightAuditRun[]          @relation("NrmsNightAuditClosedBy")
-  nrmsCashierShifts          NrmsCashierShift[]           @relation("NrmsCashierShiftUser")
-  nrmsCashierApprovals       NrmsCashierShift[]           @relation("NrmsCashierShiftApprovedBy")
-  nrmsCashierSignOffs        NrmsCashierShift[]           @relation("NrmsCashierShiftSignedOffBy")
-  nrmsPaygAccounts           OwnerPaygAccount[]           @relation("NrmsPaygAccountOwner")
-  nrmsAgentAccounts          NrmsAgentAccount[]           @relation("NrmsAgentPrimaryUser")
-  guestSmsPreferences        GuestSmsPreference[]         @relation("GuestSmsPreferenceOwner")
-  guestSmsCampaigns          GuestSmsCampaign[]           @relation("GuestSmsCampaignOwner")
-  guestSmsAnnualQuotas       GuestSmsAnnualQuota[]        @relation("GuestSmsAnnualQuotaOwner")
-  channelMappingsCreated     ChannelPropertyMapping[]     @relation("ChannelPropertyMappingCreatedBy")
-  channelCredentialsCreated  ChannelCredentialVersion[]   @relation("ChannelCredentialCreatedBy")
-  channelIssuesResolved      ChannelReconciliationIssue[] @relation("ChannelIssueResolvedBy")
+  nrmsOrdersCreated          NrmsOutletOrder[]             @relation("NrmsOrderCreatedBy")
+  nrmsOrdersConfirmed        NrmsOutletOrder[]             @relation("NrmsOrderConfirmedBy")
+  nrmsOrdersSettled          NrmsOutletOrder[]             @relation("NrmsOrderSettledBy")
+  nrmsTipsReceived           NrmsOutletOrder[]             @relation("NrmsOrderTipRecipient")
+  nrmsTipsConfirmed          NrmsOutletOrder[]             @relation("NrmsOrderTipConfirmedBy")
+  nrmsBusinessDaysOpened     NrmsBusinessDay[]             @relation("NrmsBusinessDayOpenedBy")
+  nrmsBusinessDaysClosed     NrmsBusinessDay[]             @relation("NrmsBusinessDayClosedBy")
+  nrmsNightAuditsStarted     NrmsNightAuditRun[]           @relation("NrmsNightAuditStartedBy")
+  nrmsNightAuditsClosed      NrmsNightAuditRun[]           @relation("NrmsNightAuditClosedBy")
+  nrmsCashierShifts          NrmsCashierShift[]            @relation("NrmsCashierShiftUser")
+  nrmsCashierApprovals       NrmsCashierShift[]            @relation("NrmsCashierShiftApprovedBy")
+  nrmsCashierSignOffs        NrmsCashierShift[]            @relation("NrmsCashierShiftSignedOffBy")
+  nrmsPaygAccounts           OwnerPaygAccount[]            @relation("NrmsPaygAccountOwner")
+  nrmsAgentAccounts          NrmsAgentAccount[]            @relation("NrmsAgentPrimaryUser")
+  guestSmsPreferences        GuestSmsPreference[]          @relation("GuestSmsPreferenceOwner")
+  guestSmsCampaigns          GuestSmsCampaign[]            @relation("GuestSmsCampaignOwner")
+  guestSmsAnnualQuotas       GuestSmsAnnualQuota[]         @relation("GuestSmsAnnualQuotaOwner")
+  channelMappingsCreated     ChannelPropertyMapping[]      @relation("ChannelPropertyMappingCreatedBy")
+  channelCredentialsCreated  ChannelCredentialVersion[]    @relation("ChannelCredentialCreatedBy")
+  channelIssuesResolved      ChannelReconciliationIssue[]  @relation("ChannelIssueResolvedBy")
 
   // Sales partner workspace. Access is an entitlement on the ordinary user
   // account; User.role is never changed to grant it.
@@ -372,6 +372,14 @@ model User {
   disbursementsApproved         Disbursement[]             @relation("DisbursementApprovedBy")
   disbursementBatchesFormed     DisbursementBatch[]        @relation("DisbursementBatchFormedBy")
   disbursementBatchesAuthorized DisbursementBatch[]        @relation("DisbursementBatchAuthorizedBy")
+
+  // Payment orchestration (see PAYMENT ORCHESTRATION CORE below)
+  merchantEntitiesAdministered MerchantLegalEntity[] @relation("MerchantLegalEntityAdmin")
+  merchantApplicationsReviewed MerchantApplication[] @relation("MerchantApplicationReviewer")
+  merchantPolicyAcceptances    PolicyAcceptance[]    @relation("PolicyAcceptanceUser")
+  paymentRefundsRequested      PaymentRefund[]       @relation("PaymentRefundRequestedBy")
+  paymentRefundsApproved       PaymentRefund[]       @relation("PaymentRefundApprovedBy")
+  merchantAuditEvents          MerchantAuditEvent[]  @relation("MerchantAuditActor")
 
   @@index([role])
   @@index([role, registrationStatus])
@@ -554,6 +562,10 @@ model Property {
   salesLeadConversions SalesLead[]                @relation("SalesLeadConvertedProperty")
   salesAttributions    PropertySalesAttribution[]
   salesCommissions     SalesCommission[]
+
+  // Payment orchestration (see PAYMENT ORCHESTRATION CORE below)
+  merchantLinks  MerchantPropertyLink[]
+  paymentIntents PaymentIntent[]
 
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
@@ -1032,6 +1044,9 @@ model UserDocument {
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Merchant applications that attached this upload as evidence.
+  merchantApplicationLinks MerchantApplicationDocument[]
 
   @@index([userId])
   @@index([status])
@@ -5473,10 +5488,11 @@ model NrmsOutlet {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  menuItems   NrmsMenuItem[]
-  memberships NrmsStaffMembership[]
-  orders      NrmsOutletOrder[]
+  property      Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  menuItems     NrmsMenuItem[]
+  memberships   NrmsStaffMembership[]
+  orders        NrmsOutletOrder[]
+  merchantLinks MerchantPropertyLink[]
 
   @@unique([propertyId, code])
   @@index([propertyId, type, status])
@@ -5832,12 +5848,12 @@ model NrmsLedgerEntry {
 /// NoLSAF is not the taxpayer here. The property registers with TRA under its own
 /// TIN and VRN, and NRMS transmits on that registration.
 model NrmsFiscalConnection {
-  id         Int    @id @default(autoincrement())
-  propertyId Int    @unique
-  regime     String @default("TZ_TRA") @db.VarChar(20)
-  mode       String @default("OFF") @db.VarChar(20) // OFF, ON_REQUEST, ALWAYS
-  pendingMode String? @db.VarChar(20)
-  status     String @default("DISABLED") @db.VarChar(20) // DISABLED, PENDING, VALIDATED, ACTIVE, FAILED, SUSPENDED
+  id                  Int     @id @default(autoincrement())
+  propertyId          Int     @unique
+  regime              String  @default("TZ_TRA") @db.VarChar(20)
+  mode                String  @default("OFF") @db.VarChar(20) // OFF, ON_REQUEST, ALWAYS
+  pendingMode         String? @db.VarChar(20)
+  status              String  @default("DISABLED") @db.VarChar(20) // DISABLED, PENDING, VALIDATED, ACTIVE, FAILED, SUSPENDED
   suspendedFromStatus String? @db.VarChar(20)
 
   /// Taxpayer identity. Not secret: it is printed on every receipt.
@@ -5931,7 +5947,7 @@ model NrmsFiscalCredentialVersion {
 /// fails after allocation leaves a BURNED row, which is what makes the burn
 /// auditable instead of invisible.
 model NrmsFiscalReceipt {
-  id           Int    @id @default(autoincrement())
+  id           Int @id @default(autoincrement())
   propertyId   Int
   connectionId Int
 
@@ -5942,8 +5958,8 @@ model NrmsFiscalReceipt {
   sourceType String @db.VarChar(40)
   sourceId   Int?
 
-  kind   String @default("RECEIPT") @db.VarChar(20) // RECEIPT, CREDIT_NOTE
-  status String @default("PENDING") @db.VarChar(20) // PENDING, SENDING, CONFIRMED, FAILED, DEAD_LETTER, BURNED
+  kind          String @default("RECEIPT") @db.VarChar(20) // RECEIPT, CREDIT_NOTE
+  status        String @default("PENDING") @db.VarChar(20) // PENDING, SENDING, CONFIRMED, FAILED, DEAD_LETTER, BURNED
   /// Stable across retries. The TRA adapter must use this as the provider-side
   /// idempotency/reconciliation key so a crash after submission cannot duplicate
   /// a fiscal document.
@@ -5980,13 +5996,13 @@ model NrmsFiscalReceipt {
   /// already taken for channel reservations.
   responseDigest      String? @db.VarChar(64)
 
-  attemptCount  Int       @default(0)
-  nextAttemptAt DateTime?
-  lastAttemptAt DateTime?
-  lastError     String?   @db.VarChar(1000)
+  attemptCount           Int       @default(0)
+  nextAttemptAt          DateTime?
+  lastAttemptAt          DateTime?
+  lastError              String?   @db.VarChar(1000)
   deliveryLeaseToken     String?   @db.VarChar(36)
   deliveryLeaseExpiresAt DateTime?
-  burnReason    String?   @db.VarChar(300)
+  burnReason             String?   @db.VarChar(300)
 
   replacesReceiptId Int?
 
@@ -7907,4 +7923,747 @@ model DisbursementEvent {
 
   @@index([disbursementId])
   @@map("disbursement_event")
+}
+
+// =========================================================
+//  PAYMENT ORCHESTRATION CORE (provider-neutral)
+//
+//  Design record: docs/private/NRMS_PAYMENT_ORCHESTRATION.md
+//
+//  This section exists so a guest can pay a PROPERTY rather than pay NoLSAF.
+//  Every AzamPay collection that predates it (Invoice, TourBooking,
+//  GroupBooking, NrmsServicePaymentToken) settles money that is NoLSAF's own,
+//  which is why they all share one global merchant identity. Owner money
+//  cannot use that identity: the owner is the merchant of record, and the
+//  guest's money must reach the owner's own provider wallet without first
+//  entering a NoLSAF-held account.
+//
+//  Nothing here is provider-specific. AzamPay is the first adapter, not the
+//  model. Provider-native identifiers live on the attempt and event rows and
+//  are never promoted onto a booking, folio or outlet order, so a second
+//  provider cannot require a rewrite of NRMS business tables.
+//
+//  Every table below is additive and inert on arrival. No existing row, route
+//  or worker reads them until the orchestration routes ship behind their
+//  feature flag, so applying this migration changes no current behaviour.
+// =========================================================
+
+/// The business that sells the service, as NRMS knows it.
+///
+/// Deliberately NOT the User row. One business can authorise several users and
+/// one owner user can run several properties, so collapsing merchant identity
+/// into `User` makes it impossible to say which legal entity received a given
+/// payment. `administeredById` names the user who currently administers this
+/// merchant; it is an access pointer, not the merchant's identity.
+model MerchantLegalEntity {
+  id Int @id @default(autoincrement())
+
+  administeredById Int
+
+  legalName          String  @db.VarChar(200)
+  tradingName        String? @db.VarChar(200)
+  registrationNumber String? @db.VarChar(60)
+  /// Taxpayer identification. Not a secret; it is printed on receipts.
+  tin                String? @db.VarChar(20)
+  country            String  @default("TZ") @db.VarChar(2)
+
+  contactEmail String? @db.VarChar(180)
+  contactPhone String? @db.VarChar(20)
+
+  /// DRAFT, ACTIVE, SUSPENDED, CLOSED. Local NRMS state only: it never means a
+  /// provider approved anything.
+  status       String  @default("DRAFT") @db.VarChar(20)
+  statusReason String? @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  administeredBy    User                      @relation("MerchantLegalEntityAdmin", fields: [administeredById], references: [id], onDelete: Restrict)
+  propertyLinks     MerchantPropertyLink[]
+  providerAccounts  MerchantProviderAccount[]
+  applications      MerchantApplication[]
+  policyAcceptances PolicyAcceptance[]
+  paymentIntents    PaymentIntent[]
+
+  @@index([administeredById, status])
+  @@index([status])
+  @@map("merchant_legal_entity")
+}
+
+/// Which properties, and optionally which outlets, may sell under a merchant.
+/// Effective-dated so a change of operator never rewrites historical payments.
+///
+/// `activeScopeKey` is the "one active mapping per scope" guarantee, held in
+/// the database rather than in a read-then-write check. It carries
+/// "<propertyId>:<outletId or ALL>" while the link is live and is NULL once the
+/// link closes, so the unique index permits any number of historical links and
+/// exactly one current one. Same device as Disbursement.activeSourceKey.
+model MerchantPropertyLink {
+  id Int @id @default(autoincrement())
+
+  merchantId Int
+  propertyId Int
+  /// NULL means the whole property. A value scopes the link to one outlet, and
+  /// is only permitted where a provider contract establishes outlet-level
+  /// merchants.
+  outletId   Int?
+
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  activeScopeKey String? @unique @db.VarChar(60)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchant MerchantLegalEntity @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  property Property            @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  outlet   NrmsOutlet?         @relation(fields: [outletId], references: [id], onDelete: Restrict)
+
+  @@index([merchantId])
+  @@index([propertyId, outletId])
+  @@map("merchant_property_link")
+}
+
+/// One payment provider in one environment. Adding a provider adds a row here
+/// plus an adapter; it never adds a branch to booking, folio or outlet code.
+model ProviderConnection {
+  id Int @id @default(autoincrement())
+
+  /// AZAMPAY, STRIPE, FAKE. FAKE is the deterministic in-repo simulator used
+  /// for contract tests and must never exist in a production environment.
+  provider    String @db.VarChar(30)
+  /// SANDBOX, STAGING, PRODUCTION.
+  environment String @db.VarChar(20)
+  displayName String @db.VarChar(80)
+
+  /// Declared capability matrix for this provider and environment: channels,
+  /// currencies, refund and partial-refund support, hosted checkout, and the
+  /// submerchant model. Read by routing to refuse an unsupported request
+  /// before any external call is made.
+  capabilities Json?
+
+  /// Master kill switch for this connection. Disabling stops NEW attempts and
+  /// deliberately leaves callbacks, reconciliation, refunds and historical
+  /// evidence working.
+  isEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  providerAccounts MerchantProviderAccount[]
+  applications     MerchantApplication[]
+  attempts         PaymentAttempt[]
+  events           ProviderEventInbox[]
+  routingRules     PaymentRoutingRule[]
+
+  @@unique([provider, environment])
+  @@map("provider_connection")
+}
+
+/// A merchant's account at one provider. This is the row that makes an owner
+/// payable: without an ACTIVE one, checkout for that property fails closed and
+/// must never fall back to a NoLSAF account.
+model MerchantProviderAccount {
+  id Int @id @default(autoincrement())
+
+  merchantId   Int
+  connectionId Int
+
+  /// Provider-native identifiers, populated only from a verified provider
+  /// response or callback. Never typed in by an administrator.
+  providerMerchantId String? @db.VarChar(120)
+  providerAccountRef String? @db.VarChar(120)
+
+  /// NOT_SUBSCRIBED, DRAFT, ACTION_REQUIRED, READY_FOR_ADMIN_REVIEW,
+  /// ADMIN_REJECTED, SUBMISSION_QUEUED, SUBMITTED_TO_PROVIDER, PROVIDER_REVIEW,
+  /// PROVIDER_ACTION_REQUIRED, PROVIDER_ACCOUNT_CREATED, ACTIVE, SUSPENDED,
+  /// REJECTED, CLOSED.
+  ///
+  /// Only ACTIVE may originate a payment, and only over a channel that is
+  /// separately enabled. Local admin approval reaches SUBMISSION_QUEUED and
+  /// never ACTIVE: activation requires a verified provider result.
+  status       String  @default("NOT_SUBSCRIBED") @db.VarChar(30)
+  statusReason String? @db.VarChar(300)
+
+  activatedAt DateTime?
+  suspendedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchant       MerchantLegalEntity         @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  connection     ProviderConnection          @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  wallets        MerchantWallet[]
+  capabilities   MerchantChannelCapability[]
+  settlements    ProviderSettlement[]
+  paymentIntents PaymentIntent[]
+
+  @@unique([merchantId, connectionId])
+  @@index([status])
+  @@index([providerMerchantId])
+  @@map("merchant_provider_account")
+}
+
+/// The destination a payment is routed to. NRMS stores the reference only and
+/// holds no balance authority: the provider remains the sole source of truth
+/// for what is actually in the wallet.
+model MerchantWallet {
+  id Int @id @default(autoincrement())
+
+  providerAccountId Int
+  providerWalletId  String @db.VarChar(120)
+  currency          String @default("TZS") @db.VarChar(3)
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  providerAccount MerchantProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Cascade)
+  paymentIntents  PaymentIntent[]
+  settlements     ProviderSettlement[]
+
+  @@unique([providerAccountId, providerWalletId, currency])
+  @@index([providerAccountId, isActive])
+  @@map("merchant_wallet")
+}
+
+/// Per-account channel switch. An ACTIVE provider account does not mean every
+/// rail is open: a wallet can exist while card or bank remains disabled.
+model MerchantChannelCapability {
+  id Int @id @default(autoincrement())
+
+  providerAccountId Int
+  /// MNO, BANK, CARD, HOSTED_CHECKOUT.
+  channel           String @db.VarChar(20)
+
+  isEnabled      Boolean   @default(false)
+  enabledAt      DateTime?
+  disabledReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  providerAccount MerchantProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([providerAccountId, channel])
+  @@map("merchant_channel_capability")
+}
+
+/// One versioned onboarding submission.
+///
+/// A correction after submission creates a NEW version rather than editing the
+/// reviewed evidence, so an approval can always be traced to the exact package
+/// the reviewer actually saw.
+model MerchantApplication {
+  id Int @id @default(autoincrement())
+
+  merchantId   Int
+  connectionId Int
+  version      Int
+
+  /// DRAFT, ACTION_REQUIRED, READY_FOR_ADMIN_REVIEW, ADMIN_REJECTED,
+  /// SUBMISSION_QUEUED, SUBMITTED_TO_PROVIDER, PROVIDER_REVIEW,
+  /// PROVIDER_ACTION_REQUIRED, PROVIDER_ACCOUNT_CREATED, ACTIVE, REJECTED.
+  status String @default("DRAFT") @db.VarChar(30)
+
+  /// Hash of the frozen application payload. Proves the reviewed version was
+  /// not altered between review and provider submission. No KYC content is
+  /// stored on this row.
+  payloadHash String?   @db.VarChar(128)
+  frozenAt    DateTime?
+
+  submittedAt           DateTime?
+  providerSubmissionRef String?   @db.VarChar(120)
+
+  reviewedById   Int?
+  reviewedAt     DateTime?
+  decisionReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchant   MerchantLegalEntity           @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  connection ProviderConnection            @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  reviewedBy User?                         @relation("MerchantApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documents  MerchantApplicationDocument[]
+
+  @@unique([merchantId, connectionId, version])
+  @@index([status])
+  @@map("merchant_application")
+}
+
+/// A KYC document's METADATA and review state, as attached to one application.
+///
+/// This table never holds document content. Owners already upload their KYC to
+/// `UserDocument` through the ordinary Owner Workspace, which owns the storage,
+/// the trusted-URL checks and the per-role allowed types, so a merchant
+/// application LINKS to that record rather than duplicating the file. Two
+/// copies of the same passport is two things to secure, two to expire and two
+/// to get out of step.
+///
+/// The row is still a snapshot: `documentType` and `verificationState` record
+/// what was attached at submission, so an application's evidence stays
+/// reviewable even if the owner later replaces the underlying upload.
+model MerchantApplicationDocument {
+  id Int @id @default(autoincrement())
+
+  applicationId Int
+
+  /// The owner's existing upload. NULL only for a document sourced outside the
+  /// Owner Workspace, which nothing does today.
+  userDocumentId Int?
+
+  /// NATIONAL_ID, PASSPORT, BUSINESS_LICENCE, TIN_CERTIFICATE,
+  /// BANK_STATEMENT, PROOF_OF_ADDRESS, OTHER.
+  documentType   String    @db.VarChar(40)
+  issuingCountry String?   @db.VarChar(2)
+  expiresAt      DateTime?
+
+  /// Retained only for a document that has no `userDocumentId`. When the
+  /// document is linked, the storage location belongs to `UserDocument.url`
+  /// and is deliberately not copied here.
+  storageKey String? @db.VarChar(400)
+
+  /// PENDING, VERIFIED, REJECTED, EXPIRED.
+  verificationState String  @default("PENDING") @db.VarChar(20)
+  rejectionCode     String? @db.VarChar(40)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  application  MerchantApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  userDocument UserDocument?       @relation(fields: [userDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([applicationId, verificationState])
+  @@index([userDocumentId])
+  @@map("merchant_application_document")
+}
+
+/// Evidence of the exact terms an owner accepted.
+///
+/// A single boolean column cannot prove WHICH version was accepted, which is
+/// the only thing that matters if the commercial terms are ever disputed. So
+/// acceptance is an append-only row carrying the content hash, and a material
+/// policy change supersedes rather than overwrites.
+model PolicyAcceptance {
+  id Int @id @default(autoincrement())
+
+  merchantId       Int
+  acceptedByUserId Int
+
+  policyId      String @db.VarChar(60)
+  policyVersion String @db.VarChar(20)
+  contentHash   String @db.VarChar(128)
+
+  /// NULL means the acceptance covers every property under the merchant.
+  scopePropertyId Int?
+
+  ipAddress String? @db.VarChar(60)
+  userAgent String? @db.VarChar(300)
+
+  acceptedAt   DateTime  @default(now())
+  supersededAt DateTime?
+
+  merchant   MerchantLegalEntity @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  acceptedBy User                @relation("PolicyAcceptanceUser", fields: [acceptedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([merchantId, policyId, supersededAt])
+  @@map("policy_acceptance")
+}
+
+/// One business decision to collect a specific amount, for a specific purpose,
+/// into a specific merchant wallet.
+///
+/// The intent is the unit that must never be ambiguous. Amount and currency
+/// come from the server-side balance, and the merchant, provider account and
+/// wallet are resolved and SNAPSHOTTED here before any external call. A client
+/// may pick an offered channel but can never influence the destination.
+model PaymentIntent {
+  id Int @id @default(autoincrement())
+
+  /// NoLSAF-generated public reference, safe to print on a receipt.
+  reference      String @unique @db.VarChar(40)
+  /// Unique per caller intent. Two requests carrying the same key resolve to
+  /// this same intent instead of collecting twice.
+  idempotencyKey String @unique @db.VarChar(120)
+
+  merchantId        Int
+  providerAccountId Int?
+  walletId          Int?
+  propertyId        Int?
+
+  /// ACCOMMODATION, FOLIO, OUTLET_ORDER, MASTER_FOLIO, SERVICE, DEPOSIT.
+  purpose String @db.VarChar(30)
+
+  /// The NRMS object being paid. Polymorphic on purpose, the same way
+  /// Disbursement.sourceType is: RESERVATION, NRMS_OUTLET_ORDER,
+  /// NRMS_MASTER_FOLIO, NRMS_GUEST_PAYMENT_REQUEST.
+  sourceType String @db.VarChar(40)
+  sourceId   Int
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+
+  /// CREATED, ELIGIBILITY_CHECKED, INITIATION_PENDING, PROCESSING, SUCCEEDED,
+  /// FAILED, EXPIRED, CANCELLED, STATUS_UNKNOWN, PARTIALLY_REFUNDED, REFUNDED,
+  /// REVERSED, DISPUTED.
+  ///
+  /// STATUS_UNKNOWN is load-bearing rather than cosmetic: it blocks retry and
+  /// failover until reconciliation establishes whether money actually moved.
+  status String @default("CREATED") @db.VarChar(30)
+
+  /// Frozen copy of the routing decision (merchant, provider, account, wallet,
+  /// channel, rule version) as it stood at initiation. A later routing change
+  /// must never restate a historical payment.
+  routingSnapshot Json?
+
+  /// Business date and cashier context captured at creation, so a callback
+  /// that lands after the shift or business day closes still posts against the
+  /// day the sale actually happened.
+  businessDate DateTime? @db.Date
+  /// Deliberately not a foreign key: a shift is operational context, and a
+  /// closed or archived shift must never block or cascade into a payment
+  /// record that is financial evidence.
+  shiftId      Int?
+
+  expiresAt DateTime?
+  settledAt DateTime?
+
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  merchant        MerchantLegalEntity      @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  providerAccount MerchantProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  wallet          MerchantWallet?          @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  property        Property?                @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  attempts    PaymentAttempt[]
+  allocations PaymentAllocation[]
+  refunds     PaymentRefund[]
+  disputes    PaymentDispute[]
+  events      ProviderEventInbox[]
+
+  @@index([merchantId, status])
+  @@index([sourceType, sourceId])
+  @@index([propertyId, businessDate])
+  @@index([status, createdAt])
+  @@map("payment_intent")
+}
+
+/// One external call or hosted-checkout session under an intent.
+///
+/// An intent can carry several attempts: a failed prompt, then a retry on
+/// another channel. Provider-native status and references live here and are
+/// never promoted onto the booking, so replacing a provider cannot orphan a
+/// reservation.
+model PaymentAttempt {
+  id Int @id @default(autoincrement())
+
+  intentId     Int
+  connectionId Int
+
+  /// MNO, BANK, CARD, HOSTED_CHECKOUT.
+  channel String @db.VarChar(20)
+
+  /// Provider transaction reference, unique where the provider guarantees it.
+  /// NULL until the provider answers.
+  providerRef String? @unique @db.VarChar(120)
+
+  /// CREATED, REQUIRES_CUSTOMER_ACTION, PROCESSING, SUCCEEDED, FAILED,
+  /// EXPIRED, CANCELLED, STATUS_UNKNOWN.
+  normalizedStatus String  @default("CREATED") @db.VarChar(30)
+  /// The provider's own status string, retained verbatim for support and
+  /// dispute evidence.
+  providerStatus   String? @db.VarChar(80)
+
+  /// Hash of the outbound request, so a retry can prove it is the same call
+  /// rather than a second, different collection.
+  requestHash String? @db.VarChar(128)
+  checkoutUrl String? @db.VarChar(2048)
+  /// Masked payer identifier only. A full MSISDN is never stored here.
+  payerMasked String? @db.VarChar(40)
+
+  failureCode String?   @db.VarChar(60)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  intent     PaymentIntent      @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  connection ProviderConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+
+  @@index([intentId, normalizedStatus])
+  @@index([normalizedStatus, startedAt])
+  @@map("payment_attempt")
+}
+
+/// How a captured amount splits across the balances it settles.
+///
+/// One folio payment can cover room revenue, a bar tab, tax, a tip and a
+/// service charge. Allocation keeps each revenue category separate for
+/// accounting and tax instead of collapsing them into a single paid total.
+model PaymentAllocation {
+  id Int @id @default(autoincrement())
+
+  intentId Int
+
+  /// ROOM, OUTLET_ORDER, FOLIO_CHARGE, TAX, TIP, SERVICE_CHARGE,
+  /// PROVIDER_FEE, PLATFORM_FEE.
+  targetType String @db.VarChar(30)
+  targetId   Int?
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+
+  /// A correction adds a reversing row and points it at the row it cancels.
+  /// A posted allocation is never edited, so SUM() over the table is always
+  /// the true position. Same discipline as RevenueEntry.
+  reversedAt           DateTime?
+  reversesAllocationId Int?
+
+  createdAt DateTime @default(now())
+
+  intent               PaymentIntent       @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  reversesAllocation   PaymentAllocation?  @relation("AllocationReversal", fields: [reversesAllocationId], references: [id], onDelete: SetNull)
+  reversedByAllocation PaymentAllocation[] @relation("AllocationReversal")
+
+  @@index([intentId, targetType])
+  @@index([targetType, targetId])
+  @@map("payment_allocation")
+}
+
+/// Every authenticated provider callback, recorded before it is acted on.
+///
+/// The inbox is what makes callbacks safe to receive more than once: the
+/// provider event id is unique per connection, so a retry is recognised rather
+/// than double-applied. An event that cannot be matched, or that names a
+/// merchant other than the one on the intent, is parked for review instead of
+/// being guessed at.
+model ProviderEventInbox {
+  id Int @id @default(autoincrement())
+
+  connectionId    Int
+  providerEventId String @db.VarChar(160)
+
+  eventType String @db.VarChar(60)
+
+  /// Result of verifying the provider's signature over the RAW body. A false
+  /// value must never reach processing.
+  signatureVerified Boolean @default(false)
+
+  providerOccurredAt DateTime?
+  receivedAt         DateTime  @default(now())
+
+  /// Digest of the raw payload, so dispute evidence survives even after the
+  /// payload itself is dropped under the retention policy.
+  payloadDigest String @db.VarChar(128)
+  rawPayload    Json?
+
+  /// PENDING, PROCESSED, UNMATCHED, WRONG_MERCHANT, REJECTED, REVIEW.
+  processingState String    @default("PENDING") @db.VarChar(20)
+  processedAt     DateTime?
+  reviewReason    String?   @db.VarChar(300)
+
+  matchedIntentId Int?
+
+  connection    ProviderConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  matchedIntent PaymentIntent?     @relation(fields: [matchedIntentId], references: [id], onDelete: SetNull)
+
+  @@unique([connectionId, providerEventId])
+  @@index([processingState, receivedAt])
+  @@index([matchedIntentId])
+  @@map("provider_event_inbox")
+}
+
+/// Provider evidence that money reached, or is due to reach, a merchant wallet.
+///
+/// Payment status and settlement status are deliberately separate: a payment
+/// can be SUCCEEDED days before the provider settles it, and reconciliation
+/// needs to see both without either overwriting the other.
+model ProviderSettlement {
+  id Int @id @default(autoincrement())
+
+  providerAccountId Int
+  walletId          Int?
+
+  providerSettlementRef String @db.VarChar(120)
+
+  grossAmount  Decimal @db.Decimal(14, 2)
+  feeAmount    Decimal @default(0) @db.Decimal(14, 2)
+  taxAmount    Decimal @default(0) @db.Decimal(14, 2)
+  refundAmount Decimal @default(0) @db.Decimal(14, 2)
+  netAmount    Decimal @db.Decimal(14, 2)
+  currency     String  @default("TZS") @db.VarChar(3)
+
+  settlementDate DateTime @db.Date
+  /// PENDING, SETTLED, PARTIAL, DISPUTED.
+  status         String   @default("PENDING") @db.VarChar(20)
+
+  rawReport Json?
+  createdAt DateTime @default(now())
+
+  providerAccount MerchantProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  wallet          MerchantWallet?         @relation(fields: [walletId], references: [id], onDelete: SetNull)
+
+  @@unique([providerAccountId, providerSettlementRef])
+  @@index([settlementDate, status])
+  @@map("provider_settlement")
+}
+
+/// Money returned to a payer.
+///
+/// Independent of the order or booking being voided: voiding a paid order can
+/// never erase the payment, it can only create one of these.
+model PaymentRefund {
+  id Int @id @default(autoincrement())
+
+  intentId  Int
+  reference String @unique @db.VarChar(40)
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+  reason   String  @db.VarChar(300)
+
+  /// REQUESTED, APPROVED, PROCESSING, COMPLETED, FAILED, REJECTED.
+  status String @default("REQUESTED") @db.VarChar(20)
+
+  providerRefundRef String? @unique @db.VarChar(120)
+
+  requestedById Int?
+  approvedById  Int?
+  requestedAt   DateTime  @default(now())
+  completedAt   DateTime?
+
+  intent      PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  requestedBy User?         @relation("PaymentRefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy  User?         @relation("PaymentRefundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([intentId, status])
+  @@index([status, requestedAt])
+  @@map("payment_refund")
+}
+
+/// A payer or provider challenge to a captured payment.
+model PaymentDispute {
+  id Int @id @default(autoincrement())
+
+  intentId           Int
+  providerDisputeRef String @unique @db.VarChar(120)
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+
+  /// OPEN, UNDER_REVIEW, WON, LOST, WITHDRAWN.
+  status  String  @default("OPEN") @db.VarChar(20)
+  outcome String? @db.VarChar(60)
+
+  openedAt   DateTime  @default(now())
+  dueAt      DateTime?
+  resolvedAt DateTime?
+
+  intent PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  @@index([intentId, status])
+  @@map("payment_dispute")
+}
+
+/// Durable outbox, so a database state change and the external call it implies
+/// cannot silently diverge.
+///
+/// A provider submission that times out must be retryable without creating a
+/// second application or a second collection, which is exactly what the unique
+/// idempotency key guarantees.
+model PaymentOutboxJob {
+  id Int @id @default(autoincrement())
+
+  /// SUBMIT_MERCHANT_APPLICATION, POLL_MERCHANT_STATUS, POLL_PAYMENT_STATUS,
+  /// REQUEST_REFUND, FETCH_SETTLEMENT.
+  jobType    String @db.VarChar(50)
+  targetType String @db.VarChar(40)
+  targetId   Int
+
+  idempotencyKey String @unique @db.VarChar(120)
+
+  /// PENDING, RUNNING, SUCCEEDED, FAILED, DEAD_LETTER.
+  status   String @default("PENDING") @db.VarChar(20)
+  attempts Int    @default(0)
+
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?   @db.VarChar(500)
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([targetType, targetId])
+  @@map("payment_outbox_job")
+}
+
+/// Versioned server-side routing.
+///
+/// The customer never chooses the destination; this table does, and the
+/// decision is snapshotted onto the intent before the external call, so a
+/// later rule change cannot restate a historical payment.
+model PaymentRoutingRule {
+  id Int @id @default(autoincrement())
+
+  /// GLOBAL, MERCHANT, PROPERTY, OUTLET.
+  scopeType String @db.VarChar(20)
+  scopeId   Int?
+
+  /// NULL matches any value. A narrower rule wins over a broader one at equal
+  /// priority.
+  purpose  String? @db.VarChar(30)
+  currency String? @db.VarChar(3)
+  channel  String? @db.VarChar(20)
+
+  connectionId Int
+  /// Lower runs first.
+  priority     Int     @default(100)
+  isActive     Boolean @default(true)
+
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection ProviderConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+
+  @@index([scopeType, scopeId, isActive, priority])
+  @@map("payment_routing_rule")
+}
+
+/// Append-only record of who changed what, when and why across merchant
+/// onboarding and payment administration. Required because several of these
+/// transitions move money, or unlock the ability to move money.
+model MerchantAuditEvent {
+  id Int @id @default(autoincrement())
+
+  /// MERCHANT, PROVIDER_ACCOUNT, APPLICATION, WALLET, CHANNEL, INTENT, REFUND,
+  /// ROUTING_RULE, CONNECTION.
+  entityType String @db.VarChar(40)
+  entityId   Int
+
+  action String @db.VarChar(60)
+
+  /// USER, SYSTEM, PROVIDER. A provider-driven change has no actor user.
+  actorKind   String @default("USER") @db.VarChar(20)
+  actorUserId Int?
+
+  previousState String? @db.VarChar(40)
+  nextState     String? @db.VarChar(40)
+  reason        String? @db.VarChar(300)
+  metadata      Json?
+
+  createdAt DateTime @default(now())
+
+  actorUser User? @relation("MerchantAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("merchant_audit_event")
 }

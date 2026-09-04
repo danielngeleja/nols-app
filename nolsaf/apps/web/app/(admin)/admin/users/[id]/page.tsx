@@ -11,7 +11,7 @@ import {
   ShoppingCart, DollarSign, ArrowLeft, Ban, UserCheck, 
   CreditCard, Eye, History, Activity, Clock, X, Coins, Home, Tag, MoreHorizontal,
   ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight,
-  Map as MapIcon, Car, Users, Star, Bookmark, Filter, Search
+  Map as MapIcon, Car, Users, Star, Bookmark, Filter, Search, FileText
 } from "lucide-react";
 
 // IMPORTANT: Use same-origin requests so Next.js can proxy via `rewrites()`.
@@ -226,26 +226,26 @@ const PROFILE_TAB_ACCENTS: Record<
     idleIcon: "text-blue-400",
     idleHover: "hover:bg-blue-50 hover:text-blue-800 hover:ring-1 hover:ring-blue-100",
   },
-  transport: {
-    activePill: "bg-amber-50 text-amber-900 ring-1 ring-amber-200",
-    activeIcon: "text-amber-600",
-    activeBadge: "bg-amber-100 text-amber-900",
-    idleIcon: "text-amber-500",
-    idleHover: "hover:bg-amber-50 hover:text-amber-900 hover:ring-1 hover:ring-amber-100",
-  },
   tours: {
-    activePill: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200",
-    activeIcon: "text-emerald-600",
-    activeBadge: "bg-emerald-100 text-emerald-800",
-    idleIcon: "text-emerald-500",
-    idleHover: "hover:bg-emerald-50 hover:text-emerald-800 hover:ring-1 hover:ring-emerald-100",
+    activePill: "bg-violet-50 text-violet-800 ring-1 ring-violet-200",
+    activeIcon: "text-violet-600",
+    activeBadge: "bg-violet-100 text-violet-800",
+    idleIcon: "text-violet-400",
+    idleHover: "hover:bg-violet-50 hover:text-violet-800 hover:ring-1 hover:ring-violet-100",
+  },
+  transport: {
+    activePill: "bg-orange-50 text-orange-800 ring-1 ring-orange-200",
+    activeIcon: "text-orange-600",
+    activeBadge: "bg-orange-100 text-orange-800",
+    idleIcon: "text-orange-400",
+    idleHover: "hover:bg-orange-50 hover:text-orange-800 hover:ring-1 hover:ring-orange-100",
   },
   groups: {
-    activePill: "bg-purple-50 text-purple-800 ring-1 ring-purple-200",
-    activeIcon: "text-purple-600",
-    activeBadge: "bg-purple-100 text-purple-800",
-    idleIcon: "text-purple-400",
-    idleHover: "hover:bg-purple-50 hover:text-purple-800 hover:ring-1 hover:ring-purple-100",
+    activePill: "bg-teal-50 text-teal-800 ring-1 ring-teal-200",
+    activeIcon: "text-teal-600",
+    activeBadge: "bg-teal-100 text-teal-800",
+    idleIcon: "text-teal-400",
+    idleHover: "hover:bg-teal-50 hover:text-teal-800 hover:ring-1 hover:ring-teal-100",
   },
   other: {
     activePill: "bg-rose-50 text-rose-800 ring-1 ring-rose-200",
@@ -880,8 +880,35 @@ type Booking = {
   } | null;
 };
 
+/** Every hat this account wears. User.role is one column and cannot say that
+ *  a customer also tends a bar at one property and sells as a partner. */
+type UserRole = {
+  source: "ACCOUNT" | "NRMS_STAFF" | "SALES_PARTNER" | "TRAVEL_AGENCY" | "TOUR_OPERATOR" | "PROPERTY_OWNER" | "MERCHANT_ADMIN";
+  code: string;
+  label: string;
+  scope: string | null;
+  status: string;
+  active: boolean;
+  /** True when the role sits alongside User.role rather than replacing it.
+   *  Becoming a tour operator or travel agency changes the account role, so
+   *  those are not things a customer "also holds". */
+  additive: boolean;
+  since: string | null;
+  detail: string | null;
+};
+
+type UserRoleSummary = {
+  accountRole: string;
+  roles: UserRole[];
+  activeCount: number;
+  additiveCount: number;
+  hasAdditionalRoles: boolean;
+  badges: string[];
+};
+
 type UserDetailResponse = {
   user?: UserDetail | null;
+  roles?: UserRoleSummary | null;
   bookings?: Booking[];
   activities?: CustomerActivity[];
   activityCounts?: Record<string, number>;
@@ -1429,6 +1456,9 @@ export default function AdminUserDetailPage() {
             <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap xl:flex-nowrap xl:justify-end">
               {user.phone && <a href={`tel:${user.phone}`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><Phone className="h-3.5 w-3.5 text-emerald-600" />Call</a>}
               {user.email && <a href={`mailto:${user.email}`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><Mail className="h-3.5 w-3.5 text-blue-600" />Email</a>}
+              {/* A printable record of everything this customer has used and
+                  paid for, for the case where they come back disputing it. */}
+              <Link href={`/admin/users/${userId}/statement`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><FileText className="h-3.5 w-3.5 text-violet-600" />Statement</Link>
               {user.suspendedAt ? (
                 <button onClick={handleUnsuspendClick} disabled={actionLoading} className="col-span-2 inline-flex h-9 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 sm:col-span-1"><UserCheck className="h-3.5 w-3.5" />Unsuspend</button>
               ) : (
@@ -1478,6 +1508,39 @@ export default function AdminUserDetailPage() {
               {user.isDisabled && <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700"><XCircle className="h-3.5 w-3.5" />Disabled</span>}
             </div>
           )}
+
+          {/* Roles beyond the account role. One person is often several things
+              at once: a customer who also tends a bar and sells as a partner.
+              Reading User.role alone hides all of it. */}
+          {data?.roles && data.roles.hasAdditionalRoles ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 bg-white px-4 py-2.5 shadow-[inset_0_1px_0_#f1f5f9] sm:px-5">
+              <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Also holds</span>
+              {data.roles.roles
+                .filter((r) => r.additive)
+                .map((r, i) => (
+                  <span
+                    key={`${r.source}-${r.code}-${i}`}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                      r.active
+                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                        : "bg-slate-50 text-slate-500 ring-1 ring-slate-200"
+                    }`}
+                    title={[
+                      r.scope,
+                      r.detail,
+                      r.active ? null : `Status: ${sentenceCaseStatus(r.status)}`,
+                      r.since ? `Since ${new Date(r.since).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : null,
+                    ].filter(Boolean).join(" · ")}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${r.active ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
+                    {r.label}
+                    {r.scope ? <span className="font-normal opacity-70">{r.scope}</span> : null}
+                    {/* A pending invite is a role on record, not a role in use. */}
+                    {r.active ? null : <span className="font-normal opacity-70">({sentenceCaseStatus(r.status)})</span>}
+                  </span>
+                ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Suspend Form */}
@@ -1600,10 +1663,17 @@ export default function AdminUserDetailPage() {
                 <div className="min-w-0">
                   <p className={label}>Total activity</p>
                   <p className={figure}>{activityStats?.totalRecords ?? stats.booking.total}</p>
-                  <p className={note} title={productBreakdown.map((entry) => `${entry.label} ${entry.records}`).join(" · ")}>
+                  {/* The per-service split is the tab bar directly below, so
+                      repeating it here only truncated it. This says what the
+                      tabs cannot: how many streams were actually used, and
+                      when the account was last active. */}
+                  <p className={note}>
                     {productBreakdown.length
-                      ? productBreakdown.map((entry) => `${entry.label} ${entry.records}`).join(" · ")
-                      : "Stays, tours, transport and group stays"}
+                      ? `${productBreakdown.length} of 4 services used`
+                      : "No service used yet"}
+                    {stats.lastBooking?.createdAt
+                      ? ` · last ${new Date(stats.lastBooking.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                      : ""}
                   </p>
                 </div>
               </div>
@@ -1614,7 +1684,17 @@ export default function AdminUserDetailPage() {
                   <p className={label}>Confirmed</p>
                   <p className={figure}>{activityStats?.settled ?? stats.booking.confirmed}</p>
                   <p className={note}>
-                    {activityStats ? `${activityStats.canceled} canceled across all products` : "Ready or completed stays"}
+                    {activityStats
+                      ? [
+                          `${activityStats.canceled} canceled`,
+                          // Everything that is neither settled nor canceled is
+                          // still open. Leaving it out made the numbers look
+                          // like they did not add up.
+                          activityStats.totalRecords - activityStats.settled - activityStats.canceled > 0
+                            ? `${activityStats.totalRecords - activityStats.settled - activityStats.canceled} still open`
+                            : null,
+                        ].filter(Boolean).join(" · ")
+                      : "Ready or completed stays"}
                   </p>
                 </div>
               </div>
@@ -1668,8 +1748,8 @@ export default function AdminUserDetailPage() {
             <div className="flex min-w-0 flex-wrap gap-1 rounded-xl bg-slate-50 p-1 ring-1 ring-slate-200">
               {([
                 { key: "stays", label: "Stays", count: bookings.length, total: allBookings.length, icon: Home },
-                { key: "transport", label: "Transports", count: activityByTab.transport.length, total: allActivityByTab.transport, icon: Car },
                 { key: "tours", label: "Tours", count: activityByTab.tours.length, total: allActivityByTab.tours, icon: MapIcon },
+                { key: "transport", label: "Transport", count: activityByTab.transport.length, total: allActivityByTab.transport, icon: Car },
                 { key: "groups", label: "Group Stays", count: activityByTab.groups.length, total: allActivityByTab.groups, icon: Users },
                 { key: "other", label: "Other Activities", count: activityByTab.other.length, total: allActivityByTab.other, icon: MoreHorizontal },
                 { key: "behaviour", label: "Behaviour", count: null, total: null, icon: Activity },
