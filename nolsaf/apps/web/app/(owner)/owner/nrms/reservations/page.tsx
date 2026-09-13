@@ -2104,29 +2104,40 @@ function ReservationDetailModal({
                     {!isMarketplace && (
                       <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
                         <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "CORRECT_ARRIVAL_DATE"} onChange={() => setArrivalResolution("CORRECT_ARRIVAL_DATE")} />
-                        <span className="block text-sm font-bold text-neutral-900">Correct arrival date</span>
+                        <span className="flex items-start justify-between gap-3">
+                          <span className="block text-sm font-bold text-neutral-900">Correct arrival date</span>
+                          <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-700" : "border-neutral-300"}`} aria-hidden="true">
+                            {arrivalResolution === "CORRECT_ARRIVAL_DATE" && <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" />}
+                          </span>
+                        </span>
                         <span className="mt-1 block text-xs leading-5 text-neutral-600">Use the immutable actual check-in date as the stay arrival date.</span>
                       </label>
                     )}
                     <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
                       <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace} onChange={() => setArrivalResolution("APPROVE_EARLY_CHECKIN")} />
-                      <span className="block text-sm font-bold text-neutral-900">Approve genuine early check-in</span>
+                      <span className="flex items-start justify-between gap-3">
+                        <span className="block text-sm font-bold text-neutral-900">Approve genuine early check-in</span>
+                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-700" : "border-neutral-300"}`} aria-hidden="true">
+                          {(arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace) && <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" />}
+                        </span>
+                      </span>
                       <span className="mt-1 block text-xs leading-5 text-neutral-600">Keep the scheduled date, but extend operational room occupancy to the actual arrival.</span>
                     </label>
                   </div>
                   <label className="mt-5 block text-sm font-bold text-red-950">
                     What was verified?
                     <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={4} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-red-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                    {arrivalResolutionReason.trim().length < 2 && <span className="mt-2 block text-xs font-medium text-red-700">Add a reason to continue.</span>}
                   </label>
-                  <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-4 border-t border-red-200 pt-4">
                     <p className="m-0 text-xs leading-5 text-red-700">Pricing remains protected and the folio will be flagged for financial review.</p>
-                    {arrivalResolutionReason.trim().length >= 2 ? (
-                      <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction === "arrival-resolution"} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-red-700 px-5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-60">
-                        {busyAction === "arrival-resolution" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                        Resolve arrival date
-                      </button>
-                    ) : (
-                      <span className="text-xs font-medium text-red-700">Add a reason to continue</span>
+                    {arrivalResolutionReason.trim().length >= 2 && (
+                      <div className="mt-4 flex justify-end">
+                        <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction === "arrival-resolution"} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-red-700 px-5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-60 sm:w-auto">
+                          {busyAction === "arrival-resolution" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                          Resolve arrival date
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
