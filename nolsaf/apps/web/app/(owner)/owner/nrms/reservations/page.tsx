@@ -14,7 +14,6 @@ import { useNrms } from "../_components/NrmsProvider";
 import { useNrmsAccessRole } from "../_components/NrmsAccessRole";
 import ModalFrame from "../_components/NrmsModalFrame";
 import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
-import NrmsCheckoutPolicyNotice from "../_components/NrmsCheckoutPolicyNotice";
 
 type Allocation = {
   id: number;
@@ -2039,7 +2038,7 @@ function ReservationDetailModal({
       )}
     </ModalFrame>
     {checkoutConfirmOpen && r?.status === "CHECKED_IN" && (
-      <ModalFrame title={earlyDeparture ? "Early checkout" : "Guest checkout"} subtitle={`${checkoutGuestName} · ${checkoutRoomLabel}`} icon={<LogOut className="h-5 w-5" />} onClose={() => setCheckoutConfirmOpen(false)} elevated extraWide footer={
+      <ModalFrame title={earlyDeparture ? "Early checkout" : "Guest checkout"} subtitle={`${checkoutGuestName} · ${checkoutRoomLabel}`} icon={<LogOut className="h-5 w-5" />} onClose={() => setCheckoutConfirmOpen(false)} elevated wide footer={
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className={`m-0 text-sm font-medium ${checkoutReady ? "text-emerald-700" : "text-neutral-500"}`}>{checkoutNextStep}</p>
           <div className="flex shrink-0 items-center justify-end gap-2">
@@ -2065,44 +2064,48 @@ function ReservationDetailModal({
           </div>
         </div>
       }>
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
-          <div className="space-y-4">
-            <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
-              <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Checkout summary</p>
-              <h4 className="mb-0 mt-2 text-xl font-bold text-neutral-950">{checkoutGuestName}</h4>
-              <dl className="mb-0 mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <section className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-4">
+              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Stay details</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-[1.35fr_1fr_1fr] sm:items-end">
                 <div>
-                  <dt className="text-xs font-medium text-neutral-500">Room</dt>
-                  <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{checkoutRoomLabel}</dd>
+                  <span className="text-xs font-medium text-neutral-500">Guest</span>
+                  <h4 className="mb-0 mt-1 text-base font-bold text-neutral-950">{checkoutGuestName}</h4>
                 </div>
-                <div>
-                  <dt className="text-xs font-medium text-neutral-500">Planned departure</dt>
-                  <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{fmtDate(r.checkOut)}</dd>
-                </div>
-              </dl>
+                <dl className="m-0 contents">
+                  <div>
+                    <dt className="text-xs font-medium text-neutral-500">Room</dt>
+                    <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{checkoutRoomLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-neutral-500">Planned departure</dt>
+                    <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{fmtDate(r.checkOut)}</dd>
+                  </div>
+                </dl>
+              </div>
             </section>
             {earlyDeparture && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
-                <p className="m-0 text-sm font-bold">Unused nights will be released</p>
-                <p className="mb-0 mt-1.5 text-sm leading-6">Checkout today returns the remaining dates to availability and bills only occupied room-nights.</p>
+              <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
+                <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                <p className="m-0 text-sm leading-5"><span className="font-bold">Unused nights will be released.</span> Checkout today returns the remaining dates to availability and bills only occupied room-nights.</p>
               </div>
             )}
-            {earlyDeparture && <NrmsCheckoutPolicyNotice />}
           </div>
 
-          <div className="min-w-0">
+          <div className="min-w-0 border-t border-neutral-200 pt-5">
             {unresolvedEarlyCheckIn ? (
-              <section className="rounded-2xl border border-red-200 bg-red-50/70 p-5 sm:p-6" aria-label="Resolve early check-in">
+              <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5" aria-label="Resolve early check-in">
                 <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700"><AlertTriangle className="h-5 w-5" /></span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><AlertTriangle className="h-4 w-4" /></span>
                 <div className="min-w-0 flex-1">
-                  <p className="m-0 text-lg font-bold text-red-950">Resolve the arrival date first</p>
-                  <p className="mb-0 mt-1.5 text-sm leading-6 text-red-800">
+                  <p className="m-0 text-base font-bold text-neutral-950">Resolve the arrival date first</p>
+                  <p className="mb-0 mt-1 text-sm leading-5 text-neutral-600">
                     Actual check-in was {fmtDate(r.checkedInAt!)} but the reservation arrival is {fmtDate(r.checkIn)}. Choose the accurate resolution; the original values and your reason remain in the audit history.
                   </p>
-                  <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3">
+                  <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
                     {!isMarketplace && (
-                      <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
+                      <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
                         <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "CORRECT_ARRIVAL_DATE"} onChange={() => setArrivalResolution("CORRECT_ARRIVAL_DATE")} />
                         <span className="flex items-start justify-between gap-3">
                           <span className="block text-sm font-bold text-neutral-900">Correct arrival date</span>
@@ -2113,7 +2116,7 @@ function ReservationDetailModal({
                         <span className="mt-1 block text-xs leading-5 text-neutral-600">Use the immutable actual check-in date as the stay arrival date.</span>
                       </label>
                     )}
-                    <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
+                    <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
                       <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace} onChange={() => setArrivalResolution("APPROVE_EARLY_CHECKIN")} />
                       <span className="flex items-start justify-between gap-3">
                         <span className="block text-sm font-bold text-neutral-900">Approve genuine early check-in</span>
@@ -2124,16 +2127,16 @@ function ReservationDetailModal({
                       <span className="mt-1 block text-xs leading-5 text-neutral-600">Keep the scheduled date, but extend operational room occupancy to the actual arrival.</span>
                     </label>
                   </div>
-                  <label className="mt-5 block text-sm font-bold text-red-950">
+                  <label className="mt-4 block text-sm font-semibold text-neutral-800">
                     What was verified?
-                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={4} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-red-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
-                    {arrivalResolutionReason.trim().length < 2 && <span className="mt-2 block text-xs font-medium text-red-700">Add a reason to continue.</span>}
+                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={3} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                    {arrivalResolutionReason.trim().length < 2 && <span className="mt-1.5 block text-xs font-medium text-neutral-500">Add a reason to continue.</span>}
                   </label>
-                  <div className="mt-4 border-t border-red-200 pt-4">
-                    <p className="m-0 text-xs leading-5 text-red-700">Pricing remains protected and the folio will be flagged for financial review.</p>
+                  <div className="mt-4 border-t border-neutral-200 pt-4">
+                    <p className="m-0 text-xs leading-5 text-neutral-500">Pricing remains protected. The folio will be flagged for financial review.</p>
                     {arrivalResolutionReason.trim().length >= 2 && (
-                      <div className="mt-4 flex justify-end">
-                        <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction === "arrival-resolution"} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-red-700 px-5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-60 sm:w-auto">
+                      <div className="mt-3 flex justify-end">
+                        <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction === "arrival-resolution"} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60 sm:w-auto">
                           {busyAction === "arrival-resolution" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                           Resolve arrival date
                         </button>
