@@ -13,11 +13,11 @@ export default function NrmsCheckoutPolicyNotice({
           <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <p className="m-0 text-[10px] font-medium text-neutral-700">Early-checkout safeguard</p>
-          <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">
+          <p className="m-0 text-xs font-semibold text-neutral-700">Early-checkout safeguard</p>
+          <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">
             This closes {group ? "the ready stays" : "the stay"} before the booked departure date and returns unused dates to availability.
           </p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-4">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5">
             <span className="font-medium text-red-600">Never check out an occupied room.</span>
             <Link
               href="/owner/nrms/policy#accurate-occupancy-and-departure"

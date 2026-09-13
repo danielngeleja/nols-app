@@ -1652,6 +1652,14 @@ function ReservationDetailModal({
       && !r.earlyCheckInApproved,
   );
   const checkoutDeclarationReady = roomVacantConfirmed && (!earlyDeparture || earlyDepartureReason.trim().length >= 2);
+  const checkoutReady = !unresolvedEarlyCheckIn && checkoutDeclarationReady;
+  const checkoutNextStep = unresolvedEarlyCheckIn
+    ? "Resolve the arrival-date mismatch to continue."
+    : earlyDeparture && earlyDepartureReason.trim().length < 2
+      ? "Add the reason for the early departure."
+      : !roomVacantConfirmed
+        ? "Confirm that the room is vacant."
+        : "Ready to complete checkout.";
   const canPostCharges = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
   const canPrintInvoice = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
   const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
@@ -2031,104 +2039,134 @@ function ReservationDetailModal({
       )}
     </ModalFrame>
     {checkoutConfirmOpen && r?.status === "CHECKED_IN" && (
-      <ModalFrame title={earlyDeparture ? "Confirm early checkout" : "Confirm checkout"} onClose={() => setCheckoutConfirmOpen(false)} elevated small compact compactFooter footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={() => setCheckoutConfirmOpen(false)} disabled={busyAction === "check-out"} className="inline-flex h-8 items-center justify-center rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50">Not yet</button>
-          <button
-            type="button"
-            disabled={busyAction === "check-out" || !checkoutDeclarationReady}
-            onClick={async () => {
-              const completed = await runAction("check-out", {
-                verifiedChargeIds,
-                roomVacantConfirmed,
-                earlyDepartureReason: earlyDeparture ? earlyDepartureReason.trim() : undefined,
-              });
-              if (completed) setCheckoutConfirmOpen(false);
-            }}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-[11px] font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
-          >
-            {busyAction === "check-out" ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogOut className="h-3 w-3" />}
-            Yes, check out guest
-          </button>
+      <ModalFrame title={earlyDeparture ? "Early checkout" : "Guest checkout"} subtitle={`${checkoutGuestName} · ${checkoutRoomLabel}`} icon={<LogOut className="h-5 w-5" />} onClose={() => setCheckoutConfirmOpen(false)} elevated extraWide footer={
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className={`m-0 text-sm font-medium ${checkoutReady ? "text-emerald-700" : "text-neutral-500"}`}>{checkoutNextStep}</p>
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <button type="button" onClick={() => setCheckoutConfirmOpen(false)} disabled={busyAction === "check-out"} className="inline-flex h-11 items-center justify-center rounded-lg border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Not yet</button>
+            {checkoutReady && (
+              <button
+                type="button"
+                disabled={busyAction === "check-out"}
+                onClick={async () => {
+                  const completed = await runAction("check-out", {
+                    verifiedChargeIds,
+                    roomVacantConfirmed,
+                    earlyDepartureReason: earlyDeparture ? earlyDepartureReason.trim() : undefined,
+                  });
+                  if (completed) setCheckoutConfirmOpen(false);
+                }}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-60"
+              >
+                {busyAction === "check-out" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                Check out guest
+              </button>
+            )}
+          </div>
         </div>
       }>
-        <div className="space-y-3">
-          {earlyDeparture && <div className="rounded-xl bg-amber-50 px-3 py-2.5 text-amber-950 ring-1 ring-inset ring-amber-200"><p className="m-0 text-xs font-medium leading-5">This stay was planned until {fmtDate(r.checkOut)}. Checkout today releases the remaining dates and bills only occupied room-nights.</p></div>}
-          {earlyDeparture && (
-            <label className="block text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
-              Why is the guest leaving early?
-              <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Example: Guest changed travel plans" className="mt-1.5 box-border w-full resize-none rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-normal normal-case tracking-normal text-neutral-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
-            </label>
-          )}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+          <div className="space-y-4">
+            <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
+              <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Checkout summary</p>
+              <h4 className="mb-0 mt-2 text-xl font-bold text-neutral-950">{checkoutGuestName}</h4>
+              <dl className="mb-0 mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-medium text-neutral-500">Room</dt>
+                  <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{checkoutRoomLabel}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-neutral-500">Planned departure</dt>
+                  <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{fmtDate(r.checkOut)}</dd>
+                </div>
+              </dl>
+            </section>
+            {earlyDeparture && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
+                <p className="m-0 text-sm font-bold">Unused nights will be released</p>
+                <p className="mb-0 mt-1.5 text-sm leading-6">Checkout today returns the remaining dates to availability and bills only occupied room-nights.</p>
+              </div>
+            )}
+            {earlyDeparture && <NrmsCheckoutPolicyNotice />}
+          </div>
 
-          {unresolvedEarlyCheckIn && (
-            <section className="rounded-xl border border-red-200 bg-red-50 p-4" aria-label="Resolve early check-in">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+          <div className="min-w-0">
+            {unresolvedEarlyCheckIn ? (
+              <section className="rounded-2xl border border-red-200 bg-red-50/70 p-5 sm:p-6" aria-label="Resolve early check-in">
+                <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700"><AlertTriangle className="h-5 w-5" /></span>
                 <div className="min-w-0 flex-1">
-                  <p className="m-0 text-sm font-bold text-red-950">Checked in before the recorded arrival date</p>
-                  <p className="mb-0 mt-1 text-[11px] leading-5 text-red-800">
+                  <p className="m-0 text-lg font-bold text-red-950">Resolve the arrival date first</p>
+                  <p className="mb-0 mt-1.5 text-sm leading-6 text-red-800">
                     Actual check-in was {fmtDate(r.checkedInAt!)} but the reservation arrival is {fmtDate(r.checkIn)}. Choose the accurate resolution; the original values and your reason remain in the audit history.
                   </p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3">
                     {!isMarketplace && (
-                      <label className={`cursor-pointer rounded-lg border p-3 ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70"}`}>
+                      <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
                         <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "CORRECT_ARRIVAL_DATE"} onChange={() => setArrivalResolution("CORRECT_ARRIVAL_DATE")} />
-                        <span className="block text-xs font-bold text-neutral-900">Correct arrival date</span>
-                        <span className="mt-1 block text-[10px] leading-4 text-neutral-500">Use the immutable actual check-in date as the stay arrival date.</span>
+                        <span className="block text-sm font-bold text-neutral-900">Correct arrival date</span>
+                        <span className="mt-1 block text-xs leading-5 text-neutral-600">Use the immutable actual check-in date as the stay arrival date.</span>
                       </label>
                     )}
-                    <label className={`cursor-pointer rounded-lg border p-3 ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70"}`}>
+                    <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-white ring-2 ring-emerald-500/10" : "border-red-200 bg-white/70 hover:border-red-300"}`}>
                       <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace} onChange={() => setArrivalResolution("APPROVE_EARLY_CHECKIN")} />
-                      <span className="block text-xs font-bold text-neutral-900">Approve genuine early check-in</span>
-                      <span className="mt-1 block text-[10px] leading-4 text-neutral-500">Keep the scheduled date, but extend operational room occupancy to the actual arrival.</span>
+                      <span className="block text-sm font-bold text-neutral-900">Approve genuine early check-in</span>
+                      <span className="mt-1 block text-xs leading-5 text-neutral-600">Keep the scheduled date, but extend operational room occupancy to the actual arrival.</span>
                     </label>
                   </div>
-                  <label className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-red-800">
-                    Required reason
-                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={2} placeholder="Explain what was verified" className="mt-1.5 box-border w-full resize-y rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                  <label className="mt-5 block text-sm font-bold text-red-950">
+                    What was verified?
+                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={4} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-red-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
                   </label>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="m-0 text-[10px] leading-4 text-red-700">Pricing is protected from Front Desk changes. The folio will be flagged for financial review.</p>
-                    <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction != null || arrivalResolutionReason.trim().length < 2} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border-0 bg-red-700 px-4 text-xs font-bold text-white hover:bg-red-800 disabled:bg-neutral-200 disabled:text-neutral-400">
-                      {busyAction === "arrival-resolution" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-                      Resolve check-in
-                    </button>
+                  <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="m-0 text-xs leading-5 text-red-700">Pricing remains protected and the folio will be flagged for financial review.</p>
+                    {arrivalResolutionReason.trim().length >= 2 ? (
+                      <button type="button" onClick={resolveEarlyCheckIn} disabled={busyAction === "arrival-resolution"} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-red-700 px-5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-60">
+                        {busyAction === "arrival-resolution" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                        Resolve arrival date
+                      </button>
+                    ) : (
+                      <span className="text-xs font-medium text-red-700">Add a reason to continue</span>
+                    )}
                   </div>
                 </div>
+                </div>
+              </section>
+            ) : (
+              <div className="space-y-5">
+                {(arrivalResolutionNotice || (r.earlyCheckInApproved && r.earlyCheckInResolution)) && (
+                  <div role="status" className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
+                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+                    <span>{arrivalResolutionNotice || `Arrival date resolved on ${fmtDate(r.earlyCheckInResolution!.createdAt)}. ${r.earlyCheckInResolution!.reason || "Recorded in audit history."}`}</span>
+                  </div>
+                )}
+                {earlyDeparture && (
+                  <label className="block text-sm font-bold text-neutral-900">
+                    Why is the guest leaving early?
+                    <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={5} maxLength={300} placeholder="Example: Guest changed travel plans" className="mt-2 box-border w-full resize-none rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-normal text-neutral-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={roomVacantConfirmed}
+                  onClick={() => setRoomVacantConfirmed((confirmed) => !confirmed)}
+                  className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-5 rounded-2xl border p-5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 ${roomVacantConfirmed ? "border-emerald-400 bg-emerald-50" : "border-neutral-300 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-base font-bold text-neutral-950">Confirm the room is vacant</span>
+                    <span className="mt-1 block text-sm leading-6 text-neutral-600">{checkoutGuestName} has left {checkoutRoomLabel} and the room is ready for the departure workflow.</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={`hidden text-sm font-semibold sm:inline ${roomVacantConfirmed ? "text-emerald-700" : "text-neutral-500"}`}>{roomVacantConfirmed ? "Confirmed" : "Confirm"}</span>
+                    <span className={`relative block h-7 w-12 rounded-full transition-colors ${roomVacantConfirmed ? "bg-emerald-700" : "bg-neutral-300"}`} aria-hidden="true">
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${roomVacantConfirmed ? "translate-x-5" : "translate-x-0.5"}`} />
+                    </span>
+                  </span>
+                </button>
               </div>
-            </section>
-          )}
-
-          {r.earlyCheckInApproved && r.earlyCheckInResolution && (
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Early check-in approved on {fmtDate(r.earlyCheckInResolution.createdAt)}. Scheduled arrival was preserved. Reason: {r.earlyCheckInResolution.reason || "Recorded in audit history"}</span>
-            </div>
-          )}
-
-          {arrivalResolutionNotice && (
-            <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-900">{arrivalResolutionNotice}</div>
-          )}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={roomVacantConfirmed}
-            onClick={() => setRoomVacantConfirmed((confirmed) => !confirmed)}
-            className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-4 rounded-xl border px-3 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 ${roomVacantConfirmed ? "border-emerald-300 bg-emerald-50/70" : "border-neutral-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/30"}`}
-          >
-            <span className="min-w-0">
-              <span className="block text-xs font-medium text-neutral-900">{checkoutGuestName} has left {checkoutRoomLabel}</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">The room is vacant and ready for the departure workflow</span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span className={`text-[9px] font-medium ${roomVacantConfirmed ? "text-emerald-700" : "text-neutral-400"}`}>{roomVacantConfirmed ? "Confirmed" : "Confirm"}</span>
-              <span className={`relative block h-6 w-10 rounded-full transition-colors ${roomVacantConfirmed ? "bg-emerald-700" : "bg-neutral-300"}`} aria-hidden="true">
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${roomVacantConfirmed ? "translate-x-[1.125rem]" : "translate-x-0.5"}`} />
-              </span>
-            </span>
-          </button>
-          {earlyDeparture && <NrmsCheckoutPolicyNotice />}
+            )}
+          </div>
         </div>
       </ModalFrame>
     )}
