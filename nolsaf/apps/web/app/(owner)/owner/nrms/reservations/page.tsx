@@ -1448,6 +1448,7 @@ function ReservationDetailModal({
   const [arrivalResolution, setArrivalResolution] = useState<"CORRECT_ARRIVAL_DATE" | "APPROVE_EARLY_CHECKIN">("CORRECT_ARRIVAL_DATE");
   const [arrivalResolutionReason, setArrivalResolutionReason] = useState("");
   const [arrivalResolutionNotice, setArrivalResolutionNotice] = useState<string | null>(null);
+  const [arrivalResolutionError, setArrivalResolutionError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const r = await apiClient.get<any>(`/api/owner/nrms/reservations/${reservationId}`);
@@ -1595,6 +1596,7 @@ function ReservationDetailModal({
     setBusyAction("arrival-resolution");
     setError(null);
     setArrivalResolutionNotice(null);
+    setArrivalResolutionError(null);
     try {
       const response = await apiClient.post<any>(`/api/owner/nrms/reservations/${reservationId}/early-check-in-resolution`, {
         resolution: isMarketplace ? "APPROVE_EARLY_CHECKIN" : arrivalResolution,
@@ -1605,7 +1607,14 @@ function ReservationDetailModal({
       await reload();
       await onChanged();
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to resolve the early check-in");
+      const code = e?.response?.data?.code;
+      setArrivalResolutionError(
+        code === "ROOM_TYPE_CAPACITY_CONFLICT"
+          ? "The room type has no available inventory for part of the earlier stay period. Review overlapping stays or assign available inventory, then try again."
+          : code === "ROOM_CONFLICT"
+            ? "The assigned room overlaps another stay during the earlier period. Review the room assignment or the conflicting stay, then try again."
+            : e?.response?.data?.error || "The arrival-date resolution could not be saved. Please try again.",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -2018,6 +2027,7 @@ function ReservationDetailModal({
                     }
                     setRoomVacantConfirmed(false);
                     setEarlyDepartureReason("");
+                    setArrivalResolutionError(null);
                     setCheckoutConfirmOpen(true);
                     return;
                   }
@@ -2066,7 +2076,7 @@ function ReservationDetailModal({
       }>
         <div className="space-y-5">
           <div className="space-y-3">
-            <section className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-4">
+            <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
               <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Stay details</p>
               <div className="mt-3 grid gap-4 sm:grid-cols-[1.35fr_1fr_1fr] sm:items-end">
                 <div>
@@ -2086,16 +2096,26 @@ function ReservationDetailModal({
               </div>
             </section>
             {earlyDeparture && (
-              <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
+              <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
                 <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <p className="m-0 text-sm leading-5"><span className="font-bold">Unused nights will be released.</span> Checkout today returns the remaining dates to availability and bills only occupied room-nights.</p>
               </div>
             )}
           </div>
 
-          <div className="min-w-0 border-t border-neutral-200 pt-5">
+          <div className="min-w-0 border-t border-solid border-neutral-200 pt-5">
             {unresolvedEarlyCheckIn ? (
-              <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5" aria-label="Resolve early check-in">
+              <div className="space-y-3">
+                {arrivalResolutionError && (
+                  <div role="alert" className="flex items-start gap-3 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-red-900">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                    <div className="min-w-0">
+                      <p className="m-0 text-sm font-bold">Earlier arrival cannot be saved</p>
+                      <p className="mb-0 mt-1 text-sm leading-5 text-red-800">{arrivalResolutionError}</p>
+                    </div>
+                  </div>
+                )}
+              <section className="rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:p-5" aria-label="Resolve early check-in">
                 <div className="flex items-start gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600"><AlertTriangle className="h-4 w-4" /></span>
                 <div className="min-w-0 flex-1">
@@ -2103,10 +2123,10 @@ function ReservationDetailModal({
                   <p className="mb-0 mt-1 text-sm leading-5 text-neutral-600">
                     Actual check-in was {fmtDate(r.checkedInAt!)} but the reservation arrival is {fmtDate(r.checkIn)}. Choose the accurate resolution; the original values and your reason remain in the audit history.
                   </p>
-                  <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
+                  <div className="mt-4 grid overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
                     {!isMarketplace && (
-                      <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
-                        <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "CORRECT_ARRIVAL_DATE"} onChange={() => setArrivalResolution("CORRECT_ARRIVAL_DATE")} />
+                      <label className={`cursor-pointer p-4 transition ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "bg-emerald-50/70" : "bg-white hover:bg-neutral-50"}`}>
+                        <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "CORRECT_ARRIVAL_DATE"} onChange={() => { setArrivalResolution("CORRECT_ARRIVAL_DATE"); setArrivalResolutionError(null); }} />
                         <span className="flex items-start justify-between gap-3">
                           <span className="block text-sm font-bold text-neutral-900">Correct arrival date</span>
                           <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${arrivalResolution === "CORRECT_ARRIVAL_DATE" ? "border-emerald-700" : "border-neutral-300"}`} aria-hidden="true">
@@ -2116,8 +2136,8 @@ function ReservationDetailModal({
                         <span className="mt-1 block text-xs leading-5 text-neutral-600">Use the immutable actual check-in date as the stay arrival date.</span>
                       </label>
                     )}
-                    <label className={`cursor-pointer rounded-xl border p-4 transition ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
-                      <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace} onChange={() => setArrivalResolution("APPROVE_EARLY_CHECKIN")} />
+                    <label className={`cursor-pointer p-4 transition ${!isMarketplace ? "border-t border-solid border-neutral-200" : ""} ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "bg-emerald-50/70" : "bg-white hover:bg-neutral-50"}`}>
+                      <input type="radio" name="arrival-resolution" className="sr-only" checked={arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace} onChange={() => { setArrivalResolution("APPROVE_EARLY_CHECKIN"); setArrivalResolutionError(null); }} />
                       <span className="flex items-start justify-between gap-3">
                         <span className="block text-sm font-bold text-neutral-900">Approve genuine early check-in</span>
                         <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${arrivalResolution === "APPROVE_EARLY_CHECKIN" || isMarketplace ? "border-emerald-700" : "border-neutral-300"}`} aria-hidden="true">
@@ -2129,10 +2149,10 @@ function ReservationDetailModal({
                   </div>
                   <label className="mt-4 block text-sm font-semibold text-neutral-800">
                     What was verified?
-                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={3} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                    <textarea value={arrivalResolutionReason} onChange={(event) => setArrivalResolutionReason(event.target.value)} maxLength={300} rows={3} placeholder="Record the evidence or explanation" className="mt-2 box-border w-full resize-y rounded-xl border border-solid border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
                     {arrivalResolutionReason.trim().length < 2 && <span className="mt-1.5 block text-xs font-medium text-neutral-500">Add a reason to continue.</span>}
                   </label>
-                  <div className="mt-4 border-t border-neutral-200 pt-4">
+                  <div className="mt-4 border-t border-solid border-neutral-200 pt-4">
                     <p className="m-0 text-xs leading-5 text-neutral-500">Pricing remains protected. The folio will be flagged for financial review.</p>
                     {arrivalResolutionReason.trim().length >= 2 && (
                       <div className="mt-3 flex justify-end">
@@ -2146,6 +2166,7 @@ function ReservationDetailModal({
                 </div>
                 </div>
               </section>
+              </div>
             ) : (
               <div className="space-y-5">
                 {(arrivalResolutionNotice || (r.earlyCheckInApproved && r.earlyCheckInResolution)) && (
