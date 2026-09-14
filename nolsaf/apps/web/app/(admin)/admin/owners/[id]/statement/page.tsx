@@ -12,6 +12,7 @@ import {
   buildAdminReportHeader,
   openAdminReportPrintWindow,
   renderAndPrintAdminReport,
+  updateAdminReportPrintWindowStatus,
 } from "@/lib/adminReportPrint";
 
 const api = apiClient;
@@ -86,6 +87,15 @@ type Statement = {
     outstanding: Money; outstandingCount: number;
     unbilledUsage: Money; accountsCount: number;
     currency: string;
+    records: {
+      statementId: number; propertyId: number; propertyTitle: string;
+      closedAt: string; paidAt: string | null; statementStatus: string;
+      amount: Money; currency: string; method: string | null;
+      tokenReference: string | null; provider: string | null; providerReference: string | null;
+      paymentStatus: string | null; verifiedAt: string | null;
+      reconciliation: "MANUAL" | "PROVIDER" | "NONE";
+      reconciledBy: string | null; reconciliationReason: string | null;
+    }[];
   } | null;
   adminActions: { id: number; action: string; details: any; createdAt: string | null; adminName: string | null }[];
 };
@@ -273,6 +283,7 @@ export default function OwnerStatementPage() {
       let reportRef = buildStatementReference(ownerId, data.coverage, generatedAt);
       let qrDataUrl: string | null = null;
       try {
+        updateAdminReportPrintWindowStatus(printWindow, "seal");
         const sealRes = await fetch("/api/reports/seal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -307,6 +318,7 @@ export default function OwnerStatementPage() {
         });
         const sealJson: any = await sealRes.json().catch(() => null);
         if (sealJson?.token) {
+          updateAdminReportPrintWindowStatus(printWindow, "verify");
           reportRef = String(sealJson.ref || reportRef);
           const verifyUrl = new URL("/verify", window.location.origin);
           verifyUrl.searchParams.set("t", String(sealJson.token));
@@ -324,6 +336,8 @@ export default function OwnerStatementPage() {
       // it leads with the owner rather than a prefix every statement shares.
       const ownerFileSlug =
         ownerLabel.replace(/[^a-z0-9]+/gi, "").slice(0, 40) || `Owner${ownerId}`;
+
+      updateAdminReportPrintWindowStatus(printWindow, "preview");
 
       const logoUrl = new URL("/assets/NoLS2025-04.png", window.location.origin).toString();
 
@@ -438,6 +452,29 @@ export default function OwnerStatementPage() {
             </tr>`).join("")
         : empty(4, "No administrative action was recorded against this owner in this period.");
 
+      const nrmsRows = nrms?.records.length
+        ? nrms.records.slice(0, PRINT_ROW_LIMIT).map((record) => {
+            const paymentReference = record.providerReference
+              ? `${record.provider ?? "Provider"} · ${record.providerReference}`
+              : record.tokenReference ?? "No payment token";
+            const reconciliation = record.reconciliation === "MANUAL"
+              ? `Manual${record.reconciledBy ? ` · ${escapeHtml(record.reconciledBy)}` : ""}${record.verifiedAt ? `<br /><span class="muted">${escapeHtml(stamp(record.verifiedAt))}</span>` : ""}${record.reconciliationReason ? `<br /><span class="muted">${escapeHtml(record.reconciliationReason.slice(0, 100))}</span>` : ""}`
+              : record.reconciliation === "PROVIDER"
+                ? `Provider verified${record.verifiedAt ? `<br /><span class="muted">${escapeHtml(stamp(record.verifiedAt))}</span>` : ""}`
+                : "Not reconciled";
+            return `
+              <tr>
+                <td>#${escapeHtml(String(record.statementId))}<br /><span class="muted">${escapeHtml(stamp(record.closedAt))}</span></td>
+                <td>${escapeHtml(record.propertyTitle)}</td>
+                <td>${escapeHtml(pretty(record.statementStatus))}${record.paidAt ? `<br /><span class="muted">Paid ${escapeHtml(day(record.paidAt))}</span>` : ""}</td>
+                <td class="num">${escapeHtml(record.currency)} ${escapeHtml(amount(record.amount))}</td>
+                <td>${escapeHtml(record.method ? pretty(record.method) : "Not selected")}</td>
+                <td>${escapeHtml(paymentReference)}${record.paymentStatus ? `<br /><span class="muted">${escapeHtml(pretty(record.paymentStatus))}</span>` : ""}</td>
+                <td>${reconciliation}</td>
+              </tr>`;
+          }).join("")
+        : empty(7, "No NRMS billing statement has been issued for this owner.");
+
       const nrmsPanel = nrms && nrms.accountsCount > 0
         ? `
           <div class="metricGrid">
@@ -446,6 +483,10 @@ export default function OwnerStatementPage() {
             <div class="metricCard${nrms.outstanding > 0 ? " metricCardWarn" : ""}"><span class="metricLabel">Awaiting collection</span><strong>${escapeHtml(cur)} ${escapeHtml(amount(nrms.outstanding))}</strong><small>${escapeHtml(String(nrms.outstandingCount))} statement(s) still payable. Usage not yet closed into a statement: ${escapeHtml(cur)} ${escapeHtml(amount(nrms.unbilledUsage))}.</small></div>
             <div class="metricCard${nrmsCollectionRate < 100 ? " metricCardWarn" : " metricCardGood"}"><span class="metricLabel">Collection rate</span><strong>${escapeHtml(nrmsCollectionRate.toFixed(1))}%</strong><small>${escapeHtml(String(nrms.paymentsCount))} verified payment(s). Calculated as collected divided by billed to date.</small></div>
           </div>
+          <div class="tableWrap" style="margin-top:8px"><table class="details">
+            <thead><tr><th>Statement / closed at</th><th>Property</th><th>Status</th><th style="text-align:right;">Amount</th><th>Payment method</th><th>Payment reference</th><th>Reconciliation</th></tr></thead>
+            <tbody>${nrmsRows}</tbody>
+          </table></div>
           <div class="reportNote"><strong>Balance check:</strong> ${escapeHtml(cur)} ${escapeHtml(amount(nrms.collected))} collected + ${escapeHtml(cur)} ${escapeHtml(amount(nrms.outstanding))} awaiting collection = ${escapeHtml(cur)} ${escapeHtml(amount(Number(nrms.collected) + Number(nrms.outstanding)))}. NRMS billing is reported for the whole relationship as at ${escapeHtml(stamp(generatedAt.toISOString()))}, not the selected booking period. Statements currently have no contractual due-date field, so the report identifies them as payable and does not guess whether they are overdue. Period-on-period comparison is therefore not shown.</div>`
         : `<div class="tableWrap"><table><tbody><tr><td class="emptyState">This owner has no NRMS billing account. No property of theirs has run on the management system.</td></tr></tbody></table></div>`;
 

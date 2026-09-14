@@ -1,6 +1,7 @@
 // apps/api/src/routes/admin.owners.ts
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
+import { buildOwnerNrmsBillingRecords, type OwnerNrmsBillingRecord } from "../lib/ownerNrmsBillingReport.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { signUserJwt } from "../lib/sessionManager.js";
 import { Prisma } from "@prisma/client";
@@ -586,23 +587,26 @@ type OwnerNrmsBilling = {
   /** Accounts backing these figures, one per NRMS-enabled property. */
   accountsCount: number;
   currency: string;
+  /** Statement-level evidence for the printed owner report. Tokens are masked. */
+  records: OwnerNrmsBillingRecord[];
 };
 
 /** NRMS pay-as-you-go billing for one owner, across all of their properties.
  *  Realized revenue is provider-verified plus administrator-reconciled
  *  payments, exactly as admin.financeOverview counts the subscriptions stream.
  *  Never throws: the owner page must still render if billing is unavailable. */
-async function ownerNrmsBilling(ownerId: number): Promise<OwnerNrmsBilling> {
+async function ownerNrmsBilling(ownerId: number, options: { includeRecords?: boolean } = {}): Promise<OwnerNrmsBilling> {
   const empty: OwnerNrmsBilling = {
     collected: 0, paymentsCount: 0,
     billed: 0, statementsCount: 0,
     outstanding: 0, outstandingCount: 0,
     unbilledUsage: 0, accountsCount: 0,
     currency: "TZS",
+    records: [],
   };
 
   try {
-    const [paid, allStatements, payable, unbilled, accounts] = await Promise.all([
+    const [paid, allStatements, payable, unbilled, accounts, statements, manualAudits] = await Promise.all([
       prisma.nrmsServicePayment.aggregate({
         where: {
           status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] },
@@ -629,6 +633,31 @@ async function ownerNrmsBilling(ownerId: number): Promise<OwnerNrmsBilling> {
         _sum: { amount: true },
       }),
       prisma.ownerPaygAccount.count({ where: { ownerId } }),
+      options.includeRecords ? prisma.nrmsBillingStatement.findMany({
+        where: { account: { ownerId } },
+        select: {
+          id: true, status: true, amount: true, currency: true, closedAt: true, paidAt: true,
+          account: { select: { property: { select: { id: true, title: true } } } },
+          tokens: {
+            select: {
+              id: true, token: true, status: true, method: true, createdAt: true,
+              payment: { select: { provider: true, providerRef: true, status: true, verifiedAt: true } },
+            },
+            orderBy: { id: "desc" },
+          },
+        },
+        orderBy: { id: "desc" },
+        take: 500,
+      }) : Promise.resolve([]),
+      options.includeRecords ? prisma.adminAudit.findMany({
+        where: { targetUserId: ownerId, action: "NRMS_PAYMENT_MANUAL_RECONCILE" },
+        select: {
+          details: true, createdAt: true,
+          admin: { select: { name: true, email: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      }) : Promise.resolve([]),
     ]);
 
     return {
@@ -643,6 +672,7 @@ async function ownerNrmsBilling(ownerId: number): Promise<OwnerNrmsBilling> {
       // NRMS policies are TZS-only today; kept explicit so the client never
       // has to guess the unit.
       currency: "TZS",
+      records: buildOwnerNrmsBillingRecords(statements, manualAudits),
     };
   } catch (err: any) {
     console.warn("Failed to compute owner NRMS billing:", err?.message);
@@ -1139,7 +1169,7 @@ router.get("/:id/statement", async (req, res) => {
     const partners = await ownerPartners(id);
     // NRMS billing is lifetime, not period-scoped: statements close on their
     // own cycle and slicing them by date would misrepresent the balance.
-    const nrmsBilling = await ownerNrmsBilling(id);
+    const nrmsBilling = await ownerNrmsBilling(id, { includeRecords: true });
 
     // The session carries only id/role/email, so name the generating admin
     // from the database. A statement that cannot say who produced it is not
