@@ -264,6 +264,9 @@ export default function OwnerStatementPage() {
       // Minted per print, not per page load: this reference identifies one
       // exact printed copy, which is what makes it usable for serving.
       const generatedAt = new Date();
+      const nrmsCollectionRate = nrms && nrms.billed > 0
+        ? (Number(nrms.collected) / Number(nrms.billed)) * 100
+        : 0;
 
       // Seal the figures server side, then encode the public verification URL
       // as a QR so anyone can confirm the document without logging in.
@@ -288,7 +291,12 @@ export default function OwnerStatementPage() {
               { label: "Owner net (TZS)", value: amount(data.bookings.net) },
               { label: "Paid out (TZS)", value: amount(data.payouts.paidAmount) },
               { label: `NRMS collected (${cur})`, value: amount(nrms?.collected ?? 0) },
+              { label: `NRMS billed (${cur})`, value: amount(nrms?.billed ?? 0) },
               { label: `NRMS outstanding (${cur})`, value: amount(nrms?.outstanding ?? 0) },
+              { label: "NRMS collection rate", value: `${nrmsCollectionRate.toFixed(1)}%` },
+              { label: "NRMS statements issued", value: String(nrms?.statementsCount ?? 0) },
+              { label: "NRMS statements payable", value: String(nrms?.outstandingCount ?? 0) },
+              { label: `NRMS unbilled usage (${cur})`, value: amount(nrms?.unbilledUsage ?? 0) },
               { label: "Invoices in period", value: String(data.bookings.invoiceCount) },
               { label: "Payouts recorded", value: String(data.payouts.count) },
               { label: "Payouts failed (TZS)", value: amount(data.payouts.failedAmount) },
@@ -436,8 +444,9 @@ export default function OwnerStatementPage() {
             <div class="metricCard metricCardGood"><span class="metricLabel">NRMS collected</span><strong>${escapeHtml(cur)} ${escapeHtml(amount(nrms.collected))}</strong><small>Paid to NoLSAF for the management system across ${escapeHtml(String(nrms.accountsCount))} property account(s). No partner split applies.</small></div>
             <div class="metricCard"><span class="metricLabel">Billed to date</span><strong>${escapeHtml(cur)} ${escapeHtml(amount(nrms.billed))}</strong><small>${escapeHtml(String(nrms.statementsCount))} statement(s) closed and issued.</small></div>
             <div class="metricCard${nrms.outstanding > 0 ? " metricCardWarn" : ""}"><span class="metricLabel">Awaiting collection</span><strong>${escapeHtml(cur)} ${escapeHtml(amount(nrms.outstanding))}</strong><small>${escapeHtml(String(nrms.outstandingCount))} statement(s) still payable. Usage not yet closed into a statement: ${escapeHtml(cur)} ${escapeHtml(amount(nrms.unbilledUsage))}.</small></div>
+            <div class="metricCard${nrmsCollectionRate < 100 ? " metricCardWarn" : " metricCardGood"}"><span class="metricLabel">Collection rate</span><strong>${escapeHtml(nrmsCollectionRate.toFixed(1))}%</strong><small>${escapeHtml(String(nrms.paymentsCount))} verified payment(s). Calculated as collected divided by billed to date.</small></div>
           </div>
-          <div class="reportNote">NRMS billing is reported for the whole relationship, not the selected period. Statements close on their own cycle, so restricting them to a date range would misstate the balance.</div>`
+          <div class="reportNote"><strong>Balance check:</strong> ${escapeHtml(cur)} ${escapeHtml(amount(nrms.collected))} collected + ${escapeHtml(cur)} ${escapeHtml(amount(nrms.outstanding))} awaiting collection = ${escapeHtml(cur)} ${escapeHtml(amount(Number(nrms.collected) + Number(nrms.outstanding)))}. NRMS billing is reported for the whole relationship as at ${escapeHtml(stamp(generatedAt.toISOString()))}, not the selected booking period. Statements currently have no contractual due-date field, so the report identifies them as payable and does not guess whether they are overdue. Period-on-period comparison is therefore not shown.</div>`
         : `<div class="tableWrap"><table><tbody><tr><td class="emptyState">This owner has no NRMS billing account. No property of theirs has run on the management system.</td></tr></tbody></table></div>`;
 
       const cap = data.capabilities;
