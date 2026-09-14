@@ -482,8 +482,8 @@ model Property {
   /// validated at the API boundary; see nrmsGuestContact.ts.
   nrmsGuestContactSettings Json?
 
-  /// Stable opaque identifier for the public NRMS direct-booking URL. Internal
-  /// numeric property IDs must never be used as public booking capabilities.
+  /// Stable opaque identifier for all public property URLs, including NRMS
+  /// direct booking. Internal numeric property IDs must never be routed publicly.
   nrmsBookingKey String @unique @default(cuid()) @db.VarChar(40)
 
   /// Which verified-stay review categories this property asks departing guests
@@ -2944,6 +2944,10 @@ model PlanRequestMessage {
 // =========================================================
 model Agent {
   id Int @id @default(autoincrement())
+
+  /// Stable opaque identifier for public operator profiles and booking URLs.
+  /// Internal numeric agent IDs must never be routed publicly.
+  publicKey String @unique @default(cuid()) @db.VarChar(40)
 
   /// Reference to User account (agents are Users with role 'AGENT')
   userId Int @unique

@@ -68,11 +68,13 @@ function serviceIcon(service: string) {
 
 export default function PublicTourOperatorCard({
   agentId,
+  agentPublicKey,
   profile,
   packages,
   commissionPercent,
 }: {
   agentId: number;
+  agentPublicKey: string;
   profile: PublicTourOperatorProfile;
   packages: PublicTourPackageItem[];
   commissionPercent?: number;
@@ -121,8 +123,11 @@ export default function PublicTourOperatorCard({
     || (selectedPackage?.durationDays ? `${selectedPackage.durationDays} days${selectedPackage.nights ? ` · ${selectedPackage.nights} nights` : ""}` : null);
   const location = profile.physicalLocation || profile.businessAddress || profile.operatingRegions?.[0] || "Location not set";
   const companyName = profile.companyName || "Approved Tour Operator";
-  const profileSlug = slugifyProfile(companyName, numericAgentId);
-  const reviewHref = hasValidAgentId ? `/public/tour-packages/operators/${numericAgentId}/submitted-profile/${profileSlug}` : "/public/tour-packages";
+  const profileSlug = slugifyProfile(companyName);
+  const hasPublicKey = /^[a-z0-9]{20,40}$/.test(agentPublicKey);
+  const reviewHref = hasValidAgentId && hasPublicKey
+    ? `/public/tour-packages/operators/${agentPublicKey}/submitted-profile/${profileSlug}`
+    : "/public/tour-packages";
   const confidence = profile.tripConfidence;
   const confidenceScore = Number(confidence?.score || 0);
   const hasConfidence = confidenceScore > 0 && Number(confidence?.totalRatings || 0) > 0;

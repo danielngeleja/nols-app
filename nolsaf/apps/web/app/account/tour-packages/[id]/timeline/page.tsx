@@ -522,23 +522,16 @@ export default function TourPackageTimelinePage() {
   const validatedAtText = validatedAtRaw ? new Date(validatedAtRaw).toLocaleString() : null;
   const timelineCompletion = item?.timelineCompletion && typeof item.timelineCompletion === "object" ? item.timelineCompletion : null;
   const timelineCompleted = Boolean(timelineCompletion?.isComplete || item?.timelineCompletionStatus === "COMPLETED_TIMELINE");
-  const operatorAgentId = Number(
-    item?.operatorAgentId ||
-    (operatorSnapshot as any)?.agentId ||
-    (operatorSnapshot as any)?.operatorAgentId ||
-    (packageSnapshot as any)?.agentId ||
-    (packageSnapshot as any)?.operatorAgentId ||
-    0
-  );
+  const operatorPublicKey = String(item?.operatorPublicKey || "").trim().toLowerCase();
   const operatorName = firstText(
     (operatorSnapshot as any)?.companyName,
     (operatorSnapshot as any)?.name,
     (packageSnapshot as any)?.operatorName,
     "Approved Tour Operator"
   );
-  const marketingPath = Number.isFinite(operatorAgentId) && operatorAgentId > 0
+  const marketingPath = /^[a-z0-9]{20,40}$/.test(operatorPublicKey)
     ? withMarketingSource(
-        `/public/tour-packages/operators/${operatorAgentId}/submitted-profile/${slugifyProfile(operatorName, operatorAgentId)}`
+        `/public/tour-packages/operators/${operatorPublicKey}/submitted-profile/${slugifyProfile(operatorName)}`
       )
     : withMarketingSource("/public/tour-packages");
 

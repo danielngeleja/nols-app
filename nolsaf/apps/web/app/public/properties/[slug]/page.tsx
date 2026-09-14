@@ -1387,6 +1387,7 @@ function RoomQuickViewModal({
   roomType,
   floor,
   propertyId,
+  propertySlug,
   initialCheckIn,
   initialCheckOut,
   onClose,
@@ -1395,6 +1396,7 @@ function RoomQuickViewModal({
   roomType: string;
   floor: number;
   propertyId: number;
+  propertySlug: string;
   initialCheckIn: string;
   initialCheckOut: string;
   onClose: () => void;
@@ -1458,7 +1460,7 @@ function RoomQuickViewModal({
   }, [checkIn, checkOut, propertyId]);
 
   const canBook = result.checked && result.available > 0 && !!checkIn && !!checkOut;
-  const bookUrl = `/public/booking/confirm?property=${propertyId}&checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`;
+  const bookUrl = `/public/booking/confirm?property=${encodeURIComponent(propertySlug)}&checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`;
 
   // Escape: close picker first, then modal
   useEffect(() => {
@@ -2879,7 +2881,7 @@ export default function PublicPropertyDetailPage() {
               <div className="text-xs text-slate-500">per night</div>
               <button
                 type="button"
-                onClick={() => { const params = new URLSearchParams({ property: String(property.id) }); if (selectedDates.checkIn) params.set('checkIn', selectedDates.checkIn); if (selectedDates.checkOut) params.set('checkOut', selectedDates.checkOut); router.push(`/public/booking/confirm?${params.toString()}`); }}
+                onClick={() => { const params = new URLSearchParams({ property: property.slug }); if (selectedDates.checkIn) params.set('checkIn', selectedDates.checkIn); if (selectedDates.checkOut) params.set('checkOut', selectedDates.checkOut); router.push(`/public/booking/confirm?${params.toString()}`); }}
                 className="mt-4 w-full rounded-xl bg-[#02665e] text-white py-3 text-sm font-semibold hover:bg-[#014e47] transition-colors"
               >
                 Request booking
@@ -3144,6 +3146,7 @@ export default function PublicPropertyDetailPage() {
             roomType={roomQuickView.roomType}
             floor={roomQuickView.floor}
             propertyId={property.id}
+            propertySlug={property.slug}
             initialCheckIn={selectedDates.checkIn}
             initialCheckOut={selectedDates.checkOut}
             onClose={() => setRoomQuickView(null)}
@@ -3279,7 +3282,7 @@ export default function PublicPropertyDetailPage() {
                             {r.discountLabel ? (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"><Tags className="w-2.5 h-2.5" aria-hidden />{r.discountLabel}</div>) : (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-400">No discount</div>)}
                           </div>
                           <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                            <button type="button" onClick={() => { const params = new URLSearchParams({ property: String(property.id) }); if (r.roomCode) { params.set('roomCode', r.roomCode); } else { const roomIndex = rows.findIndex((row) => row === r); if (roomIndex >= 0) params.set('roomIndex', String(roomIndex)); } router.push(`/public/booking/confirm?${params.toString()}`); }} className="inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-[#02665e] to-[#014e47] px-5 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:shadow-md hover:from-[#027a70] hover:to-[#02665e] active:scale-[0.97] md:w-full">Pay now</button>
+                            <button type="button" onClick={() => { const params = new URLSearchParams({ property: property.slug }); if (r.roomCode) { params.set('roomCode', r.roomCode); } else { const roomIndex = rows.findIndex((row) => row === r); if (roomIndex >= 0) params.set('roomIndex', String(roomIndex)); } router.push(`/public/booking/confirm?${params.toString()}`); }} className="inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-[#02665e] to-[#014e47] px-5 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:shadow-md hover:from-[#027a70] hover:to-[#02665e] active:scale-[0.97] md:w-full">Pay now</button>
                             <span className="text-center text-[10px] text-slate-400">Secure checkout</span>
                           </div>
                         </div>

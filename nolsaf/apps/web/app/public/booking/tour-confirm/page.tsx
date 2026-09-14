@@ -78,6 +78,7 @@ type OperatorProfile = {
 
 type AgentData = {
   id: number;
+  publicKey: string;
   profile: OperatorProfile;
 };
 
@@ -90,7 +91,7 @@ export default function TourConfirmPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const agentId = Number(searchParams?.get("agentId") || 0);
+  const agentKey = String(searchParams?.get("agentKey") || "").trim().toLowerCase();
   const packageId = searchParams?.get("packageId") || "";
 
   const [agent, setAgent] = useState<AgentData | null>(null);
@@ -115,13 +116,13 @@ export default function TourConfirmPage() {
 
   // ── Load agent/package ────────────────────────────────────────────────────
   const loadAgent = useCallback(async () => {
-    if (!agentId || !packageId) {
+    if (!/^[a-z0-9]{20,40}$/.test(agentKey) || !packageId) {
       setLoadError("Missing booking information. Please go back and select a package.");
       setLoading(false);
       return;
     }
     try {
-      const res = await fetch(`/api/public/agents/${agentId}`, { credentials: "include" });
+      const res = await fetch(`/api/public/agents/${encodeURIComponent(agentKey)}`, { credentials: "include" });
       if (!res.ok) throw new Error("Operator not found");
       const data = await res.json();
       setAgent(data);
@@ -137,7 +138,7 @@ export default function TourConfirmPage() {
     } finally {
       setLoading(false);
     }
-  }, [agentId, packageId]);
+  }, [agentKey, packageId]);
 
   useEffect(() => { void loadAgent(); }, [loadAgent]);
 
@@ -199,7 +200,7 @@ export default function TourConfirmPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          operatorAgentId: agentId,
+          operatorAgentId: agent?.id,
           packageId,
           travelerCount: travelers,
           startDate: startDate ? new Date(startDate).toISOString() : null,
@@ -599,7 +600,7 @@ export default function TourConfirmPage() {
                           Browse approved properties, choose what fits your trip, then continue your stay booking from there.
                         </p>
                         <Link
-                          href={`/public/properties?source=tour-booking&agentId=${agentId}&packageId=${encodeURIComponent(packageId)}`}
+                          href={`/public/properties?source=tour-booking&agentKey=${encodeURIComponent(agentKey)}&packageId=${encodeURIComponent(packageId)}`}
                           className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#02665e] px-3 py-2 text-xs font-bold text-white no-underline transition-colors hover:bg-[#014d47]"
                         >
                           Browse Approved Properties

@@ -76,9 +76,9 @@ export function slugify(input: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-export function buildPropertySlug(title: string, id: number) {
+export function buildPropertySlug(title: string, publicKey: string) {
   const base = slugify(title);
-  return base ? `${base}-${id}` : String(id);
+  return base ? `${base}-${publicKey}` : publicKey;
 }
 
 function safeString(v: any): string | null {
@@ -243,7 +243,7 @@ export function formatLocation(p: {
 
 export function toPublicCard(p: any): PublicPropertyCard {
   const id = Number(p.id);
-  const slug = buildPropertySlug(String(p.title || ""), id);
+  const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
   const effectiveBasePrice = extractEffectiveBasePrice(p);
   // If primaryImage is pre-extracted (e.g. from a raw SQL query using JSON_EXTRACT or
   // batchResolvePrimaryImages), use it directly — but still validate it's a renderable URL
@@ -292,7 +292,7 @@ export function toPublicCard(p: any): PublicPropertyCard {
 
 export function toPublicDetail(p: any): PublicPropertyDetail {
   const id = Number(p.id);
-  const slug = buildPropertySlug(String(p.title || ""), id);
+  const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
   const propertyImages = pickImages({ images: p.images, photos: p.photos, limit: null });
   const roomImages = pickRoomImages(p.roomsSpec);
   const images = Array.from(new Set<string>([...propertyImages, ...roomImages]));

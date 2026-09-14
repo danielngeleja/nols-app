@@ -54,7 +54,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
   try {
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
-      select: { id: true, title: true },
+      select: { id: true, nrmsBookingKey: true, title: true },
     });
     if (!property) return res.status(404).json({ ok: false, error: "Property not found" });
 
@@ -70,7 +70,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
       data: { sharedAt: share.createdAt },
     }).catch(() => undefined);
 
-    const slug = buildPropertySlug(property.title || "", property.id);
+    const slug = buildPropertySlug(property.title || "", property.nrmsBookingKey);
     return res.json({
       ok: true,
       data: {

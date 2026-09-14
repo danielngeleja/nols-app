@@ -38,6 +38,7 @@ import { convertFromTzs, formatMoney } from "@/lib/money";
 
 type Property = {
   id: number;
+  slug: string;
   title: string;
   type: string;
   regionName: string | null;
@@ -253,7 +254,7 @@ export default function BookingConfirmPage() {
 
   useEffect(() => {
     // Get booking data from URL params
-    const propertyId = searchParams?.get("property");
+    const propertySlug = searchParams?.get("property");
     const checkIn = searchParams?.get("checkIn");
     const checkOut = searchParams?.get("checkOut");
     const adults = searchParams?.get("adults") || "1";
@@ -263,10 +264,8 @@ export default function BookingConfirmPage() {
     const roomCode = searchParams?.get("roomCode");
     const roomIndex = searchParams?.get("roomIndex");
 
-    // Property ID is required and must be a valid number
-    const numericPropertyId = propertyId ? Number(propertyId) : null;
-    if (!propertyId || !numericPropertyId || isNaN(numericPropertyId) || numericPropertyId <= 0) {
-      setError("Missing or invalid property ID");
+    if (!propertySlug || propertySlug.length > 220) {
+      setError("Missing or invalid property link");
       setLoading(false);
       return;
     }
@@ -283,9 +282,9 @@ export default function BookingConfirmPage() {
       }
     }
 
-    // Set booking data - dates can be empty initially, user can select them on this page
-    setBookingData({
-      propertyId: numericPropertyId,
+    // Resolve the opaque public key first. The numeric ID remains internal and
+    // is only used after the approved property has been returned by the API.
+    fetchProperty(propertySlug, {
       checkIn: checkIn || "",
       checkOut: checkOut || "",
       adults: Number(adults) || 1,
@@ -293,9 +292,6 @@ export default function BookingConfirmPage() {
       pets: Number(pets) || 0,
       rooms: Math.max(1, Number(rooms) || 1),
     });
-
-    // Fetch property details
-    fetchProperty(numericPropertyId);
   }, [searchParams]);
 
   // Cleanup availability checks on unmount
@@ -394,20 +390,16 @@ export default function BookingConfirmPage() {
     getRoomCodeForAvailabilityCheck,
   ]);
 
-  async function fetchProperty(propertyId: number) {
-    // Validate propertyId is a valid number
-    if (!propertyId || isNaN(propertyId) || propertyId <= 0) {
-      setError("Invalid property ID");
-      setLoading(false);
-      return;
-    }
-
+  async function fetchProperty(
+    propertySlug: string,
+    initialBooking: Omit<BookingData, "propertyId">,
+  ) {
     try {
       // Add timeout to prevent hanging requests (15 seconds should be enough)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
       
-      const response = await fetch(`/api/public/properties/${propertyId}`, {
+      const response = await fetch(`/api/public/properties/${encodeURIComponent(propertySlug)}`, {
         signal: controller.signal,
         cache: 'no-store', // Don't cache this request
         headers: {
@@ -420,9 +412,9 @@ export default function BookingConfirmPage() {
       if (!response.ok) {
         // Handle specific error cases
         if (response.status === 404) {
-          throw new Error(`Property #${propertyId} not found or not approved for public viewing`);
+          throw new Error("Property not found or not approved for public viewing");
         } else if (response.status === 400) {
-          throw new Error(`Invalid property ID: ${propertyId}`);
+          throw new Error("Invalid property link");
         } else if (response.status >= 500) {
           throw new Error(`Server error: Please try again later`);
         } else {
@@ -444,6 +436,7 @@ export default function BookingConfirmPage() {
       }
       
       setProperty(propertyData);
+      setBookingData({ ...initialBooking, propertyId: Number(propertyData.id) });
       setError(null);
     } catch (err: any) {
       // Handle AbortError (timeout)
@@ -1286,7 +1279,7 @@ export default function BookingConfirmPage() {
       <div className="bg-white/80 backdrop-blur-sm border-b border-slate-200/60 shadow-sm sticky top-0 z-10">
         <div className="public-container py-4">
           <Link
-            href={property ? `/public/properties/${property.id}` : "/public/properties"}
+            href={property ? `/public/properties/${property.slug}` : "/public/properties"}
             className="inline-flex items-center text-slate-600 hover:text-[#02665e] transition-all duration-200 group"
           >
             <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform duration-200" />

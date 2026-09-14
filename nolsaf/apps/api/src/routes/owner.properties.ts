@@ -359,6 +359,7 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
 
     const listSelectBase: any = {
       id: true,
+      nrmsBookingKey: true,
       ownerId: true,
       status: true,
       title: true,

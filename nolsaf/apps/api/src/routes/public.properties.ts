@@ -174,13 +174,11 @@ function parseAmenities(v: any): string[] {
   return out.slice(0, 50);
 }
 
-function extractIdFromSlug(idOrSlug: string): number | null {
-  const raw = String(idOrSlug || "").trim();
+function extractPublicKeyFromSlug(idOrSlug: string): string | null {
+  const raw = String(idOrSlug || "").trim().toLowerCase();
   if (!raw) return null;
-  if (/^\d+$/.test(raw)) return Number(raw);
-  const m = raw.match(/(\d+)\s*$/);
-  if (!m) return null;
-  return Number(m[1]);
+  const key = raw.includes("-") ? raw.slice(raw.lastIndexOf("-") + 1) : raw;
+  return /^[a-z0-9]{20,40}$/.test(key) ? key : null;
 }
 
 function bboxFromKm(lat: number, lng: number, radiusKm: number) {
@@ -564,7 +562,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
               const rows = (await prisma.$queryRaw(
                 Prisma.sql`
                   SELECT
-                    p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                     p.district, p.ward, p.street, p.city, p.country,
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -640,7 +638,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -702,7 +700,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -744,6 +742,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   orderBy,
                   select: {
                     id: true,
+                    nrmsBookingKey: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -784,6 +783,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   orderBy: fallbackOrderBy,
                   select: {
                     id: true,
+                    nrmsBookingKey: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -830,6 +830,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                 orderBy,
                 select: {
                   id: true,
+                  nrmsBookingKey: true,
                   title: true,
                   type: true,
                   parkPlacement: true,
@@ -887,18 +888,19 @@ const listPublicProperties: RequestHandler = async (req, res) => {
  */
 const getPublicProperty: RequestHandler = async (req, res) => {
   const idOrSlug = String((req.params as any)?.idOrSlug ?? "");
-  const id = extractIdFromSlug(idOrSlug);
-  if (!id) return res.status(400).json({ error: "invalid_id" });
+  const publicKey = extractPublicKeyFromSlug(idOrSlug);
+  if (!publicKey) return res.status(404).json({ error: "property_not_found" });
 
   try {
-    const { result, duration } = await measureTime(`public.properties.get:${id}`, async () => {
+    const { result, duration } = await measureTime(`public.properties.get:${publicKey}`, async () => {
       return await withCache(
-        cacheKeys.property(id),
+        publicCacheKey("property-detail", { publicKey }),
         async () => {
           const p = await prisma.property.findFirst({
-            where: { id, status: "APPROVED" },
+            where: { nrmsBookingKey: publicKey, status: "APPROVED" },
             select: {
               id: true,
+              nrmsBookingKey: true,
               title: true,
               type: true,
               status: true,
@@ -937,6 +939,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
           });
 
           if (!p) return null;
+          const id = p.id;
 
           const [legacyPhotos, physicalVerification] = await Promise.all([
             resolveLegacyPhotoUrls(id),
@@ -1018,7 +1021,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
         {
           skipCache: true,
           ttl: 600, // Cache for 10 minutes (property details change less frequently)
-          tags: [cacheTags.property(id), cacheTags.propertyList],
+          tags: [cacheTags.propertyList],
         }
       );
     });
@@ -1096,7 +1099,7 @@ const homeSummary: RequestHandler = async (_req, res) => {
             ? (prisma.$queryRaw(
                 Prisma.sql`
                   SELECT
-                    p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                     p.district, p.ward, p.street, p.city, p.country,
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -1274,6 +1277,7 @@ const topCities: RequestHandler = async (req, res) => {
           orderBy: { id: "desc" },
           select: {
             id: true,
+            nrmsBookingKey: true,
             title: true,
             type: true,
             regionName: true,

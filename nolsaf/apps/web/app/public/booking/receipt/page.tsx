@@ -33,6 +33,7 @@ type ReceiptData = {
   };
   property: {
     id: number;
+    slug: string;
     title: string;
     type: string;
     regionName: string | null;
@@ -189,7 +190,7 @@ export default function ReceiptPage() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <Link
-              href={`/public/properties/${receipt.property.id}`}
+              href={`/public/properties/${receipt.property.slug}`}
               className="inline-flex items-center text-slate-600 hover:text-slate-900 transition-colors"
             >
               <ChevronLeft className="w-5 h-5 mr-1" />
@@ -389,7 +390,7 @@ export default function ReceiptPage() {
         {/* Actions */}
         <div className="mt-6 flex gap-4 justify-center print:hidden">
           <Link
-            href={`/public/properties/${receipt.property.id}`}
+            href={`/public/properties/${receipt.property.slug}`}
             className="px-6 py-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
           >
             View Property

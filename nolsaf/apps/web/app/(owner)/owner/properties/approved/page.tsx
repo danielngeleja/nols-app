@@ -27,6 +27,7 @@ const api = apiClient;
 
 type Property = {
   id: number;
+  nrmsBookingKey: string;
   title: string;
   status: string;
   type: string | null;
@@ -72,7 +73,7 @@ function fmtMoney(amount: number | null | undefined, currency?: string | null) {
   }
 }
 
-function buildPropertySlug(title: string, id: number): string {
+function buildPropertySlug(title: string, publicKey: string): string {
   const base = String(title || "")
     .toLowerCase()
     .trim()
@@ -80,7 +81,7 @@ function buildPropertySlug(title: string, id: number): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/(^-|-$)/g, "");
-  return base ? `${base}-${id}` : String(id);
+  return base ? `${base}-${publicKey}` : publicKey;
 }
 
 export default function ApprovedProps() {
@@ -165,7 +166,7 @@ export default function ApprovedProps() {
           // Add slugs to properties
           const propertiesWithSlugs = properties.map((p: any) => ({
             ...p,
-            slug: buildPropertySlug(p.title, p.id),
+            slug: buildPropertySlug(p.title, p.nrmsBookingKey),
           }));
           
           setList(propertiesWithSlugs);
@@ -204,7 +205,7 @@ export default function ApprovedProps() {
               const properties = normalizeItems(r.data);
               const propertiesWithSlugs = properties.map((p: any) => ({
                 ...p,
-                slug: buildPropertySlug(p.title, p.id),
+                slug: buildPropertySlug(p.title, p.nrmsBookingKey),
               }));
               setList(propertiesWithSlugs);
             })

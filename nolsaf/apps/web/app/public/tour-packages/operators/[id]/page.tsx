@@ -20,6 +20,7 @@ type OperatorProfile = {
 
 type PublicAgent = {
   id: number;
+  publicKey: string;
   profile?: OperatorProfile | null;
 };
 
@@ -32,9 +33,8 @@ export default function PublicTourOperatorProfilePage() {
 
   useEffect(() => {
     let cancelled = false;
-    const parsedId = Number(routeId);
-
-    if (!Number.isFinite(parsedId) || parsedId <= 0) {
+    const publicKey = String(routeId || "").trim().toLowerCase();
+    if (!/^[a-z0-9]{20,40}$/.test(publicKey)) {
       setAgent(null);
       setError("Invalid operator profile link.");
       setLoading(false);
@@ -47,7 +47,7 @@ export default function PublicTourOperatorProfilePage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await apiClient.get<PublicAgent>(`/api/public/agents/${parsedId}`);
+        const res = await apiClient.get<PublicAgent>(`/api/public/agents/${encodeURIComponent(publicKey)}`);
         if (!cancelled) setAgent(res.data);
       } catch {
         if (!cancelled) setError("This operator profile is not available right now.");
@@ -89,7 +89,8 @@ export default function PublicTourOperatorProfilePage() {
   }
 
   const companyName = String(profile.companyName || "Approved Tour Operator");
-  const profileSlug = slugifyProfile(companyName, agent?.id);
+  const profileSlug = slugifyProfile(companyName);
+  const operatorPublicKey = String(agent?.publicKey || "");
 
   return (
     <main className="min-h-screen bg-white">
@@ -156,7 +157,7 @@ export default function PublicTourOperatorProfilePage() {
 
         <SubmittedTourProfileCard
           profile={profile as Record<string, any>}
-          reviewHref={`/public/tour-packages/operators/${agent?.id}/submitted-profile/${profileSlug}`}
+          reviewHref={`/public/tour-packages/operators/${operatorPublicKey}/submitted-profile/${profileSlug}`}
           reviewStatus="APPROVED"
           titleLabel="Submitted profile"
           showViewButton={false}

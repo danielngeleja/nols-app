@@ -200,6 +200,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
           property: {
             select: {
               id: true,
+              nrmsBookingKey: true,
               title: true,
               type: true,
               regionName: true,
@@ -290,7 +291,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
             regionName: booking.property.regionName,
             district: booking.property.district,
             city: booking.property.city,
-            slug: buildPropertySlug(String(booking.property.title || ""), Number(booking.property.id)),
+            slug: buildPropertySlug(String(booking.property.title || ""), booking.property.nrmsBookingKey),
           }
         : null;
 
@@ -362,20 +363,12 @@ router.get("/property-slugs", (async (req: AuthedRequest, res) => {
         ],
       },
       select: {
-        property: { select: { id: true, title: true } },
+        property: { select: { nrmsBookingKey: true, title: true } },
       },
     });
 
-    // Derive slug the same way publicPropertyDto does: slugify(title) + "-" + id
-    function slugify(s: string) {
-      return String(s || "").toLowerCase().trim()
-        .replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/(^-|-$)/g, "");
-    }
     const slugs = Array.from(
-      new Set(bookings.map((b) => {
-        const base = slugify(b.property.title);
-        return base ? `${base}-${b.property.id}` : String(b.property.id);
-      }))
+      new Set(bookings.map((b) => buildPropertySlug(b.property.title, b.property.nrmsBookingKey)))
     );
 
     res.json({ slugs });

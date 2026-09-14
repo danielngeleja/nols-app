@@ -14,6 +14,7 @@ type NamedOption = {
 
 type PublicAgent = {
   id?: number;
+  publicKey?: string;
   level?: string;
   totalCompletedTrips?: number;
   profile?: PublicTourOperatorProfile | null;
@@ -165,7 +166,9 @@ export default function TourPackagesFilterPanel() {
         if (!Number.isFinite(agentId) || agentId <= 0) return null;
         const profile = agent.profile || {};
         const packages = (profile.packageItems || []).filter(isApprovedPackage);
-        return { agentId, agent, profile, packages };
+        const agentPublicKey = String(agent.publicKey || "");
+        if (!/^[a-z0-9]{20,40}$/.test(agentPublicKey)) return null;
+        return { agentId, agentPublicKey, agent, profile, packages };
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
       .filter((item) => item.packages.length > 0);
@@ -356,10 +359,11 @@ export default function TourPackagesFilterPanel() {
           <>
             {/* Mobile: horizontal snap carousel — 3 cards visible, scroll right */}
             <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:hidden" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-              {operatorCards.map(({ agentId, profile, packages }) => (
+              {operatorCards.map(({ agentId, agentPublicKey, profile, packages }) => (
                 <div key={agentId} className="w-[78vw] flex-none snap-start">
                   <PublicTourOperatorCard
                     agentId={agentId}
+                    agentPublicKey={agentPublicKey}
                     profile={profile}
                     packages={packages}
                     commissionPercent={systemCommission}
@@ -369,10 +373,11 @@ export default function TourPackagesFilterPanel() {
             </div>
             {/* sm+: grid — 2 cols on sm/md, 3 on lg, 4 on xl+ */}
             <div className="hidden gap-5 sm:grid sm:grid-cols-2 lg:grid-cols-3">
-              {operatorCards.map(({ agentId, profile, packages }) => (
+              {operatorCards.map(({ agentId, agentPublicKey, profile, packages }) => (
                 <PublicTourOperatorCard
                   key={agentId}
                   agentId={agentId}
+                  agentPublicKey={agentPublicKey}
                   profile={profile}
                   packages={packages}
                   commissionPercent={systemCommission}

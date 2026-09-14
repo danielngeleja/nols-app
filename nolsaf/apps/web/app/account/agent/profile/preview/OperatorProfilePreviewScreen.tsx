@@ -513,10 +513,10 @@ function experienceVibeStyle(value: string): { badge: string; icon: string } {
 
 export function OperatorProfilePreviewScreen({
   adminAgentId: adminAgentIdProp,
-  publicAgentId: publicAgentIdProp,
+  publicAgentKey: publicAgentKeyProp,
 }: {
   adminAgentId?: number;
-  publicAgentId?: number;
+  publicAgentKey?: string;
 } = {}) {
   const searchParams = useSearchParams();
   const adminAgentIdRaw = String(searchParams.get("adminAgentId") || "").trim();
@@ -524,13 +524,12 @@ export function OperatorProfilePreviewScreen({
   const adminAgentId = Number.isFinite(Number(adminAgentIdProp)) && Number(adminAgentIdProp) > 0
     ? Number(adminAgentIdProp)
     : adminAgentIdFromQuery;
-  const publicAgentId = Number.isFinite(Number(publicAgentIdProp)) && Number(publicAgentIdProp) > 0
-    ? Number(publicAgentIdProp)
-    : NaN;
+  const publicAgentKey = String(publicAgentKeyProp || "").trim().toLowerCase();
   const isAdminPreview = Number.isFinite(adminAgentId) && adminAgentId > 0;
-  const isPublicPreview = !isAdminPreview && Number.isFinite(publicAgentId) && publicAgentId > 0;
+  const isPublicPreview = !isAdminPreview && /^[a-z0-9]{20,40}$/.test(publicAgentKey);
+  const [resolvedPublicAgentId, setResolvedPublicAgentId] = useState(0);
   // Resolved agent ID used for booking links (public or admin preview)
-  const effectiveAgentId = (isAdminPreview ? adminAgentId : publicAgentId) || 0;
+  const effectiveAgentId = (isAdminPreview ? adminAgentId : resolvedPublicAgentId) || 0;
   const backHref = isAdminPreview
     ? `/admin/agents/${adminAgentId}?tab=profile`
     : isPublicPreview
@@ -582,7 +581,7 @@ export function OperatorProfilePreviewScreen({
         const res = isAdminPreview
           ? await api.get(`/api/admin/agents/${adminAgentId}`)
           : isPublicPreview
-            ? await api.get(`/api/public/agents/${publicAgentId}`)
+            ? await api.get(`/api/public/agents/${encodeURIComponent(publicAgentKey)}`)
           : await api.get("/api/agent/me");
         if (isAdminPreview) {
           const settingsRes = await api.get("/api/admin/settings");
@@ -604,6 +603,10 @@ export function OperatorProfilePreviewScreen({
         }
         const payload = (res as any)?.data;
         const agent = payload?.agent ?? payload?.data ?? payload ?? null;
+        if (isPublicPreview) {
+          const resolvedId = Number(agent?.id || 0);
+          setResolvedPublicAgentId(Number.isFinite(resolvedId) && resolvedId > 0 ? resolvedId : 0);
+        }
         const raw = agent?.operatorProfile ?? agent?.profile ?? null;
         const verification = agent?.verification;
         setOperatorVerification(
@@ -701,7 +704,7 @@ export function OperatorProfilePreviewScreen({
         setLoading(false);
       }
     })();
-  }, [isAdminPreview, adminAgentId, isPublicPreview, publicAgentId]);
+  }, [isAdminPreview, adminAgentId, isPublicPreview, publicAgentKey]);
 
   useEffect(() => {
     if (!isAdminPreview || !Number.isFinite(adminTargetUserId) || Number(adminTargetUserId) <= 0) {
@@ -2055,11 +2058,11 @@ export function OperatorProfilePreviewScreen({
                     href="#tour-packages"
                     onClick={(e) => {
                       // If there's exactly one package, go directly to the booking form
-                      if (effectiveAgentId > 0 && p?.packageItems?.length === 1) {
+                      if (effectiveAgentId > 0 && isPublicPreview && p?.packageItems?.length === 1) {
                         e.preventDefault();
                         const firstPkg = p.packageItems[0] as any;
                         const pkgId = String(firstPkg?.id ?? 0);
-                        window.location.href = `/public/booking/tour-confirm?agentId=${effectiveAgentId}&packageId=${encodeURIComponent(pkgId)}`;
+                        window.location.href = `/public/booking/tour-confirm?agentKey=${encodeURIComponent(publicAgentKey)}&packageId=${encodeURIComponent(pkgId)}`;
                       }
                     }}
                     className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white no-underline shadow-sm transition-all duration-200 hover:brightness-110 hover:shadow-md hover:shadow-[#02665e]/30"
@@ -2578,9 +2581,9 @@ export function OperatorProfilePreviewScreen({
                               <p className="text-sm font-black text-slate-800">Ready to book this package?</p>
                               <p className="mt-0.5 text-[11px] text-slate-500">Availability is live. Secure your spot in seconds.</p>
                             </div>
-                            {effectiveAgentId > 0 ? (
+                            {effectiveAgentId > 0 && isPublicPreview ? (
                               <Link
-                                href={`/public/booking/tour-confirm?agentId=${effectiveAgentId}&packageId=${encodeURIComponent(String((pkg as any).id ?? idx))}`}
+                                href={`/public/booking/tour-confirm?agentKey=${encodeURIComponent(publicAgentKey)}&packageId=${encodeURIComponent(String((pkg as any).id ?? idx))}`}
                                 className="no-underline flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-bold text-white shadow-md transition-all hover:brightness-110 hover:shadow-lg hover:shadow-[#02665e]/30"
                                 style={{ background: "linear-gradient(135deg, #02665e 0%, #028a7e 100%)" }}
                               >
