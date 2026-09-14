@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Facebook, Instagram, Mail, MessageCircle, Send, Share2 } from "lucide-react";
 
-type Props = { propertyId: number | null; propertyTitle?: string | null; label?: string };
+type Props = { bookingKey?: string | null; propertyTitle?: string | null; label?: string };
 
-export default function ShareBookingButton({ propertyId, propertyTitle, label = "Share booking page" }: Props) {
+export default function ShareBookingButton({ bookingKey, propertyTitle, label = "Share booking page" }: Props) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const path = propertyId ? `/nrms/book/${propertyId}` : "";
+  const path = bookingKey ? `/nrms/book/${encodeURIComponent(bookingKey)}` : "";
   const url = useMemo(() => (path && typeof window !== "undefined" ? `${window.location.origin}${path}` : path), [path]);
   const shareText = `Book directly at ${propertyTitle || "our property"}`;
   const sourceUrl = (source: string) => `${url}${url.includes("?") ? "&" : "?"}source=${source}`;
@@ -37,7 +37,7 @@ export default function ShareBookingButton({ propertyId, propertyTitle, label = 
     { key: "email", label: "Email", icon: Mail, className: "bg-neutral-800 text-white hover:opacity-90", href: `mailto:?subject=${encodeURIComponent(shareText)}&body=${encodeURIComponent(`${shareText}\n${sourceUrl("email")}`)}` },
   ];
 
-  if (!propertyId) return null;
+  if (!bookingKey) return null;
 
   return (
     <div ref={containerRef} className="relative">

@@ -270,7 +270,7 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
     const enrollment = await getNrmsEnrollment(userId);
     const properties = await db.property.findMany({
       where: { ownerId: userId },
-      select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true },
+      select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsBookingKey: true, nrmsPaygAccount: true },
       orderBy: { id: "asc" },
     });
     return res.json({ viewer: { firstName }, entitled: isNrmsEntitled(enrollment), workspaceMode: isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties: properties.map((property: any) => ({
@@ -282,7 +282,7 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
   }
   const memberships = await db.nrmsStaffMembership.findMany({
     where: { userId, status: "ACTIVE", confirmedAt: { not: null } },
-    include: { property: { select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true } } },
+    include: { property: { select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsBookingKey: true, nrmsPaygAccount: true } } },
     orderBy: { id: "asc" },
   });
   const byProperty = new Map<number, any>();

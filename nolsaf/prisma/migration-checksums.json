@@ -177,6 +177,11 @@
     "20260829210000_reconcile_nrms_fiscal_updated_at_defaults": "c91f3068a26f66bee1b9aebdaa8b69e72718eab435c07eb6caaabf10e96f1863",
     "20260904120000_add_payment_orchestration_core": "4dc7fa0749496843483ed2d2aa1d6d092b62260427b56a8ed113c69391d1e274",
     "20260904160000_link_merchant_documents_to_user_documents": "17218dd19ff59b81ae58c3b171c3825d7742c27edba31e7b5c5266c23857bd47",
-    "20260904170000_release_closed_merchant_scope_keys": "9cecf1dc45539122cd07a7e407a8bc93427d7032cb885912d8dc3f34deb460c8"
+    "20260904170000_release_closed_merchant_scope_keys": "9cecf1dc45539122cd07a7e407a8bc93427d7032cb885912d8dc3f34deb460c8",
+    "20260905090000_add_nrms_outlet_order_voided_by": "51f39d6c1f3060f38917a173314e3429dcebef4c01e8302a7c0871ba9178abec",
+    "20260905120000_add_nrms_staff_access_ends_at": "d084061588fdb9f2031f134203418d814f94aeeb997d61c8a062224e349a535d",
+    "20260907090000_add_room_type_staff_rate_floor": "cda08c61fdd24ec910b8646c57e9d164cdb5ad44ec2c69d8e2b1efd7b0007846",
+    "20260910103000_add_nrms_inquiry_sales_workflow": "7f567569fb9b939e0f843cde1447debbb65d28bc0447e3a080dcd123e81fa32f",
+    "20260914120000_add_nrms_booking_key": "b328e2a66f1e1b034e07835083c3573f18a894fa4d48c946a48f9fba5d3ad7e1"
   }
 }

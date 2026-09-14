@@ -482,6 +482,10 @@ model Property {
   /// validated at the API boundary; see nrmsGuestContact.ts.
   nrmsGuestContactSettings Json?
 
+  /// Stable opaque identifier for the public NRMS direct-booking URL. Internal
+  /// numeric property IDs must never be used as public booking capabilities.
+  nrmsBookingKey String @unique @default(cuid()) @db.VarChar(40)
+
   /// Which verified-stay review categories this property asks departing guests
   /// about. Array of keys from NRMS_REVIEW_CATEGORIES, chosen by the owner so a
   /// property without a restaurant is never asked to rate one. Null means the

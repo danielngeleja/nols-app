@@ -506,7 +506,7 @@ export default function NrmsControlsPage() {
             {online ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <CloudOff className="h-4 w-4 shrink-0" />}
             {online ? (queued ? `${queued} changes waiting` : "Synced") : `${queued} saved offline`}
           </span>
-          <ShareBookingButton propertyId={selectedPropertyId} propertyTitle={selectedProperty?.title} />
+          <ShareBookingButton bookingKey={selectedProperty?.nrmsBookingKey} propertyTitle={selectedProperty?.title} />
           <button type="button" onClick={() => void load()} className="inline-flex min-h-10 appearance-none items-center gap-2 rounded-lg border-0 bg-white px-3.5 text-xs font-bold text-neutral-700 shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
       </div>

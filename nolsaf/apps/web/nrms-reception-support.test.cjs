@@ -7,7 +7,7 @@ const ts = require('typescript');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 
-const filename = path.join(__dirname, 'app/nrms/book/[propertyId]/page.tsx');
+const filename = path.join(__dirname, 'app/nrms/book/[bookingKey]/page.tsx');
 const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
@@ -30,7 +30,7 @@ function renderQuote(quote) {
       return require(name);
     },
   }, { filename });
-  return renderToStaticMarkup(React.createElement(module.exports.default, { params: { propertyId: '19' } }));
+  return renderToStaticMarkup(React.createElement(module.exports.default, { params: { bookingKey: 'cktesthotelpublickey12345' } }));
 }
 
 const property = { id: 19, title: 'Test hotel' };

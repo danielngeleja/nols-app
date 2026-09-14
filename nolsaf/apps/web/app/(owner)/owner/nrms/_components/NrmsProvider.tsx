@@ -12,6 +12,7 @@ export type NrmsProperty = {
   status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
   currency: string | null;
   nrmsActivatedAt: string | null;
+  nrmsBookingKey: string;
   nrmsQrOrderingFrozenAt?: string | null;
   nrmsAccessRole?: "OWNER" | "MANAGER" | "SALES_EXECUTIVE" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
   nrmsOutletId?: number | null;

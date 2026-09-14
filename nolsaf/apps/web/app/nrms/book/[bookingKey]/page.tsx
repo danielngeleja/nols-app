@@ -19,8 +19,8 @@ const browserSource = (): DirectSource => {
   return directSources.includes(value as DirectSource) ? value as DirectSource : "OTHER";
 };
 
-export default function DirectBookingPage({ params }: { params: Promise<{ propertyId: string }> }) {
-  const { propertyId } = use(params);
+export default function DirectBookingPage({ params }: { params: Promise<{ bookingKey: string }> }) {
+  const { bookingKey } = use(params);
   const [source] = useState<DirectSource>(browserSource);
   const [search, setSearch] = useState({ checkIn: dayOffset(1), checkOut: dayOffset(2), adults: "2", children: "0" });
   const [quote, setQuote] = useState<any>(null);
@@ -38,15 +38,15 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
   const opened = useRef(false);
 
   const recordEvent = useCallback(async (event: "PAGE_OPEN" | "ROOM_SELECTED" | "INSTAGRAM_CLICK" | "WHATSAPP_CLICK" | "PHONE_CLICK" | "EMAIL_CLICK") => {
-    try { await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/events`, { event, source }); } catch { /* Contact and booking actions must continue when analytics is unavailable. */ }
-  }, [propertyId, source]);
+    try { await apiClient.post(`/api/public/nrms/guest/direct/${encodeURIComponent(bookingKey)}/events`, { event, source }); } catch { /* Contact and booking actions must continue when analytics is unavailable. */ }
+  }, [bookingKey, source]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setSelected(null);
-    try { const response = await apiClient.get(`/api/public/nrms/guest/direct/${propertyId}`, { params: { ...search, source } }); setQuote(response.data); }
+    try { const response = await apiClient.get(`/api/public/nrms/guest/direct/${encodeURIComponent(bookingKey)}`, { params: { ...search, source } }); setQuote(response.data); }
     catch (requestError: any) { setQuote(null); setError(requestError?.response?.data?.error || "Live rates are unavailable."); }
     finally { setLoading(false); }
-  }, [propertyId, search, source]);
+  }, [bookingKey, search, source]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (!opened.current) { opened.current = true; void recordEvent("PAGE_OPEN"); } }, [recordEvent]);
 
@@ -63,7 +63,7 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
   const captureInquiry = useCallback(async (channel: "WEB" | "INSTAGRAM" | "WHATSAPP" | "PHONE" | "EMAIL", message?: string) => {
     if (channel === "WEB") setInquiryBusy(true);
     try {
-      const response = await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/inquiries`, {
+      const response = await apiClient.post(`/api/public/nrms/guest/direct/${encodeURIComponent(bookingKey)}/inquiries`, {
         sessionRef, channel, source, guestName: guest.fullName.trim() || null, guestPhone: guest.phone.trim() || null, guestEmail: guest.email.trim() || null,
         checkIn: search.checkIn, checkOut: search.checkOut, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected?.roomType?.id ?? null,
         message: message || null,
@@ -72,7 +72,7 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
     } catch (requestError: any) {
       if (channel === "WEB") setInquiryFeedback(requestError?.response?.data?.error || "Reception could not receive the request. Please use another contact option.");
     } finally { if (channel === "WEB") setInquiryBusy(false); }
-  }, [guest, propertyId, search, selected, sessionRef, source]);
+  }, [bookingKey, guest, search, selected, sessionRef, source]);
   const setCheckIn = (iso: string) => setSearch((current) => ({ ...current, checkIn: iso, checkOut: current.checkOut > iso ? current.checkOut : addDay(iso) }));
   const setAdults = (next: number) => setSearch((current) => ({ ...current, adults: String(Math.min(20, Math.max(1, next))) }));
 
@@ -80,7 +80,7 @@ export default function DirectBookingPage({ params }: { params: Promise<{ proper
     if (!selected || !validGuest) return;
     setLoading(true); setError(null);
     try {
-      const response = await apiClient.post(`/api/public/nrms/guest/direct/${propertyId}/hold`, { clientRequestId: holdRequestId.current, ...search, source, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected.roomType.id, ratePlanId: selected.ratePlan?.id ?? null, guest: { fullName: guest.fullName, phone: guest.phone, email: guest.email || null, nationality: guest.nationality || null }, termsAccepted: true });
+      const response = await apiClient.post(`/api/public/nrms/guest/direct/${encodeURIComponent(bookingKey)}/hold`, { clientRequestId: holdRequestId.current, ...search, source, adults: Number(search.adults), children: Number(search.children), roomTypeId: selected.roomType.id, ratePlanId: selected.ratePlan?.id ?? null, guest: { fullName: guest.fullName, phone: guest.phone, email: guest.email || null, nationality: guest.nationality || null }, termsAccepted: true });
       setHold(response.data.hold);
     } catch (requestError: any) { setError(requestError?.response?.data?.error || "The room could not be held."); }
     finally { setLoading(false); }

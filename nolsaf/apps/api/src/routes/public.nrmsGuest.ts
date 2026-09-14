@@ -55,6 +55,7 @@ const DIRECT_SOURCES = ["DIRECT", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "EMAIL", 
 const DIRECT_EVENTS = ["PAGE_OPEN", "AVAILABILITY_SEARCH", "ROOM_SELECTED", "INSTAGRAM_CLICK", "WHATSAPP_CLICK", "PHONE_CLICK", "EMAIL_CLICK", "HOLD_CREATED"] as const;
 const INQUIRY_CHANNELS = ["WEB", "INSTAGRAM", "WHATSAPP", "PHONE", "EMAIL"] as const;
 const directSourceSchema = z.preprocess((value) => String(value || "DIRECT").trim().toUpperCase(), z.enum(DIRECT_SOURCES));
+const bookingKeySchema = z.string().min(20).max(40).regex(/^[a-z0-9]+$/);
 const directQuoteSchema = z.object({ checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), adults: z.coerce.number().int().min(1).max(20).default(1), children: z.coerce.number().int().min(0).max(20).default(0), source: directSourceSchema.default("DIRECT") });
 const directHoldSchema = directQuoteSchema.extend({ clientRequestId: z.string().uuid(), roomTypeId: z.number().int().positive(), ratePlanId: z.number().int().positive().nullable().optional(), guest: z.object({ fullName: z.string().trim().min(2).max(160), phone: z.string().trim().min(7).max(40), email: z.string().trim().email().max(160).nullable().optional(), nationality: z.string().trim().max(80).nullable().optional() }), termsAccepted: z.literal(true) });
 const guestCheckoutSchema = z.discriminatedUnion("channel", [
@@ -130,12 +131,13 @@ async function guestPaymentOptions(paymentRequest: NonNullable<GuestPaymentRow>)
   };
 }
 
-async function directQuote(propertyId: number, input: z.infer<typeof directQuoteSchema>, requestedRoomTypeId?: number, requestedRatePlanId?: number | null) {
+async function directQuote(bookingKey: string, input: z.infer<typeof directQuoteSchema>, requestedRoomTypeId?: number, requestedRatePlanId?: number | null) {
   const checkIn = dateOnly(input.checkIn); const checkOut = dateOnly(input.checkOut); const stayNights = nightsBetween(checkIn, checkOut);
   const today = dateOnly(new Date().toISOString().slice(0, 10)); const advanceDays = Math.floor((checkIn.getTime() - today.getTime()) / 86_400_000); const stayDates = Array.from({ length: Math.max(0, stayNights) }, (_, offset) => new Date(checkIn.getTime() + offset * 86_400_000));
   if (checkIn < today || stayNights < 1 || stayNights > 365) throw new Error("INVALID_DATES");
-  const property = await prisma.property.findFirst({ where: { id: propertyId, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true, ownerId: true, title: true, currency: true, nrmsGuestContactSettings: true } });
+  const property = await prisma.property.findFirst({ where: { nrmsBookingKey: bookingKey, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true, ownerId: true, title: true, currency: true, nrmsGuestContactSettings: true } });
   if (!property) throw new Error("PROPERTY_NOT_FOUND");
+  const propertyId = property.id;
   const roomTypes = await prisma.roomType.findMany({ where: { propertyId, status: "ACTIVE", baseRate: { not: null }, ...(requestedRoomTypeId ? { id: requestedRoomTypeId } : {}) }, include: { ratePlans: { where: { status: "ACTIVE", ...(requestedRatePlanId ? { id: requestedRatePlanId } : {}) }, include: { seasons: { where: { status: "ACTIVE", startDate: { lte: checkOut }, endDate: { gte: checkIn } }, orderBy: { priority: "desc" } } }, orderBy: [{ isDefault: "desc" }, { id: "asc" }] } }, orderBy: { sortOrder: "asc" } });
   const roomRestrictionScope = requestedRoomTypeId
     ? [{ roomTypeId: requestedRoomTypeId }]
@@ -179,29 +181,32 @@ async function directQuote(propertyId: number, input: z.infer<typeof directQuote
   return { property, checkIn, checkOut, stayNights, quotes };
 }
 
-router.get("/direct/:propertyId", limitPublicNrmsDirectQuote as RequestHandler, (async (req, res: Response) => {
+router.get("/direct/:bookingKey", limitPublicNrmsDirectQuote as RequestHandler, (async (req, res: Response) => {
   const parsed = directQuoteSchema.safeParse(req.query); if (!parsed.success) return res.status(400).json({ error: "Choose valid check-in and check-out dates" });
-  try { const quote = await directQuote(Number(req.params.propertyId), parsed.data); await recordDirectMetric(quote.property.id, "AVAILABILITY_SEARCH", parsed.data.source); res.json({ property: { id: quote.property.id, title: quote.property.title }, contact: publicNrmsGuestContact(quote.property.nrmsGuestContactSettings), checkIn: quote.checkIn, checkOut: quote.checkOut, nights: quote.stayNights, quotes: quote.quotes }); }
+  const key = bookingKeySchema.safeParse(req.params.bookingKey); if (!key.success) return res.status(404).json({ error: "Direct booking is not available for this property" });
+  try { const quote = await directQuote(key.data, parsed.data); await recordDirectMetric(quote.property.id, "AVAILABILITY_SEARCH", parsed.data.source); res.json({ property: { title: quote.property.title }, contact: publicNrmsGuestContact(quote.property.nrmsGuestContactSettings), checkIn: quote.checkIn, checkOut: quote.checkOut, nights: quote.stayNights, quotes: quote.quotes }); }
   catch (error) { if (error instanceof Error && error.message === "PROPERTY_NOT_FOUND") return res.status(404).json({ error: "Direct booking is not available for this property" }); if (error instanceof Error && error.message === "INVALID_DATES") return res.status(400).json({ error: "Stay dates must be future dates with check-out after check-in" }); console.error("[public.nrms.guest] direct quote failed", error); res.status(500).json({ error: "A live quote could not be prepared" }); }
 }) as RequestHandler);
 
-router.post("/direct/:propertyId/events", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
+router.post("/direct/:bookingKey/events", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
   const parsed = z.object({ event: z.enum(DIRECT_EVENTS), source: directSourceSchema.default("DIRECT") }).safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid direct-booking event" });
-  const propertyId = Number(req.params.propertyId);
-  if (!Number.isInteger(propertyId) || propertyId <= 0) return res.status(400).json({ error: "Invalid property" });
-  const property = await prisma.property.findFirst({ where: { id: propertyId, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true } });
+  const key = bookingKeySchema.safeParse(req.params.bookingKey);
+  if (!key.success) return res.status(404).json({ error: "Direct booking is not available for this property" });
+  const property = await prisma.property.findFirst({ where: { nrmsBookingKey: key.data, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true } });
   if (!property) return res.status(404).json({ error: "Direct booking is not available for this property" });
   await recordDirectMetric(property.id, parsed.data.event, parsed.data.source);
   res.status(202).json({ recorded: true });
 }) as RequestHandler);
 
-router.post("/direct/:propertyId/inquiries", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
+router.post("/direct/:bookingKey/inquiries", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
   const parsed = directInquirySchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Complete the reception request", details: parsed.error.flatten() });
-  const propertyId = Number(req.params.propertyId);
-  const property = await prisma.property.findFirst({ where: { id: propertyId, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true, ownerId: true, title: true, nrmsGuestContactSettings: true } });
+  const key = bookingKeySchema.safeParse(req.params.bookingKey);
+  if (!key.success) return res.status(404).json({ error: "Direct booking is not available for this property" });
+  const property = await prisma.property.findFirst({ where: { nrmsBookingKey: key.data, status: "APPROVED", nrmsActivatedAt: { not: null } }, select: { id: true, ownerId: true, title: true, nrmsGuestContactSettings: true } });
   if (!property) return res.status(404).json({ error: "Direct booking is not available for this property" });
+  const propertyId = property.id;
   if (parsed.data.roomTypeId && !(await prisma.roomType.count({ where: { id: parsed.data.roomTypeId, propertyId, status: "ACTIVE" } }))) return res.status(400).json({ error: "The selected room is no longer available" });
   const now = new Date();
   const existing = await prisma.nrmsGuestInquiry.findFirst({ where: { propertyId, sessionRef: parsed.data.sessionRef, channel: parsed.data.channel, status: { notIn: ["CONVERTED", "CLOSED"] } }, select: { id: true, reference: true, status: true, autoAcknowledgedAt: true } });
@@ -243,10 +248,11 @@ router.post("/direct/:propertyId/inquiries", limitPublicNrmsGuestCapability as R
   res.status(existing ? 200 : 201).json({ inquiry: { id: inquiry.id, reference: inquiry.reference, status: existing ? (existing.status === "NEW" ? "NEW" : "OPEN") : "NEW" }, acknowledgement: { message: acknowledgement, automated: shouldAcknowledge } });
 }) as RequestHandler);
 
-router.post("/direct/:propertyId/hold", limitPublicNrmsDirectHold as RequestHandler, (async (req, res: Response) => {
+router.post("/direct/:bookingKey/hold", limitPublicNrmsDirectHold as RequestHandler, (async (req, res: Response) => {
   const parsed = directHoldSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Complete the guest details and accept the booking terms", details: parsed.error.flatten() });
   try {
-    const propertyId = Number(req.params.propertyId); const quote = await directQuote(propertyId, parsed.data, parsed.data.roomTypeId, parsed.data.ratePlanId); const selected = quote.quotes.find((item) => item.roomType.id === parsed.data.roomTypeId && (!parsed.data.ratePlanId || item.ratePlan?.id === parsed.data.ratePlanId)); if (!selected) return res.status(409).json({ error: "The selected room or rate is no longer available" });
+    const key = bookingKeySchema.safeParse(req.params.bookingKey); if (!key.success) return res.status(404).json({ error: "Direct booking is not available for this property" });
+    const quote = await directQuote(key.data, parsed.data, parsed.data.roomTypeId, parsed.data.ratePlanId); const propertyId = quote.property.id; const selected = quote.quotes.find((item) => item.roomType.id === parsed.data.roomTypeId && (!parsed.data.ratePlanId || item.ratePlan?.id === parsed.data.ratePlanId)); if (!selected) return res.status(409).json({ error: "The selected room or rate is no longer available" });
     const holdExpiresAt = new Date(Date.now() + 30 * 60_000); const publicToken = crypto.randomBytes(24).toString("base64url");
     const externalRef = directHoldExternalRef(propertyId, parsed.data.clientRequestId);
     const result = await prisma.$transaction(async (tx) => {
