@@ -198,7 +198,7 @@ export default function AdminGroupStaysRequestsPage() {
         const arrangementShare = stats.totalPending > 0 ? Math.round((stats.withArrangements / stats.totalPending) * 100) : 0;
         const tiles = [
           { icon: AlertCircle, tone: "bg-amber-50 text-amber-600", label: "Awaiting review", value: stats.totalPending, sub: stats.totalPending === 1 ? "1 request to review" : `${stats.totalPending.toLocaleString()} requests to review` },
-          { icon: UsersRound, tone: "bg-blue-50 text-blue-600", label: "With arrangements", value: stats.withArrangements, sub: stats.totalPending > 0 ? `${arrangementShare}% of pending` : "No pending requests" },
+          { icon: UsersRound, tone: "bg-blue-50 text-blue-600", label: "With extra services", value: stats.withArrangements, sub: stats.totalPending > 0 ? `${arrangementShare}% of pending` : "No pending requests" },
           { icon: TrendingUp, tone: "bg-purple-50 text-purple-600", label: "Group types", value: groupTypeCount, sub: topType ? `Most: ${humanizeGroupLabel(topType[0])} (${topType[1]})` : "None yet" },
           { icon: MapPin, tone: "bg-emerald-50 text-emerald-600", label: "Regions", value: regionCount, sub: topRegion ? `Top: ${formatPlaceName(topRegion[0])} (${topRegion[1]})` : "None yet" },
         ];
@@ -502,7 +502,7 @@ export default function AdminGroupStaysRequestsPage() {
                     <th className="whitespace-nowrap px-4 py-3">Customer</th>
                     <th className="whitespace-nowrap px-4 py-3">Destination</th>
                     <th className="whitespace-nowrap px-4 py-3">Check-in</th>
-                    <th className="whitespace-nowrap px-4 py-3">Arrangements</th>
+                    <th className="whitespace-nowrap px-4 py-3">Extra services</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -540,7 +540,7 @@ export default function AdminGroupStaysRequestsPage() {
                     <th className="whitespace-nowrap px-4 py-3">Customer</th>
                     <th className="whitespace-nowrap px-4 py-3">Destination</th>
                     <th className="whitespace-nowrap px-4 py-3">Check-in</th>
-                    <th className="whitespace-nowrap px-4 py-3">Arrangements</th>
+                    <th className="whitespace-nowrap px-4 py-3">Extra services</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -651,7 +651,7 @@ export default function AdminGroupStaysRequestsPage() {
                     <span>Check-In: {request.checkIn ? new Date(request.checkIn).toLocaleDateString() : "Flexible"}</span>
                   </div>
                   <div className="text-sm text-gray-600 mb-2">
-                    <span className="font-medium">Arrangements: </span>
+                    <span className="font-medium">Extra services: </span>
                     <div className="flex items-center gap-1 flex-wrap mt-1">
                       {request.arrPickup && <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">Pickup</span>}
                       {request.arrTransport && <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">Transport</span>}
@@ -791,7 +791,7 @@ export default function AdminGroupStaysRequestsPage() {
                         <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
                           <Wrench className="h-3.5 w-3.5" />
                         </span>
-                        <h4 className="m-0 text-sm font-bold text-neutral-900">Arrangements</h4>
+                        <h4 className="m-0 text-sm font-bold text-neutral-900">Extra services</h4>
                       </div>
                       <div className="flex flex-wrap gap-1.5 sm:ml-auto">
                         {arrangements.length === 0 ? (

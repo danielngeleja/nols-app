@@ -832,7 +832,7 @@ export default function AdminGroupStayAssignmentsPage() {
             <Users className="h-5 w-5 sm:h-6 sm:w-6" />
           </span>
           <div className="min-w-0">
-            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Group Stay Assignments</h1>
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Owner matching</h1>
             <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Assign owners, link properties and run owner auctions</p>
           </div>
         </div>

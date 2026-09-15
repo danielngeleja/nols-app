@@ -262,7 +262,7 @@ export default function AdminGroupStaysArrangementsPage() {
             <Wrench className="h-5 w-5 sm:h-6 sm:w-6" />
           </span>
           <div className="min-w-0">
-            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Arrangements</h1>
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Extra services</h1>
             <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Extra services customers asked for on their group stays</p>
           </div>
         </div>
@@ -588,7 +588,7 @@ export default function AdminGroupStaysArrangementsPage() {
             <span className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
               <AlertCircle className="h-5 w-5" />
             </span>
-            <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">Could not load arrangements</p>
+            <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">Could not load extra services</p>
             <p className="m-0 mt-1 text-xs text-neutral-500">{error}</p>
             <button
               type="button"
@@ -600,7 +600,7 @@ export default function AdminGroupStaysArrangementsPage() {
           </div>
         ) : loading && list.length === 0 ? (
           <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500" role="status" aria-live="polite">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading arrangements
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading bookings
           </div>
         ) : list.length === 0 ? (
           <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
@@ -761,7 +761,7 @@ export default function AdminGroupStaysArrangementsPage() {
           { label: "Stay", value: fmtDay(b.checkIn) || "Dates not set", sub: b.checkOut ? `Until ${fmtDay(b.checkOut)}${nights ? ` · ${nights} ${nights === 1 ? "night" : "nights"}` : ""}` : null },
         ];
         return (
-          <div className={`fixed inset-0 z-50 ${detailsVisible ? "" : "pointer-events-none"}`} aria-modal="true" role="dialog" aria-label="Arrangement details">
+          <div className={`fixed inset-0 z-50 ${detailsVisible ? "" : "pointer-events-none"}`} aria-modal="true" role="dialog" aria-label="Extra services details">
             <div className={`absolute inset-0 bg-neutral-900/50 transition-opacity duration-200 ease-out ${detailsVisible ? "opacity-100" : "opacity-0"}`} onClick={closeDetails} />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
               <div

@@ -250,7 +250,7 @@ export default function AdminGroupStaysPassengersPage() {
             <UsersRound className="h-5 w-5 sm:h-6 sm:w-6" />
           </span>
           <div className="min-w-0">
-            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Passengers</h1>
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Guests</h1>
             <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Everyone travelling on group stay bookings</p>
           </div>
         </div>
@@ -271,7 +271,7 @@ export default function AdminGroupStaysPassengersPage() {
         const nations = stats.topNationalities?.length ? stats.topNationalities : ranked(stats.nationalityStats).map(([nationality, count]) => ({ nationality, count }));
         const pctOf = (n: number) => (stats.totalPassengers > 0 ? Math.round((n / stats.totalPassengers) * 100) : 0);
         const tiles = [
-          { icon: Users, tone: "bg-emerald-50 text-emerald-600", label: "Total passengers", value: stats.totalPassengers.toLocaleString(), sub: `${Object.values(stats.groupTypeStats || {}).filter((n) => n > 0).length} group types` },
+          { icon: Users, tone: "bg-emerald-50 text-emerald-600", label: "Total guests", value: stats.totalPassengers.toLocaleString(), sub: `${Object.values(stats.groupTypeStats || {}).filter((n) => n > 0).length} group types` },
           { icon: Calendar, tone: "bg-blue-50 text-blue-600", label: "Average age", value: stats.averageAge > 0 ? `${stats.averageAge} yrs` : "Not given", sub: ages[0] ? `Most common: ${ages[0][0]}` : "No ages recorded" },
           { icon: User, tone: "bg-violet-50 text-violet-600", label: "Gender split", value: genders.length ? genders.slice(0, 2).map(([g, n]) => `${pctOf(n)}%`).join(" / ") : "Not given", sub: genders.length ? genders.slice(0, 2).map(([g]) => g).join(" / ") : "No genders recorded" },
           { icon: Globe, tone: "bg-amber-50 text-amber-600", label: "Nationalities", value: Object.values(stats.nationalityStats || {}).filter((n) => n > 0).length.toLocaleString(), sub: nations[0] ? `Top: ${nations[0].nationality} (${nations[0].count})` : "None recorded" },
@@ -502,7 +502,7 @@ export default function AdminGroupStaysPassengersPage() {
             </span>
             <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No passengers found</p>
             <p className="m-0 mt-1 text-xs text-neutral-500">
-              {activeFilters > 0 ? "Try removing a filter or changing the search." : "Passengers appear here once customers add their group roster."}
+              {activeFilters > 0 ? "Try removing a filter or changing the search." : "Guests appear here once customers add their group roster."}
             </p>
           </div>
         ) : (
@@ -512,7 +512,7 @@ export default function AdminGroupStaysPassengersPage() {
               <table className="table w-full min-w-[1080px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
-                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold sm:pl-5">Passenger</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold sm:pl-5">Guest</th>
                     <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Age · Gender</th>
                     <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Nationality</th>
                     <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Booking</th>
@@ -675,7 +675,7 @@ export default function AdminGroupStaysPassengersPage() {
             onClick={closePassengerModal}
             role="dialog"
             aria-modal="true"
-            aria-label="Passenger details"
+            aria-label="Guest details"
           >
             <div
               className={`flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-2xl transition-all duration-200 ease-out ${

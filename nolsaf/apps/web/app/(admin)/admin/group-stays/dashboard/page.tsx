@@ -228,7 +228,7 @@ export default function GroupStaysDashboardPage() {
                 <TrendingUp className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Passengers</div>
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Guests</div>
                 <div className="text-2xl font-bold text-gray-900 tabular-nums">
                   {loading ? <span className="inline-block h-7 w-16 bg-gray-200 rounded animate-pulse" /> : (summary.totalPassengers || 0).toLocaleString()}
                 </div>
@@ -286,7 +286,7 @@ export default function GroupStaysDashboardPage() {
               <Users className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Passengers</div>
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Guests</div>
               <div className="text-base font-bold text-gray-900 group-hover:text-emerald-700 transition-colors">Manage Roster</div>
             </div>
             <svg className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -302,7 +302,7 @@ export default function GroupStaysDashboardPage() {
               <Wrench className="h-5 w-5 text-amber-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Arrangements</div>
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Extra services</div>
               <div className="text-base font-bold text-gray-900 group-hover:text-amber-700 transition-colors">Services</div>
             </div>
             <svg className="h-4 w-4 text-gray-300 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

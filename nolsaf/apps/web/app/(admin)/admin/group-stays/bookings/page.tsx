@@ -1551,7 +1551,7 @@ export default function AdminGroupStaysBookingsPage() {
                             <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
                               <FileText className="h-3.5 w-3.5" />
                             </span>
-                            <h4 className="m-0 text-sm font-bold text-neutral-900">Arrangements</h4>
+                            <h4 className="m-0 text-sm font-bold text-neutral-900">Extra services</h4>
                           </div>
                           <div className="flex flex-wrap gap-1.5 sm:ml-auto">
                             {[
@@ -1627,7 +1627,7 @@ export default function AdminGroupStaysBookingsPage() {
                           <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-teal-50">
                             <Users className="h-3.5 w-3.5 text-teal-600" />
                           </span>
-                          <h4 className="m-0 text-sm font-semibold text-neutral-900">Passengers</h4>
+                          <h4 className="m-0 text-sm font-semibold text-neutral-900">Guests</h4>
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-neutral-600">
                             {passengers.length} registered
                           </span>
@@ -2207,7 +2207,7 @@ export default function AdminGroupStaysBookingsPage() {
                                   <Gift className="h-5 w-5 text-emerald-600" />
                                 </div>
                                 <div>
-                                  <h4 className="text-lg font-bold text-gray-900">Submitted Claims & Offers</h4>
+                                  <h4 className="text-lg font-bold text-gray-900">Owner offers</h4>
                                   <p className="text-xs text-gray-600 mt-0.5">Review and select top 3 recommendations for customer</p>
                                 </div>
                               </div>
@@ -2617,7 +2617,7 @@ export default function AdminGroupStaysBookingsPage() {
                             ) : claimsData && claimsData.claims && claimsData.claims.length === 0 ? (
                               <div className="bg-white/90 rounded-xl p-8 border border-emerald-200 text-center">
                                 <Gift className="h-8 w-8 text-gray-400 mx-auto mb-3" />
-                                <p className="text-sm text-gray-600 font-medium mb-1">No Claims Submitted Yet</p>
+                                <p className="text-sm text-gray-600 font-medium mb-1">No owner offers yet</p>
                                 <p className="text-xs text-gray-500">
                                   Owners can submit competitive offers when this booking is open for claims.
                                 </p>
@@ -2628,7 +2628,7 @@ export default function AdminGroupStaysBookingsPage() {
                                   onClick={() => bookingDetails && loadClaims(bookingDetails.id)}
                                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-all"
                                 >
-                                  Load Submitted Claims
+                                  Load owner offers
                                 </button>
                               </div>
                             )}

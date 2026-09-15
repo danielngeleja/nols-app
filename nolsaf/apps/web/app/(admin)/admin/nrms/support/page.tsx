@@ -1,24 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  BedDouble,
   Building2,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  Circle,
+  ClipboardList,
   Clock3,
   Download,
+  ExternalLink,
   Eye,
   FileSpreadsheet,
   FileText,
-  Hotel,
-  Info,
+  History,
   LockKeyhole,
   Loader2,
+  Mail,
+  Phone,
   RefreshCw,
+  Search,
   ShieldCheck,
+  User,
+  Users,
+  UtensilsCrossed,
+  X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
@@ -72,21 +83,23 @@ type ExportForm = {
   reason: string;
 };
 
-const STATUS_BADGE: Record<string, string> = {
-  TRIAL: "border-sky-200 bg-sky-50 text-sky-700",
-  ACTIVE: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  WARNING: "border-amber-200 bg-amber-50 text-amber-700",
-  PAYMENT_REQUIRED: "border-red-200 bg-red-50 text-red-700",
-  PAYMENT_PENDING: "border-violet-200 bg-violet-50 text-violet-700",
-  CLOSED: "border-neutral-200 bg-neutral-100 text-neutral-600",
+// Account status look. Classes spelled out for Tailwind.
+const STATUS: Record<string, { label: string; text: string; dot: string; soft: string }> = {
+  TRIAL: { label: "Trial", text: "text-sky-700", dot: "bg-sky-500", soft: "bg-sky-50" },
+  ACTIVE: { label: "Active", text: "text-emerald-700", dot: "bg-emerald-500", soft: "bg-emerald-50" },
+  WARNING: { label: "Warning", text: "text-amber-700", dot: "bg-amber-500", soft: "bg-amber-50" },
+  PAYMENT_REQUIRED: { label: "Payment required", text: "text-rose-700", dot: "bg-rose-500", soft: "bg-rose-50" },
+  PAYMENT_PENDING: { label: "Payment pending", text: "text-violet-700", dot: "bg-violet-500", soft: "bg-violet-50" },
+  CLOSED: { label: "Closed", text: "text-neutral-600", dot: "bg-neutral-400", soft: "bg-neutral-100" },
 };
+const statusOf = (s: string) => STATUS[s] || { label: s.replaceAll("_", " "), text: "text-neutral-600", dot: "bg-neutral-400", soft: "bg-neutral-100" };
 
-const ROOM_TONE: Record<string, { bar: string; badge: string }> = {
-  CLEAN: { bar: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-700" },
-  INSPECTED: { bar: "bg-teal-500", badge: "bg-teal-50 text-teal-700" },
-  DIRTY: { bar: "bg-red-400", badge: "bg-red-50 text-red-700" },
-  IN_PROGRESS: { bar: "bg-amber-400", badge: "bg-amber-50 text-amber-700" },
-  OUT_OF_SERVICE: { bar: "bg-neutral-400", badge: "bg-neutral-100 text-neutral-600" },
+const ROOM_TONE: Record<string, { bar: string; label: string }> = {
+  CLEAN: { bar: "bg-emerald-500", label: "Clean" },
+  INSPECTED: { bar: "bg-teal-500", label: "Inspected" },
+  DIRTY: { bar: "bg-rose-400", label: "Dirty" },
+  IN_PROGRESS: { bar: "bg-amber-400", label: "In progress" },
+  OUT_OF_SERVICE: { bar: "bg-neutral-400", label: "Out of service" },
 };
 
 function formatMoney(value: number): string {
@@ -95,24 +108,12 @@ function formatMoney(value: number): string {
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Not available";
-  return new Date(value).toLocaleDateString("en-TZ", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Africa/Dar_es_Salaam",
-  });
+  return new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 }
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "Not available";
-  return new Date(value).toLocaleString("en-TZ", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Africa/Dar_es_Salaam",
-  });
+  return new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" });
 }
 
 async function exportErrorMessage(cause: any): Promise<string> {
@@ -141,6 +142,9 @@ export default function SupportPage() {
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [exportHistory, setExportHistory] = useState<{ propertyId: number; title: string; format: string; from: string; to: string; at: string }[]>([]);
   const [form, setForm] = useState<ExportForm>({ format: "PDF", from: "", to: "", reason: "" });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const pickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -148,12 +152,10 @@ export default function SupportPage() {
     apiClient
       .get("/api/admin/nrms/commercial/accounts")
       .then((response) => {
-        if (!active) return;
-        setAccounts(response.data?.accounts ?? []);
+        if (active) setAccounts(response.data?.accounts ?? []);
       })
       .catch((cause: any) => {
-        if (!active) return;
-        setError(cause?.response?.data?.error || "Failed to load NRMS properties");
+        if (active) setError(cause?.response?.data?.error || "Failed to load NRMS properties");
       })
       .finally(() => {
         if (active) setLoadingAccounts(false);
@@ -163,11 +165,25 @@ export default function SupportPage() {
     };
   }, []);
 
-  const selectedAccount = useMemo(
-    () => accounts.find((account) => String(account.propertyId) === propertyId) ?? null,
-    [accounts, propertyId],
-  );
+  // Close the property picker on outside click.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [pickerOpen]);
+
+  const selectedAccount = useMemo(() => accounts.find((a) => String(a.propertyId) === propertyId) ?? null, [accounts, propertyId]);
   const today = useMemo(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()), []);
+
+  const filteredAccounts = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    return accounts
+      .filter((a) => !q || a.propertyTitle.toLowerCase().includes(q) || String(a.propertyId) === q.replace(/^#/, ""))
+      .sort((a, b) => a.propertyTitle.localeCompare(b.propertyTitle));
+  }, [accounts, pickerQuery]);
 
   const choosePeriod = (days: number) => {
     const start = new Date(`${today}T12:00:00Z`);
@@ -175,15 +191,11 @@ export default function SupportPage() {
     setForm((previous) => ({ ...previous, from: start.toISOString().slice(0, 10), to: today }));
   };
 
-  const roomTotal = useMemo(
-    () => snapshot?.operations.rooms.reduce((total, row) => total + row.count, 0) ?? 0,
-    [snapshot],
-  );
+  const periodDays = form.from && form.to ? Math.round((new Date(`${form.to}T12:00:00Z`).getTime() - new Date(`${form.from}T12:00:00Z`).getTime()) / 86400000) + 1 : null;
 
+  const roomTotal = useMemo(() => snapshot?.operations.rooms.reduce((total, row) => total + row.count, 0) ?? 0, [snapshot]);
   const readyRooms = useMemo(
-    () => snapshot?.operations.rooms
-      .filter((row) => row.status === "CLEAN" || row.status === "INSPECTED")
-      .reduce((total, row) => total + row.count, 0) ?? 0,
+    () => snapshot?.operations.rooms.filter((row) => row.status === "CLEAN" || row.status === "INSPECTED").reduce((total, row) => total + row.count, 0) ?? 0,
     [snapshot],
   );
 
@@ -198,13 +210,13 @@ export default function SupportPage() {
     return null;
   }, [form, today]);
 
-  const loadSnapshot = async () => {
-    if (!propertyId || loadingSnapshot || exporting) return;
+  const loadSnapshot = async (id: string = propertyId) => {
+    if (!id || loadingSnapshot || exporting) return;
     setLoadingSnapshot(true);
     setError(null);
     setNotice(null);
     try {
-      const response = await apiClient.get(`/api/admin/nrms/support/property/${propertyId}/snapshot`);
+      const response = await apiClient.get(`/api/admin/nrms/support/property/${id}/snapshot`);
       setSnapshot(response.data);
       setLoadedAt(new Date().toISOString());
     } catch (cause: any) {
@@ -212,6 +224,19 @@ export default function SupportPage() {
     } finally {
       setLoadingSnapshot(false);
     }
+  };
+
+  // Picking a property opens its snapshot straight away.
+  const pickProperty = (id: number) => {
+    const next = String(id);
+    setPickerOpen(false);
+    setPickerQuery("");
+    if (next === propertyId && snapshot) return;
+    setPropertyId(next);
+    setSnapshot(null);
+    setTab("overview");
+    setForm({ format: "PDF", from: "", to: "", reason: "" });
+    void loadSnapshot(next);
   };
 
   const exportFile = async () => {
@@ -245,323 +270,487 @@ export default function SupportPage() {
     }
   };
 
-  const metricCards = snapshot
-    ? [
-        {
-          label: "Account",
-          value: snapshot.account.status.replaceAll("_", " "),
-        },
-        {
-          label: "Outstanding",
-          value: formatMoney(snapshot.account.unpaidBalance),
-        },
-        {
-          label: "Open stays",
-          value: String(snapshot.operations.openReservations),
-        },
-        {
-          label: "Open orders",
-          value: String(snapshot.operations.openOrders),
-        },
-        {
-          label: "Housekeeping",
-          value: String(snapshot.operations.openHousekeeping),
-        },
-      ]
-    : [];
+  const sessionExports = snapshot ? exportHistory.filter((row) => row.propertyId === snapshot.property.id) : [];
+  const rangeOk = Boolean(form.from && form.to && form.to >= form.from && form.to <= today && periodDays != null && periodDays <= 367);
+  const checklist = [
+    { label: "Property snapshot loaded", ready: Boolean(snapshot) },
+    { label: "Reporting period (EAT)", ready: rangeOk },
+    { label: "Audit reason", ready: form.reason.trim().length >= 5 },
+  ];
 
   return (
-    <div id="nrms-support" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
-      <style>{`#nrms-support, #nrms-support * {box-sizing:border-box;} #nrms-support [class~="border"] {border-style:solid;} #nrms-support .grid > * {min-width:0;} #nrms-support .text-neutral-400 {color:#64748b;} #nrms-support section > div[class*="py-5"] {padding-top:16px;padding-bottom:16px;}`}</style>
-      <header className="relative isolate overflow-hidden rounded-2xl border border-[#dedde8] bg-[#f5f3ee] px-5 py-5 sm:px-6">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-[42%] opacity-60" style={{ backgroundImage: "radial-gradient(circle, #aaa6c5 1px, transparent 1px)", backgroundSize: "16px 16px", maskImage: "linear-gradient(to right, transparent, black)" }} />
-        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-20 -z-10 h-64 w-64 rotate-12 rounded-[48px] border border-indigo-200 bg-[#e8e5f2]/70" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              <span>NRMS / Support operations</span>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white/70 px-2 py-1 text-indigo-700"><LockKeyhole className="h-3 w-3" /> Read-only context</span>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-8px_rgba(79,70,229,0.6)]"><Eye className="h-5 w-5" /></span>
-              <div className="min-w-0">
-                <h1 className="m-0 text-2xl font-bold tracking-tight text-slate-950">Support workspace</h1>
-                <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-slate-500">Review property context, investigate operations and prepare dispute evidence.</p>
-              </div>
+    <div className="space-y-5 w-full min-w-0">
+      {/* Header */}
+      <header className="rounded-2xl border border-solid border-indigo-100 bg-white">
+        <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between sm:px-6">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><Eye className="h-5 w-5" /></span>
+            <div className="min-w-0">
+              <p className="m-0 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                <Link href="/admin/nrms" className="text-neutral-500 no-underline hover:text-neutral-900">NRMS</Link>
+                <ChevronRight className="h-3 w-3 text-neutral-300" />
+                <span>Support operations</span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700"><LockKeyhole className="h-3 w-3" /> Read only</span>
+              </p>
+              <h1 className="m-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-950">Support workspace</h1>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-indigo-600 px-4 text-xs font-bold text-white hover:bg-indigo-700"><LockKeyhole className="h-3.5 w-3.5" />Unlock finance actions</button>
-          <Link href="/admin/nrms" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white/90 px-4 text-xs font-bold text-indigo-800 no-underline transition hover:bg-indigo-50">
-            NRMS directory <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("finance-grant-required"))} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border-0 bg-indigo-600 px-3.5 text-xs font-semibold text-white transition hover:bg-indigo-700">
+              <LockKeyhole className="h-3.5 w-3.5" /> Unlock finance actions
+            </button>
+            <Link href="/admin/nrms" className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3.5 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
+              NRMS directory <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
         </div>
-        <div className="relative mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-slate-600">
-          <span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5 text-indigo-500" /> Guest identifiers redacted in exports</span>
-          <span className="inline-flex items-center gap-2"><Clock3 className="h-3.5 w-3.5 text-indigo-500" /> Audited exports with owner notification</span>
+
+        {/* Property picker: the heart of the page */}
+        <div className="border-0 border-t border-solid border-indigo-100 bg-indigo-50/40 px-5 py-4 sm:px-6">
+          <div ref={pickerRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              disabled={loadingAccounts || exporting}
+              aria-expanded={pickerOpen}
+              aria-haspopup="listbox"
+              className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2.5 text-left shadow-sm transition hover:border-indigo-300 disabled:opacity-60"
+            >
+              <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${selectedAccount ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-400"}`}>
+                <Building2 className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                {selectedAccount ? (
+                  <>
+                    <span className="block truncate text-sm font-semibold text-neutral-900">{selectedAccount.propertyTitle}</span>
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-500">
+                      <span className="font-mono">#{selectedAccount.propertyId}</span>
+                      <span className={`inline-flex items-center gap-1 ${statusOf(selectedAccount.status).text}`}><span className={`h-1.5 w-1.5 rounded-full ${statusOf(selectedAccount.status).dot}`} />{statusOf(selectedAccount.status).label}</span>
+                      <span className={selectedAccount.unpaidBalance > 0 ? "text-rose-600" : ""}>Outstanding {formatMoney(selectedAccount.unpaidBalance)}</span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="block text-sm font-semibold text-neutral-800">{loadingAccounts ? "Loading properties…" : "Choose a property to investigate"}</span>
+                    <span className="mt-0.5 block text-xs text-neutral-500">{loadingAccounts ? " " : `${accounts.length} NRMS properties · search by name or ID`}</span>
+                  </>
+                )}
+              </span>
+              {loadingSnapshot ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-indigo-600" /> : <ChevronDown className={`h-4 w-4 flex-shrink-0 text-neutral-400 transition-transform ${pickerOpen ? "rotate-180" : ""}`} />}
+            </button>
+
+            {pickerOpen && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1.5 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-[0_20px_50px_-20px_rgba(15,23,42,0.35)]">
+                <div className="relative border-0 border-b border-solid border-neutral-100 p-2">
+                  <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    autoFocus
+                    value={pickerQuery}
+                    onChange={(e) => setPickerQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && filteredAccounts[0]) pickProperty(filteredAccounts[0].propertyId);
+                      if (e.key === "Escape") setPickerOpen(false);
+                    }}
+                    placeholder="Search property name or #ID"
+                    className="h-9 w-full rounded-lg border-0 bg-neutral-50 pl-9 pr-3 text-sm text-neutral-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                <ul role="listbox" className="m-0 max-h-72 list-none overflow-y-auto p-1">
+                  {filteredAccounts.length === 0 ? (
+                    <li className="px-3 py-6 text-center text-xs text-neutral-500">No properties match</li>
+                  ) : (
+                    filteredAccounts.map((a) => {
+                      const st = statusOf(a.status);
+                      const active = String(a.propertyId) === propertyId;
+                      return (
+                        <li key={a.propertyId}>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={active}
+                            onClick={() => pickProperty(a.propertyId)}
+                            className={`flex w-full items-center gap-3 rounded-lg border-0 px-3 py-2 text-left transition ${active ? "bg-indigo-50" : "bg-transparent hover:bg-neutral-50"}`}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm text-neutral-900">{a.propertyTitle}</span>
+                              <span className="font-mono text-[11px] text-neutral-400">#{a.propertyId}</span>
+                            </span>
+                            <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${st.soft} ${st.text}`}><span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />{st.label}</span>
+                            <span className={`w-28 flex-shrink-0 text-right text-xs tabular-nums ${a.unpaidBalance > 0 ? "text-rose-600" : "text-neutral-400"}`}>{formatMoney(a.unpaidBalance)}</span>
+                          </button>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-neutral-500">
+            <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-indigo-500" /> Guest identifiers redacted in exports</span>
+            <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5 text-indigo-500" /> Every export is audited and the owner is notified</span>
+          </div>
         </div>
       </header>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span>
-          <button type="button" onClick={() => setError(null)} className="ml-auto border-0 bg-transparent p-0 text-xs font-bold text-red-700">Dismiss</button>
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error === "OTP required" ? "Finance OTP required. Use Unlock finance actions, then try again." : error}</span>
+          <button type="button" onClick={() => setError(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
         </div>
       )}
-
       {notice && (
-        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="ml-auto border-0 bg-transparent p-0 text-xs font-bold text-emerald-800">Dismiss</button>
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900" role="status">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Hotel className="h-4 w-4" /></span>
-            <div>
-              <h2 className="m-0 text-sm font-bold text-neutral-950">Property context</h2>
-              <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Choose a property to load its latest operational record.</p>
-            </div>
-          </div>
-          <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row lg:max-w-2xl">
-            <label className="min-w-0 flex-1">
-              <span className="sr-only">NRMS property</span>
-              <select
-                value={propertyId}
-                onChange={(event) => {
-                  setPropertyId(event.target.value);
-                  setSnapshot(null);
-                  setNotice(null);
-                  setError(null);
-                }}
-                disabled={loadingAccounts || loadingSnapshot || exporting}
-                className="min-h-11 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-xs font-bold text-neutral-700 outline-none transition focus:border-emerald-500 focus:bg-white disabled:text-neutral-400"
-              >
-                <option value="">{loadingAccounts ? "Loading properties..." : "Select an NRMS property"}</option>
-                {accounts.map((account) => (
-                  <option key={account.propertyId} value={account.propertyId}>
-                    {account.propertyTitle} | {account.status.replaceAll("_", " ")} | {formatMoney(account.unpaidBalance)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              disabled={!propertyId || loadingSnapshot || exporting}
-              onClick={() => void loadSnapshot()}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
-            >
-              {loadingSnapshot ? <Loader2 className="h-4 w-4 animate-spin" /> : snapshot ? <RefreshCw className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              {loadingSnapshot ? "Opening" : snapshot ? "Refresh snapshot" : "Open snapshot"}
-            </button>
-          </div>
-        </div>
-        {selectedAccount && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-neutral-100 bg-neutral-50/70 px-5 py-3 text-[10px] text-neutral-500 sm:px-6">
-            <span className="font-bold text-neutral-800">{selectedAccount.propertyTitle}</span>
-            <span className={`rounded-full border px-2.5 py-1 font-bold ${STATUS_BADGE[selectedAccount.status] ?? STATUS_BADGE.CLOSED}`}>{selectedAccount.status.replaceAll("_", " ")}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Outstanding {formatMoney(selectedAccount.unpaidBalance)}</span>
-          </div>
-        )}
-      </section>
-
+      {/* Before a property is chosen: how the workspace works */}
       {!snapshot && !loadingSnapshot && (
-        <section className="rounded-2xl border border-dashed border-neutral-300 bg-slate-50 px-6 py-6">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-white text-neutral-400 shadow-sm ring-1 ring-neutral-200"><Building2 className="h-5 w-5" /></span>
-          <h2 className="mb-0 mt-3 text-base font-bold text-neutral-900">Start with a property</h2>
-          <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">1. Open its snapshot. 2. Review account and operations. 3. Select an EAT reporting period and generate an audited dispute export.</p>
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            { n: 1, icon: Building2, title: "Open a property", text: "Pick it above. Its snapshot loads right away." },
+            { n: 2, icon: Activity, title: "Review the context", text: "Account standing, owner contact, rooms, shifts and night audits." },
+            { n: 3, icon: FileText, title: "Export evidence", text: "Choose an EAT period and reason to generate an audited PDF or CSV." },
+          ].map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.n} className="flex items-start gap-3 rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-4">
+                <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-bold text-indigo-700">{s.n}</span>
+                <div className="min-w-0">
+                  <p className="m-0 flex items-center gap-1.5 text-sm font-semibold text-neutral-900"><Icon className="h-4 w-4 text-neutral-400" /> {s.title}</p>
+                  <p className="m-0 mt-1 text-xs text-neutral-500">{s.text}</p>
+                </div>
+              </div>
+            );
+          })}
         </section>
       )}
 
-      {snapshot && (
-        <>
-          <nav className="flex flex-wrap gap-2 rounded-xl border border-neutral-200 bg-white p-2" aria-label="Support workspace sections">
-            {([['overview', 'Overview'], ['operations', 'Operations'], ['exports', 'Dispute exports']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)} className={`min-h-10 rounded-lg border-0 px-4 text-xs font-bold ${tab === value ? 'bg-emerald-700 text-white' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>{label}</button>)}
-            <span className="ml-auto self-center px-2 text-[11px] text-slate-500">Snapshot loaded {formatDateTime(loadedAt)} EAT</span>
-          </nav>
-          <div hidden={tab !== "overview"} className="space-y-4">
-          <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-col gap-4 border-b border-neutral-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <div className="flex min-w-0 items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><ShieldCheck className="h-4 w-4" /></span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="m-0 truncate text-base font-bold text-neutral-950">{snapshot.property.title}</h2>
-                    <span className={`rounded-full border px-2.5 py-1 text-[9px] font-bold ${STATUS_BADGE[snapshot.account.status] ?? STATUS_BADGE.CLOSED}`}>{snapshot.account.status.replaceAll("_", " ")}</span>
-                  </div>
-                  <p className="mb-0 mt-1 text-[11px] text-neutral-500">Recorded support context · property ID {snapshot.property.id}</p>
-                </div>
-              </div>
-              <div className="flex w-full gap-2 sm:w-auto">
-                <Link href={`/admin/nrms/${snapshot.property.id}`} className="inline-flex min-h-9 flex-1 items-center justify-center rounded-lg border border-neutral-200 px-3 text-[10px] font-bold text-neutral-700 no-underline transition hover:bg-neutral-50 sm:flex-none">View property</Link>
-                <Link href={`/admin/nrms/integrity/${snapshot.property.id}`} className="inline-flex min-h-9 flex-1 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100 sm:flex-none">Activity</Link>
-              </div>
-            </div>
-            <div className="grid min-w-0 gap-px bg-neutral-100 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                ["Owner", snapshot.property.owner.name],
-                ["Email", snapshot.property.owner.email ?? "Not provided"],
-                ["Phone", snapshot.property.owner.phone ?? "Not provided"],
-                ["Policy", snapshot.account.policyVersion],
-                ["Trial ends", formatDate(snapshot.account.trialEndsAt)],
-                ["Access mode", "Read only"],
-              ].map(([label, value]) => (
-                <div key={label} className="min-w-0 bg-white px-5 py-4 sm:px-6">
-                  <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">{label}</p>
-                  <p className={`mb-0 mt-1 truncate text-xs ${label === "Owner" || label === "Access mode" ? "font-bold text-neutral-900" : "text-neutral-600"} ${label === "Access mode" ? "text-emerald-700" : ""}`} title={value}>{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <div className="grid min-w-0 grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-            {metricCards.map((card) => (
-              <div key={card.label} className="min-w-0 rounded-xl border border-neutral-200 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-                <p className="m-0 truncate text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">{card.label}</p>
-                <p className="mb-0 mt-1.5 truncate text-lg font-bold tabular-nums text-neutral-950" title={card.value}>{card.value}</p>
-              </div>
-            ))}
-          </div>
-
-          </div>
-          <div hidden={tab !== "operations"}>
-          <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-col gap-1 border-b border-neutral-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <div className="flex items-center gap-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><Activity className="h-4 w-4" /></span><div><h2 className="m-0 text-sm font-bold text-neutral-950">Operations overview</h2><p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Activity, room readiness and closeout records</p></div></div>
-              <span className="inline-flex w-fit rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">Point-in-time snapshot</span>
-            </div>
-            <div className="grid min-w-0 grid-cols-2 gap-3 p-4 lg:grid-cols-4">
-              {[
-                ["Open stays", String(snapshot.operations.openReservations)],
-                ["Open orders", String(snapshot.operations.openOrders)],
-                ["Housekeeping tasks", String(snapshot.operations.openHousekeeping)],
-                ["Active staff", String(snapshot.operations.activeStaff)],
-              ].map(([label, value]) => (
-                <div key={label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="m-0 text-[10px] font-bold text-slate-500">{label}</p>
-                  <p className="mb-0 mt-1 text-2xl font-bold tabular-nums text-slate-900">{value}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid min-w-0 gap-4 px-4 pb-4 xl:grid-cols-2">
-              <section className="min-w-0 rounded-xl border border-slate-200 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="m-0 text-sm font-bold text-slate-900">Room readiness</h3><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{readyRooms} ready / {roomTotal} rooms</span></div>
-                <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">{snapshot.operations.rooms.map((row) => <span key={row.status} className={ROOM_TONE[row.status]?.bar ?? "bg-slate-400"} style={{ width: `${roomTotal ? row.count / roomTotal * 100 : 0}%` }} />)}</div>
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{snapshot.operations.rooms.map((row) => <div key={row.status} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"><span className="flex items-center gap-2 text-[11px] text-slate-600"><span className={`h-2 w-2 shrink-0 rounded-full ${ROOM_TONE[row.status]?.bar ?? 'bg-slate-400'}`} />{row.status.replaceAll('_', ' ')}</span><b className="text-sm tabular-nums text-slate-900">{row.count}</b></div>)}</div>
-                {roomTotal === 0 && <p className="mb-0 text-xs text-slate-500">No active rooms configured.</p>}
-              </section>
-              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                <section className="min-w-0 rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-2"><h3 className="m-0 text-sm font-bold text-slate-900">Cashier shift</h3><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${snapshot.operations.openShift ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{snapshot.operations.openShift ? 'Open' : 'No open shift'}</span></div>
-                  <p className="mb-0 mt-4 text-[10px] font-bold text-slate-500">Opened (EAT)</p><p className="mb-0 mt-1 text-xs leading-5 text-slate-800">{snapshot.operations.openShift ? formatDateTime(snapshot.operations.openShift.openedAt) : 'Not applicable'}</p>
-                  {snapshot.operations.openShift && <p className="mb-0 mt-2 text-[11px] text-slate-500">Shift #{snapshot.operations.openShift.id}</p>}
-                </section>
-                <section className="min-w-0 rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-2"><h3 className="m-0 text-sm font-bold text-slate-900">Latest night audit</h3><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{snapshot.operations.lastAudit?.status ?? 'None'}</span></div>
-                  <p className="mb-0 mt-3 break-all text-xs font-bold leading-5 text-slate-800">{snapshot.operations.lastAudit?.reportNumber ?? 'No audit recorded'}</p><p className="mb-0 mt-3 text-[10px] font-bold text-slate-500">Completed (EAT)</p><p className="mb-0 mt-1 text-xs leading-5 text-slate-800">{formatDateTime(snapshot.operations.lastAudit?.completedAt)}</p>
-                </section>
-              </div>
-            </div>
-          </section>
-
-          </div>
-          <div hidden={tab !== "exports"} className="space-y-4">
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-200 bg-[#f0eef7] px-5 py-4 sm:px-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><FileText className="h-5 w-5" /></span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="m-0 text-lg font-bold tracking-tight text-neutral-950">Prepare dispute evidence</h2>
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[9px] font-bold text-amber-700"><ShieldCheck className="h-3 w-3" /> Audited workflow</span>
-                    </div>
-                    <p className="mb-0 mt-1.5 max-w-xl text-xs leading-5 text-neutral-600">Create a secure report for the selected period. The owner is notified automatically after generation.</p>
-                  </div>
-                </div>
-                <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-white/80 px-2.5 py-1 text-[9px] font-bold text-emerald-700"><LockKeyhole className="h-3 w-3" /> Finance authorization required</span>
-              </div>
-            </div>
-            <div className="grid min-w-0 gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-              <div className="min-w-0 space-y-5">
-                <div className="rounded-xl border border-slate-200 p-4">
-                <h3 className="mb-3 mt-0 flex items-center gap-2 text-xs font-bold text-slate-800"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">1</span>Choose report format</h3>
-                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                  <label className="block min-w-0">
-                    <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">File format</span>
-                    <div className="relative">
-                      {form.format === "PDF" ? <FileText className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700" /> : <FileSpreadsheet className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700" />}
-                      <select value={form.format} onChange={(event) => setForm({ ...form, format: event.target.value as ExportForm["format"] })} className="min-h-12 w-full min-w-0 rounded-lg border border-neutral-200 bg-white py-2 pl-10 pr-9 text-xs font-bold text-neutral-700 outline-none transition hover:border-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10">
-                        <option value="PDF">PDF summary</option><option value="CSV">CSV detail</option>
-                      </select>
-                    </div>
-                  </label>
-                  <div className="min-w-0">
-                    <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Reporting limit</span>
-                    <div className="flex min-h-12 items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50 px-3.5 text-xs text-neutral-600"><Clock3 className="h-4 w-4 shrink-0 text-neutral-400" /><span>Up to 366 days per export</span></div>
-                  </div>
-                </div>
-                <p className="mb-0 mt-3 text-[11px] leading-5 text-slate-500">{form.format === "PDF" ? "PDF: a readable summary of orders, reservations and PAYG statements." : "CSV: structured record rows for filtering and further investigation."}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h3 className="m-0 flex items-center gap-2 text-xs font-bold text-slate-800"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">2</span>Select reporting period</h3><span className="text-[10px] font-bold text-slate-500">East Africa Time · UTC+3</span></div>
-                <div className="mb-4 flex flex-wrap gap-2">{[{ days: 1, label: 'Today' }, { days: 7, label: 'Last 7 days' }, { days: 30, label: 'Last 30 days' }].map((period) => <button key={period.days} type="button" disabled={exporting} onClick={() => choosePeriod(period.days)} className="min-h-8 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50">{period.label}</button>)}</div>
-                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                  <div className="min-w-0">
-                    <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Period starts</span>
-                    <DatePickerField label="Dispute export period starts" value={form.from} max={form.to || today} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => setForm({ ...form, from: next.slice(0, 10) })} />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Period ends</span>
-                    <DatePickerField label="Dispute export period ends" value={form.to} min={form.from || undefined} max={today} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => setForm({ ...form, to: next.slice(0, 10) })} />
-                  </div>
-                </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4">
-                <h3 className="mb-3 mt-0 flex items-center gap-2 text-xs font-bold text-slate-800"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">3</span>Record the purpose</h3>
-                <label className="block min-w-0">
-                  <span className="mb-2 flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500"><span>Export reason</span><span className="font-normal normal-case tracking-normal text-neutral-400">{form.reason.trim().length}/300</span></span>
-                  <textarea value={form.reason} maxLength={300} rows={3} onChange={(event) => setForm({ ...form, reason: event.target.value })} placeholder="Example: Owner disputed statement #42" className="min-h-24 w-full min-w-0 resize-none rounded-lg border border-neutral-200 px-3.5 py-3 text-xs leading-5 text-neutral-700 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
-                </label>
-                <p className="m-0 flex items-start gap-2 rounded-lg bg-neutral-50 px-3.5 py-3 text-[10px] leading-4 text-neutral-500"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" />This reason is saved in the admin audit and included in the owner notification.</p>
-                </div>
-              </div>
-              <aside className="min-w-0 self-start rounded-xl border border-indigo-200 bg-[#f7f6fb] p-4 sm:p-5">
-                <p className="m-0 text-xs font-bold text-indigo-900">Review before generating</p>
-                <p className="mb-0 mt-2 break-words text-sm font-bold text-slate-900">{snapshot.property.title}</p>
-                <p className="mb-0 mt-1 text-[11px] text-slate-500">Property #{snapshot.property.id} · {form.format} report</p>
-                <p className="mb-0 mt-2 text-[11px] leading-5 text-slate-600">{form.from && form.to ? `${formatDate(form.from)} to ${formatDate(form.to)} (EAT)` : 'Reporting period not selected'}</p>
-                <div className="mt-4 space-y-3">
-                  {[
-                    { label: "Property context loaded", ready: true },
-                    { label: "EAT date range validated", ready: Boolean(form.from && form.to && form.to >= form.from && form.to <= today && new Date(form.to).getTime() - new Date(form.from).getTime() < 366 * 86400000) },
-                    { label: "Audit reason provided", ready: form.reason.trim().length >= 5 },
-                  ].map((item) => (
-                    <div key={item.label} className="flex items-start gap-2.5 text-xs text-neutral-600"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${item.ready ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-500"}`}>{item.ready ? <CheckCircle2 className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}</span><span>{item.label}</span></div>
-                  ))}
-                </div>
-                <div className="mt-5 border-t border-neutral-200 pt-4"><p className="m-0 text-[10px] font-bold text-neutral-700">What happens next</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">The server checks finance authorization, records the audit reason and notifies the owner. PDF summarizes records; CSV includes detail. Guest identifiers are redacted.</p></div>
-              </aside>
-            </div>
-            <div className="flex flex-col gap-4 border-t border-neutral-100 bg-neutral-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-              <div className="min-w-0"><p className={`m-0 text-[10px] font-medium ${exportValidation ? "text-neutral-500" : "text-emerald-700"}`}>{exportValidation ?? `Ready to export ${formatDate(form.from)} through ${formatDate(form.to)}.`}</p><p className="mb-0 mt-1 text-[9px] text-neutral-400">The action is audited and the owner is notified.</p></div>
-              <button type="button" disabled={Boolean(exportValidation) || exporting} onClick={() => void exportFile()} className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500 sm:w-auto">
-                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{exporting ? "Generating export" : `Generate ${form.format}`}
-              </button>
-            </div>
-          </section>
-          <section className="rounded-xl border border-neutral-200 bg-white p-4">
-            <h2 className="m-0 text-sm font-bold">Completed downloads this session</h2>
-            <p className="mb-3 mt-1 text-xs text-slate-500">Download requests completed for this property. This list resets when the page reloads; server audits remain stored.</p>
-            <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-xs"><thead className="bg-slate-50"><tr>{['Format', 'Reporting period (EAT)', 'Generated (EAT)'].map((label) => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>{exportHistory.filter((row) => row.propertyId === snapshot.property.id).map((row, index) => <tr key={`${row.at}-${index}`}><td className="p-3 font-bold">{row.format}</td><td className="p-3">{formatDate(row.from)} to {formatDate(row.to)}</td><td className="p-3">{formatDateTime(row.at)}</td></tr>)}</tbody></table></div>
-            {!exportHistory.some((row) => row.propertyId === snapshot.property.id) && <p className="mb-0 text-xs text-slate-500">No exports generated for this property in this session.</p>}
-          </section>
-          </div>
-        </>
+      {loadingSnapshot && !snapshot && (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white py-16 text-sm text-neutral-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Opening support snapshot
+        </div>
       )}
+
+      {snapshot && (() => {
+        const st = statusOf(snapshot.account.status);
+        const unpaidPct = snapshot.account.unpaidLimit > 0 ? Math.min((snapshot.account.unpaidBalance / snapshot.account.unpaidLimit) * 100, 100) : 0;
+        return (
+          <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+            {/* Case header */}
+            <div className="flex flex-col gap-3 px-5 pt-5 sm:flex-row sm:items-start sm:px-6">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="m-0 truncate text-lg font-bold text-neutral-950">{snapshot.property.title}</h2>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${st.soft} ${st.text}`}><span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />{st.label}</span>
+                </div>
+                <p className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+                  <span className="font-mono">Property #{snapshot.property.id}</span>
+                  <span className="inline-flex items-center gap-1"><History className="h-3.5 w-3.5" /> Snapshot {formatDateTime(loadedAt)} EAT</span>
+                </p>
+              </div>
+              <div className="flex flex-shrink-0 flex-wrap gap-2">
+                <button type="button" onClick={() => void loadSnapshot()} disabled={loadingSnapshot || exporting} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60">
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingSnapshot ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <Link href={`/admin/nrms/${snapshot.property.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
+                  Property <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+                <Link href={`/admin/nrms/integrity/${snapshot.property.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
+                  Activity log <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <nav className="mt-4 flex gap-1 border-0 border-b border-solid border-neutral-200 px-3 sm:px-4" aria-label="Support workspace sections">
+              {([["overview", "Overview", ClipboardList], ["operations", "Operations", Activity], ["exports", "Dispute exports", FileText]] as const).map(([value, label, Icon]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={tab === value}
+                  onClick={() => setTab(value)}
+                  className={`relative inline-flex h-11 items-center gap-1.5 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === value ? "text-indigo-700" : "text-neutral-500 hover:text-neutral-800"}`}
+                >
+                  <Icon className="h-4 w-4" /> {label}
+                  {value === "exports" && sessionExports.length > 0 && <span className="rounded-full bg-indigo-100 px-1.5 text-[11px] tabular-nums text-indigo-700">{sessionExports.length}</span>}
+                  {tab === value && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-indigo-600" aria-hidden />}
+                </button>
+              ))}
+            </nav>
+
+            {/* Overview */}
+            <div hidden={tab !== "overview"} className="space-y-5 p-5 sm:p-6">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className="rounded-xl border border-solid border-neutral-200">
+                  <p className="m-0 border-0 border-b border-solid border-neutral-100 px-4 py-2.5 text-xs font-semibold text-neutral-800">Owner</p>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white"><User className="h-4 w-4" /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="m-0 truncate text-sm font-semibold text-neutral-900">{snapshot.property.owner.name}</p>
+                      <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-xs text-neutral-500"><Mail className="h-3.5 w-3.5 flex-shrink-0" />{snapshot.property.owner.email ?? "No email"}</p>
+                      <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500"><Phone className="h-3.5 w-3.5 flex-shrink-0" />{snapshot.property.owner.phone ?? "No phone"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-solid border-neutral-200">
+                  <p className="m-0 border-0 border-b border-solid border-neutral-100 px-4 py-2.5 text-xs font-semibold text-neutral-800">Account standing</p>
+                  <div className="px-4 py-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-xs text-neutral-500">Outstanding</span>
+                      <span className={`text-lg font-bold tabular-nums ${snapshot.account.unpaidBalance > 0 ? "text-rose-600" : "text-neutral-900"}`}>{formatMoney(snapshot.account.unpaidBalance)}</span>
+                    </div>
+                    {snapshot.account.unpaidLimit > 0 && (
+                      <>
+                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100">
+                          <div className={`h-full rounded-full ${unpaidPct >= 80 ? "bg-rose-500" : unpaidPct >= 50 ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${unpaidPct}%` }} />
+                        </div>
+                        <p className="m-0 mt-1 text-[11px] text-neutral-400">{Math.round(unpaidPct)}% of the {formatMoney(snapshot.account.unpaidLimit)} limit</p>
+                      </>
+                    )}
+                    <dl className="m-0 mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div><dt className="text-neutral-400">Policy</dt><dd className="m-0 font-mono text-neutral-800">{snapshot.account.policyVersion}</dd></div>
+                      <div><dt className="text-neutral-400">Trial ends</dt><dd className="m-0 text-neutral-800">{formatDate(snapshot.account.trialEndsAt)}</dd></div>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 md:grid-cols-4">
+                {[
+                  { icon: BedDouble, label: "Open stays", value: snapshot.operations.openReservations },
+                  { icon: UtensilsCrossed, label: "Open orders", value: snapshot.operations.openOrders },
+                  { icon: ClipboardList, label: "Housekeeping tasks", value: snapshot.operations.openHousekeeping },
+                  { icon: Users, label: "Active staff", value: snapshot.operations.activeStaff },
+                ].map((m) => {
+                  const Icon = m.icon;
+                  return (
+                    <button key={m.label} type="button" onClick={() => setTab("operations")} className="flex min-w-0 items-center gap-3 border-0 bg-white px-4 py-3 text-left transition hover:bg-neutral-50">
+                      <Icon className="h-4 w-4 flex-shrink-0 text-neutral-400" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[11px] text-neutral-500">{m.label}</span>
+                        <span className="block text-xl font-bold tabular-nums text-neutral-900">{m.value}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Operations */}
+            <div hidden={tab !== "operations"} className="space-y-5 p-5 sm:p-6">
+              <div className="rounded-xl border border-solid border-neutral-200 p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="m-0 text-sm font-semibold text-neutral-900">Room readiness</h3>
+                  <span className="text-xs text-neutral-500"><span className="text-lg font-bold tabular-nums text-neutral-900">{readyRooms}</span> of {roomTotal} rooms ready</span>
+                </div>
+                {roomTotal === 0 ? (
+                  <p className="m-0 mt-2 text-xs text-neutral-500">No active rooms configured.</p>
+                ) : (
+                  <>
+                    <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden="true">
+                      {snapshot.operations.rooms.map((row) => <span key={row.status} className={ROOM_TONE[row.status]?.bar ?? "bg-neutral-400"} style={{ width: `${(row.count / roomTotal) * 100}%` }} />)}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                      {snapshot.operations.rooms.map((row) => (
+                        <span key={row.status} className="inline-flex items-center gap-1.5 text-xs text-neutral-600">
+                          <span className={`h-2 w-2 rounded-full ${ROOM_TONE[row.status]?.bar ?? "bg-neutral-400"}`} />
+                          {ROOM_TONE[row.status]?.label ?? row.status.replaceAll("_", " ")}
+                          <span className="font-semibold tabular-nums text-neutral-900">{row.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-solid border-neutral-200 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="m-0 text-sm font-semibold text-neutral-900">Cashier shift</h3>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${snapshot.operations.openShift ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-500"}`}>
+                      {snapshot.operations.openShift ? <Circle className="h-2 w-2 fill-current" /> : null}
+                      {snapshot.operations.openShift ? "Open now" : "No open shift"}
+                    </span>
+                  </div>
+                  {snapshot.operations.openShift ? (
+                    <p className="m-0 mt-3 text-sm text-neutral-800">Opened {formatDateTime(snapshot.operations.openShift.openedAt)} <span className="text-neutral-400">EAT</span><span className="mt-0.5 block font-mono text-[11px] text-neutral-400">Shift #{snapshot.operations.openShift.id}</span></p>
+                  ) : (
+                    <p className="m-0 mt-3 text-xs text-neutral-500">All cashier shifts are closed.</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-solid border-neutral-200 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="m-0 text-sm font-semibold text-neutral-900">Latest night audit</h3>
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">{snapshot.operations.lastAudit ? snapshot.operations.lastAudit.status.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "None"}</span>
+                  </div>
+                  {snapshot.operations.lastAudit ? (
+                    <p className="m-0 mt-3 text-sm text-neutral-800">
+                      <span className="break-all font-mono">{snapshot.operations.lastAudit.reportNumber}</span>
+                      <span className="mt-0.5 block text-xs text-neutral-500">Completed {formatDateTime(snapshot.operations.lastAudit.completedAt)} EAT</span>
+                    </p>
+                  ) : (
+                    <p className="m-0 mt-3 text-xs text-neutral-500">No night audit recorded yet.</p>
+                  )}
+                </div>
+              </div>
+              <p className="m-0 text-[11px] text-neutral-400">Point-in-time snapshot. Refresh to see the latest figures.</p>
+            </div>
+
+            {/* Dispute exports */}
+            <div hidden={tab !== "exports"}>
+              <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="min-w-0 space-y-6 p-5 sm:p-6">
+                  {/* 1. Format */}
+                  <div>
+                    <p className="m-0 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">1</span> Report format
+                    </p>
+                    <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                      {([
+                        ["PDF", FileText, "PDF summary", "Readable summary of orders, reservations and PAYG statements"],
+                        ["CSV", FileSpreadsheet, "CSV detail", "Record rows for filtering and deeper investigation"],
+                      ] as const).map(([value, Icon, title, text]) => {
+                        const on = form.format === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setForm({ ...form, format: value })}
+                            aria-pressed={on}
+                            disabled={exporting}
+                            className={`flex items-start gap-3 rounded-xl border border-solid p-3 text-left transition ${on ? "border-indigo-500 bg-indigo-50/60 ring-2 ring-indigo-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}
+                          >
+                            <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${on ? "bg-indigo-600 text-white" : "bg-neutral-100 text-neutral-500"}`}><Icon className="h-4 w-4" /></span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-neutral-900">{title}</span>
+                              <span className="mt-0.5 block text-xs text-neutral-500">{text}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. Period */}
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="m-0 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">2</span> Reporting period
+                      </p>
+                      <span className="text-[11px] text-neutral-400">East Africa Time · up to 366 days</span>
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {[{ days: 1, label: "Today" }, { days: 7, label: "Last 7 days" }, { days: 30, label: "Last 30 days" }, { days: 90, label: "Last 90 days" }].map((p) => {
+                        const on = periodDays === p.days && form.to === today;
+                        return (
+                          <button key={p.days} type="button" disabled={exporting} onClick={() => choosePeriod(p.days)} className={`h-8 rounded-full border border-solid px-3 text-xs font-medium transition disabled:opacity-50 ${on ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}>
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="min-w-0">
+                        <span className="mb-1.5 block text-xs text-neutral-500">From</span>
+                        <DatePickerField label="Dispute export period starts" value={form.from} max={form.to || today} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => setForm({ ...form, from: next.slice(0, 10) })} />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="mb-1.5 block text-xs text-neutral-500">To</span>
+                        <DatePickerField label="Dispute export period ends" value={form.to} min={form.from || undefined} max={today} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => setForm({ ...form, to: next.slice(0, 10) })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Reason */}
+                  <div>
+                    <label htmlFor="export-reason" className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">3</span> Purpose
+                      </span>
+                      <span className="text-[11px] tabular-nums text-neutral-400">{form.reason.trim().length}/300</span>
+                    </label>
+                    <textarea
+                      id="export-reason"
+                      value={form.reason}
+                      maxLength={300}
+                      rows={3}
+                      onChange={(event) => setForm({ ...form, reason: event.target.value })}
+                      placeholder="Example: Owner disputed statement #42"
+                      className="mt-2.5 min-h-24 w-full min-w-0 resize-none rounded-lg border border-solid border-neutral-200 px-3 py-2.5 font-[inherit] text-sm text-neutral-800 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    <p className="m-0 mt-1 text-[11px] text-neutral-400">Saved in the admin audit and included in the owner notification.</p>
+                  </div>
+                </div>
+
+                {/* Summary + generate */}
+                <aside className="min-w-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50 p-5 sm:p-6 lg:border-l lg:border-t-0">
+                  <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Export summary</p>
+                  <div className="mt-3 rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                    <p className="m-0 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                      {form.format === "PDF" ? <FileText className="h-4 w-4 text-indigo-600" /> : <FileSpreadsheet className="h-4 w-4 text-indigo-600" />}
+                      {form.format} · {snapshot.property.title}
+                    </p>
+                    <p className="m-0 mt-1 text-xs text-neutral-500">
+                      {form.from && form.to ? `${formatDate(form.from)} to ${formatDate(form.to)}${periodDays ? ` · ${periodDays} ${periodDays === 1 ? "day" : "days"}` : ""}` : "No period selected"}
+                    </p>
+                  </div>
+                  <ul className="m-0 mt-4 list-none space-y-2 p-0">
+                    {checklist.map((c) => (
+                      <li key={c.label} className={`flex items-center gap-2 text-xs ${c.ready ? "text-neutral-800" : "text-neutral-400"}`}>
+                        {c.ready ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Circle className="h-4 w-4" />}
+                        {c.label}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    disabled={Boolean(exportValidation) || exporting}
+                    onClick={() => void exportFile()}
+                    className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-indigo-600 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
+                  >
+                    {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {exporting ? "Generating export" : `Generate ${form.format}`}
+                  </button>
+                  <p className={`m-0 mt-2 text-center text-[11px] ${exportValidation ? "text-neutral-500" : "text-emerald-700"}`}>{exportValidation ?? "Ready to generate"}</p>
+                  <p className="m-0 mt-4 border-0 border-t border-solid border-neutral-200 pt-3 text-[11px] leading-4 text-neutral-500">
+                    <LockKeyhole className="mr-1 inline h-3 w-3 align-[-1px]" />
+                    The server checks finance authorization, records the reason and notifies the owner. Guest identifiers are redacted.
+                  </p>
+                </aside>
+              </div>
+
+              {/* Session downloads */}
+              <div className="border-0 border-t border-solid border-neutral-200 px-5 py-4 sm:px-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="m-0 text-sm font-semibold text-neutral-900">Downloads this session</h3>
+                  <span className="text-[11px] text-neutral-400">Resets on reload. Server audits stay stored.</span>
+                </div>
+                {sessionExports.length === 0 ? (
+                  <p className="m-0 mt-2 text-xs text-neutral-500">No exports generated for this property yet.</p>
+                ) : (
+                  <ul className="m-0 mt-3 list-none space-y-1.5 p-0">
+                    {sessionExports.map((row, index) => (
+                      <li key={`${row.at}-${index}`} className="flex flex-wrap items-center gap-3 rounded-lg bg-neutral-50 px-3 py-2 text-xs">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-neutral-900">
+                          {row.format === "PDF" ? <FileText className="h-3.5 w-3.5 text-indigo-600" /> : <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-600" />}{row.format}
+                        </span>
+                        <span className="text-neutral-600">{formatDate(row.from)} to {formatDate(row.to)}</span>
+                        <span className="ml-auto text-neutral-400">Generated {formatDateTime(row.at)} EAT</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 }

@@ -162,15 +162,16 @@ const driverDetails: Item[] = [
 ];
 
 const groupStayDetails: Item[] = [
-  { href: "/admin/group-stays", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/admin/group-stays/revenue", label: "Revenue", Icon: TrendingUp },
-  { href: "/admin/group-stays/bookings", label: "Bookings", Icon: Calendar },
+  // Ordered as a group stay flows: request, match an owner, offers, booking, its guests and services, then money.
+  { href: "/admin/group-stays", label: "Overview", Icon: LayoutDashboard },
   { href: "/admin/group-stays/requests", label: "Requests", Icon: FileText },
-  { href: "/admin/group-stays/claims", label: "Submitted Claims", Icon: Gift },
-  { href: "/admin/group-stays/payouts", label: "Owner Earnings", Icon: Wallet },
-  { href: "/admin/group-stays/assignments", label: "Assignments", Icon: Users },
-  { href: "/admin/group-stays/passengers", label: "Passengers", Icon: Users },
-  { href: "/admin/group-stays/arrangements", label: "Arrangements", Icon: Settings },
+  { href: "/admin/group-stays/assignments", label: "Owner matching", Icon: Handshake },
+  { href: "/admin/group-stays/claims", label: "Owner offers", Icon: Gift },
+  { href: "/admin/group-stays/bookings", label: "Bookings", Icon: Calendar },
+  { href: "/admin/group-stays/passengers", label: "Guests", Icon: Users },
+  { href: "/admin/group-stays/arrangements", label: "Extra services", Icon: Settings },
+  { href: "/admin/group-stays/revenue", label: "Revenue", Icon: TrendingUp },
+  { href: "/admin/group-stays/payouts", label: "Owner earnings", Icon: Wallet },
 ];
 
 const agentsDetails: Item[] = [
