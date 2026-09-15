@@ -153,7 +153,7 @@ function code128BValues(value: string): number[] {
   return [startCodeB, ...data, checksum, 106];
 }
 
-export function drawCode128Barcode(
+function drawCode128Barcode(
   doc: PDFKit.PDFDocument,
   value: string,
   x: number,

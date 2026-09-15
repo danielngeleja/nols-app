@@ -16,7 +16,6 @@ import {
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import crypto from "crypto";
-import { renderNrmsPaymentReceipt } from "../lib/nrmsPaymentReceipt.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -112,25 +111,16 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
-router.get("/tokens/:token/receipt.pdf", (async (req: AuthedRequest, res: Response) => {
+router.get("/tokens/:token/receipt", (async (req: AuthedRequest, res: Response) => {
   const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
     where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
     include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
   });
   if (!row) return res.status(404).json({ error: "Payment not found" });
   if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) return res.status(409).json({ error: "A verified receipt is not available for this payment" });
-  let pdf: Buffer;
-  try {pdf = await renderNrmsPaymentReceipt(row);} catch (error: any) {
-    if (['RECEIPT_FONT_NOT_CONFIGURED', 'RECEIPT_LOGO_NOT_CONFIGURED'].includes(error?.message)) {
-      console.error(JSON.stringify({event:'nrms_receipt_configuration_missing',reason:error.message,statementId:row.statementId}));
-      return res.status(503).json({error:'Receipt downloads are unavailable because the server receipt assets are not configured. Please contact support.',code:error.message});
-    }
-    throw error;
-  }
-  res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('Content-Disposition', `attachment; filename="nrms-receipt-${row.statementId}.pdf"`);
-  res.end(pdf);
+  const manual = row.payment.status === 'MANUALLY_VERIFIED' || row.payment.provider === 'ADMIN_MANUAL';
+  res.json({receipt:{reference:`NRMS-RCPT-${row.payment.id}`,settlementReference:`NRMS-${row.statementId}-${String(row.token).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase().padStart(4,'0')}`,statementId:row.statementId,propertyTitle:row.statement.account.property.title,amount:Number(row.payment.amount),currency:row.payment.currency,method:row.method,manual,paidAt:manual?null:row.statement.paidAt,verifiedAt:row.payment.verifiedAt,providerReference:row.payment.providerRef}});
 }) as RequestHandler);
 router.post("/tokens/:token/declare", (async (req: AuthedRequest, res: Response) => {
   const parsed = methodSchema.safeParse(req.body);
