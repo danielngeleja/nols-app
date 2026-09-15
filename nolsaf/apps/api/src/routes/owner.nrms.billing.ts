@@ -121,8 +121,10 @@ router.get("/tokens/:token/receipt.pdf", (async (req: AuthedRequest, res: Respon
   if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) return res.status(409).json({ error: "A verified receipt is not available for this payment" });
   let pdf: Buffer;
   try {pdf = await renderNrmsPaymentReceipt(row);} catch (error: any) {
-    if (error?.message === 'RECEIPT_FONT_NOT_CONFIGURED') return res.status(503).json({error:'Receipt generation is temporarily unavailable: receipt fonts must be configured.'});
-    if (error?.message === 'RECEIPT_LOGO_NOT_CONFIGURED') return res.status(503).json({error:'Receipt generation is temporarily unavailable: the company logo must be configured.'});
+    if (['RECEIPT_FONT_NOT_CONFIGURED', 'RECEIPT_LOGO_NOT_CONFIGURED'].includes(error?.message)) {
+      console.error(JSON.stringify({event:'nrms_receipt_configuration_missing',reason:error.message,statementId:row.statementId}));
+      return res.status(503).json({error:'Receipt downloads are unavailable because the server receipt assets are not configured. Please contact support.',code:error.message});
+    }
     throw error;
   }
   res.setHeader('Content-Type', 'application/pdf');

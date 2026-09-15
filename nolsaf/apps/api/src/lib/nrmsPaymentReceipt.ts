@@ -35,7 +35,7 @@ export async function renderNrmsPaymentReceipt(row: any): Promise<Buffer> {
   doc.font('Receipt').fontSize(7).fillColor('#526b63').text(`NRMS-RCPT-${row.payment.id}`,barcodeX,80,{width:barcodeWidth,align:'center'});
   doc.font('Receipt').fontSize(7).fillColor('#526b63').text('P.O BOX 23091',x,102,{width:190})
     .text('Dar es Salaam, Tanzania',x,114,{width:190});
-  doc.text('support@nolsaf.com  |  info@nolsaf.com',barcodeX,102,{width:barcodeWidth,align:'right'});
+  doc.text('payments@nolsaf.com',barcodeX,102,{width:barcodeWidth,align:'right'});
   doc.font('ReceiptBold').fillColor('#1c7975').text('www.nolsaf.com',barcodeX,114,{width:barcodeWidth,align:'right'});
   doc.moveTo(x,131).lineTo(x+width,131).lineWidth(1).strokeColor('#1c7975').stroke();
   doc.roundedRect(x,143,width,64,8).fill('#eff5f1');
@@ -73,8 +73,10 @@ export async function renderNrmsPaymentReceipt(row: any): Promise<Buffer> {
   section('STATEMENT DETAILS',[
     ['Statement ID',String(row.statementId)],['Property',row.statement.account.property.title],
   ]);
-  if(y>doc.page.height-55){doc.addPage();y=28;}
-  doc.font('ReceiptBold').fontSize(8).fillColor('#02665e').text('Quality Stay For Every Wallet',x,y);
-  doc.font('Receipt').fontSize(7).fillColor('#60756f').text('Confirms NRMS statement settlement, not owner payout. This is not a fiscal tax receipt.',x,y+14,{width});
+  const footerY=doc.page.height-mm(23);
+  if(y>footerY-8){doc.addPage();}
+  doc.moveTo(x,footerY).lineTo(x+width,footerY).lineWidth(0.5).strokeColor('#cad9d3').stroke();
+  doc.font('ReceiptBold').fontSize(8).fillColor('#02665e').text('Quality Stay For Every Wallet',x,footerY+9,{width,align:'center'});
+  doc.font('Receipt').fontSize(7).fillColor('#60756f').text('Confirms NRMS statement settlement, not owner payout. This is not a fiscal tax receipt.',x,footerY+23,{width,align:'center'});
   doc.end();return completed;
 }

@@ -216,7 +216,9 @@ export default function NrmsBillingPage() {
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');link.href = url;link.download = `nrms-receipt-${statementId}.pdf`;link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {setReceiptError('The receipt could not be downloaded. Please refresh the payment status and try again.');}
+    } catch (cause: any) {
+      setReceiptError(cause?.response?.data?.error || 'The receipt could not be downloaded. Please try again.');
+    }
     finally {setReceiptBusy(null);}
   };
   const [showAllCompleted, setShowAllCompleted] = useState(false);
@@ -539,6 +541,10 @@ export default function NrmsBillingPage() {
         #owner-billing-workspace .grid > * {min-width:0;}
         #owner-billing-workspace .text-neutral-400 {color:#64748b;}
         #owner-billing-workspace > section, #owner-billing-workspace > .grid > section {border-color:#d5dfe5;}
+        #owner-billing-workspace .completed-payments-table {border-collapse:collapse;border-spacing:0;}
+        #owner-billing-workspace .completed-payments-table th {padding:10px 12px;}
+        #owner-billing-workspace .completed-payments-table td {padding:9px 12px;vertical-align:middle;border:0;border-bottom:1px solid #e3ebe7;}
+        #owner-billing-workspace .completed-payments-table tbody tr:last-child td {border-bottom:0;}
       `}</style>
       {smokeScenario && (
         <section className="rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5 sm:p-4" aria-label="Billing UI smoke test controls">
@@ -961,7 +967,7 @@ export default function NrmsBillingPage() {
             <>
               {receiptError && <p role="alert" className="mb-3 text-xs text-red-700">{receiptError}</p>}
               <div className="overflow-x-auto rounded-xl border border-[#cddfd5] bg-white">
-              <table className="w-full min-w-[1050px] table-fixed text-left text-xs"><colgroup>{[9,19,12,12,17,19,12].map((width, index) => <col key={index} style={{width:`${width}%`}} />)}</colgroup><thead className="bg-[#eef4f1]"><tr>{['Statement ID','Settlement reference','Amount paid','Payment method','Paid at (EAT)','Verification / reconciliation','Receipt'].map((label) => <th key={label} className="px-3 py-3 text-[10px] font-medium text-slate-600">{label}</th>)}</tr></thead><tbody>
+              <table className="completed-payments-table w-full min-w-[1050px] table-fixed text-left text-xs"><colgroup>{[9,19,12,12,17,19,12].map((width, index) => <col key={index} style={{width:`${width}%`}} />)}</colgroup><thead className="bg-[#eef4f1]"><tr>{['Statement ID','Settlement reference','Amount paid','Payment method','Paid at (EAT)','Verification / reconciliation','Receipt'].map((label) => <th key={label} className="px-3 py-3 text-[10px] font-medium text-slate-600">{label}</th>)}</tr></thead><tbody>
               {visibleCompletedStatements.map((statement: any) => {
                 const paidToken = statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID" && token.payment) ?? statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID");
                 const reference = paidToken ? ownerSettlementReference(statement.id, paidToken.token) : null;
