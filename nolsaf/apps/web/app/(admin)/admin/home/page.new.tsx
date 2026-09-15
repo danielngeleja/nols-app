@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CreditCard,
+  Info,
   LayoutDashboard,
   LineChart,
   MapPin,
@@ -52,14 +53,12 @@ const KPI_TONES = {
 
 type Tone = keyof typeof KPI_TONES;
 
-/** Solid progress-bar fill per tone. Solid, not a gradient: a two-stop gradient
- *  on a 6px bar reads as noise rather than as a value. */
-const TONE_BAR: Record<Tone, string> = {
-  emerald: "bg-emerald-600",
-  sky: "bg-sky-600",
-  blue: "bg-blue-600",
-  amber: "bg-amber-600",
-  violet: "bg-violet-600",
+const KPI_SURFACES: Record<Tone, string> = {
+  emerald: "border-[#b4dfce] bg-[#e3f3eb] hover:bg-[#d9eee3]",
+  sky: "border-[#b6dce9] bg-[#e2f1f7] hover:bg-[#d7eaf3]",
+  blue: "border-[#c0d2ee] bg-[#e6edf9] hover:bg-[#dce6f6]",
+  amber: "border-[#ead7ae] bg-[#f8efd9] hover:bg-[#f3e6c7]",
+  violet: "border-[#d5c7eb] bg-[#eee7f7] hover:bg-[#e6dcf2]",
 };
 
 /**
@@ -85,23 +84,18 @@ function KpiCard({
   return (
     // border-solid is required on every bordered element: preflight is disabled
     // and nothing sets border-style, so a bare `border` utility renders nothing.
-    <div className="group min-w-0 rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] transition duration-200 hover:border-neutral-300 hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)]">
-      <div className="flex items-start justify-between gap-3">
-        <p className="m-0 min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">{label}</p>
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid ${KPI_TONES[tone]}`}>
+    <div className={`group min-w-0 rounded-xl border border-solid p-4 transition duration-200 ${KPI_SURFACES[tone]}`}>
+      <div className="flex items-center gap-3">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-solid ${KPI_TONES[tone]}`}>
           <Icon className="h-[18px] w-[18px]" aria-hidden />
         </span>
+        <div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-slate-800">{label}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-slate-500">{detail}</p></div>
+      {ready ? (
+        <p className="m-0 shrink-0 text-[1.75rem] font-bold leading-none tabular-nums tracking-tight text-slate-950">{value}</p>
+      ) : (
+        <div className="h-7 w-8 animate-pulse rounded bg-slate-100" />
+      )}
       </div>
-      {ready ? (
-        <p className="m-0 mt-3.5 truncate text-[2rem] font-bold leading-none tabular-nums tracking-tight text-neutral-950">{value}</p>
-      ) : (
-        <div className="mt-3.5 h-8 w-16 animate-pulse rounded-lg bg-neutral-100" />
-      )}
-      {ready ? (
-        <p className="mb-0 mt-2 truncate text-xs font-medium text-neutral-500">{detail}</p>
-      ) : (
-        <div className="mt-3 h-3 w-24 animate-pulse rounded bg-neutral-100" />
-      )}
     </div>
   );
 }
@@ -123,6 +117,7 @@ function HighlightCard({
   secondary,
   footnote,
   className,
+  featured = false,
 }: {
   href: string;
   label: string;
@@ -134,22 +129,25 @@ function HighlightCard({
   secondary: string;
   footnote: string;
   className?: string;
+  featured?: boolean;
 }) {
   const isEmptyValue = !value || value.trim() === "" || value.trim() === "--";
   return (
     <Link
       href={href}
-      className={`group flex h-full flex-col rounded-2xl border border-solid border-neutral-200 bg-white p-5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] transition duration-200 hover:border-neutral-300 hover:no-underline hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)] ${className ?? ""}`}
+      className={`group relative isolate flex min-w-0 h-full flex-col overflow-hidden rounded-xl border border-solid p-4 no-underline transition duration-200 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${featured ? 'border-[#ded9cc] bg-[#f4f1e8] sm:p-6 hover:border-[#c5bda8]' : KPI_SURFACES[tone]} ${className ?? ""}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <p className="m-0 min-w-0 text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">{label}</p>
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid ${KPI_TONES[tone]}`}>
+      {featured && <div aria-hidden className="pointer-events-none absolute right-0 top-0 -z-10 h-40 w-40 opacity-40" style={{backgroundImage:'radial-gradient(circle, #b6a785 1px, transparent 1px)',backgroundSize:'12px 12px'}} />}
+      <div className="flex items-center gap-2.5">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-solid ${KPI_TONES[tone]}`}>
           <Icon className="h-[18px] w-[18px]" aria-hidden />
         </span>
+        <p className="m-0 min-w-0 flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</p>
+        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-indigo-600" aria-hidden />
       </div>
 
       <p
-        className={`mb-0 mt-2 truncate text-lg font-bold leading-tight tracking-tight ${
+        className={`mb-0 mt-3 break-words font-bold leading-tight tracking-tight ${featured ? 'text-2xl sm:text-3xl' : 'text-base'} ${
           isEmptyValue ? "font-medium text-neutral-400" : "text-neutral-950"
         }`}
       >
@@ -159,12 +157,11 @@ function HighlightCard({
 
       {/* mt-auto pins the figures to the card floor, so a label that wraps to two
           lines cannot make this card taller than its neighbours. */}
-      <div className="mt-auto border-0 border-t border-solid border-neutral-100 pt-4">
+      <div className={`mt-auto pt-4 ${featured ? 'sm:pt-8' : ''}`}>
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="text-2xl font-bold leading-none tabular-nums text-neutral-950">{primary}</span>
-          <span className="min-w-0 text-xs font-medium text-neutral-500">{secondary}</span>
+          {!isEmptyValue && <><span className={`${featured ? 'text-4xl' : 'text-xl'} font-bold leading-none tabular-nums text-neutral-950`}>{primary}</span><span className="min-w-0 text-[11px] font-medium text-neutral-500">{secondary}</span></>}
         </div>
-        <p className="mb-0 mt-2 text-xs text-neutral-400">{footnote}</p>
+        <p className="mb-0 mt-2 text-[10px] leading-4 text-slate-500">{isEmptyValue ? 'No qualifying records in this reporting period.' : footnote}</p>
       </div>
     </Link>
   );
@@ -559,8 +556,6 @@ export default function AdminHomePage() {
     const numericBadge = typeof badge === "number" && Number.isFinite(badge) ? badge : null;
     const badgeDisplay = useCountUp(numericBadge ?? 0, tilesInView && numericBadge !== null);
     const badgeLabel = numericBadge !== null ? Math.round(badgeDisplay).toLocaleString() : badge;
-    const progressPct =
-      numericBadge !== null ? Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-numericBadge / 8))))) : null;
     const showBadge = featured && badge !== undefined && badge !== null;
     const showSparkline = !featured && Array.isArray(seriesValues) && seriesValues.length >= 2;
 
@@ -586,8 +581,8 @@ export default function AdminHomePage() {
               }
         }
       >
-        <div className="relative h-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)] motion-safe:transition motion-safe:duration-200 group-hover:border-neutral-300 group-hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_24px_46px_-28px_rgba(15,23,42,0.28)]">
-          <div className={"relative " + (featured ? "min-h-[132px] p-4" : "min-h-[112px] p-4")}>
+        <div className={`relative h-full overflow-hidden rounded-xl border border-solid motion-safe:transition motion-safe:duration-200 ${KPI_SURFACES[tone]}`}>
+          <div className="relative p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-start gap-3">
                 <span
@@ -619,7 +614,7 @@ export default function AdminHomePage() {
 
               <div className="flex shrink-0 items-center gap-2">
                 {showBadge ? (
-                  <span className={`flex h-6 min-w-6 items-center justify-center rounded-full border border-solid px-1.5 text-[11px] font-bold tabular-nums ${KPI_TONES[tone]}`}>
+                  <span aria-label={`${title}: ${badgeLabel}`} className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-white/80 px-2 text-lg font-bold tabular-nums text-slate-950">
                     {badgeLabel}
                   </span>
                 ) : null}
@@ -631,21 +626,7 @@ export default function AdminHomePage() {
               </div>
             </div>
 
-            {progressPct !== null ? (
-              <div className="mt-4 flex items-center gap-3">
-                <span className="text-[11px] font-medium text-neutral-500">Activity</span>
-                <div className="min-w-0 flex-1">
-                  <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                    <div
-                      className={`h-full rounded-full ${TONE_BAR[tone]} transition-[width] duration-700`}
-                      style={{ width: `${tilesInView ? progressPct : 0}%` }}
-                      aria-hidden
-                    />
-                  </div>
-                </div>
-                <span className="text-[11px] font-bold tabular-nums text-neutral-700">{progressPct}%</span>
-              </div>
-            ) : null}
+            {featured && <p className="mb-0 mt-3 text-[10px] font-bold text-slate-600">{title === 'Approvals' ? 'Review queue' : title === 'Payments' ? 'Settlement workspace' : 'Booking workspace'} <span aria-hidden>→</span></p>}
 
             {bottomSlot ? (
               <div className="mt-3.5">{bottomSlot}</div>
@@ -802,6 +783,12 @@ export default function AdminHomePage() {
         #admin-home * {
           box-sizing: border-box;
         }
+        #admin-home section[aria-label="Revenue analytics"] > div:first-child { background: #e8f2f5; border-color: #d0e3e9; }
+        #admin-home section[aria-label="Recent activities"] > div:first-child { background: #eee9f6; border-color: #ddd3eb; }
+        #admin-home section[aria-label="Recent activities"] { align-self: start; }
+        #admin-home section[aria-label="Operations snapshot"] > div:first-child { background: #f3eee3; border-color: #e6ddca; }
+        #admin-home section[aria-label="Operations hub"] { background: #f6f7f9; }
+        #admin-home section[aria-label="Operations hub"] > div:first-child { background: #e9edf5; border-color: #d7dfec; }
       `}</style>
       {/* No max-width here: the admin shell is fluid (see admin-soft-ui.css), so a
           cap at this level would re-centre the content and reintroduce the gutters.
@@ -860,7 +847,7 @@ export default function AdminHomePage() {
                 </div>
               </section>
 
-              <section className="col-span-12" aria-label="Performance highlights">
+              <section className="col-span-12 rounded-2xl border border-solid border-slate-200 bg-[#f6f7f9] p-4 sm:p-5" aria-label="Performance highlights">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
@@ -874,11 +861,11 @@ export default function AdminHomePage() {
                     </div>
                   </div>
                   <span className="shrink-0 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-bold text-neutral-600">
-                    Best of NoLSAF
+                    {highlights?.windowDays ?? 30}-day view
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <HighlightCard
                     href="/admin/properties/previews"
                     label="Best property type"
@@ -929,7 +916,8 @@ export default function AdminHomePage() {
                         ? `/admin/properties/previews?previewId=${highlights.topProperty.propertyId}`
                         : "/admin/properties/previews"
                     }
-                    className="md:col-span-2 xl:col-span-1"
+                    featured
+                    className="order-first md:col-span-2 xl:row-span-2"
                     label="Top property"
                     value={highlights?.topProperty?.title ?? "--"}
                     meta={highlights?.topProperty ? `${highlights.topProperty.type}, ${highlights.topProperty.regionName}` : undefined}
@@ -1054,7 +1042,7 @@ export default function AdminHomePage() {
 
                       return (
                         <>
-                          <div className="rounded-2xl border border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5">
+                          <div className="rounded-xl border border-solid border-[#d2e4ea] bg-[#f2f7f9] p-4">
                             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <div className="text-sm font-bold text-neutral-950">Revenue performance</div>
@@ -1068,7 +1056,7 @@ export default function AdminHomePage() {
                               </div>
                             </div>
 
-                            <div className="h-56 sm:h-64">
+                            <div className={hasPoints && hasRevenue ? "h-56 sm:h-64" : "h-44"}>
                             {hasPoints && hasRevenue ? (
                               <Chart
                                 type="line"
@@ -1143,8 +1131,8 @@ export default function AdminHomePage() {
                                 <div className="pointer-events-none absolute inset-x-4 top-1/2 border-0 border-t border-dashed border-neutral-200" />
                                 <div className="pointer-events-none absolute inset-x-4 top-3/4 border-0 border-t border-dashed border-neutral-200" />
                                 <div className="absolute inset-x-0 top-[38%] px-4 text-center">
-                                  <div className="text-sm font-bold text-neutral-700">Revenue baseline ready</div>
-                                  <div className="mt-1 text-xs font-medium text-neutral-500">The line will rise when commission or subscription revenue is posted.</div>
+                                  <div className="text-sm font-bold text-slate-800">{hasPoints ? 'No revenue in this period' : 'No revenue series available'}</div>
+                                  <div className="mt-1 text-xs font-medium text-slate-500">Try another reporting window or open revenue details.</div>
                                 </div>
                                 <div className="relative flex items-center">
                                   {baselineLabels.map((label, index) => (
@@ -1164,19 +1152,19 @@ export default function AdminHomePage() {
                           </div>
 
                           <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                            <div className="rounded-xl border border-solid border-[#b4dfce] bg-[#e3f3eb] p-3">
                               <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Total revenue</div>
                               <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {totalT.toLocaleString()}</div>
                             </div>
-                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                            <div className="rounded-xl border border-solid border-[#b6dce9] bg-[#e2f1f7] p-3">
                               <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Average / point</div>
                               <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {averageRevenue.toLocaleString()}</div>
                             </div>
-                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                            <div className="rounded-xl border border-solid border-[#d5c7eb] bg-[#eee7f7] p-3">
                               <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Active {pointLabel}</div>
                               <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{activePoints} / {baselineLabels.length}</div>
                             </div>
-                            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                            <div className="rounded-xl border border-solid border-[#ead7ae] bg-[#f8efd9] p-3">
                               <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Commission mix</div>
                               <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{commissionShare}%</div>
                             </div>
@@ -1196,7 +1184,7 @@ export default function AdminHomePage() {
                     </span>
                     <div className="min-w-0">
                       <h2 className="m-0 text-sm font-bold text-neutral-950">Recent activities</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Latest changes</p>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Latest five recorded actions</p>
                     </div>
                   </div>
                   <Link
@@ -1234,7 +1222,7 @@ export default function AdminHomePage() {
                     }
 
                     return (
-                      <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 rounded-xl border border-solid border-neutral-200 bg-white p-0">
+                      <ul className="m-0 list-none space-y-2 p-0">
                         {recentActivities!.slice(0, 5).map((a: any) => {
                           const tone = auditTone(a.action);
                           const detailsText = formatAuditDetails(a.action, a.details);
@@ -1242,10 +1230,10 @@ export default function AdminHomePage() {
                           return (
                             <li
                               key={a.id ?? `${a.action}-${a.createdAt ?? ""}`}
-                              className="px-4 py-3"
+                              className="rounded-xl border border-solid border-[#e3dced] bg-[#f8f6fb] px-4 py-3 transition hover:bg-[#f0ebf7]"
                             >
                               <div className="flex items-start gap-3">
-                                <div className={"mt-1.5 h-2 w-2 rounded-full shrink-0 " + tone.dot} aria-hidden />
+                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-violet-100" aria-hidden><span className={"h-2 w-2 rounded-full " + tone.dot} /></span>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-3">
                                     <span className="text-sm font-bold leading-snug text-neutral-900">
@@ -1289,41 +1277,41 @@ export default function AdminHomePage() {
                       simulated payment card (EMV chip, NFC arcs, dual circles) which
                       implied a real card product that does not exist. */}
                   <div className="col-span-12 lg:col-span-4">
-                    <div className="flex h-full min-h-[14rem] flex-col justify-between rounded-2xl border border-solid border-emerald-950/70 bg-[#082f2a] p-5 shadow-[0_14px_34px_rgba(8,47,42,0.18)]">
+                    <div className="flex h-full flex-col justify-between rounded-xl border border-solid border-[#dbceb4] bg-[#f4eddf] p-5">
                       <div className="min-w-0">
-                        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-100/50">Total platform revenue</p>
-                        <p className="mb-0 mt-2.5 truncate text-[2rem] font-bold leading-none tabular-nums tracking-tight text-white">
+                        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-[#756347]">Total platform revenue</p>
+                        <p className="mb-0 mt-3 break-words text-[2rem] font-bold leading-none tabular-nums tracking-tight text-slate-950">
                           {formatTsh(totalCommission + totalSubscription)}
                         </p>
                       </div>
 
-                      <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-white/10">
-                        <div className="min-w-0 bg-[#082f2a] px-3.5 py-3">
-                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100/50">Commission</p>
-                          <p className="mb-0 mt-1 truncate text-sm font-bold tabular-nums text-white">{formatTsh(totalCommission)}</p>
+                      <div className="mt-6 grid grid-cols-2 gap-3">
+                        <div className="min-w-0 rounded-lg border border-solid border-[#b4dfce] bg-[#e3f3eb] px-3.5 py-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.1em] text-emerald-800">Commission</p>
+                          <p className="mb-0 mt-1 break-words text-sm font-bold tabular-nums text-slate-950">{formatTsh(totalCommission)}</p>
                         </div>
-                        <div className="min-w-0 bg-[#082f2a] px-3.5 py-3">
-                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100/50">Subscription</p>
-                          <p className="mb-0 mt-1 truncate text-sm font-bold tabular-nums text-white">{formatTsh(totalSubscription)}</p>
+                        <div className="min-w-0 rounded-lg border border-solid border-[#b6dce9] bg-[#e2f1f7] px-3.5 py-3">
+                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.1em] text-sky-800">Subscription</p>
+                          <p className="mb-0 mt-1 break-words text-sm font-bold tabular-nums text-slate-950">{formatTsh(totalSubscription)}</p>
                         </div>
                       </div>
 
                       <div className="mt-4 flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
-                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/60">Live</span>
+                        <Info className="h-3.5 w-3.5 shrink-0 text-[#756347]" aria-hidden />
+                        <span className="text-[10px] leading-4 text-[#756347]">Commission and subscription totals</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="col-span-12 lg:col-span-8">
-                    <div className="h-full overflow-hidden rounded-2xl border border-solid border-neutral-200">
+                    <div className="space-y-2">
                       {opsSnapshot.labels.map((label, i) => {
                         const value = opsSnapshot.values[i] ?? 0;
                         const pct = opsSnapshot.total > 0 ? Math.round((value / opsSnapshot.total) * 100) : 0;
                         return (
                           <div
                             key={label}
-                            className={`px-4 py-3 ${i > 0 ? "border-0 border-t border-solid border-neutral-100" : ""}`}
+                            className={`rounded-xl border border-solid px-4 py-3 ${KPI_SURFACES[(['emerald', 'sky', 'blue', 'amber', 'violet'] as Tone[])[i] ?? 'blue']}`}
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex min-w-0 items-center gap-2.5">
@@ -1339,10 +1327,10 @@ export default function AdminHomePage() {
                                 <span className="ml-1.5 text-xs font-medium text-neutral-500">{pct}%</span>
                               </div>
                             </div>
-                            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/70" role="progressbar" aria-label={`${label} share of snapshot total`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
                               <div
                                 className="h-full rounded-full transition-[width] duration-700"
-                                style={{ width: `${tilesInView ? pct : 0}%`, backgroundColor: opsSnapshot.colors[i] }}
+                                style={{ width: `${pct}%`, backgroundColor: opsSnapshot.colors[i] }}
                                 aria-hidden
                               />
                             </div>
@@ -1362,7 +1350,7 @@ export default function AdminHomePage() {
                     </span>
                     <div className="min-w-0">
                       <h2 className="m-0 text-sm font-bold text-neutral-950">Operations hub</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Jump to any module</p>
+                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Priority workspaces and management tools</p>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1">

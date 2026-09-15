@@ -30,6 +30,7 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
     if (!listenForRequired) return;
     const handleRequired = () => {
       setOpen(true);
+      setStage(current => current === "granted" ? "locked" : current);
       setError("This action needs the finance verification grant.");
     };
     window.addEventListener("finance-grant-required", handleRequired);

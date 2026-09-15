@@ -164,15 +164,14 @@ export default function NrmsPricingPage() {
   );
 
   return (
-    <div id="nrms-pricing" className="mx-auto min-w-0 max-w-6xl space-y-5 px-4 py-6">
+    <div id="nrms-pricing" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
       {/* Preflight is disabled in this project; without border-box, w-full inputs overflow their grid columns */}
       <style>{`#nrms-pricing, #nrms-pricing * { box-sizing: border-box; }`}</style>
       <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> PAYG billing board</Link>
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
+      <section className="pricing-workspace-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">PRICING</div>
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3.5">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Coins className="h-5 w-5" /></span>
             <div className="min-w-0">
@@ -184,20 +183,14 @@ export default function NrmsPricingPage() {
               <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Publish forward-only pricing and manage reasoned property exceptions.</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-100 bg-white/85 px-3.5 py-2.5 shadow-sm">
-            <CircleDollarSign className="h-4 w-4 text-emerald-700" />
-            <div>
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Live rate</p>
-              <p className="m-0 text-sm font-bold text-neutral-900">{livePolicy ? money(livePolicy.roomNightPrice) : "No policy"} {livePolicy && <span className="font-medium text-neutral-400">/ room-night</span>}</p>
-            </div>
-          </div>
+          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="rounded-lg border border-white/25 bg-white/10 px-3 py-2.5 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
         </div>
       </section>
 
       {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
       {notice && <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="pricing-summary grid min-w-0 gap-3 sm:grid-cols-3">
         <SummaryCard icon={CircleDollarSign} label="Live room-night rate" value={livePolicy ? money(livePolicy.roomNightPrice) : "n/a"} detail={livePolicy ? `Policy ${livePolicy.version}` : "Publish the first version"} tone="emerald" />
         <SummaryCard icon={Layers} label="Policy versions" value={String(policies.length)} detail={livePolicy ? `${livePolicy.accountCount} accounts on the live policy` : "No versions yet"} tone="blue" />
         <SummaryCard icon={Gauge} label="Accounts in dunning" value={String(watchedAccounts)} detail={`of ${accounts.length} PAYG accounts`} tone={watchedAccounts > 0 ? "amber" : "slate"} />
@@ -206,15 +199,15 @@ export default function NrmsPricingPage() {
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={Save} title="Publish policy version" subtitle="The prior version closes at the effective time. Finance OTP required." right={<span className="rounded-full border border-emerald-100 bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">Historical usage unchanged</span>} />
 
-        <div className="grid min-w-0 gap-6 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(19rem,0.85fr)] lg:gap-7">
+        <div className="pricing-editor grid min-w-0 items-start gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">
           <div className="min-w-0 space-y-5">
             <div>
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Rates and periods</p>
-              <div className="mt-3 grid min-w-0 gap-4 sm:grid-cols-3">{RATE_FIELDS.map(renderField)}</div>
+              <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-3">{RATE_FIELDS.map(renderField)}</div>
             </div>
             <div className="border-t border-neutral-100 pt-5">
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Dunning thresholds</p>
-              <div className="mt-3 grid min-w-0 gap-4 sm:grid-cols-3">{DUNNING_FIELDS.map(renderField)}</div>
+              <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-3">{DUNNING_FIELDS.map(renderField)}</div>
             </div>
           </div>
 
@@ -384,13 +377,15 @@ export default function NrmsPricingPage() {
                           <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${stage.badge}`}>{a.dunning.stage.replaceAll("_", " ")}</span>
                         </div>
                         <p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{a.owner.name} <span className="px-0.5">·</span> policy {a.policy.version}</p>
+                        <p className="mb-0 mt-1 text-[10px] text-slate-500">Billing account status: {a.status.replaceAll('_', ' ')}</p>
                       </div>
-                      <div className="w-full shrink-0 sm:w-52">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Unpaid</span>
-                          <span className="truncate text-xs font-bold tabular-nums text-neutral-800">{a.unpaidBalance.toLocaleString()} <span className="font-medium text-neutral-400">/ {a.unpaidLimit.toLocaleString()}</span></span>
+                      <div className="w-full min-w-0 shrink-0 sm:w-72">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-slate-500">Outstanding balance</span>
+                          <span className={`text-xs font-semibold tabular-nums ${a.unpaidBalance === 0 ? 'text-emerald-700' : 'text-neutral-800'}`}>{a.unpaidBalance === 0 ? 'No outstanding balance' : money(a.unpaidBalance)}</span>
                         </div>
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100 ring-1 ring-inset ring-neutral-200/70"><div className={`h-full rounded-full ${stage.bar}`} style={{ width: `${usedPercent}%` }} /></div>
+                        <p className="m-0 mt-1 text-[10px] text-slate-500">Configured unpaid limit: {money(a.unpaidLimit)}</p>
+                        {a.unpaidBalance > 0 && <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100 ring-1 ring-inset ring-neutral-200/70"><div className={`h-full rounded-full ${stage.bar}`} style={{ width: `${usedPercent}%` }} /></div>}
                       </div>
                     </div>
                   </summary>

@@ -409,14 +409,14 @@ export default function ChannelControlPage() {
   }
 
   return (
-    <div id="channel-control" className="mx-auto min-w-0 max-w-7xl space-y-5 px-4 py-6">
+    <div id="channel-control" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
       <style>{`#channel-control, #channel-control * { box-sizing: border-box; }`}</style>
 
       <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900">
         <ArrowLeft className="h-3.5 w-3.5" /> NRMS directory
       </Link>
 
-      <section className="relative overflow-hidden rounded-xl bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_70%,#eaf7f3_100%)] p-5 shadow-sm ring-1 ring-inset ring-emerald-100/70 sm:p-6">
+      <section className="channel-workspace-header relative overflow-hidden rounded-2xl bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
         <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
         <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3.5">
@@ -424,7 +424,8 @@ export default function ChannelControlPage() {
             <div className="min-w-0">
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS operations</p>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">OTA channel control</h1>
-              <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-neutral-500 sm:text-sm">Monitor provider health, queues, mapping and reconciliation. Every control action requires a reason and is written to the admin audit trail.</p>
+              <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-neutral-500">Provider health, delivery queues, mapping and reconciliation.</p>
+              <p className="mb-0 mt-1 text-[10px] text-neutral-500">Control actions require a reason and are recorded in the audit trail.</p>
             </div>
           </div>
           <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-emerald-100 bg-white px-3.5 py-2.5 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:opacity-60">
@@ -436,26 +437,26 @@ export default function ChannelControlPage() {
       {error && <div className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}</div>}
       {notice && <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><span className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification"><X className="h-4 w-4" /></button></div>}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="channel-summary grid min-w-0 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
         <SummaryCard icon={Building2} label="Connections" value={String(overview?.summary.totalConnections ?? 0)} detail="Across every provider" tone="blue" />
         <SummaryCard icon={CheckCircle2} label="Active channels" value={String(activeCount)} detail="Active or pilot" tone="emerald" />
         <SummaryCard icon={ShieldAlert} label="Open issues" value={String(overview?.summary.openIssues ?? 0)} detail="Reconciliation review" tone={(overview?.summary.openIssues ?? 0) > 0 ? "amber" : "slate"} />
         <SummaryCard icon={AlertTriangle} label="Dead letters" value={String(overview?.summary.deadLetters ?? 0)} detail={`${workersNeedingAttention} worker alerts`} tone={(overview?.summary.deadLetters ?? 0) > 0 ? "amber" : "slate"} />
       </div>
 
-      <section className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-inset ring-sky-200/70">
-        <div className="flex items-start gap-3 bg-sky-50/70 p-5 sm:p-6">
+      <section className="channel-certification overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex items-start gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-sm"><ShieldAlert className="h-4 w-4" /></span>
           <div className="min-w-0">
             <h2 className="m-0 text-sm font-bold text-sky-900">Expedia certification gate</h2>
-            <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-sky-800">Code-complete does not mean live. Expedia stays in pilot trust until every step below is signed off. Owners see only an activation notice; this operational checklist lives here and in the connectivity runbook.</p>
+            <p className="mb-0 mt-1 text-xs leading-5 text-slate-600">Expedia remains in pilot until all six certification steps are signed off. Track approval evidence in the connectivity runbook.</p>
           </div>
         </div>
-        <ul className="m-0 grid list-none gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
-          {["Partner enrollment", "API scopes granted", "Webhook registration", "ARI endpoint assignment", "Sandbox certification", "Reconciled test property"].map((step) => (
-            <li key={step} className="flex items-center gap-2 rounded-lg bg-neutral-50/70 px-3 py-2.5 text-xs font-semibold text-neutral-700 ring-1 ring-inset ring-neutral-200/60"><Clock3 className="h-3.5 w-3.5 shrink-0 text-sky-600" />{step}</li>
+        <ol className="m-0 grid list-none gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
+          {["Partner enrollment", "API scopes granted", "Webhook registration", "ARI endpoint assignment", "Sandbox certification", "Reconciled test property"].map((step, index) => (
+            <li key={step} className="flex min-w-0 items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-50 text-[10px] font-bold text-sky-700">{index + 1}</span><span className="min-w-0 flex-1">{step}</span><Clock3 aria-label="Sign-off required" className="h-3.5 w-3.5 shrink-0 text-slate-400" /></li>
           ))}
-        </ul>
+        </ol>
       </section>
 
       <section className="min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">

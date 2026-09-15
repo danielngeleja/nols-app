@@ -10,6 +10,7 @@
  *   3. Attach it on all state-changing requests.
  */
 import axios from "axios";
+import { decodeApiErrorPayload } from "./apiErrorPayload";
 
 const CSRF_SESSION_KEY = "nolsaf:csrf";
 
@@ -61,6 +62,9 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if (error?.response) {
+      error.response.data = await decodeApiErrorPayload(error.response.data);
+    }
     const status = error?.response?.status;
     const config = error?.config as any;
     if (status === 403 && error?.response?.data?.require2fa && typeof window !== "undefined") {

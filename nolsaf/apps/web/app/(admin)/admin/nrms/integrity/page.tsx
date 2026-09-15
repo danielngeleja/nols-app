@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Loader2, Search, ShieldAlert } from "lucide-react";
-import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Loader2, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { CountPill, SectionHeader, SummaryCard } from "../_components/CommercialUi";
 
 type Signal = { id: number; propertyId: number; kind: string; severity: string; status: string; metricValue: number | null; baseline: number | null; details: any; detectedAt: string; property: { id: number; title: string } };
 
@@ -81,31 +81,39 @@ export default function IntegrityPage() {
   if (loading) return <div className="flex min-h-[40vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   return (
-    <div id="nrms-integrity" className="mx-auto min-w-0 max-w-6xl space-y-5 px-4 py-6">
+    <div id="nrms-integrity" className="min-w-0 w-full space-y-4 py-4">
       {/* Preflight is disabled in this project; without border-box, w-full controls overflow their container */}
-      <style>{`#nrms-integrity, #nrms-integrity * { box-sizing: border-box; }`}</style>
+      <style>{`
+        #nrms-integrity, #nrms-integrity * { box-sizing: border-box; }
+        #nrms-integrity [class~="border"] { border-style: solid; }
+        #nrms-integrity .grid > * { min-width: 0; }
+        #nrms-integrity .text-neutral-400 { color: #64748b; }
+        #nrms-integrity .integrity-metrics > div { padding: 12px 16px; background: #f8fafc; border-radius: 12px; }
+        #nrms-integrity .integrity-metrics > div > span { width: 36px; height: 36px; }
+        #nrms-integrity h2 + p { white-space: normal; }
+      `}</style>
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">SIGNALS</div>
-        <div className="relative flex min-w-0 items-center gap-3.5">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Activity className="h-5 w-5" /></span>
+      <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline"><ArrowLeft className="h-3.5 w-3.5" />NRMS directory</Link>
+      <section className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-emerald-200"><Activity className="h-5 w-5" /></span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
-              <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Detection only</span>
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">NRMS integrity workspace</p>
+              <span className="inline-flex rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">Detection only</span>
             </div>
-            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Integrity signals</h1>
-            <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">A human reviews context before any enforcement action.</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Integrity signals</h1>
+            <p className="mb-0 mt-1 text-xs leading-5 text-emerald-100">Review anomalies and record context before any enforcement action.</p>
           </div>
         </div>
+        <button type="button" onClick={() => void load()} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 text-xs font-bold text-white hover:bg-white/20"><RefreshCw className="h-4 w-4" />Refresh signals</button>
       </section>
 
       {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
       {notice && <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard icon={ShieldAlert} label="Open signals" value={String(signals.length)} detail={statusFilter === "OPEN" ? "Awaiting review" : `Filtered: ${STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}`} tone={signals.length > 0 && statusFilter !== "ACKNOWLEDGED" ? "amber" : "slate"} />
+      <div className="integrity-metrics grid gap-3 sm:grid-cols-3">
+        <SummaryCard icon={ShieldAlert} label={statusFilter === "OPEN" ? "Open signals" : "Signals loaded"} value={String(signals.length)} detail={statusFilter === "OPEN" ? "Awaiting review" : `Filtered: ${STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}`} tone={signals.length > 0 && statusFilter !== "ACKNOWLEDGED" ? "amber" : "slate"} />
         <SummaryCard icon={AlertTriangle} label="High severity" value={String(highCount)} detail="Needs priority review" tone={highCount > 0 ? "amber" : "emerald"} />
         <SummaryCard icon={Clock3} label="Detection window" value="Automated" detail="Runs continuously in the background" tone="blue" />
       </div>
@@ -122,9 +130,13 @@ export default function IntegrityPage() {
           </select>
         </div>
 
-        <div className="bg-neutral-50/70 p-3 sm:p-4">
-          {signals.length === 0 && <EmptyState icon={CheckCircle2} title="No open integrity signals" text="Anomalies detected across properties will appear here for review." />}
-          {signals.length > 0 && filteredSignals.length === 0 && <EmptyState icon={Search} title="No matches" text="No signals match this search." />}
+        <div className="bg-slate-50/70 p-3 sm:p-4">
+          {filteredSignals.length === 0 && (
+            <div className={`flex items-start gap-3 rounded-xl p-4 ${signals.length === 0 ? "bg-emerald-50 text-emerald-800" : "bg-white text-slate-700"}`} role="status">
+              {signals.length === 0 ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" /> : <Search className="mt-0.5 h-5 w-5 shrink-0" />}
+              <div><p className="m-0 text-sm font-bold">{signals.length > 0 ? "No matching signals" : statusFilter === "OPEN" ? "No signals awaiting review" : "No signals in this view"}</p><p className="mb-0 mt-1 text-xs leading-5">{signals.length > 0 ? "Try a different property or signal kind." : "Detected anomalies will appear here. Enforcement always requires human review."}</p></div>
+            </div>
+          )}
           <div className="space-y-2.5">
             {pagedSignals.map((s) => {
               const severity = SEVERITY_BADGE[s.severity] ?? { badge: "border-neutral-200 bg-neutral-100 text-neutral-500", accent: "bg-neutral-300" };
