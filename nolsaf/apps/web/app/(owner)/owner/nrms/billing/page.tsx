@@ -13,6 +13,7 @@ import {
   Copy,
   CreditCard,
   FileText,
+  Download,
   FlaskConical,
   Gauge,
   History,
@@ -205,6 +206,19 @@ export default function NrmsBillingPage() {
   const [ledgerClassification, setLedgerClassification] = useState("");
   const [ledgerFrom, setLedgerFrom] = useState("");
   const [ledgerTo, setLedgerTo] = useState("");
+  const [receiptBusy, setReceiptBusy] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const downloadReceipt = async (token: string, statementId: number) => {
+    if (receiptBusy) return;
+    setReceiptBusy(token);setReceiptError(null);
+    try {
+      const response = await apiClient.get(`/api/owner/nrms/billing/tokens/${encodeURIComponent(token)}/receipt.pdf`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');link.href = url;link.download = `nrms-receipt-${statementId}.pdf`;link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {setReceiptError('The receipt could not be downloaded. Please refresh the payment status and try again.');}
+    finally {setReceiptBusy(null);}
+  };
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
@@ -945,57 +959,28 @@ export default function NrmsBillingPage() {
         <div className="bg-emerald-50/35 p-3 sm:p-4">
           {completedStatements.length ? (
             <>
-              <div className="grid gap-3 lg:grid-cols-2">
+              {receiptError && <p role="alert" className="mb-3 text-xs text-red-700">{receiptError}</p>}
+              <div className="overflow-x-auto rounded-xl border border-[#cddfd5] bg-white">
+              <table className="w-full min-w-[1050px] table-fixed text-left text-xs"><colgroup>{[9,19,12,12,17,19,12].map((width, index) => <col key={index} style={{width:`${width}%`}} />)}</colgroup><thead className="bg-[#eef4f1]"><tr>{['Statement ID','Settlement reference','Amount paid','Payment method','Paid at (EAT)','Verification / reconciliation','Receipt'].map((label) => <th key={label} className="px-3 py-3 text-[10px] font-medium text-slate-600">{label}</th>)}</tr></thead><tbody>
               {visibleCompletedStatements.map((statement: any) => {
-                const paidToken = statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID") ?? statement.tokens?.[0];
+                const paidToken = statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID" && token.payment) ?? statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID");
                 const reference = paidToken ? ownerSettlementReference(statement.id, paidToken.token) : null;
-                const paidDate = statementIssuedLabel(statement.paidAt ?? statement.closedAt);
+                const payment = paidToken?.payment;
+                const manual = payment?.status === 'MANUALLY_VERIFIED' || payment?.provider === 'ADMIN_MANUAL';
+                const timestamp = (value: string | null | undefined) => value ? new Date(value).toLocaleString('en-GB', {timeZone:'Africa/Dar_es_Salaam',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Not recorded';
                 return (
-                  <article key={statement.id} className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-[0_12px_30px_-28px_rgba(5,150,105,0.7)]">
-                    <div className="flex items-start justify-between gap-3 border-b border-emerald-100 bg-[linear-gradient(120deg,#ffffff_0%,#f0fdf7_100%)] px-4 py-3.5">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm">
-                          <CheckCircle2 className="h-[18px] w-[18px]" />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <p className="truncate text-sm font-bold text-neutral-900">Statement #{statement.id}</p>
-                            <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Paid</span>
-                          </div>
-                          <p className="mt-1 text-[10px] text-neutral-400">{paidDate ? `Paid ${paidDate}` : "Payment completed"}</p>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Amount paid</p>
-                        <strong className="mt-0.5 block text-base font-black tracking-tight text-neutral-950">{money(statement.amount)}</strong>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-600">Settlement reference</p>
-                        <p className="mt-0.5 truncate font-mono text-[11px] font-bold tracking-wide text-neutral-700">{reference ?? `Statement-${statement.id}`}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {paidToken?.method && (
-                          <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[9px] font-semibold text-neutral-600">{titleCase(paidToken.method)}</span>
-                        )}
-                        {reference && (
-                          <button
-                            type="button"
-                            aria-label="Copy completed settlement reference"
-                            onClick={() => copyReference(paidToken.token, reference)}
-                            className="inline-flex items-center gap-1 rounded-md border border-emerald-100 bg-white px-2 py-1 text-[9px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
-                          >
-                            {copiedToken === paidToken.token ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                            {copiedToken === paidToken.token ? "Copied" : "Copy"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </article>
+                  <tr key={statement.id} className="hover:bg-[#f7faf8]">
+                    <td className="border-b border-solid border-slate-100 px-3 py-4 text-slate-700">#{statement.id}</td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4"><span className="break-all font-mono text-[11px] text-slate-700">{reference ?? 'Not recorded'}</span>{reference && <button type="button" aria-label={`Copy reference for statement ${statement.id}`} onClick={() => copyReference(paidToken.token, reference)} className="ml-2 border-0 bg-transparent p-1 text-emerald-700">{copiedToken === paidToken.token ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}</button>}</td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4 font-medium tabular-nums text-slate-900">{money(payment?.amount ?? statement.amount)}</td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4 text-slate-600">{paidToken?.method ? titleCase(paidToken.method) : 'Not recorded'}</td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4 text-slate-600">{manual ? 'Not recorded independently' : timestamp(statement.paidAt)}</td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4"><span className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] text-emerald-800">{manual ? 'Manually reconciled' : payment ? 'Provider verified' : 'Not recorded'}</span><p className="pt-2 text-[10px] text-slate-500">{timestamp(payment?.verifiedAt)}</p></td>
+                    <td className="border-b border-solid border-slate-100 px-3 py-4"><button type="button" aria-label={`Download receipt for statement ${statement.id}`} title={payment ? 'Download receipt' : 'Receipt not available'} disabled={!payment || receiptBusy !== null} onClick={() => void downloadReceipt(paidToken.token, statement.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#c3d7cc] bg-emerald-50 text-emerald-800 disabled:opacity-40">{receiptBusy === paidToken?.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}</button></td>
+                  </tr>
                 );
               })}
+              </tbody></table>
               </div>
 
               {!showAllCompleted && completedStatements.length > COMPLETED_PREVIEW_COUNT && (

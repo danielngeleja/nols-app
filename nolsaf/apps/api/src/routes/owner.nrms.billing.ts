@@ -16,6 +16,7 @@ import {
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import crypto from "crypto";
+import { renderNrmsPaymentReceipt } from "../lib/nrmsPaymentReceipt.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -104,13 +105,31 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     where: { propertyId: active.property.id }, include: {
       policy: true,
       events: { orderBy: [{ serviceDate: "desc" }, { id: "desc" }], take: 500, include: { reservation: { select: { source: true, guestProfile: { select: { fullName: true } } } }, allocation: { include: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } } } },
-      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" } }, _count: { select: { items: true } } } },
+      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" }, include: { payment: { select: { id: true, provider: true, providerRef: true, status: true, verifiedAt: true, amount: true, currency: true } } } }, _count: { select: { items: true } } } },
     },
   });
   res.json({ account });
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
+router.get("/tokens/:token/receipt.pdf", (async (req: AuthedRequest, res: Response) => {
+  const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
+    where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
+    include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
+  });
+  if (!row) return res.status(404).json({ error: "Payment not found" });
+  if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) return res.status(409).json({ error: "A verified receipt is not available for this payment" });
+  let pdf: Buffer;
+  try {pdf = await renderNrmsPaymentReceipt(row);} catch (error: any) {
+    if (error?.message === 'RECEIPT_FONT_NOT_CONFIGURED') return res.status(503).json({error:'Receipt generation is temporarily unavailable: receipt fonts must be configured.'});
+    if (error?.message === 'RECEIPT_LOGO_NOT_CONFIGURED') return res.status(503).json({error:'Receipt generation is temporarily unavailable: the company logo must be configured.'});
+    throw error;
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Disposition', `attachment; filename="nrms-receipt-${row.statementId}.pdf"`);
+  res.end(pdf);
+}) as RequestHandler);
 router.post("/tokens/:token/declare", (async (req: AuthedRequest, res: Response) => {
   const parsed = methodSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Select a supported payment method" });
