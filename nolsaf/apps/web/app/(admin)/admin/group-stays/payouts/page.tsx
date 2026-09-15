@@ -3,20 +3,27 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import TablePagination from "@/components/TablePagination";
 import {
-  Calendar,
+  AlertCircle,
+  Building2,
   CheckCircle,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   Clock,
+  Coins,
   ExternalLink,
+  HandCoins,
+  Info,
   Loader2,
-  MapPin,
+  Mail,
   MessageSquare,
+  Phone,
+  RefreshCw,
   Search,
   Star,
-  User,
+  TrendingUp,
   Wallet,
+  X,
 } from "lucide-react";
 
 const api = apiClient;
@@ -46,6 +53,65 @@ type EarningsSummary = {
 
 const EMPTY_SUMMARY: EarningsSummary = { bookingCount: 0, totalAmount: 0, commissionAmount: 0, ownerCollects: 0 };
 
+function tidyName(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text || text !== text.toUpperCase() || !/[A-Z]/.test(text)) return text;
+  return text.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+}
+
+// "dar-es-salaam" -> "Dar es Salaam"; keeps known abbreviations only.
+function formatPlaceName(value: string | null | undefined) {
+  return String(value || "")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word, i) => {
+      if (i > 0 && ["es", "la", "wa", "na", "ya"].includes(word.toLowerCase())) return word.toLowerCase();
+      if (["CBD", "UDSM", "JNIA", "KIA"].includes(word.toUpperCase())) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+const gsRef = (id: number) => `GS-${String(id).padStart(4, "0")}`;
+
+function fmtDay(value: string | null | undefined) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function nightsBetween(a: string | null, b: string | null) {
+  if (!a || !b) return null;
+  const n = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function initials(name: string | null | undefined) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.charAt(0) || "") + (parts[1]?.charAt(0) || "")).toUpperCase() || "?";
+}
+
+// Where the group is in its stay today, so admins can see who is in-house right now.
+function stayProgress(e: { checkIn: string | null; checkOut: string | null; checkedInAt: string | null }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = e.checkIn ? new Date(e.checkIn) : null;
+  const end = e.checkOut ? new Date(e.checkOut) : null;
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(0, 0, 0, 0);
+  const total = start && end ? Math.max(Math.round((end.getTime() - start.getTime()) / 86400000), 1) : null;
+  if (end && today >= end) return { label: "Stay ended", pct: 100, bar: "bg-neutral-400", text: "text-neutral-500" };
+  if (start && today >= start && total) {
+    const day = Math.min(Math.round((today.getTime() - start.getTime()) / 86400000) + 1, total);
+    return { label: `In stay · night ${day} of ${total}`, pct: Math.round((day / total) * 100), bar: "bg-blue-600", text: "text-blue-700" };
+  }
+  if (start) {
+    const days = Math.round((start.getTime() - today.getTime()) / 86400000);
+    return { label: days === 1 ? "Arrives tomorrow" : `Arrives in ${days} days`, pct: 0, bar: "bg-green-600", text: e.checkedInAt ? "text-blue-700" : "text-green-700" };
+  }
+  return { label: "Dates not set", pct: 0, bar: "bg-neutral-300", text: "text-neutral-400" };
+}
+
 export default function AdminGroupStayEarningsPage() {
   const [filter, setFilter] = useState<"CHECKED_IN" | "ALL">("CHECKED_IN");
   const [ownerId, setOwnerId] = useState("");
@@ -72,6 +138,12 @@ export default function AdminGroupStayEarningsPage() {
     })();
   }, []);
 
+  // Search as you type, with a short pause so every keystroke is not a request.
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -97,123 +169,373 @@ export default function AdminGroupStayEarningsPage() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setPage(1); }, [filter, ownerId, search]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const pageReviewSummary = useMemo(() => {
+  const pageRating = useMemo(() => {
     const ratings = items.map((item) => item.guestReview?.rating).filter((rating): rating is number => typeof rating === "number");
-    return ratings.length ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : null;
+    return ratings.length ? { avg: ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length, count: ratings.length } : null;
   }, [items]);
 
   const money = (value: number | null | undefined, currency = "TZS") =>
-    value == null ? "—" : `${currency} ${Math.round(Number(value)).toLocaleString("en-US")}`;
-  const formatDate = (value: string | null) =>
-    value ? new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—";
+    value == null ? "Not set" : `${currency} ${Math.round(Number(value)).toLocaleString("en-US")}`;
+
+  const selectedOwner = owners.find((o) => String(o.id) === ownerId) || null;
+  const commissionShare = summary.totalAmount > 0 ? Math.round((summary.commissionAmount / summary.totalAmount) * 100) : 0;
+  const hasFilters = Boolean(ownerId || search);
 
   return (
-    <div className="mx-auto box-border w-full max-w-full min-w-0 space-y-4 overflow-x-clip px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
-      <div className="relative overflow-hidden rounded-2xl shadow-2xl" style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)" }}>
-        <div className="relative z-10 flex flex-col items-center px-5 py-8 text-center sm:px-8 sm:py-10">
-          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-[0_0_0_7px_rgba(255,255,255,0.05)]">
-            <Wallet className="h-6 w-6 text-white/90" aria-hidden />
+    <div className="space-y-6 w-full min-w-0">
+      {/* Header */}
+      <div className="flex w-full min-w-0 flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-100 sm:h-12 sm:w-12">
+            <Wallet className="h-5 w-5 sm:h-6 sm:w-6" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Owner earnings</h1>
+            <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Confirmed group stays, NoLSAF deposit commission and the balance each owner collects</p>
           </div>
-          <div className="text-xs text-white/65">Owner earnings · Group stays</div>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Owner earnings</h1>
-          <p className="mt-2 max-w-3xl text-sm text-white/65 sm:text-base">
-            Confirmed group stays, NoLSAF deposit commission, and the balance each owner collects at the property.
-          </p>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </button>
+          <Link
+            href="/admin/group-stays/revenue"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:no-underline"
+          >
+            <TrendingUp className="h-3.5 w-3.5 text-emerald-600" /> Revenue
+          </Link>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#0a1a19] shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
-        <div className="flex flex-col gap-3 p-4 sm:p-5">
-          <div className="relative w-full">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" aria-hidden />
+      {/* Summary strip */}
+      {(() => {
+        const tiles = [
+          { icon: Building2, tone: "bg-neutral-100 text-neutral-600", label: filter === "CHECKED_IN" ? "Checked-in stays" : "Confirmed stays", value: (summary.bookingCount || total).toLocaleString(), sub: selectedOwner ? tidyName(selectedOwner.name) : "All owners" },
+          { icon: Coins, tone: "bg-blue-50 text-blue-700", label: "Booking total", value: money(summary.totalAmount), sub: "What guests pay in full" },
+          { icon: TrendingUp, tone: "bg-emerald-50 text-emerald-700", label: "NoLSAF commission", value: money(summary.commissionAmount), sub: summary.totalAmount > 0 ? `${commissionShare}% of booking total, kept from deposit` : "Kept from the deposit" },
+          { icon: HandCoins, tone: "bg-violet-50 text-violet-700", label: "Owners collect", value: money(summary.ownerCollects), sub: "Balance paid at the property" },
+        ];
+        return (
+          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+            <div className="grid grid-cols-1 gap-px bg-neutral-100 sm:grid-cols-2 xl:grid-cols-4">
+              {tiles.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <div key={tile.label} className="flex min-w-0 items-center gap-3 bg-white px-4 py-3.5 sm:px-5">
+                    <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${tile.tone}`}>
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="m-0 text-xs font-medium text-neutral-500">{tile.label}</p>
+                      {loading && items.length === 0 ? (
+                        <span className="mt-1 inline-block h-6 w-28 animate-pulse rounded bg-neutral-100" />
+                      ) : (
+                        <p className="m-0 truncate text-xl font-bold leading-tight tabular-nums text-neutral-900" title={tile.value}>{tile.value}</p>
+                      )}
+                      <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400" title={tile.sub}>{tile.sub}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Split: where each shilling of the booking goes */}
+      {summary.totalAmount > 0 && (
+        <div className="rounded-xl border border-solid border-neutral-200 bg-white px-4 py-3.5 sm:px-5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 className="m-0 text-sm font-bold text-neutral-900">Booking split</h3>
+            <span className="inline-flex items-center gap-1 text-xs text-neutral-400">
+              <Info className="h-3.5 w-3.5" /> NoLSAF keeps the deposit; the owner collects the balance at the property
+            </span>
+          </div>
+          <div className="mt-2.5 flex h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+            <div className="h-full bg-emerald-500" style={{ width: `${Math.max(commissionShare, 2)}%` }} title={`NoLSAF ${money(summary.commissionAmount)}`} />
+            <div className="h-full bg-violet-500" style={{ width: `${Math.max(100 - commissionShare, 2)}%` }} title={`Owners ${money(summary.ownerCollects)}`} />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
+            <span className="inline-flex items-center gap-1.5"><span className="h-1 w-3 rounded-full bg-emerald-500" /> NoLSAF {commissionShare}%</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1 w-3 rounded-full bg-violet-500" /> Owners {100 - commissionShare}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Records: filters + table in one card */}
+      <section className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
+          <h3 className="m-0 text-sm font-bold text-neutral-900">Earnings records</h3>
+          <span className="text-xs tabular-nums text-neutral-400">{loading ? "Loading…" : `${total.toLocaleString()} ${total === 1 ? "booking" : "bookings"}`}</span>
+          {pageRating && (
+            <span className="inline-flex items-center gap-1 text-xs text-neutral-500">
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              <span className="font-semibold tabular-nums text-neutral-900">{pageRating.avg.toFixed(1)}</span>
+              <span className="text-neutral-400">from {pageRating.count} {pageRating.count === 1 ? "review" : "reviews"} on this page</span>
+            </span>
+          )}
+          {/* Status segmented control */}
+          <div className="ml-auto inline-flex rounded-lg bg-neutral-100 p-0.5">
+            {([["CHECKED_IN", "Checked in"], ["ALL", "All confirmed"]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => { setFilter(key); setPage(1); }}
+                aria-pressed={filter === key}
+                className={`h-8 rounded-md border-0 px-3 text-xs font-semibold transition-colors ${filter === key ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:px-5">
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") { setSearch(searchInput.trim()); setPage(1); } }}
-              placeholder="Search owner, booking, property, phone, or destination"
-              className="box-border w-full rounded-lg border border-white/15 bg-white/[0.07] py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+              onKeyDown={(event) => { if (event.key === "Enter") setSearch(searchInput.trim()); }}
+              placeholder="Search owner, booking, property, phone or destination"
+              className="h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white pl-9 pr-9 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => { setSearchInput(""); setSearch(""); }}
+                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <select value={ownerId} onChange={(event) => { setOwnerId(event.target.value); setPage(1); }} className="h-9 min-w-[210px] rounded-full border border-white/15 bg-white/[0.07] px-3 text-sm text-white outline-none">
-                <option value="" className="bg-[#0d2320]">All owners</option>
-                {owners.map((owner) => <option key={owner.id} value={owner.id} className="bg-[#0d2320]">{owner.name} ({owner.count})</option>)}
-              </select>
-              {([['CHECKED_IN', 'Checked in'], ['ALL', 'All confirmed']] as const).map(([key, label]) => (
-                <button key={key} type="button" onClick={() => { setFilter(key); setPage(1); }} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${filter === key ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-200" : "border-white/15 bg-white/[0.06] text-white/65 hover:bg-white/10"}`}>
-                  {label}
-                </button>
-              ))}
-              {search && <button type="button" onClick={() => { setSearchInput(""); setSearch(""); setPage(1); }} className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10">Clear search</button>}
-            </div>
-            <button type="button" onClick={() => void load()} className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 text-xs font-semibold text-white/75 hover:bg-white/10">
-              <RefreshIcon loading={loading} /> Refresh
+          <div className="flex min-w-0 items-center gap-2">
+            <select
+              value={ownerId}
+              onChange={(event) => { setOwnerId(event.target.value); setPage(1); }}
+              aria-label="Filter by owner"
+              className="h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
+            >
+              <option value="">All owners</option>
+              {owners.map((owner) => <option key={owner.id} value={owner.id}>{tidyName(owner.name)} ({owner.count})</option>)}
+            </select>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={() => { setOwnerId(""); setSearchInput(""); setSearch(""); }}
+                className="inline-flex h-9 flex-shrink-0 items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-100"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error ? (
+          <div className="flex items-center gap-3 border-0 border-t border-solid border-rose-100 bg-rose-50/60 px-4 py-3 sm:px-5">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 text-rose-600" />
+            <p className="m-0 flex-1 text-sm text-rose-800">{error}</p>
+            <button type="button" onClick={() => void load()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+              <RefreshCw className="h-3.5 w-3.5" /> Retry
             </button>
           </div>
-          <p className="text-[11px] text-white/40">One row per group-stay booking. Filter by owner to reconcile all of that owner&apos;s records.</p>
-        </div>
-      </div>
-
-      {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-
-      {!loading && total > 0 && (
-        <div className="grid gap-3 sm:grid-cols-4">
-          <SummaryCard label="Group stays" value={String(summary.bookingCount || total)} />
-          <SummaryCard label="Booking total" value={money(summary.totalAmount)} />
-          <SummaryCard label="NoLSAF commission" value={money(summary.commissionAmount)} />
-          <SummaryCard label="Owners collect" value={money(summary.ownerCollects)} highlight />
-        </div>
-      )}
-
-      {loading ? (
-        <div className="flex min-h-[35vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
-      ) : items.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center shadow-sm"><Wallet className="mx-auto mb-4 h-12 w-12 text-gray-300" /><p className="text-gray-600">{ownerId ? "No group stays match this owner." : filter === "CHECKED_IN" ? "No checked-in group stays yet." : "No confirmed group stays yet."}</p></div>
-      ) : (
-        <section className="w-full max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-5">
-            <div><h2 className="text-sm font-semibold text-slate-900">Owner earnings records</h2><p className="text-xs text-slate-500">Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p></div>
-            {pageReviewSummary != null && <span className="text-xs font-semibold text-amber-600">Page rating {pageReviewSummary.toFixed(1)} ★</span>}
+        ) : loading && items.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading earnings
           </div>
-          <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
-            <table className="w-full min-w-[1180px] table-fixed text-xs">
-              <thead><tr className="whitespace-nowrap border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600"><th className="w-[17%] px-3 py-3 text-left">Owner</th><th className="w-[13%] px-3 py-3 text-left">Group stay</th><th className="w-[16%] px-3 py-3 text-left">Property / location</th><th className="w-[12%] px-3 py-3 text-left">Stay</th><th className="w-[10%] px-3 py-3 text-left">Status</th><th className="w-[11%] px-3 py-3 text-right">Booking total</th><th className="w-[11%] px-3 py-3 text-right">Commission</th><th className="w-[11%] px-3 py-3 text-right">Owner collects</th><th className="w-[9%] px-3 py-3 text-right">Open</th></tr></thead>
-              <tbody>
-                {items.map((earning) => {
-                  const expanded = expandedId === earning.id;
-                  return (
-                    <Fragment key={earning.id}>
-                      <tr key={earning.id} className="border-b border-slate-100 align-top transition hover:bg-slate-50">
-                        <td className="px-3 py-3"><button type="button" onClick={() => { setOwnerId(String(earning.assignedOwner?.id || "")); setPage(1); }} className="max-w-full truncate text-left font-semibold text-slate-900 hover:text-emerald-700 hover:underline">{earning.assignedOwner?.name || "Unassigned"}</button><div className="mt-1 truncate text-[11px] text-slate-500">{earning.assignedOwner?.phone || earning.assignedOwner?.email || "No contact"}</div></td>
-                        <td className="px-3 py-3 font-semibold text-slate-900">#{earning.id}<div className="mt-1 text-[11px] font-normal text-slate-500">Group stay booking</div></td>
-                        <td className="px-3 py-3 text-slate-700"><div className="truncate">{earning.confirmedProperty?.title || "Property pending"}</div><div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500"><MapPin className="h-3 w-3" />{[earning.toDistrict, earning.toRegion].filter(Boolean).join(", ") || "—"}</div></td>
-                        <td className="px-3 py-3 text-slate-700"><div className="flex items-center gap-1"><Calendar className="h-3 w-3 text-slate-400" />{formatDate(earning.checkIn)}</div><div className="mt-1 text-[11px] text-slate-500">to {formatDate(earning.checkOut)}</div></td>
-                        <td className="px-3 py-3"><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${earning.checkedInAt ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{earning.checkedInAt ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}{earning.checkedInAt ? "Checked in" : "Confirmed"}</span></td>
-                        <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-800">{money(earning.totalAmount, earning.currency)}</td>
-                        <td className="px-3 py-3 text-right tabular-nums text-slate-700">{money(earning.commissionAmount, earning.currency)}</td>
-                        <td className="px-3 py-3 text-right font-semibold tabular-nums text-emerald-700">{money(earning.ownerCollects, earning.currency)}</td>
-                        <td className="px-3 py-3 text-right"><div className="inline-flex items-center gap-1"><button type="button" onClick={() => setExpandedId(expanded ? null : earning.id)} className="rounded-md border border-slate-300 px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50">{expanded ? "Hide" : "Details"}</button><Link href={`/admin/group-stays/bookings?id=${earning.id}`} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100" aria-label={`Open group stay ${earning.id}`}><ExternalLink className="h-4 w-4" /></Link></div></td>
-                      </tr>
-                      {expanded && <tr key={`${earning.id}-details`} className="border-b border-slate-200 bg-slate-50"><td colSpan={9} className="px-4 py-4"><div className="grid gap-3 md:grid-cols-3"><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Owner contact</div><div className="mt-1 text-sm text-slate-800">{earning.assignedOwner?.email || "No email"}</div></div><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Financial rule</div><div className="mt-1 text-sm text-slate-800">NoLSAF keeps the deposit; owner collects the balance at the property.</div></div><div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Guest review</div><div className="mt-1 text-sm text-slate-800">{earning.guestReview ? `${earning.guestReview.rating}/5${earning.guestReview.title ? ` · ${earning.guestReview.title}` : ""}` : "No review recorded"}</div>{earning.guestReview?.comment && <p className="mt-1 text-xs text-slate-600">{earning.guestReview.comment}</p>}{earning.guestReview?.ownerResponse && <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MessageSquare className="mt-0.5 h-3 w-3 text-emerald-600" />{earning.guestReview.ownerResponse}</p>}</div></div></td></tr>}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+        ) : items.length === 0 ? (
+          <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
+            <span className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-100 text-neutral-400">
+              <Wallet className="h-5 w-5" />
+            </span>
+            <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">
+              {ownerId ? "No group stays for this owner" : filter === "CHECKED_IN" ? "No checked-in group stays yet" : "No confirmed group stays yet"}
+            </p>
+            <p className="m-0 mt-1 text-xs text-neutral-500">
+              {filter === "CHECKED_IN" ? "Switch to All confirmed to see stays that have not checked in." : "Earnings appear once a group stay is confirmed."}
+            </p>
           </div>
-          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600"><span>Page {page} of {totalPages}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" />Prev</button><button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1.5 hover:bg-slate-50 disabled:opacity-40">Next<ChevronRight className="h-3.5 w-3.5" /></button></div></div>
-        </section>
-      )}
+        ) : (
+          <div className={`transition-opacity ${loading ? "opacity-60" : ""}`}>
+            {/* Phone: one compact card per booking */}
+            <ul className="m-0 list-none p-0 md:hidden">
+              {items.map((earning) => {
+                const progress = stayProgress(earning);
+                return (
+                  <li key={earning.id} className="border-0 border-t border-solid border-neutral-100 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-700">{gsRef(earning.id)}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">{earning.assignedOwner ? tidyName(earning.assignedOwner.name) : "Unassigned"}</span>
+                      <span className="flex-shrink-0 text-sm font-semibold tabular-nums text-violet-700">{money(earning.ownerCollects, earning.currency)}</span>
+                    </div>
+                    <p className="m-0 mt-1 truncate text-xs text-neutral-500">
+                      {[earning.confirmedProperty ? tidyName(earning.confirmedProperty.title) : "Property pending", fmtDay(earning.checkIn)].filter(Boolean).join(" · ")}
+                    </p>
+                    <div className="mt-1.5 flex items-center justify-between gap-3 text-xs">
+                      <span className={progress.text}>{progress.label}</span>
+                      <span className="tabular-nums text-neutral-400">NoLSAF {money(earning.commissionAmount, earning.currency)}</span>
+                    </div>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-neutral-100">
+                      <div className={`h-full rounded-full ${progress.bar}`} style={{ width: `${progress.pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="table w-full min-w-[1100px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold sm:pl-5">Booking</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Owner</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Property</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Stay</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 text-right font-bold">Booking total</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 text-right font-bold"><span className="normal-case">NoLSAF</span> commission</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 text-right font-bold">Owner collects</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 sm:pr-5"><span className="sr-only">Details</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((earning) => {
+                    const expanded = expandedId === earning.id;
+                    const nights = nightsBetween(earning.checkIn, earning.checkOut);
+                    const place = [earning.toDistrict, earning.toRegion].filter(Boolean).map((v) => formatPlaceName(v)).join(", ");
+                    const share = earning.totalAmount > 0 ? Math.round((earning.commissionAmount / earning.totalAmount) * 100) : null;
+                    const progress = stayProgress(earning);
+                    return (
+                      <Fragment key={earning.id}>
+                        <tr
+                          onClick={() => setExpandedId(expanded ? null : earning.id)}
+                          className={`cursor-pointer border-0 border-b border-solid border-neutral-100 transition-colors ${expanded ? "bg-neutral-50/70" : "hover:bg-neutral-50/70"}`}
+                        >
+                          <td className="px-4 py-3.5 sm:pl-5">
+                            <span className="inline-block rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700">{gsRef(earning.id)}</span>
+                            <div className={`mt-1 inline-flex items-center gap-1 text-xs ${earning.checkedInAt ? "text-blue-700" : "text-neutral-500"}`}>
+                              {earning.checkedInAt ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                              {earning.checkedInAt ? `Checked in ${fmtDay(earning.checkedInAt) || ""}` : "Confirmed"}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {earning.assignedOwner ? (
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-violet-50 text-[11px] font-semibold text-violet-700">
+                                  {initials(tidyName(earning.assignedOwner.name))}
+                                </span>
+                                <div className="min-w-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setOwnerId(String(earning.assignedOwner!.id)); setPage(1); }}
+                                    title="Show only this owner"
+                                    className="block max-w-[11rem] truncate border-0 bg-transparent p-0 text-left text-sm text-neutral-800 hover:text-violet-700 hover:underline"
+                                  >
+                                    {tidyName(earning.assignedOwner.name)}
+                                  </button>
+                                  <div className="mt-0.5 max-w-[11rem] truncate text-xs text-neutral-400">{earning.assignedOwner.phone || earning.assignedOwner.email || "No contact"}</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-neutral-400">Unassigned</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className={`max-w-[13rem] truncate ${earning.confirmedProperty ? "text-neutral-800" : "text-neutral-400"}`}>{earning.confirmedProperty ? tidyName(earning.confirmedProperty.title) : "Property pending"}</div>
+                            <div className="mt-0.5 max-w-[13rem] truncate text-xs text-neutral-400">{place || " "}</div>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="whitespace-nowrap text-neutral-800" title={nights ? `${nights} ${nights === 1 ? "night" : "nights"}` : undefined}>
+                              {fmtDay(earning.checkIn) || <span className="text-neutral-400">Not set</span>}
+                              {earning.checkOut ? <span className="text-neutral-400"> to {fmtDay(earning.checkOut)}</span> : null}
+                            </div>
+                            <div className={`mt-1 whitespace-nowrap text-xs ${progress.text}`}>{progress.label}</div>
+                            <div className="mt-1 h-1 w-full max-w-[11rem] overflow-hidden rounded-full bg-neutral-100">
+                              <div className={`h-full rounded-full ${progress.bar}`} style={{ width: `${progress.pct}%` }} />
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-800">{money(earning.totalAmount, earning.currency)}</td>
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                            <div className="tabular-nums text-neutral-800">{money(earning.commissionAmount, earning.currency)}</div>
+                            <div className="mt-0.5 text-xs text-neutral-400">{share != null ? `${share}% of total` : " "}</div>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums text-violet-700">{money(earning.ownerCollects, earning.currency)}</td>
+                          <td className="px-4 py-3.5 text-right sm:pr-5">
+                            <ChevronDown className={`ml-auto h-4 w-4 text-neutral-400 transition-transform ${expanded ? "rotate-180" : ""}`} aria-label={expanded ? "Hide details" : "Show details"} />
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr className="border-0 border-b border-solid border-neutral-100 bg-neutral-50/70">
+                            <td colSpan={8} className="px-4 pb-4 pt-1 sm:px-5">
+                              <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 md:grid-cols-3">
+                                {/* Owner contact */}
+                                <div className="min-w-0 bg-white px-4 py-3">
+                                  <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Owner contact</p>
+                                  <p className="m-0 mt-1.5 flex items-center gap-1.5 truncate text-sm text-neutral-800"><Mail className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400" />{earning.assignedOwner?.email || "No email"}</p>
+                                  <p className="m-0 mt-1 flex items-center gap-1.5 truncate text-sm text-neutral-800"><Phone className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400" />{earning.assignedOwner?.phone || "No phone"}</p>
+                                </div>
+                                {/* Money breakdown */}
+                                <div className="min-w-0 bg-white px-4 py-3">
+                                  <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Money split</p>
+                                  <dl className="m-0 mt-1.5 space-y-1 text-sm">
+                                    <div className="flex justify-between gap-3"><dt className="text-neutral-500">Guest pays</dt><dd className="m-0 tabular-nums text-neutral-900">{money(earning.totalAmount, earning.currency)}</dd></div>
+                                    <div className="flex justify-between gap-3"><dt className="text-neutral-500"><span>NoLSAF</span> keeps (deposit)</dt><dd className="m-0 tabular-nums text-emerald-700">{money(earning.commissionAmount, earning.currency)}</dd></div>
+                                    <div className="flex justify-between gap-3 border-0 border-t border-solid border-neutral-100 pt-1"><dt className="text-neutral-500">Owner collects at property</dt><dd className="m-0 font-semibold tabular-nums text-violet-700">{money(earning.ownerCollects, earning.currency)}</dd></div>
+                                  </dl>
+                                </div>
+                                {/* Guest review */}
+                                <div className="min-w-0 bg-white px-4 py-3">
+                                  <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Guest review</p>
+                                  {earning.guestReview ? (
+                                    <>
+                                      <p className="m-0 mt-1.5 flex items-center gap-1.5 text-sm text-neutral-900">
+                                        <span className="inline-flex items-center gap-0.5" aria-label={`${earning.guestReview.rating} out of 5`}>
+                                          {[1, 2, 3, 4, 5].map((n) => (
+                                            <Star key={n} className={`h-3.5 w-3.5 ${n <= Math.round(earning.guestReview!.rating) ? "fill-amber-400 text-amber-400" : "text-neutral-200"}`} />
+                                          ))}
+                                        </span>
+                                        <span className="truncate">{earning.guestReview.title || `${earning.guestReview.rating}/5`}</span>
+                                      </p>
+                                      {earning.guestReview.comment && <p className="m-0 mt-1 line-clamp-3 text-xs text-neutral-600">{earning.guestReview.comment}</p>}
+                                      {earning.guestReview.ownerResponse && (
+                                        <p className="m-0 mt-1.5 flex items-start gap-1.5 rounded-md bg-neutral-50 px-2 py-1.5 text-xs text-neutral-600">
+                                          <MessageSquare className="mt-0.5 h-3 w-3 flex-shrink-0 text-violet-600" />
+                                          <span className="line-clamp-3">{earning.guestReview.ownerResponse}</span>
+                                        </p>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <p className="m-0 mt-1.5 text-sm text-neutral-400">No review yet</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-2.5 flex justify-end">
+                                <Link
+                                  href={`/admin/group-stays/bookings?bookingId=${earning.id}`}
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:bg-neutral-50 hover:no-underline"
+                                >
+                                  Open booking <ExternalLink className="h-3.5 w-3.5" />
+                                </Link>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+          </div>
+        )}
+      </section>
     </div>
   );
-}
-
-function RefreshIcon({ loading }: { loading: boolean }) {
-  return <svg className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M20 11a8.1 8.1 0 0 0-14.8-4L3 10" /><path d="M3 4v6h6" /><path d="M4 13a8.1 8.1 0 0 0 14.8 4L21 14" /><path d="M21 20v-6h-6" /></svg>;
-}
-
-function SummaryCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return <div className={`rounded-xl border p-4 shadow-sm ${highlight ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}><p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">{label}</p><p className={`mt-1 text-lg font-bold ${highlight ? "text-emerald-700" : "text-slate-900"}`}>{value}</p></div>;
 }

@@ -25,9 +25,10 @@ function tidyName(value: string | null | undefined) {
 // Class names are spelled out in full so Tailwind keeps them.
 const ROW_TONES = {
   action: { label: "Needs you", row: "bg-amber-50/50", swatch: "bg-amber-500" },
-  bidding: { label: "Owners bidding", row: "bg-emerald-50/40", swatch: "bg-emerald-500" },
+  bidding: { label: "Owners bidding", row: "bg-violet-50/40", swatch: "bg-violet-500" },
   customer: { label: "Waiting on customer", row: "bg-sky-50/40", swatch: "bg-sky-500" },
-  paid: { label: "Deposit paid", row: "bg-teal-50/40", swatch: "bg-teal-500" },
+  deposit: { label: "Awaiting deposit", row: "bg-green-50/40", swatch: "bg-green-600" },
+  paid: { label: "Deposit paid", row: "bg-blue-50/40", swatch: "bg-blue-600" },
   completed: { label: "Completed", row: "bg-white", swatch: "bg-neutral-400" },
   canceled: { label: "Canceled", row: "bg-rose-50/40", swatch: "bg-rose-500" },
 } as const;
@@ -156,8 +157,55 @@ type GroupStay = {
     minDiscountPercent: number | null;
     updatedAt: string | null;
   };
+  totalAmount?: string | number | null;
+  currency?: string | null;
+  depositAmount?: string | number | null;
+  depositPaid?: boolean;
+  depositPaidAt?: string | null;
+  depositDueAt?: string | null;
+  ownerAmount?: string | number | null;
+  commissionPercent?: string | number | null;
+  paymentRef?: string | null;
+  payerPhone?: string | null;
+  paymentProvider?: string | null;
+  confirmedAt?: string | null;
+  checkedInAt?: string | null;
+  ownerPayoutAmount?: string | number | null;
+  ownerPayoutStatus?: string | null;
+  ownerPayoutPaidAt?: string | null;
+  ownerPayoutRef?: string | null;
+  paymentEvents?: Array<{
+    id: number;
+    provider: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    paymentChannel: string | null;
+    phone: string | null;
+    createdAt: string;
+  }>;
   createdAt: string;
 };
+
+function toAmount(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtMoney(value: number | null, currency = "TZS") {
+  return value === null ? "Not recorded" : `${currency} ${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function fmtDateTime(iso: string | null | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+const CHANNEL_LABELS: Record<string, string> = { MNO: "Mobile money", BANK: "Bank", CARD: "Card" };
 
 type Owner = {
   id: number;
@@ -723,7 +771,7 @@ export default function AdminGroupStayAssignmentsPage() {
       : status === "CONFIRMED"
         ? { text: "Deposit paid", next: checkInDay ? `Owner hosts from ${checkInDay}` : "Owner hosts on arrival", icon: CheckCircle, attention: false, tone: "paid" as const }
       : status === "AWAITING_DEPOSIT"
-        ? { text: "Awaiting deposit", next: "Customer to pay", icon: Clock, attention: false, tone: "customer" as const }
+        ? { text: "Awaiting deposit", next: "Customer to pay", icon: Clock, attention: false, tone: "deposit" as const }
       : recommendedIds.length > 0 && !gs.confirmedProperty
         ? { text: "Options sent", next: "Customer to choose", icon: Clock, attention: false, tone: "customer" as const }
       : gs.assignedOwner
@@ -1434,6 +1482,76 @@ export default function AdminGroupStayAssignmentsPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Deposit: full payment picture once the customer has paid */}
+                      {(gs.depositPaid || gs.depositPaidAt) && (() => {
+                        const currency = gs.currency || "TZS";
+                        const events = gs.paymentEvents || [];
+                        const successful = events.filter((e) => String(e.status).toUpperCase() === "SUCCESS");
+                        const paidEvent = successful[0] || null;
+                        const eventsTotal = successful.reduce((sum, e) => sum + (toAmount(e.amount) ?? 0), 0);
+                        const deposited = successful.length > 0 ? eventsTotal : toAmount(gs.depositAmount);
+                        const total = toAmount(gs.totalAmount);
+                        const balance = total !== null && deposited !== null ? Math.max(total - deposited, 0) : null;
+                        const payout = toAmount(gs.ownerPayoutAmount);
+                        const payoutStatus = String(gs.ownerPayoutStatus || "NONE").toUpperCase();
+                        const provider = gs.paymentProvider || paidEvent?.provider || null;
+                        const channel = paidEvent?.paymentChannel ? CHANNEL_LABELS[paidEvent.paymentChannel.toUpperCase()] || humanizeLabel(paidEvent.paymentChannel) : null;
+                        const phone = gs.payerPhone || paidEvent?.phone || null;
+                        const facts: Array<{ label: string; value: string; sub?: string | null; strong?: boolean }> = [
+                          { label: "Deposited amount", value: fmtMoney(toAmount(gs.depositAmount) ?? deposited, currency), sub: gs.commissionPercent != null ? `NoLSAF commission ${Number(gs.commissionPercent)}%` : null, strong: true },
+                          { label: "Deposited at", value: fmtDateTime(gs.depositPaidAt || paidEvent?.createdAt) || "Not recorded", sub: gs.depositDueAt ? `Due ${fmtDateTime(gs.depositDueAt)}` : null },
+                          { label: "Deposited via", value: [provider ? humanizeLabel(provider) : null, channel].filter(Boolean).join(" · ") || "Not recorded", sub: phone },
+                          { label: "Total deposited", value: fmtMoney(deposited, currency), sub: `${successful.length || (gs.depositPaid ? 1 : 0)} successful ${successful.length === 1 || (!successful.length && gs.depositPaid) ? "payment" : "payments"}`, strong: true },
+                          { label: "Booking total", value: fmtMoney(total, currency), sub: toAmount(gs.ownerAmount) !== null ? `Owner price ${fmtMoney(toAmount(gs.ownerAmount), currency)}` : null },
+                          { label: "Balance at property", value: fmtMoney(balance, currency), sub: "Customer pays the owner on arrival" },
+                          { label: "Owner payout", value: fmtMoney(payout, currency), sub: payoutStatus === "PAID" ? `Paid ${fmtDateTime(gs.ownerPayoutPaidAt) || ""}${gs.ownerPayoutRef ? ` · ${gs.ownerPayoutRef}` : ""}` : payoutStatus === "PENDING" ? "Pending transfer" : "Due after check-in" },
+                          { label: "Checked in", value: fmtDateTime(gs.checkedInAt) || "Not yet", sub: gs.confirmedAt ? `Confirmed ${fmtDateTime(gs.confirmedAt)}` : null },
+                        ];
+                        return (
+                          <div className="border-0 border-t border-solid border-neutral-100">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3">
+                              <span className="h-1 w-8 rounded-full bg-blue-600" aria-hidden />
+                              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">Deposit received</p>
+                              {gs.paymentRef ? (
+                                <span className="ml-auto font-mono text-[11px] text-neutral-500" title="Payment reference">Ref {gs.paymentRef}</span>
+                              ) : null}
+                            </div>
+                            <div className="m-4 mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-100 bg-neutral-100 lg:grid-cols-4">
+                              {facts.map((f) => (
+                                <div key={f.label} className="min-w-0 bg-white px-3 py-2.5">
+                                  <p className="m-0 text-[11px] text-neutral-400">{f.label}</p>
+                                  <p className={`m-0 mt-0.5 truncate text-sm tabular-nums ${f.strong ? "font-semibold text-blue-900" : "text-neutral-800"}`} title={f.value}>{f.value}</p>
+                                  {f.sub ? <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400" title={f.sub}>{f.sub}</p> : null}
+                                </div>
+                              ))}
+                            </div>
+                            {events.length > 1 && (
+                              <div className="mx-4 mb-4">
+                                <p className="m-0 mb-1.5 text-[11px] text-neutral-400">Payment attempts</p>
+                                <ul className="m-0 list-none rounded-lg [&>li+li]:border-0 [&>li+li]:border-t [&>li+li]:border-solid [&>li+li]:border-neutral-100 border border-solid border-neutral-100 p-0">
+                                  {events.map((e) => {
+                                    const st = String(e.status).toUpperCase();
+                                    return (
+                                      <li key={e.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                                        <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${st === "SUCCESS" ? "bg-blue-600" : st === "FAILED" ? "bg-rose-500" : "bg-amber-500"}`} />
+                                        <span className="w-32 flex-shrink-0 text-neutral-500">{fmtDateTime(e.createdAt)}</span>
+                                        <span className="min-w-0 flex-1 truncate text-neutral-700">
+                                          {humanizeLabel(e.provider)}
+                                          {e.paymentChannel ? ` · ${CHANNEL_LABELS[e.paymentChannel.toUpperCase()] || humanizeLabel(e.paymentChannel)}` : ""}
+                                          {e.phone ? ` · ${e.phone}` : ""}
+                                        </span>
+                                        <span className="tabular-nums text-neutral-800">{fmtMoney(toAmount(e.amount), e.currency || currency)}</span>
+                                        <span className={`w-14 text-right ${st === "SUCCESS" ? "text-blue-700" : st === "FAILED" ? "text-rose-600" : "text-amber-700"}`}>{humanizeLabel(st)}</span>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Activity: frame footer */}
                       <div>

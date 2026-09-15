@@ -1,14 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { Users, Search, X, MapPin, User, UsersRound, Globe, TrendingUp, Calendar, Phone, Hash, ExternalLink } from "lucide-react";
+import { Users, Search, X, MapPin, User, UsersRound, Globe, TrendingUp, Calendar, Phone, Hash, ExternalLink, Loader2, SlidersHorizontal } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import Chart from "@/components/Chart";
-import type { ChartData } from "chart.js";
+import TablePagination from "@/components/TablePagination";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
 const api = apiClient;
-function authify() {}
 
 type PassengerRow = {
   id: number;
@@ -41,6 +39,90 @@ type PassengerStats = {
   topNationalities: Array<{ nationality: string; count: number }>;
 };
 
+function humanizeLabel(value: string | null | undefined) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
+}
+
+function genderLabel(value: string | null | undefined) {
+  const v = String(value || "").trim().toUpperCase();
+  if (v === "M" || v === "MALE") return "Male";
+  if (v === "F" || v === "FEMALE") return "Female";
+  if (!v) return "Not given";
+  return humanizeLabel(v);
+}
+
+// Rosters mix "M" and "Male" etc.; fold them into one entry per label, largest first.
+function mergeGenders(record: Record<string, number> | undefined) {
+  const merged = new Map<string, number>();
+  Object.entries(record || {}).forEach(([key, n]) => {
+    if (!(n > 0)) return;
+    const label = genderLabel(key);
+    merged.set(label, (merged.get(label) || 0) + n);
+  });
+  return [...merged.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+// "dar-es-salaam" -> "Dar es Salaam"; keeps known abbreviations only.
+function formatPlaceName(value: string | null | undefined) {
+  return String(value || "")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word, i) => {
+      if (i > 0 && ["es", "la", "wa", "na", "ya"].includes(word.toLowerCase())) return word.toLowerCase();
+      if (["CBD", "UDSM", "JNIA", "KIA"].includes(word.toUpperCase())) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function tidyName(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text || text !== text.toUpperCase() || !/[A-Z]/.test(text)) return text;
+  return text.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+}
+
+const gsRef = (id: number) => `GS-${String(id).padStart(4, "0")}`;
+
+function fmtDay(value: string | null | undefined) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Phones imported from spreadsheets can arrive as numbers or in scientific notation.
+function formatPhone(value: PassengerRow["phone"]) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return new Intl.NumberFormat("en-US", { useGrouping: false, maximumFractionDigits: 0 }).format(value);
+  const s = String(value).trim();
+  const m = s.match(/^([+-]?\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+  if (!m) return s;
+  const intPart = m[1].replace(/^\+/, "");
+  const fracPart = m[2] ?? "";
+  const exponent = Number(m[3]);
+  const digits = `${intPart}${fracPart}`;
+  const newIndex = intPart.length + exponent;
+  if (!Number.isFinite(exponent) || exponent < 0 || newIndex < digits.length) return s;
+  return `${digits}${"0".repeat(newIndex - digits.length)}`;
+}
+
+function initials(first: string, last: string) {
+  return `${(first || "").trim().charAt(0)}${(last || "").trim().charAt(0)}`.toUpperCase() || "?";
+}
+
+const STATUS_TONE: Record<string, string> = {
+  PENDING: "text-amber-700",
+  AWAITING_DEPOSIT: "text-sky-700",
+  CONFIRMED: "text-blue-700",
+  PROCESSING: "text-violet-700",
+  COMPLETED: "text-neutral-600",
+  CANCELED: "text-rose-600",
+  CANCELLED: "text-rose-600",
+};
+
+const inputCls =
+  "h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+
 export default function AdminGroupStaysPassengersPage() {
   const [bookingId, setBookingId] = useState<string>("");
   const [groupType, setGroupType] = useState<string>("");
@@ -54,7 +136,6 @@ export default function AdminGroupStaysPassengersPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 30;
-  const searchRef = useRef<HTMLInputElement | null>(null);
   const qRef = useRef(q);
 
   useEffect(() => {
@@ -70,9 +151,7 @@ export default function AdminGroupStaysPassengersPage() {
     setSelectedPassenger(passenger);
     setShowPassengerModal(true);
   }, []);
-  const closePassengerModal = useCallback(() => {
-    setShowPassengerModal(false);
-  }, []);
+  const closePassengerModal = useCallback(() => setShowPassengerModal(false), []);
 
   useEffect(() => {
     if (showPassengerModal) {
@@ -80,7 +159,6 @@ export default function AdminGroupStaysPassengersPage() {
       const id = window.requestAnimationFrame(() => setPassengerModalVisible(true));
       return () => window.cancelAnimationFrame(id);
     }
-
     setPassengerModalVisible(false);
     const t = window.setTimeout(() => {
       setPassengerModalMounted(false);
@@ -91,77 +169,17 @@ export default function AdminGroupStaysPassengersPage() {
 
   useEffect(() => {
     if (!passengerModalMounted) return;
-
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        closePassengerModal();
-      }
+      if (e.key === "Escape") closePassengerModal();
     };
-
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKeyDown);
-
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = prevOverflow;
     };
   }, [passengerModalMounted, closePassengerModal]);
-
-  const expandScientificNotation = useCallback((raw: string) => {
-    const s = raw.trim();
-    const m = s.match(/^([+-]?\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
-    if (!m) return raw;
-
-    const intPart = m[1].replace(/^\+/, "");
-    const fracPart = m[2] ?? "";
-    const exponent = Number(m[3]);
-    if (!Number.isFinite(exponent) || exponent < 0) return raw;
-
-    const digits = `${intPart}${fracPart}`.replace(/^0+/, "0");
-    const decimalIndex = intPart.length;
-    const newIndex = decimalIndex + exponent;
-
-    if (newIndex <= 0) return raw;
-    if (newIndex < digits.length) {
-      // Would still have decimals; keep original string to avoid surprising formatting.
-      return raw;
-    }
-
-    return `${digits}${"0".repeat(newIndex - digits.length)}`;
-  }, []);
-
-  const formatPhone = useCallback((value: PassengerRow["phone"]) => {
-    if (value == null || value === "") return "N/A";
-    if (typeof value === "number") {
-      try {
-        return new Intl.NumberFormat("en-US", {
-          useGrouping: false,
-          maximumFractionDigits: 0,
-        }).format(value);
-      } catch {
-        return String(value);
-      }
-    }
-    const asString = String(value).trim();
-    if (/\d(?:\.\d+)?[eE][+-]?\d+/.test(asString)) {
-      return expandScientificNotation(asString);
-    }
-    return asString;
-  }, [expandScientificNotation]);
-
-  const formatDateTime = useCallback((value: string | null | undefined) => {
-    if (!value) return "N/A";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, []);
 
   // Stats state
   const [stats, setStats] = useState<PassengerStats | null>(null);
@@ -170,10 +188,7 @@ export default function AdminGroupStaysPassengersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = {
-        page,
-        pageSize,
-      };
+      const params: any = { page, pageSize };
       if (bookingId) params.bookingId = bookingId;
       if (groupType) params.groupType = groupType;
       if (gender) params.gender = gender;
@@ -209,877 +224,544 @@ export default function AdminGroupStaysPassengersPage() {
   }, []);
 
   useEffect(() => {
-    authify();
     load();
     loadStats();
   }, [load, loadStats]);
 
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-
-  // Prepare Gender Chart data
-  const genderChartData = useMemo<ChartData<"doughnut">>(() => {
-    if (!stats || !stats.genderStats) {
-      return { labels: [], datasets: [] };
-    }
-
-    const labels = Object.keys(stats.genderStats).filter(key => stats.genderStats[key] > 0);
-    const data = Object.values(stats.genderStats).filter((v, i) => Object.values(stats.genderStats)[i] > 0);
-
-    const colors = [
-      "rgba(59, 130, 246, 0.8)", // Blue
-      "rgba(236, 72, 153, 0.8)", // Pink
-      "rgba(107, 114, 128, 0.8)", // Gray
-    ];
-
-    return {
-      labels,
-      datasets: [
-        {
-          data,
-          backgroundColor: colors.slice(0, labels.length),
-          borderColor: "#fff",
-          borderWidth: 2,
-          hoverOffset: 4,
-        },
-      ],
-    };
-  }, [stats]);
-
-  // Prepare Age Groups Chart data
-  const ageGroupsChartData = useMemo<ChartData<"bar">>(() => {
-    if (!stats || !stats.ageGroups) {
-      return { labels: [], datasets: [] };
-    }
-
-    const labels = Object.keys(stats.ageGroups);
-    const data = Object.values(stats.ageGroups);
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: "Passengers",
-          data,
-          backgroundColor: "rgba(139, 92, 246, 0.8)",
-          borderColor: "rgba(139, 92, 246, 1)",
-          borderWidth: 1,
-        },
-      ],
-    };
-  }, [stats]);
-
-  // Nationality chart replaced by ranked list — no chartData needed
+  const activeFilters = [bookingId, groupType, gender, nationality, ageMin, ageMax, q].filter(Boolean).length;
+  const clearFilters = () => {
+    qRef.current = "";
+    setQ("");
+    setBookingId("");
+    setGroupType("");
+    setGender("");
+    setNationality("");
+    setAgeMin("");
+    setAgeMax("");
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6 w-full min-w-0">
-      {/* Premium Banner */}
-      <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #14532d 0%, #166534 40%, #1e3a5f 100%)", boxShadow: "0 24px 60px -12px rgba(20,83,45,0.45), 0 8px 20px -8px rgba(30,58,138,0.30)", padding: "2rem 2rem 1.75rem" }}>
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.10, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">
-          <circle cx="820" cy="30" r="100" fill="none" stroke="white" strokeWidth="1.2" />
-          <circle cx="820" cy="30" r="60" fill="none" stroke="white" strokeWidth="0.7" />
-          <circle cx="60" cy="140" r="75" fill="none" stroke="white" strokeWidth="1.0" />
-          <line x1="0" y1="40" x2="900" y2="40" stroke="white" strokeWidth="0.35" />
-          <line x1="0" y1="80" x2="900" y2="80" stroke="white" strokeWidth="0.35" />
-          <line x1="0" y1="120" x2="900" y2="120" stroke="white" strokeWidth="0.35" />
-          <polyline points="0,140 120,118 240,100 360,82 480,95 600,60 720,42 840,55 900,38" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          <polygon points="0,140 120,118 240,100 360,82 480,95 600,60 720,42 840,55 900,38 900,160 0,160" fill="white" opacity={0.05} />
-          <circle cx="600" cy="60" r="5" fill="white" opacity={0.75} />
-          <circle cx="720" cy="42" r="5" fill="white" opacity={0.75} />
-        </svg>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ width: 50, height: 50, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "1.5px solid rgba(255,255,255,0.25)", boxShadow: "0 0 0 8px rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <UsersRound style={{ width: 24, height: 24, color: "white" }} />
-          </div>
-          <div>
-            <h1 style={{ fontSize: "1.4rem", fontWeight: 800, color: "white", margin: 0, letterSpacing: "-0.01em" }}>Passengers</h1>
-            <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.60)", margin: "3px 0 0" }}>Manage and view all passenger rosters from group bookings</p>
+      {/* Header */}
+      <div className="flex w-full min-w-0 flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100 sm:h-12 sm:w-12">
+            <UsersRound className="h-5 w-5 sm:h-6 sm:w-6" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Passengers</h1>
+            <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Everyone travelling on group stay bookings</p>
           </div>
         </div>
+        <Link
+          href="/admin/group-stays"
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:no-underline sm:self-auto"
+        >
+          <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+          Group Stays overview
+        </Link>
       </div>
 
-      {/* Summary Cards */}
-      {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Total Passengers */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-600" />
-            <div className="p-5 flex items-start gap-4">
-              <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
-                <Users className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Passengers</div>
-                <div className="text-2xl font-bold text-gray-900 tabular-nums">{stats.totalPassengers.toLocaleString()}</div>
-              </div>
+      {/* Summary strip */}
+      {stats && (() => {
+        const ranked = (record: Record<string, number>) => Object.entries(record || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+        const genders = mergeGenders(stats.genderStats);
+        const ages = ranked(stats.ageGroups);
+        const nations = stats.topNationalities?.length ? stats.topNationalities : ranked(stats.nationalityStats).map(([nationality, count]) => ({ nationality, count }));
+        const pctOf = (n: number) => (stats.totalPassengers > 0 ? Math.round((n / stats.totalPassengers) * 100) : 0);
+        const tiles = [
+          { icon: Users, tone: "bg-emerald-50 text-emerald-600", label: "Total passengers", value: stats.totalPassengers.toLocaleString(), sub: `${Object.values(stats.groupTypeStats || {}).filter((n) => n > 0).length} group types` },
+          { icon: Calendar, tone: "bg-blue-50 text-blue-600", label: "Average age", value: stats.averageAge > 0 ? `${stats.averageAge} yrs` : "Not given", sub: ages[0] ? `Most common: ${ages[0][0]}` : "No ages recorded" },
+          { icon: User, tone: "bg-violet-50 text-violet-600", label: "Gender split", value: genders.length ? genders.slice(0, 2).map(([g, n]) => `${pctOf(n)}%`).join(" / ") : "Not given", sub: genders.length ? genders.slice(0, 2).map(([g]) => g).join(" / ") : "No genders recorded" },
+          { icon: Globe, tone: "bg-amber-50 text-amber-600", label: "Nationalities", value: Object.values(stats.nationalityStats || {}).filter((n) => n > 0).length.toLocaleString(), sub: nations[0] ? `Top: ${nations[0].nationality} (${nations[0].count})` : "None recorded" },
+        ];
+        return (
+          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+            <div className="grid grid-cols-1 gap-px bg-neutral-100 sm:grid-cols-2 lg:grid-cols-4">
+              {tiles.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <div key={tile.label} className="flex min-w-0 items-center gap-3 bg-white px-4 py-3.5 sm:px-5">
+                    <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${tile.tone}`}>
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="m-0 text-xs font-medium text-neutral-500">{tile.label}</p>
+                      <p className="m-0 text-xl font-bold leading-tight tabular-nums text-neutral-900">{tile.value}</p>
+                      <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400" title={tile.sub}>{tile.sub}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
+        );
+      })()}
 
-          {/* Average Age */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-blue-400 to-blue-600" />
-            <div className="p-5 flex items-start gap-4">
-              <div className="h-10 w-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
-                <TrendingUp className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Average Age</div>
-                <div className="text-2xl font-bold text-gray-900 tabular-nums">{stats.averageAge > 0 ? `${stats.averageAge} yrs` : "N/A"}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Gender Groups */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-purple-400 to-purple-600" />
-            <div className="p-5 flex items-start gap-4">
-              <div className="h-10 w-10 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0">
-                <User className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Gender Groups</div>
-                <div className="text-2xl font-bold text-gray-900 tabular-nums">{Object.keys(stats.genderStats).filter(k => stats.genderStats[k] > 0).length}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Nationalities */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
-            <div className="p-5 flex items-start gap-4">
-              <div className="h-10 w-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
-                <Globe className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Nationalities</div>
-                <div className="text-2xl font-bold text-gray-900 tabular-nums">{Object.keys(stats.nationalityStats).filter(k => stats.nationalityStats[k] > 0).length}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gender Distribution */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-blue-400 to-purple-500" />
-          <div className="p-6">
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-              <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-blue-50 border border-blue-100"><User className="h-4 w-4 text-blue-600" /></span>
-              Gender Distribution
-            </h3>
-            <p className="text-xs text-gray-400 mt-1 ml-9">Breakdown of passengers by gender</p>
-          </div>
-          <div className="h-64 w-full max-h-64 min-h-[300px] overflow-hidden relative">
-            {statsLoading ? (
-              <div className="h-full w-full flex items-center justify-center">
-                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-blue-600"></div>
-              </div>
-            ) : stats && Object.keys(stats.genderStats).some(k => stats.genderStats[k] > 0) ? (
-              <Chart
-                type="doughnut"
-                data={genderChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: "right",
-                      labels: {
-                        usePointStyle: true,
-                        padding: 20,
-                        font: {
-                          size: 12,
-                        },
-                      },
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: (context: any) => {
-                          const label = context.label || "";
-                          const value = context.parsed || 0;
-                          const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
-                          const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                          return `${label}: ${value} (${percentage}%)`;
-                        },
-                      },
-                    },
-                  },
-                }}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-center">
-                <div>
-                  <User className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">No gender data available</p>
+      {/* Breakdown: gender, age and nationality as ranked share bars */}
+      {(stats || statsLoading) && (() => {
+        const ranked = (record: Record<string, number> | undefined) => Object.entries(record || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+        const ageOrder = (label: string) => {
+          const n = parseInt(label, 10);
+          return Number.isFinite(n) ? n : 999;
+        };
+        const panels = [
+          { key: "gender", icon: User, tone: "bg-violet-50 text-violet-600", bar: "bg-violet-500", title: "Gender", rows: mergeGenders(stats?.genderStats).map(([k, n]) => [k, n] as const), empty: "No genders recorded" },
+          // Age bands read best youngest to oldest, not by size.
+          { key: "age", icon: Calendar, tone: "bg-blue-50 text-blue-600", bar: "bg-blue-500", title: "Age groups", rows: ranked(stats?.ageGroups).sort((a, b) => ageOrder(a[0]) - ageOrder(b[0])).map(([k, n]) => [k, n] as const), empty: "No ages recorded" },
+          { key: "nation", icon: Globe, tone: "bg-amber-50 text-amber-600", bar: "bg-amber-500", title: "Top nationalities", rows: (stats?.topNationalities?.length ? stats.topNationalities.map((t) => [t.nationality, t.count] as const) : ranked(stats?.nationalityStats).map(([k, n]) => [k, n] as const)).slice(0, 6), empty: "No nationalities recorded" },
+        ];
+        return (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {panels.map((panel) => {
+              const Icon = panel.icon;
+              const sum = panel.rows.reduce((acc, [, n]) => acc + n, 0);
+              const base = stats?.totalPassengers || sum;
+              return (
+                <div key={panel.key} className="min-w-0 rounded-xl border border-solid border-neutral-200 bg-white">
+                  <div className="flex items-center gap-2 px-4 py-3 sm:px-5">
+                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${panel.tone}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <h3 className="m-0 text-sm font-bold text-neutral-900">{panel.title}</h3>
+                    {panel.rows.length > 0 && <span className="ml-auto text-xs tabular-nums text-neutral-400">{panel.rows.length} {panel.rows.length === 1 ? "group" : "groups"}</span>}
+                  </div>
+                  <div className="border-0 border-t border-solid border-neutral-100 px-4 py-3 sm:px-5">
+                    {statsLoading ? (
+                      <div className="flex h-20 items-center justify-center">
+                        <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+                      </div>
+                    ) : panel.rows.length === 0 ? (
+                      <p className="m-0 py-2 text-sm text-neutral-500">{panel.empty}</p>
+                    ) : (
+                      <ul className="m-0 list-none space-y-2.5 p-0">
+                        {panel.rows.map(([label, n], idx) => {
+                          const pct = base > 0 ? Math.round((n / base) * 100) : 0;
+                          return (
+                            <li key={`${label}-${idx}`}>
+                              <div className="flex items-baseline justify-between gap-3 text-sm">
+                                <span className="truncate text-neutral-800">{label}</span>
+                                <span className="flex-shrink-0 tabular-nums text-neutral-500">
+                                  <span className="font-semibold text-neutral-900">{n.toLocaleString()}</span> · {pct}%
+                                </span>
+                              </div>
+                              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100">
+                                <div className={`h-full rounded-full ${panel.bar}`} style={{ width: `${Math.max(pct, 3)}%` }} />
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
                 </div>
-              </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* Roster: filters + table in one card */}
+      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
+          <h3 className="m-0 text-sm font-bold text-neutral-900">Roster</h3>
+          <span className="text-xs tabular-nums text-neutral-400">
+            {loading ? "Loading…" : `${total.toLocaleString()} ${total === 1 ? "passenger" : "passengers"}`}
+          </span>
+          {activeFilters > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-2 py-1 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-100"
+            >
+              <X className="h-3.5 w-3.5" /> Clear {activeFilters} {activeFilters === 1 ? "filter" : "filters"}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3 sm:px-5 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))_minmax(0,1.3fr)]">
+          <div className="relative col-span-2 min-w-0 md:col-span-4 xl:col-span-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              type="text"
+              className={`${inputCls} pl-9 pr-9`}
+              placeholder="Search name, phone or nationality"
+              value={q}
+              onChange={(e) => {
+                qRef.current = e.target.value;
+                setQ(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setPage(1);
+                  load();
+                }
+              }}
+            />
+            {q && (
+              <button
+                type="button"
+                onClick={() => {
+                  qRef.current = "";
+                  setQ("");
+                  setPage(1);
+                  load();
+                }}
+                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
           </div>
+          <input
+            type="number"
+            placeholder="Booking ID"
+            value={bookingId}
+            onChange={(e) => {
+              setBookingId(e.target.value);
+              setPage(1);
+            }}
+            className={inputCls}
+          />
+          <select
+            value={groupType}
+            onChange={(e) => {
+              setGroupType(e.target.value);
+              setPage(1);
+            }}
+            className={inputCls}
+          >
+            <option value="">All group types</option>
+            <option value="family">Family</option>
+            <option value="workers">Workers</option>
+            <option value="event">Event</option>
+            <option value="students">Students</option>
+            <option value="team">Team</option>
+            <option value="other">Other</option>
+          </select>
+          <select
+            value={gender}
+            onChange={(e) => {
+              setGender(e.target.value);
+              setPage(1);
+            }}
+            className={inputCls}
+          >
+            <option value="">All genders</option>
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+            <option value="OTHER">Other</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Nationality"
+            value={nationality}
+            onChange={(e) => {
+              setNationality(e.target.value);
+              setPage(1);
+            }}
+            className={inputCls}
+          />
+          <div className="col-span-2 flex min-w-0 items-center gap-1.5 md:col-span-1 xl:col-span-1">
+            <SlidersHorizontal className="h-4 w-4 flex-shrink-0 text-neutral-400" aria-hidden />
+            <input
+              type="number"
+              placeholder="Min age"
+              value={ageMin}
+              onChange={(e) => {
+                setAgeMin(e.target.value);
+                setPage(1);
+              }}
+              className={inputCls}
+            />
+            <span className="text-neutral-300">to</span>
+            <input
+              type="number"
+              placeholder="Max"
+              value={ageMax}
+              onChange={(e) => {
+                setAgeMax(e.target.value);
+                setPage(1);
+              }}
+              className={inputCls}
+            />
           </div>
         </div>
 
-        {/* Age Groups Distribution */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-purple-400 to-violet-600" />
-          <div className="p-6">
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-              <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-purple-50 border border-purple-100"><TrendingUp className="h-4 w-4 text-purple-600" /></span>
-              Age Groups
-            </h3>
-            <p className="text-xs text-gray-400 mt-1 ml-9">Distribution of passengers by age groups</p>
+        {loading && list.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading passengers
           </div>
-          <div className="h-64 w-full max-h-64 min-h-[300px] overflow-hidden relative">
-            {statsLoading ? (
-              <div className="h-full w-full flex items-center justify-center">
-                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-purple-600"></div>
-              </div>
-            ) : stats && Object.keys(stats.ageGroups).some(k => stats.ageGroups[k] > 0) ? (
-              <Chart
-                type="bar"
-                data={ageGroupsChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false,
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: (context: any) => {
-                          const value = context.parsed.y || 0;
-                          return `Passengers: ${value}`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      ticks: {
-                        stepSize: 1,
-                        font: {
-                          size: 11,
-                        },
-                      },
-                      grid: {
-                        color: "rgba(0, 0, 0, 0.1)",
-                      },
-                    },
-                    x: {
-                      grid: {
-                        display: false,
-                      },
-                      ticks: {
-                        font: {
-                          size: 11,
-                        },
-                      },
-                    },
-                  },
-                }}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-center">
-                <div>
-                  <TrendingUp className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">No age data available</p>
-                </div>
-              </div>
-            )}
+        ) : list.length === 0 ? (
+          <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
+            <span className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-100 text-neutral-400">
+              <UsersRound className="h-5 w-5" />
+            </span>
+            <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No passengers found</p>
+            <p className="m-0 mt-1 text-xs text-neutral-500">
+              {activeFilters > 0 ? "Try removing a filter or changing the search." : "Passengers appear here once customers add their group roster."}
+            </p>
           </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Top Nationalities — Premium Ranked List */}
-      {stats && stats.topNationalities && stats.topNationalities.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-emerald-50 border border-emerald-100"><Globe className="h-4 w-4 text-emerald-600" /></span>
-                  Nationalities Breakdown
-                </h3>
-                <p className="text-xs text-gray-400 mt-1 ml-9">Ranked by passenger count &mdash; {stats.topNationalities.length} {stats.topNationalities.length === 1 ? "nationality" : "nationalities"} found</p>
-              </div>
-              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full tabular-nums">
-                {stats.totalPassengers.toLocaleString()} total
-              </span>
-            </div>
-
-            {statsLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-200 border-t-emerald-500" />
-              </div>
-            ) : (
-              <div className="overflow-y-auto" style={{ maxHeight: "420px" }}>
-                <div className="space-y-1.5 pr-1">
-                  {stats.topNationalities.map((item, idx) => {
-                    const max = stats.topNationalities[0].count;
-                    const pct = max > 0 ? Math.round((item.count / max) * 100) : 0;
-                    const totalPct = stats.totalPassengers > 0 ? ((item.count / stats.totalPassengers) * 100).toFixed(1) : "0.0";
-                    const gradients = [
-                      "from-emerald-400 to-teal-500",
-                      "from-blue-400 to-cyan-500",
-                      "from-violet-400 to-purple-500",
-                      "from-amber-400 to-orange-500",
-                      "from-rose-400 to-pink-500",
-                    ];
-                    const grad = gradients[idx % gradients.length];
+        ) : (
+          <div className={`transition-opacity ${loading ? "opacity-60" : ""}`}>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="table w-full min-w-[1080px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold sm:pl-5">Passenger</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Age · Gender</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Nationality</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Booking</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Status</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Customer</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 font-bold">Stay</th>
+                    <th className="border-0 border-y border-solid border-neutral-100 px-4 py-2.5 text-right font-bold sm:pr-5">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((p) => {
+                    const phone = formatPhone(p.phone);
+                    const status = String(p.booking?.status || "").toUpperCase();
+                    const checkIn = fmtDay(p.booking?.checkIn);
                     return (
-                      <div key={item.nationality} className="group flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
-                        <span className="w-6 text-center text-xs font-bold text-gray-300 flex-shrink-0 tabular-nums">{idx + 1}</span>
-                        <span className="w-28 min-w-[6.5rem] text-sm font-semibold text-gray-800 truncate flex-shrink-0">{item.nationality}</span>
-                        <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full bg-gradient-to-r ${grad} transition-all duration-500`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="w-14 text-right text-sm font-bold text-gray-900 tabular-nums flex-shrink-0">{item.count.toLocaleString()}</span>
-                        <span className="w-12 text-right text-xs text-gray-400 tabular-nums flex-shrink-0">{totalPct}%</span>
+                      <tr
+                        key={p.id}
+                        onClick={() => openPassengerModal(p)}
+                        className="cursor-pointer border-0 border-b border-solid border-neutral-100 transition-colors last:border-b-0 hover:bg-neutral-50/70"
+                      >
+                        <td className="px-4 py-3.5 sm:pl-5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[11px] font-semibold text-emerald-700">
+                              {initials(p.firstName, p.lastName)}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="max-w-[16rem] truncate font-medium text-neutral-900">{tidyName(`${p.firstName} ${p.lastName}`)}</div>
+                              <div className="mt-0.5 truncate text-xs tabular-nums text-neutral-400">{phone || "No phone"}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="tabular-nums text-neutral-800">{p.age != null ? `${p.age} yrs` : <span className="text-neutral-400">Not given</span>}</div>
+                          <div className="mt-0.5 text-xs text-neutral-400">{genderLabel(p.gender)}</div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="max-w-[10rem] truncate text-neutral-800">{p.nationality || <span className="text-neutral-400">Not given</span>}</div>
+                          <div className="mt-0.5 text-xs tabular-nums text-neutral-400">Seat #{p.sequenceNumber}</div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {p.booking ? (
+                            <>
+                              <span className="inline-block rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700">{gsRef(p.booking.id)}</span>
+                              <div className="mt-0.5 truncate text-xs text-neutral-400">{humanizeLabel(p.booking.groupType)}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-400">No booking</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {p.booking ? (
+                            <span className={`whitespace-nowrap text-sm ${STATUS_TONE[status] || "text-neutral-500"}`}>{humanizeLabel(status)}</span>
+                          ) : (
+                            <span className="text-neutral-400">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {p.booking?.customer ? (
+                            <>
+                              <div className="max-w-[12rem] truncate text-neutral-800">{tidyName(p.booking.customer.name)}</div>
+                              <div className="mt-0.5 max-w-[12rem] truncate text-xs text-neutral-400" title={p.booking.customer.email}>{p.booking.customer.email}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-400">Not linked</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {p.booking ? (
+                            <>
+                              <div className="max-w-[12rem] truncate text-neutral-800">{formatPlaceName(p.booking.destination) || "Not set"}</div>
+                              <div className="mt-0.5 text-xs text-neutral-400">{checkIn ? `Arrives ${checkIn}` : "Dates not set"}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-400">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-right sm:pr-5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openPassengerModal(p);
+                            }}
+                            className="inline-flex h-8 items-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <ul className="m-0 list-none p-0 md:hidden">
+              {list.map((p) => {
+                const status = String(p.booking?.status || "").toUpperCase();
+                return (
+                  <li key={p.id} className="border-0 border-t border-solid border-neutral-100">
+                    <button
+                      type="button"
+                      onClick={() => openPassengerModal(p)}
+                      className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-3 text-left transition-colors hover:bg-neutral-50"
+                    >
+                      <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-xs font-semibold text-emerald-700">
+                        {initials(p.firstName, p.lastName)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-neutral-900">{tidyName(`${p.firstName} ${p.lastName}`)}</span>
+                        <span className="mt-0.5 block truncate text-xs text-neutral-500">
+                          {[p.age != null ? `${p.age} yrs` : null, p.gender ? genderLabel(p.gender) : null, p.nationality].filter(Boolean).join(" · ") || "No details"}
+                        </span>
+                        {p.booking && (
+                          <span className="mt-1 flex items-center gap-2 text-xs">
+                            <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-700">{gsRef(p.booking.id)}</span>
+                            <span className="truncate text-neutral-400">{formatPlaceName(p.booking.destination)}</span>
+                            <span className={`ml-auto flex-shrink-0 ${STATUS_TONE[status] || "text-neutral-500"}`}>{humanizeLabel(status)}</span>
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <TablePagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+          </div>
+        )}
+      </div>
+
+      {/* Passenger details modal */}
+      {passengerModalMounted && selectedPassenger && (() => {
+        const p = selectedPassenger;
+        const phone = formatPhone(p.phone);
+        const status = String(p.booking?.status || "").toUpperCase();
+        const facts = [
+          { icon: Phone, label: "Phone", value: phone || "Not given" },
+          { icon: Calendar, label: "Age", value: p.age != null ? `${p.age} yrs` : "Not given" },
+          { icon: User, label: "Gender", value: genderLabel(p.gender) },
+          { icon: Hash, label: "Roster position", value: `#${p.sequenceNumber}` },
+        ];
+        const bookingFacts = p.booking
+          ? [
+              { label: "Status", value: humanizeLabel(status), cls: STATUS_TONE[status] },
+              { label: "Group type", value: humanizeLabel(p.booking.groupType) },
+              { label: "Destination", value: formatPlaceName(p.booking.destination) || "Not set" },
+              { label: "Customer", value: p.booking.customer ? tidyName(p.booking.customer.name) : "Not linked", sub: p.booking.customer?.email },
+              { label: "Check-in", value: fmtDay(p.booking.checkIn) || "Not set" },
+              { label: "Check-out", value: fmtDay(p.booking.checkOut) || "Not set" },
+            ]
+          : [];
+        return (
+          <div
+            className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${passengerModalVisible ? "bg-neutral-900/50 opacity-100" : "bg-neutral-900/0 opacity-0"}`}
+            onClick={closePassengerModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Passenger details"
+          >
+            <div
+              className={`flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-2xl transition-all duration-200 ease-out ${
+                passengerModalVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.98] opacity-0"
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 px-5 py-4">
+                <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm font-semibold text-emerald-700">
+                  {initials(p.firstName, p.lastName)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="m-0 truncate text-base font-bold text-neutral-900">{tidyName(`${p.firstName} ${p.lastName}`)}</h2>
+                  <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-xs text-neutral-500">
+                    <Globe className="h-3.5 w-3.5 text-neutral-400" />
+                    {p.nationality || "Nationality not given"}
+                    {p.booking ? <span className="text-neutral-300">·</span> : null}
+                    {p.booking ? <span className="font-mono text-neutral-600">{gsRef(p.booking.id)}</span> : null}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closePassengerModal}
+                  className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-4 overflow-y-auto border-0 border-t border-solid border-neutral-100 px-5 py-4">
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-100 bg-neutral-100">
+                  {facts.map((f) => {
+                    const Icon = f.icon;
+                    return (
+                      <div key={f.label} className="min-w-0 bg-white px-3 py-2.5">
+                        <p className="m-0 flex items-center gap-1.5 text-[11px] text-neutral-400">
+                          <Icon className="h-3.5 w-3.5" /> {f.label}
+                        </p>
+                        <p className="m-0 mt-0.5 truncate text-sm tabular-nums text-neutral-900">{f.value}</p>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-emerald-400 to-blue-400" />
-        <div className="p-4">
-        <div className="flex flex-col gap-4 w-full max-w-full">
-          {/* Search and Filters Grid - All fields in same grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3 w-full max-w-full">
-            {/* Search Box */}
-            <div className="relative w-full min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                ref={searchRef}
-                type="text"
-                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm max-w-full box-border"
-                placeholder="Search passengers by name, phone, nationality..."
-                value={q}
-                onChange={(e) => {
-                  qRef.current = e.target.value;
-                  setQ(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    setPage(1);
-                    load();
-                  }
-                }}
-              />
-              {q && (
+                <div>
+                  <p className="m-0 mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">
+                    <MapPin className="h-3.5 w-3.5" /> Booking
+                  </p>
+                  {p.booking ? (
+                    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-100 bg-neutral-100">
+                      {bookingFacts.map((f) => (
+                        <div key={f.label} className="min-w-0 bg-white px-3 py-2.5">
+                          <p className="m-0 text-[11px] text-neutral-400">{f.label}</p>
+                          <p className={`m-0 mt-0.5 truncate text-sm ${f.cls || "text-neutral-900"}`} title={f.value}>{f.value}</p>
+                          {f.sub ? <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400" title={f.sub}>{f.sub}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="m-0 rounded-lg border border-dashed border-neutral-200 px-3 py-4 text-center text-sm text-neutral-500">No booking linked</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-5 py-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    qRef.current = "";
-                    setQ("");
-                    setPage(1);
-                    load();
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  aria-label="Clear search"
+                  onClick={closePassengerModal}
+                  className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
                 >
-                  <X className="h-4 w-4" />
+                  Close
                 </button>
-              )}
-            </div>
-            {/* Booking ID */}
-            <div className="w-full min-w-0">
-              <input
-                type="number"
-                placeholder="Booking ID"
-                value={bookingId}
-                onChange={(e) => {
-                  setBookingId(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm max-w-full box-border"
-              />
-            </div>
-
-            {/* Group Type */}
-            <div className="w-full min-w-0">
-              <select
-                value={groupType}
-                onChange={(e) => {
-                  setGroupType(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm bg-white max-w-full box-border"
-              >
-                <option value="">All Group Types</option>
-                <option value="family">Family</option>
-                <option value="workers">Workers</option>
-                <option value="event">Event</option>
-                <option value="students">Students</option>
-                <option value="team">Team</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-
-            {/* Gender */}
-            <div className="w-full min-w-0">
-              <select
-                value={gender}
-                onChange={(e) => {
-                  setGender(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm bg-white max-w-full box-border"
-              >
-                <option value="">All Genders</option>
-                <option value="M">Male</option>
-                <option value="F">Female</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </div>
-
-            {/* Nationality */}
-            <div className="w-full min-w-0">
-              <input
-                type="text"
-                placeholder="Nationality"
-                value={nationality}
-                onChange={(e) => {
-                  setNationality(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm max-w-full box-border"
-              />
-            </div>
-
-            {/* Age Range */}
-            <div className="w-full min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-2 flex gap-2">
-              <input
-                type="number"
-                placeholder="Min Age"
-                value={ageMin}
-                onChange={(e) => {
-                  setAgeMin(e.target.value);
-                  setPage(1);
-                }}
-                className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm box-border"
-              />
-              <input
-                type="number"
-                placeholder="Max Age"
-                value={ageMax}
-                onChange={(e) => {
-                  setAgeMax(e.target.value);
-                  setPage(1);
-                }}
-                className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm box-border"
-              />
-            </div>
-          </div>
-        </div>
-        </div>
-      </div>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <>
-            {/* Skeleton Table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nationality</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Booking</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {[...Array(5)].map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-32"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-24"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-16"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-16 mb-1"></div>
-                        <div className="h-3 bg-gray-200 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-28"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="h-8 bg-gray-200 rounded w-16 ml-auto"></div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : list.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <UsersRound className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No passengers found.</p>
-            <p className="text-xs text-gray-400 mt-1">Try adjusting your filters or search query.</p>
-          </div>
-        ) : (
-          <>
-            {/* Desktop Table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nationality</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Booking</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {list.map((passenger) => (
-                    <tr key={passenger.id} className="hover:bg-gray-50 transition-colors duration-150">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                          <span className="max-w-xs truncate">{passenger.firstName} {passenger.lastName}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className="max-w-xs truncate block">{formatPhone(passenger.phone)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{passenger.age || "N/A"}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{passenger.gender || "N/A"}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                          <span className="max-w-xs truncate">{passenger.nationality || "N/A"}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {passenger.booking ? (
-                          <div>
-                            <div className="font-medium">#{passenger.booking.id}</div>
-                            <div className="text-xs text-gray-400 capitalize">{passenger.booking.groupType}</div>
-                          </div>
-                        ) : (
-                          "N/A"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {passenger.booking ? (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                            <span className="max-w-xs truncate">{passenger.booking.destination}</span>
-                          </div>
-                        ) : (
-                          "N/A"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                <button
-                                  type="button"
-                                  onClick={() => openPassengerModal(passenger)}
-                                  className="text-green-600 hover:text-green-900"
-                                >
-                                  View
-                                </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile Cards */}
-            <div className="md:hidden divide-y divide-gray-200">
-              {list.map((passenger) => (
-                <div key={passenger.id} className="p-4 bg-white hover:bg-gray-50 transition-colors duration-150">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-900">
-                      {passenger.firstName} {passenger.lastName}
-                    </span>
-                    {passenger.booking && (
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-700">
-                        #{passenger.booking.id}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm text-gray-600 mb-1">
-                    <span>Phone: {formatPhone(passenger.phone)}</span>
-                  </div>
-                  <div className="text-sm text-gray-600 mb-1">
-                    <span>Age: {passenger.age || "N/A"} • Gender: {passenger.gender || "N/A"}</span>
-                  </div>
-                  <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
-                    <Globe className="h-4 w-4 text-gray-400" />
-                    <span>Nationality: {passenger.nationality || "N/A"}</span>
-                  </div>
-                  {passenger.booking && (
-                    <>
-                      <div className="text-sm text-gray-600 mb-1">
-                        <span>Type: {passenger.booking.groupType} • Status: {passenger.booking.status}</span>
-                      </div>
-                      <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-gray-400" />
-                        <span>Destination: {passenger.booking.destination}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="mt-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openPassengerModal(passenger)}
-                      className="text-green-600 hover:text-green-900 text-sm"
-                    >
-                      View Details
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Passenger Details Modal */}
-      {passengerModalMounted && selectedPassenger && (
-        <div
-          className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${
-            passengerModalVisible ? "opacity-100 bg-black/50" : "opacity-0 bg-black/0"
-          }`}
-          onClick={closePassengerModal}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Passenger details"
-        >
-          <div
-            className={`w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-gray-200 overflow-hidden max-h-[90vh] flex flex-col transform transition-all duration-200 ease-out ${
-              passengerModalVisible ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.98]"
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6 bg-gradient-to-br from-green-50 via-white to-emerald-50 border-b border-gray-200">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-xl bg-white border border-gray-200 flex items-center justify-center shadow-sm">
-                    <User className="h-6 w-6 text-green-700" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium text-gray-500">Passenger Details</div>
-                    <h2 className="text-lg sm:text-xl font-semibold text-gray-900 leading-tight">
-                      {selectedPassenger.firstName} {selectedPassenger.lastName}
-                    </h2>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {selectedPassenger.booking?.status && (
-                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                          {selectedPassenger.booking.status}
-                        </span>
-                      )}
-                      {selectedPassenger.booking?.groupType && (
-                        <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700 capitalize">
-                          {selectedPassenger.booking.groupType}
-                        </span>
-                      )}
-                      {selectedPassenger.nationality && (
-                        <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700">
-                          <Globe className="h-3.5 w-3.5 mr-1 text-gray-400" />
-                          {selectedPassenger.nationality}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {selectedPassenger.booking?.id ? (
-                    <Link
-                      href={`/admin/group-stays/bookings?bookingId=${selectedPassenger.booking.id}`}
-                      className="hidden sm:inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
-                    >
-                      Go to booking
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={closePassengerModal}
-                    className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                    aria-label="Close"
+                {p.booking?.id ? (
+                  <Link
+                    href={`/admin/group-stays/bookings?bookingId=${p.booking.id}`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white no-underline transition-colors hover:bg-emerald-700 hover:no-underline"
                   >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
+                    Open booking <ExternalLink className="h-3.5 w-3.5" />
+                  </Link>
+                ) : null}
               </div>
-              <p className="mt-3 text-xs text-gray-500">Tip: press ESC to close</p>
-            </div>
-
-            <div className="p-6 space-y-5 bg-white flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-                    <Phone className="h-4 w-4" />
-                    Phone
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-gray-900">{formatPhone(selectedPassenger.phone)}</div>
-                </div>
-
-                <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-                    <Hash className="h-4 w-4" />
-                    Sequence
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-gray-900">{selectedPassenger.sequenceNumber}</div>
-                </div>
-
-                <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-                    <Users className="h-4 w-4" />
-                    Age
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-gray-900">{selectedPassenger.age ?? "N/A"}</div>
-                </div>
-
-                <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-                    <User className="h-4 w-4" />
-                    Gender
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-gray-900">{selectedPassenger.gender || "N/A"}</div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Booking</h3>
-                  {selectedPassenger.booking?.id ? (
-                    <Link
-                      href={`/admin/group-stays/bookings?bookingId=${selectedPassenger.booking.id}`}
-                      className="sm:hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
-                    >
-                      Go to booking
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
-                  ) : null}
-                </div>
-
-                {selectedPassenger.booking ? (
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Booking ID</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900">#{selectedPassenger.booking.id}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Status</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900 capitalize">{selectedPassenger.booking.status}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Destination</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900 flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-gray-400" />
-                        <span className="truncate">{selectedPassenger.booking.destination}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Group Type</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900 capitalize">{selectedPassenger.booking.groupType}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Check-in</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900 flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span>{formatDateTime(selectedPassenger.booking.checkIn)}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-gray-500">Check-out</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900 flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-gray-400" />
-                        <span>{formatDateTime(selectedPassenger.booking.checkOut)}</span>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <div className="text-xs font-medium text-gray-500">Customer</div>
-                      <div className="mt-1 text-sm font-semibold text-gray-900">
-                        {selectedPassenger.booking.customer
-                          ? `${selectedPassenger.booking.customer.name} (${selectedPassenger.booking.customer.email})`
-                          : "N/A"}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 text-sm text-gray-500">No booking linked.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closePassengerModal}
-                className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Pagination */}
-      {list.length > 0 && (
-        <div className="flex justify-center py-4">
-          <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
-              Page {page} of {pages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(pages, p + 1))}
-              disabled={page === pages}
-              className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </nav>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
-
