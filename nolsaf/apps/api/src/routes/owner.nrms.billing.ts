@@ -111,7 +111,14 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
-router.get("/tokens/:token/receipt", (async (req: AuthedRequest, res: Response) => {
+// Receipts are now rendered in the browser from GET /tokens/:token/receipt.
+// Pages loaded before that change still ask for the old PDF URL; tell them to
+// reload rather than returning a bare "Not found".
+router.get("/tokens/:token/receipt.pdf", ((_req: AuthedRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(410).json({ error: "This page is out of date. Please refresh the page and download the receipt again.", code: "RECEIPT_ENDPOINT_MOVED" });
+}) as RequestHandler);
+router.get("/tokens/:token/receipt",(async (req: AuthedRequest, res: Response) => {
   const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
     where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
     include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
