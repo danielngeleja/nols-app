@@ -8,6 +8,7 @@ import { notifyOwner } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
 import { accrueNrmsSalesCommissionAfterCommit } from "../lib/nrmsBilling.js";
+import { isTransactionCapacityError, runNrmsPaymentTransaction } from "../lib/nrmsTransaction.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
@@ -84,17 +85,27 @@ router.post("/tokens/:tokenId/reconcile", requireNrmsFinanceApprover as RequestH
   const account = token.statement.account;
   const balance = Math.max(0, number(account.unpaidBalance) - number(token.amount));
   const dunning = evaluateNrmsDunning({ balance, reminderAmount: number(account.policy.reminderAmount), warningAmount: number(account.policy.warningAmount), unpaidLimit: number(account.unpaidLimit), graceDays: account.policy.graceDays, trialEndsAt: account.trialEndsAt });
-  const payment = await db.$transaction(async (tx: any) => {
+  let payment: any;
+  try {
+  payment = await runNrmsPaymentTransaction(db, token.id, async (tx: any) => {
     const claimed = await tx.nrmsBillingStatement.updateMany({ where: { id: token.statementId, status: "PAYABLE" }, data: { status: "PAID", paidAt: new Date() } });
     if (claimed.count !== 1) throw new Error("NRMS_STATEMENT_NOT_PAYABLE");
     const created = await tx.nrmsServicePayment.create({ data: { tokenId: token.id, provider: "ADMIN_MANUAL", providerRef: parsed.data.providerRef, idempotencyKey: `ADMIN-NRMS-${token.id}-${Date.now()}`, amount: token.amount, currency: token.currency, status: "MANUALLY_VERIFIED", verifiedAt: new Date() } });
     await tx.nrmsServicePaymentToken.update({ where: { id: token.id }, data: { status: "PAID" } });
     await tx.nrmsServicePaymentToken.updateMany({ where: { statementId: token.statementId, id: { not: token.id }, status: { not: "PAID" } }, data: { status: "VOID" } });
     await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt } });
+    await tx.adminAudit.create({ data: { adminId: req.user!.id, action: "NRMS_PAYMENT_MANUAL_RECONCILE", targetUserId: account.ownerId, details: { propertyId: account.propertyId, tokenId: token.id, statementId: token.statementId, paymentId: created.id, providerRef: parsed.data.providerRef, reason: parsed.data.reason } } });
     return created;
   });
+  } catch (error: any) {
+    if (error?.message === "NRMS_STATEMENT_NOT_PAYABLE") return res.status(409).json({ error: "The statement has already been reconciled. Refresh before continuing." });
+    if (isTransactionCapacityError(error)) {
+      res.setHeader("Retry-After", "5");
+      return res.status(503).json({ error: "The database could not complete reconciliation in time. Refresh the payment status before retrying.", code: "NRMS_TRANSACTION_UNAVAILABLE" });
+    }
+    throw error;
+  }
   await accrueNrmsSalesCommissionAfterCommit(db, token.statementId, "Manual NRMS");
-  await audit(req.user!.id, "NRMS_PAYMENT_MANUAL_RECONCILE", account.ownerId, { propertyId: account.propertyId, tokenId: token.id, statementId: token.statementId, paymentId: payment.id, providerRef: parsed.data.providerRef, reason: parsed.data.reason });
   await notifyOwner(account.ownerId, "nrms_payment_reconciled", { propertyTitle: account.property.title, reason: parsed.data.reason });
   res.json({ payment: { id: payment.id, status: payment.status }, unpaidBalance: balance });
 }) as RequestHandler);
