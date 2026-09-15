@@ -21,12 +21,14 @@ import {
   Lock,
   Plus,
   ReceiptText,
+  Search,
   ShieldCheck,
   Smartphone,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import DatePickerField from "@/components/DatePickerField";
 import PaymentMethodModal, { type SelectedPaymentMethod } from "@/components/PaymentMethodModal";
 import { useNrms } from "../_components/NrmsProvider";
 
@@ -181,7 +183,7 @@ function buildSmokeAccount(scenario: SmokeScenario) {
   };
 }
 
-const LEDGER_PREVIEW_COUNT = 6;
+const LEDGER_PAGE_SIZE = 6;
 const COMPLETED_PREVIEW_COUNT = 2;
 const COMPLETED_PAGE_SIZE = 8;
 // If a provider never sends a completion webhook at all (abandoned USSD prompt, dropped
@@ -198,7 +200,11 @@ export default function NrmsBillingPage() {
   const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(null);
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
   const [smokeScenario, setSmokeScenario] = useState<SmokeScenario | null>(null);
-  const [showFullLedger, setShowFullLedger] = useState(false);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerQuery, setLedgerQuery] = useState("");
+  const [ledgerClassification, setLedgerClassification] = useState("");
+  const [ledgerFrom, setLedgerFrom] = useState("");
+  const [ledgerTo, setLedgerTo] = useState("");
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [completedPage, setCompletedPage] = useState(1);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
@@ -392,6 +398,22 @@ export default function NrmsBillingPage() {
   const warningPercentage = Math.min(100, (warning / limit) * 100);
   const usageColor = balance >= limit ? "bg-red-500" : balance >= warning ? "bg-amber-500" : balance >= reminder ? "bg-yellow-400" : "bg-emerald-600";
   const ledgerEvents = (account.events ?? []).filter(isChargeableExternalLedgerEvent);
+  const ledgerClassifications: string[] = Array.from(new Set<string>(ledgerEvents.map((event: any) => String(event.classification ?? "")).filter(Boolean))).sort();
+  const ledgerDateError = Boolean(ledgerFrom && ledgerTo && ledgerFrom > ledgerTo);
+  const filteredLedgerEvents = ledgerEvents.filter((event: any) => {
+    const query = ledgerQuery.trim().toLowerCase().replace(/^#/, "");
+    const searchText = [event.id, event.reservationId, event.reservation?.guestProfile?.fullName,
+      event.allocation?.roomUnit?.code, event.allocation?.roomType?.name, event.reservation?.source,
+      event.classification].filter((value) => value != null).join(" ").toLowerCase();
+    const date = String(event.serviceDate ?? "").slice(0, 10);
+    return !ledgerDateError && (!query || searchText.includes(query))
+      && (!ledgerClassification || event.classification === ledgerClassification)
+      && (!ledgerFrom || date >= ledgerFrom) && (!ledgerTo || date <= ledgerTo);
+  });
+  const ledgerPageCount = Math.max(1, Math.ceil(filteredLedgerEvents.length / LEDGER_PAGE_SIZE));
+  const currentLedgerPage = Math.min(ledgerPage, ledgerPageCount);
+  const ledgerStart = (currentLedgerPage - 1) * LEDGER_PAGE_SIZE;
+  const pagedLedgerEvents = filteredLedgerEvents.slice(ledgerStart, ledgerStart + LEDGER_PAGE_SIZE);
   const unpaidStatementTotal = (account.statements ?? []).reduce(
     (sum: number, statement: any) => (String(statement.status).toUpperCase() === "PAID" ? sum : sum + Number(statement.amount ?? 0)),
     0,
@@ -492,7 +514,18 @@ export default function NrmsBillingPage() {
   };
 
   return (
-    <div className="min-w-0 space-y-5 pb-10">
+    <div id="owner-billing-workspace" className="min-w-0 space-y-4 pb-10">
+      <style>{`
+        #owner-billing-workspace, #owner-billing-workspace * {box-sizing:border-box;}
+        #owner-billing-workspace [class~="border"] {border-style:solid;}
+        #owner-billing-workspace [class~="border-b"] {border-bottom-style:solid;}
+        #owner-billing-workspace [class~="border-t"] {border-top-style:solid;}
+        #owner-billing-workspace p, #owner-billing-workspace h1, #owner-billing-workspace h2 {margin-bottom:0;margin-top:0;}
+        #owner-billing-workspace p + p, #owner-billing-workspace h1 + p, #owner-billing-workspace h2 + p {margin-top:4px;}
+        #owner-billing-workspace .grid > * {min-width:0;}
+        #owner-billing-workspace .text-neutral-400 {color:#64748b;}
+        #owner-billing-workspace > section, #owner-billing-workspace > .grid > section {border-color:#d5dfe5;}
+      `}</style>
       {smokeScenario && (
         <section className="rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5 sm:p-4" aria-label="Billing UI smoke test controls">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -524,12 +557,11 @@ export default function NrmsBillingPage() {
         </section>
       )}
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">PAYG</div>
+      <section className="relative isolate overflow-hidden rounded-2xl border border-[#d8dfd6] bg-[#edf2e9] p-5">
+        <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-1/3 opacity-40" aria-hidden="true" style={{backgroundImage:'radial-gradient(circle, #9aa98f 1px, transparent 1px)',backgroundSize:'16px 16px',maskImage:'linear-gradient(to right,transparent,black)'}} />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">
               <ReceiptText className="h-5 w-5" />
             </span>
             <div className="min-w-0">
@@ -537,7 +569,7 @@ export default function NrmsBillingPage() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS billing</p>
                 <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadge(account.status)}`}>{titleCase(account.status)}</span>
               </div>
-              <h1 className="mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Usage and payments</h1>
+              <h1 className="pt-2 text-xl font-semibold tracking-tight text-neutral-950 sm:text-2xl">Usage and payments</h1>
               <p className="mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Track external room-night charges, statements and payment tokens.</p>
             </div>
           </div>
@@ -571,7 +603,7 @@ export default function NrmsBillingPage() {
         <SummaryCard icon={CreditCard} label="Available credit" value={money(availableCredit)} detail={`Limit ${money(limit)}`} tone="blue" />
       </div>
 
-      <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] sm:p-6">
+      <section className="rounded-2xl border border-neutral-200 bg-[#f8fafb] p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
@@ -583,13 +615,13 @@ export default function NrmsBillingPage() {
             </div>
           </div>
           <div className="text-left sm:text-right">
-            <p className="text-xl font-black tracking-tight text-neutral-950">{money(balance)}</p>
+            <p className="text-xl font-semibold tracking-tight text-neutral-950">{money(balance)}</p>
             <p className="text-[11px] font-medium text-neutral-400">{percentage}% of {money(limit)}</p>
           </div>
         </div>
 
-        <div className="mt-6">
-          <div className="relative h-3 overflow-hidden rounded-full bg-neutral-100 ring-1 ring-inset ring-neutral-200/70">
+        <div className="mt-4">
+          <div className="relative h-3 overflow-hidden rounded-full border border-[#d4dde3] bg-[#e9eff2]" role="progressbar" aria-label="Unpaid usage as percentage of account limit" aria-valuenow={percentage} aria-valuemin={0} aria-valuemax={100}>
             <div className={`h-full rounded-full transition-[width] duration-500 ${usageColor}`} style={{ width: `${percentage}%` }} />
             <span className="absolute inset-y-0 w-px bg-yellow-500/70" style={{ left: `${reminderPercentage}%` }} aria-hidden="true" />
             <span className="absolute inset-y-0 w-px bg-amber-600/80" style={{ left: `${warningPercentage}%` }} aria-hidden="true" />
@@ -605,16 +637,28 @@ export default function NrmsBillingPage() {
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
         <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
           <SectionHeader icon={History} title="Usage ledger" subtitle="Charged external room-nights only" count={ledgerEvents.length} />
+          <div className="space-y-3 border-b border-[#d5e1dc] bg-white p-3 sm:p-4">
+            <div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input aria-label="Search usage ledger" value={ledgerQuery} onChange={(event) => {setLedgerQuery(event.target.value);setLedgerPage(1);}} placeholder="Search guest, room, reservation or source" className="h-10 w-full min-w-0 rounded-lg border border-[#cedcd5] bg-[#f9fcfa] pl-9 pr-3 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></div>
+            <details><summary className="cursor-pointer text-xs font-medium text-emerald-800">Advanced filters{ledgerClassification || ledgerFrom || ledgerTo ? ' · Active' : ''}</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <label className="min-w-0 text-[11px] text-slate-600">Classification<select value={ledgerClassification} onChange={(event) => {setLedgerClassification(event.target.value);setLedgerPage(1);}} className="mt-1 h-10 w-full rounded-lg border border-[#cedcd5] bg-white px-2 text-xs"><option value="">All classifications</option>{ledgerClassifications.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label>
+                <div className="min-w-0"><p className="text-[11px] text-slate-600">Service date from</p><div className="mt-1"><DatePickerField label="Ledger service date from" value={ledgerFrom} max={ledgerTo || undefined} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => {setLedgerFrom(next.slice(0, 10));setLedgerPage(1);}} /></div></div>
+                <div className="min-w-0"><p className="text-[11px] text-slate-600">Service date to</p><div className="mt-1"><DatePickerField label="Ledger service date to" value={ledgerTo} min={ledgerFrom || undefined} allowPast twoMonths={false} widthClassName="!w-full" onChangeAction={(next) => {setLedgerTo(next.slice(0, 10));setLedgerPage(1);}} /></div></div>
+              </div>
+            </details>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-slate-500">{filteredLedgerEvents.length} matching of {ledgerEvents.length} loaded entries</p>{Boolean(ledgerQuery || ledgerClassification || ledgerFrom || ledgerTo) && <button type="button" onClick={() => {setLedgerQuery('');setLedgerClassification('');setLedgerFrom('');setLedgerTo('');setLedgerPage(1);}} className="border-0 bg-transparent p-0 text-[11px] font-medium text-emerald-800">Clear filters</button>}</div>
+            {ledgerDateError && <p role="alert" className="text-xs text-red-700">The end date must be on or after the start date.</p>}
+          </div>
           <div className="bg-neutral-50/70 p-3 sm:p-4">
-            {ledgerEvents.length ? (
+            {filteredLedgerEvents.length ? (
               <>
                 <div className="space-y-2.5">
-                  {(showFullLedger ? ledgerEvents : ledgerEvents.slice(0, LEDGER_PREVIEW_COUNT)).map((event: any) => {
+                  {pagedLedgerEvents.map((event: any) => {
                     const amount = Number(event.amount ?? 0);
                     const meta = ledgerMeta(event.classification, amount);
                     const source = SOURCE_LABELS[String(event.reservation?.source ?? "").toUpperCase()] ?? null;
                     const room = event.allocation?.roomUnit?.code || event.allocation?.roomType?.name || "Room";
-                    const guest = event.reservation?.guestProfile?.fullName || `Reservation #${event.reservationId}`;
+                    const guest = event.reservation?.guestProfile?.fullName || "Guest stay";
                     const date = ledgerDateParts(event.serviceDate);
                     const accent = meta.amountNode === "billable"
                       ? "bg-amber-400"
@@ -624,7 +668,7 @@ export default function NrmsBillingPage() {
                           ? "bg-neutral-300"
                           : "bg-emerald-500";
                     return (
-                      <article key={event.id} className="group relative overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-24px_rgba(15,23,42,0.7)] transition hover:-translate-y-px hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.55)]">
+                      <article key={event.id} className="group relative overflow-hidden rounded-xl border border-[#d6e0e5] bg-white transition hover:border-[#a9c6b8] hover:bg-[#f9fcfa]">
                         <span className={`absolute inset-y-0 left-0 w-1 ${accent}`} aria-hidden="true" />
                         <div className="grid min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] gap-3 p-3 pl-4 sm:grid-cols-[3.25rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4 sm:p-3.5 sm:pl-5">
                           <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-center">
@@ -634,8 +678,7 @@ export default function NrmsBillingPage() {
 
                           <div className="min-w-0">
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                              <p className="truncate text-sm font-bold text-neutral-900">{guest}</p>
-                              <span className="text-[10px] font-medium text-neutral-400">#{event.reservationId}</span>
+                              <p className="truncate text-sm font-semibold text-slate-800">{guest}</p>
                             </div>
                             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
                               <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 text-[10px] font-semibold text-neutral-600">
@@ -654,7 +697,7 @@ export default function NrmsBillingPage() {
                           <div className="col-span-2 flex items-center justify-between gap-3 border-t border-neutral-100 pt-2.5 sm:col-span-1 sm:flex-col sm:items-end sm:border-0 sm:pt-0 sm:text-right">
                             <span className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${meta.badgeCls}`}>{meta.badge}</span>
                             <span
-                              className={`text-sm font-black tabular-nums ${
+                              className={`text-sm font-semibold tabular-nums ${
                                 meta.amountNode === "zero"
                                   ? "text-emerald-700"
                                   : meta.amountNode === "trial"
@@ -672,32 +715,28 @@ export default function NrmsBillingPage() {
                     );
                   })}
                 </div>
-                {ledgerEvents.length > LEDGER_PREVIEW_COUNT && (
-                  <button
-                    type="button"
-                    onClick={() => setShowFullLedger((value) => !value)}
-                    className="mt-3 block w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-center text-xs font-semibold text-emerald-700 transition hover:border-emerald-200 hover:bg-emerald-50/60"
-                  >
-                    {showFullLedger
-                      ? "Show recent only"
-                      : `View full ledger (${ledgerEvents.length} entries)`}
-                  </button>
-                )}
+                <nav aria-label="Usage ledger pagination" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d5e1dc] bg-[#eef4f1] px-3 py-3">
+                  <p className="text-[11px] text-slate-600">Showing {ledgerStart + 1}–{Math.min(ledgerStart + LEDGER_PAGE_SIZE, filteredLedgerEvents.length)} of {filteredLedgerEvents.length} entries</p>
+                  <div className="flex items-center gap-2">
+                    <button type="button" aria-label="Previous ledger page" disabled={currentLedgerPage === 1} onClick={() => setLedgerPage(currentLedgerPage - 1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#cbd9d2] bg-white text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-600">Page<select aria-label="Go to ledger page" value={currentLedgerPage} onChange={(event) => setLedgerPage(Number(event.target.value))} className="h-8 rounded-lg border border-[#cbd9d2] bg-white px-2 text-xs font-medium text-slate-800">{Array.from({length: ledgerPageCount}, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>of {ledgerPageCount}</label>
+                    <button type="button" aria-label="Next ledger page" disabled={currentLedgerPage === ledgerPageCount} onClick={() => setLedgerPage(currentLedgerPage + 1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#cbd9d2] bg-white text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+                  </div>
+                </nav>
               </>
             ) : (
-              <EmptyState icon={History} title="No usage recorded yet" text="External room-night charges will appear here after eligible stays are checked out." />
+              ledgerEvents.length ? <div role="status" className="rounded-xl border border-[#d5e1dc] bg-white p-5 text-xs text-slate-600">No entries match these filters. Adjust the search or clear filters to view the ledger.</div> : <EmptyState icon={History} title="No usage recorded yet" text="External room-night charges will appear here after eligible stays are checked out." />
             )}
           </div>
         </section>
 
         <section id="statements" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-          <div className="relative overflow-hidden border-b border-blue-100 bg-[linear-gradient(135deg,#ffffff_0%,#f1f7ff_100%)] px-4 py-4 sm:px-5">
-            <div className="pointer-events-none absolute -right-10 -top-14 h-32 w-32 rounded-full border border-blue-600/[0.06]" aria-hidden="true" />
+          <div className="relative overflow-hidden border-b border-[#cad9e9] bg-[#edf3fa] px-4 py-4 sm:px-5">
             <div className="relative flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white text-blue-700 shadow-sm"><FileText className="h-4 w-4" /></span>
               <div className="min-w-0">
-                <h2 className="truncate text-base font-black tracking-tight text-neutral-950 sm:text-lg">Statements to pay</h2>
+                <h2 className="truncate text-base font-semibold tracking-tight text-slate-900">Statements to pay</h2>
                 {activeStatements.length > 0 ? (
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
@@ -720,8 +759,8 @@ export default function NrmsBillingPage() {
           </div>
 
           <div className="space-y-3 bg-neutral-50/70 p-3 sm:p-4">
-            <article className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-[0_12px_32px_-26px_rgba(15,23,42,0.65)]">
-              <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+            <article className="overflow-hidden rounded-xl border border-[#c3ddcf] bg-[#f3faf6]">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Gauge className="h-[18px] w-[18px]" /></span>
                   <div className="min-w-0">
@@ -737,7 +776,7 @@ export default function NrmsBillingPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Running total</p>
-                  <strong className="mt-0.5 block text-base font-black tracking-tight text-neutral-950 sm:text-lg">{money(liveUsage)}</strong>
+                  <strong className="mt-0.5 block text-lg font-semibold tracking-tight text-slate-900">{money(liveUsage)}</strong>
                   <p className="mt-0.5 text-[10px] text-neutral-400">of {money(limit)}</p>
                 </div>
               </div>
@@ -750,8 +789,8 @@ export default function NrmsBillingPage() {
             </article>
             {activeStatements.length ? (
               activeStatements.map((statement: any) => (
-                <article key={statement.id} className="overflow-hidden rounded-xl border border-blue-100 bg-white shadow-[0_12px_32px_-26px_rgba(15,23,42,0.65)]">
-                  <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-[linear-gradient(120deg,#ffffff_0%,#f7faff_100%)] px-4 py-3.5">
+                <article key={statement.id} className="overflow-hidden rounded-xl border border-[#cbd9e8] bg-white">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d8e2ed] bg-[#f0f5fb] px-4 py-3.5">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-white text-blue-700 shadow-sm"><ReceiptText className="h-[18px] w-[18px]" /></span>
                       <div className="min-w-0">
@@ -767,7 +806,7 @@ export default function NrmsBillingPage() {
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Amount due</p>
-                      <strong className="mt-0.5 block text-base font-black tracking-tight text-neutral-950 sm:text-lg">{money(statement.amount)}</strong>
+                      <strong className="mt-0.5 block text-lg font-semibold tracking-tight text-slate-900">{money(statement.amount)}</strong>
                       {Number(statement._count?.items ?? 0) > 0 && roomNightPrice > 0 && (
                         <p className="mt-0.5 text-[10px] text-neutral-400">
                           {statement._count.items} {statement._count.items === 1 ? "room-night" : "room-nights"} × {money(roomNightPrice)}
@@ -792,8 +831,8 @@ export default function NrmsBillingPage() {
                           <div className="flex min-w-0 items-center gap-2.5">
                             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-blue-100"><ShieldCheck className="h-4 w-4" /></span>
                             <div className="min-w-0">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-blue-500">Settlement reference</p>
-                              <p className="mt-0.5 truncate font-mono text-[11px] font-bold tracking-wide text-neutral-700">{reference}</p>
+                              <p className="text-[9px] font-medium uppercase tracking-[0.1em] text-blue-700">Settlement reference</p>
+                              <p className="mt-0.5 break-all font-mono text-[11px] font-medium tracking-wide text-neutral-700">{reference}</p>
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
@@ -1045,12 +1084,18 @@ function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: LucideI
     amber: "border-amber-100 bg-amber-50 text-amber-700",
     blue: "border-blue-100 bg-blue-50 text-blue-700",
   } as const;
+  const surfaces = {
+    emerald: "border-[#b9daca] bg-[#eaf5ee]",
+    slate: "border-[#d1dbe2] bg-[#f0f4f7]",
+    amber: "border-[#e6d5ae] bg-[#faf2df]",
+    blue: "border-[#bfd4eb] bg-[#eaf2fb]",
+  } as const;
   return (
-    <div className="flex min-w-0 items-center gap-3.5 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_10px_30px_-28px_rgba(15,23,42,0.45)] sm:p-5">
+    <div className={`flex min-w-0 items-center gap-3.5 rounded-xl border p-4 ${surfaces[tone]}`}>
       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</p>
-        <p className="mt-1 truncate text-lg font-black tracking-tight text-neutral-950">{value}</p>
+        <p className="mt-1 break-words text-lg font-semibold tracking-tight text-neutral-950">{value}</p>
         <p className="mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
       </div>
     </div>
@@ -1059,7 +1104,7 @@ function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: LucideI
 
 function Threshold({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-neutral-500">
+    <div className="flex items-center gap-2 rounded-lg border border-[#dce3e8] bg-white px-3 py-2 text-neutral-500">
       <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
       <span className="min-w-0 truncate"><strong className="font-semibold text-neutral-700">{label}</strong> · {value}</span>
     </div>
@@ -1068,8 +1113,7 @@ function Threshold({ label, value, color }: { label: string; value: string; colo
 
 function SectionHeader({ icon: Icon, title, subtitle, count }: { icon: LucideIcon; title: string; subtitle: string; count: number }) {
   return (
-    <div className="relative overflow-hidden border-b border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f0faf6_100%)] px-4 py-4 sm:px-5">
-      <div className="pointer-events-none absolute -right-8 -top-12 h-28 w-28 rounded-full border border-emerald-600/[0.06]" aria-hidden="true" />
+    <div className="relative overflow-hidden border-b border-[#d5e1dc] bg-[#eef4f1] px-4 py-4 sm:px-5">
       <div className="relative flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Icon className="h-4 w-4" /></span>
