@@ -233,7 +233,7 @@ export default function AdminDriverInvoiceReviewPage() {
   const labels = payoutLabels(invoice.status);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <Link href="/admin/drivers/invoices" className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900">

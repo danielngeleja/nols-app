@@ -129,7 +129,7 @@ export default function AdminAgentsDashboardPage() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
+    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
       <div
         className="relative rounded-2xl overflow-hidden shadow-2xl"
         style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)" }}

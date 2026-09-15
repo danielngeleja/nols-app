@@ -1392,182 +1392,6 @@ router.post(
   })
 );
 
-// GET /api/agent/assignments
-// Currently backed by PlanRequest assignments (AssignedAgent relation).
-router.get(
-  "/assignments",
-  requireRole("AGENT") as RequestHandler,
-  limitAgentPortalRead as any,
-  asyncHandler(async (req: any, res) => {
-    const gate = await getActiveAgent(req as AuthedRequest);
-    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
-    const agent = gate.agent;
-
-    const parsed = listQuerySchema.safeParse(req.query || {});
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
-    }
-
-    const { page, pageSize, status } = parsed.data;
-    const skip = (page - 1) * pageSize;
-
-    const where: any = { assignedAgentId: agent.id };
-    if (status) where.status = String(status);
-
-    // Stats (across all statuses for this agent, ignoring `status` filter)
-    const grouped = await prisma.planRequest.groupBy({
-      by: ["status"],
-      where: { assignedAgentId: agent.id },
-      _count: { _all: true },
-    });
-
-    const total = grouped.reduce((acc, g) => acc + (g._count?._all || 0), 0);
-    const completed = grouped
-      .filter((g) => String(g.status).toUpperCase() === "COMPLETED")
-      .reduce((acc, g) => acc + (g._count?._all || 0), 0);
-    const inProgress = grouped
-      .filter((g) => String(g.status).toUpperCase() === "IN_PROGRESS")
-      .reduce((acc, g) => acc + (g._count?._all || 0), 0);
-
-    const [items, filteredTotal] = await Promise.all([
-      prisma.planRequest.findMany({
-        where,
-        orderBy: { updatedAt: "desc" },
-        skip,
-        take: pageSize,
-        select: {
-          id: true,
-          tripType: true,
-          role: true,
-          status: true,
-          fullName: true,
-          email: true,
-          phone: true,
-          destinations: true,
-          dateFrom: true,
-          dateTo: true,
-          budget: true,
-          notes: true,
-          suggestedItineraries: true,
-          estimatedTimeline: true,
-          createdAt: true,
-          respondedAt: true,
-          user: {
-            select: {
-              nationality: true,
-            },
-          },
-        },
-      }),
-      prisma.planRequest.count({ where }),
-    ]);
-
-    return res.json({
-      ok: true,
-      page,
-      pageSize,
-      total: status ? filteredTotal : total,
-      completed,
-      inProgress,
-      items: items.map((p) => ({
-        id: p.id,
-        title: p.destinations
-          ? `${p.tripType} • ${p.destinations}`
-          : `${p.tripType} • ${p.fullName}`,
-        description: p.notes || null,
-        plannedActivities: p.suggestedItineraries || p.estimatedTimeline || p.notes || null,
-        status: p.status,
-        createdAt: p.createdAt,
-        tripDate: p.dateFrom,
-        amountPaid: p.budget != null ? Number(p.budget) : null,
-        tripType: p.tripType,
-        completedAt: p.respondedAt || null,
-        // Staff context is not yet modeled; keep null for now.
-        assignedBy: null,
-        // Useful context for the agent UI (safe to show the agent)
-        requester: {
-          fullName: p.fullName,
-          email: p.email,
-          phone: p.phone,
-          role: p.role,
-          nationality: p.user?.nationality ?? null,
-        },
-      })),
-    });
-  })
-);
-
-// GET /api/agent/assignments/:id
-router.get(
-  "/assignments/:id",
-  requireRole("AGENT") as RequestHandler,
-  limitAgentPortalRead as any,
-  asyncHandler(async (req: any, res) => {
-    const gate = await getActiveAgent(req as AuthedRequest);
-    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
-    const agent = gate.agent;
-
-    const paramsParsed = idParamsSchema.safeParse(req.params || {});
-    if (!paramsParsed.success) {
-      return res.status(400).json({ error: "Invalid id" });
-    }
-
-    const idNum = Number(paramsParsed.data.id);
-    if (!Number.isFinite(idNum) || idNum <= 0) {
-      return res.status(400).json({ error: "Invalid id" });
-    }
-
-    const p = await prisma.planRequest.findFirst({
-      where: { id: idNum, assignedAgentId: agent.id },
-      select: {
-        id: true,
-        tripType: true,
-        role: true,
-        status: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        destinations: true,
-        notes: true,
-        createdAt: true,
-        respondedAt: true,
-        adminResponse: true,
-        suggestedItineraries: true,
-        requiredPermits: true,
-        estimatedTimeline: true,
-      },
-    });
-
-    if (!p) return res.status(404).json({ error: "Not found" });
-
-    return res.json({
-      ok: true,
-      item: {
-        id: p.id,
-        title: p.destinations ? `${p.tripType} • ${p.destinations}` : `${p.tripType} • ${p.fullName}`,
-        description: p.notes || null,
-        status: p.status,
-        createdAt: p.createdAt,
-        completedAt: p.respondedAt || null,
-        assignedBy: null,
-        reviewedBy: null,
-        requester: {
-          fullName: p.fullName,
-          email: p.email,
-          phone: p.phone,
-          role: p.role,
-        },
-        outputs: {
-          adminResponse: p.adminResponse || null,
-          suggestedItineraries: p.suggestedItineraries || null,
-          requiredPermits: p.requiredPermits || null,
-          estimatedTimeline: p.estimatedTimeline || null,
-        },
-      },
-    });
-  })
-);
-
 // GET /api/agent/revenues
 // Returns per-trip revenue breakdown + summary totals for the authenticated agent.
 router.get(
@@ -1590,25 +1414,7 @@ router.get(
     const agentCurrency = String(settings?.agentCommissionCurrency || "USD").trim() || "USD";
     const tourReportCurrency = "USD";
 
-    // Fetch legacy PlanRequest trips plus TourBooking source data.
-    const [trips, tourTrips] = await Promise.all([
-      prisma.planRequest.findMany({
-        where: { assignedAgentId: agent.id },
-        select: {
-          id: true,
-          tripType: true,
-          destinations: true,
-          fullName: true,
-          status: true,
-          budget: true,
-          dateFrom: true,
-          dateTo: true,
-          createdAt: true,
-          respondedAt: true,
-          user: { select: { nationality: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      }),
+    const [tourTrips] = await Promise.all([
       prisma.tourBooking.findMany({
         where: { operatorAgentId: agent.id, ...paidTourBookingWhere() },
         select: {
@@ -1640,73 +1446,6 @@ router.get(
         orderBy: { createdAt: "desc" },
       }),
     ]);
-
-    const agentUserId = Number(agent.user?.id || 0);
-    const planRequestIds = trips.map((t) => t.id);
-    const planInvoices =
-      agentUserId > 0 && planRequestIds.length > 0
-        ? await prisma.invoice.findMany({
-            where: {
-              ownerId: agentUserId,
-              bookingId: { in: planRequestIds },
-              invoiceNumber: { startsWith: "AINV-" },
-            },
-            select: {
-              bookingId: true,
-              invoiceNumber: true,
-              status: true,
-              issuedAt: true,
-              verifiedAt: true,
-              approvedAt: true,
-              paidAt: true,
-              updatedAt: true,
-            },
-            orderBy: { updatedAt: "desc" },
-          })
-        : [];
-
-    const invoiceByBookingId = new Map<number, (typeof planInvoices)[number]>();
-    for (const inv of planInvoices) {
-      if (!invoiceByBookingId.has(inv.bookingId)) {
-        invoiceByBookingId.set(inv.bookingId, inv);
-      }
-    }
-
-    // Build per-trip revenue items (legacy PlanRequest source).
-    const planRequestItems = trips.map((t) => {
-      const inv = invoiceByBookingId.get(t.id);
-      const budgetNum = t.budget ? Number(t.budget) : 0;
-      const commissionAmount = budgetNum > 0 ? Math.round((budgetNum * commissionPct) / 100) : 0;
-      const agentEarning = budgetNum > 0 ? Math.round(budgetNum - commissionAmount) : 0;
-      const isCompleted = ["COMPLETED", "DONE", "CLOSED"].includes(String(t.status).toUpperCase());
-      return {
-        source: "PLAN_REQUEST" as const,
-        id: t.id,
-        bookingCode: null,
-        invoiceNumber: inv?.invoiceNumber || null,
-        invoiceStatus: inv?.status || null,
-        tripType: t.tripType,
-        title: t.destinations ? `${t.tripType} • ${t.destinations}` : `${t.tripType} • ${t.fullName}`,
-        status: t.status,
-        paymentStatus: null,
-        payoutStatus: null,
-        isCompleted,
-        budget: budgetNum,
-        commissionPercent: commissionPct,
-        commissionAmount,
-        agentEarning,
-        currency: agentCurrency,
-        dateFrom: t.dateFrom,
-        dateTo: t.dateTo,
-        createdAt: t.createdAt,
-        completedAt: t.respondedAt ?? null,
-        payoutRequestedAt: inv?.issuedAt ? inv.issuedAt.toISOString() : null,
-        payoutApprovedAt: inv?.approvedAt ? inv.approvedAt.toISOString() : null,
-        payoutPaidAt: inv?.paidAt ? inv.paidAt.toISOString() : null,
-        client: t.fullName,
-        nationality: t.user?.nationality ?? null,
-      };
-    });
 
     const isCompletedTour = (status: unknown, metadata: unknown): boolean => {
       const s = String(status || "").toUpperCase();
@@ -1808,18 +1547,11 @@ router.get(
       nationality: t.nationality,
     }});
 
-    const items = [...planRequestItems, ...tourItems].sort((a, b) => {
+    const items = [...tourItems].sort((a, b) => {
       const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return tb - ta;
     });
-
-    // Summary totals (combined legacy + TourBooking source).
-    const completedItems = planRequestItems.filter((i) => i.isCompleted);
-    const completedTripsLegacy = completedItems.length;
-    const totalTripsLegacy = planRequestItems.length;
-    const totalRevenueLegacy = completedItems.reduce((s, i) => s + i.agentEarning, 0);
-    const totalCommissionLegacy = completedItems.reduce((s, i) => s + i.commissionAmount, 0);
 
     const totalTripsTour = tourDerived.length;
     const completedTripsTour = tourDerived.filter((t) => t.isCompleted).length;
@@ -1831,11 +1563,11 @@ router.get(
       .reduce((s, t) => s + t.operatorPayout, 0);
     const totalCommissionTour = tourDerived.filter((t) => t.paid).reduce((s, t) => s + t.commissionAmount, 0);
 
-    const totalTrips = totalTripsLegacy + totalTripsTour;
-    const completedTrips = completedTripsLegacy + completedTripsTour;
-    const totalRevenue = totalRevenueLegacy + paidRevenueTour;
+    const totalTrips = totalTripsTour;
+    const completedTrips = completedTripsTour;
+    const totalRevenue = paidRevenueTour;
     const pendingRevenue = pendingPayoutTour;
-    const totalCommissionPaid = totalCommissionLegacy + totalCommissionTour;
+    const totalCommissionPaid = totalCommissionTour;
     const lifetimeRevenue = Math.max(Number(agent.totalRevenueGenerated ?? 0), totalRevenue);
     const summaryCurrency = totalTripsTour > 0 ? tourReportCurrency : agentCurrency;
 
@@ -1856,99 +1588,11 @@ router.get(
   })
 );
 
-const claimPayoutSchema = z
-  .object({
-    planRequestId: z.number().int().positive(),
-  })
-  .strict();
-
 const claimByTourCodeSchema = z
   .object({
     tourCode: z.string().trim().min(2).max(80),
   })
   .strict();
-
-// POST /api/agent/revenues/claim
-// Allows an agent to request a payout for a completed trip
-router.post(
-  "/revenues/claim",
-  requireRole("AGENT") as RequestHandler,
-  limitAgentRevenueClaim as any,
-  asyncHandler(async (req: any, res) => {
-    const authed = req?.user;
-    const authedId = authed?.id;
-    const authedRole = String(authed?.role ?? "").toUpperCase();
-    if (typeof authedId !== "number" || !Number.isFinite(authedId) || authedId <= 0 || authedRole !== "AGENT") {
-      return res.status(401).json({ ok: false, error: "unauthorized" });
-    }
-
-    const parsed = claimPayoutSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return res.status(400).json({ ok: false, error: "invalid_body", issues: parsed.error.issues });
-    }
-
-    const gate = await getActiveAgent(req as AuthedRequest);
-    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
-    const agent = gate.agent;
-
-    // Verify the trip belongs to this agent
-    const trip = await prisma.planRequest.findUnique({
-      where: { id: parsed.data.planRequestId },
-      select: { id: true, assignedAgentId: true, userId: true, budget: true, status: true },
-    });
-
-    if (!trip) {
-      return res.status(404).json({ ok: false, error: "trip_not_found" });
-    }
-
-    if (trip.assignedAgentId !== agent.id) {
-      return res.status(403).json({ ok: false, error: "forbidden", message: "Trip does not belong to this agent" });
-    }
-
-    // Check if trip is completed
-    if (trip.status !== "COMPLETED") {
-      return res.status(400).json({ ok: false, error: "invalid_status", message: "Only completed trips can be claimed" });
-    }
-
-    // Check if an invoice already exists for this trip
-    const existingInvoice = await prisma.invoice.findFirst({
-      where: {
-        bookingId: trip.id,
-        invoiceNumber: { startsWith: "AINV-" }, // Agent invoice prefix
-      },
-    });
-
-    if (existingInvoice) {
-      return res.status(409).json({ ok: false, error: "already_claimed", message: "Payout already requested for this trip" });
-    }
-
-    // Get agent user for invoice owner reference
-    const agentUser = agent.user;
-    if (!agentUser) {
-      return res.status(500).json({ ok: false, error: "agent_user_not_found" });
-    }
-
-    // Create invoice record (status DRAFT, then agent can submit)
-    const invoiceNumber = `AINV-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-    const invoice = await prisma.invoice.create({
-      data: {
-        ownerId: agentUser.id, // Use agent user ID as owner for invoice record
-        bookingId: trip.id,
-        invoiceNumber,
-        status: "DRAFT",
-      },
-    });
-
-    return res.json({
-      ok: true,
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      invoiceStatus: invoice.status,
-      claimedAt: invoice.issuedAt,
-      message: "Payout request created. You can now submit it for review.",
-    });
-  })
-);
 
 // POST /api/agent/revenues/claim-by-tour-code
 // Allows an agent to request payout using the booking/tour code shown in their trips list.

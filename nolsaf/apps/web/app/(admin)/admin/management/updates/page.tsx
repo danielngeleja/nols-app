@@ -234,7 +234,7 @@ export default function UpdatesPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+    <div className="space-y-6 w-full min-w-0">
       {deleteConfirmId && (
         <div
           className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4"

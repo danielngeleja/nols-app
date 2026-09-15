@@ -9,12 +9,12 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === GREETINGS & INITIAL CONTACT ===
   if (/^(hi|hello|hey|good morning|good afternoon|good evening|greetings|jambo|habari|mambo|niaje)/.test(input)) {
-    return "Niaje! 👋 Naitwa Twiga 🦒, your friendly travel assistant at NoLSAF! Just like the giraffe (twiga) gracefully reaches for the highest leaves, I'm here to help you find the perfect accommodation! 🎯 NoLSAF is your trusted platform for verified property bookings 🏨, integrated transport services 🚗, and seamless local & international payments 💳. I can help with accommodation bookings, Group Stay options, Plan with Us custom trips, cancellations, and all your travel needs. How can I assist you today? 😊";
+    return "Niaje! 👋 Naitwa Twiga 🦒, your friendly travel assistant at NoLSAF! Just like the giraffe (twiga) gracefully reaches for the highest leaves, I'm here to help you find the perfect accommodation! 🎯 NoLSAF is your trusted platform for verified property bookings 🏨, integrated transport services 🚗, and seamless local & international payments 💳. I can help with accommodation bookings, Group Stay options, cancellations, and all your travel needs. How can I assist you today? 😊";
   }
 
   // === ABOUT NOLSAF ===
   if (/(what is nolsaf|what's nolsaf|about nolsaf|nolsaf is|tell me about nolsaf|who is nolsaf)/.test(input)) {
-    return "NoLSAF is East Africa's trusted accommodation booking platform 🌍! 🏨 Our PRIMARY focus is verified property bookings across Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼. We also offer: 🚗 Integrated transport/riding services, 💳 Local & international payment support, 🎯 Plan with Us (custom trip planning), 👥 Group Stay options, ✅ Verified properties with trust & safety, and 📋 Flexible cancellation policies. All properties are verified ✅ before listing. Book with confidence! Ready to find your perfect stay? 🎉";
+    return "NoLSAF is East Africa's trusted accommodation booking platform 🌍! 🏨 Our PRIMARY focus is verified property bookings across Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼. We also offer: 🚗 Integrated transport/riding services, 💳 Local & international payment support, 👥 Group Stay options, ✅ Verified properties with trust & safety, and 📋 Flexible cancellation policies. All properties are verified ✅ before listing. Book with confidence! Ready to find your perfect stay? 🎉";
   }
 
   // === INTEGRITY & SAFETY / VERIFIED PROPERTIES ===
@@ -24,7 +24,7 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === BOOKING QUESTIONS ===
   if (/(how can i book|how do i book|how to book|book a|make a booking|reserve|reservation|i want to book|book now|booking process)/.test(input)) {
-    return "Booking accommodations with NoLSAF is super simple! 😊 Here's how: 🏨 Browse our verified property listings, select your dates 📅 and number of guests 👥, choose your payment method 💳 (local or international), and confirm! We also offer: 🚗 Integrated transport services when you book, 👥 Group Stay options for larger groups, and 🎯 Plan with Us for custom trip planning. All properties are verified ✅ and support flexible cancellations. Ready to book? Let's find your perfect stay! 💬";
+    return "Booking accommodations with NoLSAF is super simple! 😊 Here's how: 🏨 Browse our verified property listings, select your dates 📅 and number of guests 👥, choose your payment method 💳 (local or international), and confirm! We also offer: 🚗 Integrated transport services when you book, and 👥 Group Stay options for larger groups. All properties are verified ✅ and support flexible cancellations. Ready to book? Let's find your perfect stay! 💬";
   }
 
   // === BOOKING REQUIREMENTS / PREPARATION ===
@@ -79,17 +79,12 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === CULTURE & EXPERIENCES ===
   if (/(culture|cultural|tradition|traditional|local|tribe|tribal|masai|maasai|swahili|experience|authentic)/.test(input)) {
-    return "East Africa is rich in cultural experiences! 🎭 Explore: 🏘️ Maasai culture and villages, 🕌 Swahili traditions (especially in Zanzibar and coastal areas), 🛒 Local markets, 💃 Traditional dances, 🎨 Cultural tours, and authentic local experiences ✨. Our 'Plan with Us' service can include cultural immersion activities 🎯. We work with local guides 👥 and communities to offer authentic, respectful cultural experiences. What cultural aspects interest you? Let's create a culturally rich journey! 🌍";
+    return "East Africa is rich in cultural experiences! 🎭 Explore: 🏘️ Maasai culture and villages, 🕌 Swahili traditions (especially in Zanzibar and coastal areas), 🛒 Local markets, 💃 Traditional dances, 🎨 Cultural tours, and authentic local experiences ✨. We work with local guides 👥 and communities to offer authentic, respectful cultural experiences. What cultural aspects interest you? Let's create a culturally rich journey! 🌍";
   }
 
   // === SAFARI / WILDLIFE ===
   if (/(safari|wildlife|animal|animals|game drive|big five|lion|elephant|giraffe|zebra|wildebeest|migration)/.test(input)) {
     return "East Africa is world-renowned for safaris and wildlife! 🦁 Experience: 🦓 The Great Migration (Serengeti/Maasai Mara), 🐘 Big Five viewing, 🚙 Game drives in national parks, 🚶 Walking safaris, and diverse ecosystems 🌍. We offer safari packages 📦 and accommodations 🏨 in prime wildlife areas. Our agents specialize in creating unforgettable safari experiences with professional guides 👨‍✈️ and comfortable lodges ⛺. Planning a safari? Let's design your perfect wildlife adventure! Ready to witness nature's greatest show? 🎬";
-  }
-
-  // === PLAN WITH US / CUSTOM TRIPS ===
-  if (/(plan|trip planning|custom|itinerary|itineraries|personalized|tailored|request|plan with us)/.test(input)) {
-    return "Our 'Plan with Us' service helps create custom trip plans! 🗺️ How it works: 📝 Submit a request with your travel dates 📅, accommodation preferences 🏨, budget 💰, group size 👥, and any special needs. Our experienced agents 👨‍💼 review your request and create a personalized plan focusing on verified accommodations 🏨, integrated transport 🚗, and activities 🎉. This service complements our primary accommodation booking platform - perfect when you want expert help planning your stay! Ready to submit your request? Let's make it happen! 🚀";
   }
 
   // === PRICING / COST / BUDGET ===
@@ -104,7 +99,7 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === STATUS / TRACKING / CHECK ===
   if (/(status|check|track|where|when|my booking|booking status|confirm|confirmation)/.test(input)) {
-    return "To check your booking status ✅: Log in to your account and visit 'My Bookings' 📋 (for properties/transport) or 'Event Plans' 🗓️ (for custom trips). You'll see real-time updates ⚡, confirmation details 📄, and next steps ➡️. For custom trip requests, check 'Plan with Us' requests for agent responses 💬 and itinerary updates 🗺️. All bookings include confirmation emails 📧. Need help finding a specific booking? Contact support 📞 or I can help guide you! 😊";
+    return "To check your booking status ✅: Log in to your account and visit 'My Bookings' 📋 (for properties/transport). You'll see real-time updates ⚡, confirmation details 📄, and next steps ➡️. All bookings include confirmation emails 📧. Need help finding a specific booking? Contact support 📞 or I can help guide you! 😊";
   }
 
   // === CONTACT / SUPPORT ===
@@ -114,7 +109,7 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === AGENTS / EXPERTS ===
   if (/(agent|expert|specialist|guide|travel agent|assistance|professional)/.test(input)) {
-    return "NoLSAF works with experienced travel agents 👨‍💼 specializing in East Africa! Our agents: 🗺️ Understand local destinations, ✨ Create custom itineraries, 🏨 Arrange accommodations and transport 🚗, 🎭 Provide cultural insights, and 📋 Handle trip logistics. Agents are assigned through 'Plan with Us' requests 🎯. They're knowledgeable about Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼, and can make your travel planning effortless! 💪 Want to work with an agent? Submit a trip planning request! Let's connect you with an expert! 🚀";
+    return "NoLSAF works with experienced travel agents 👨‍💼 specializing in East Africa! Our agents: 🗺️ Understand local destinations, ✨ Create custom itineraries, 🏨 Arrange accommodations and transport 🚗, 🎭 Provide cultural insights, and 📋 Handle trip logistics. They're knowledgeable about Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼, and can make your travel planning effortless! 💪 Browse tour packages from verified operators to get started! 🚀";
   }
 
   // === BEST TIME TO VISIT / WEATHER ===
@@ -129,7 +124,7 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === GROUP STAY / GROUP TRAVEL ===
   if (/(group stay|group|groups|family|families|large group|many people|corporate|team|group accommodation)/.test(input)) {
-    return "NoLSAF's Group Stay service is perfect for larger groups! 👥 We specialize in: 👨‍👩‍👧‍👦 Family accommodations, 🏢 Corporate group bookings, 🎉 Large parties, and special events 🎊. Group Stay offers: ✅ Verified properties suitable for groups, 💰 Special group rates and discounts, 🏨 Multiple room options, 🚗 Integrated transport arrangements, and 📋 Flexible group cancellation policies. All group accommodations are verified ✅ before listing. Planning a group stay? Browse our Group Stay options or submit a 'Plan with Us' request! Let's make your group trip unforgettable! 🎉";
+    return "NoLSAF's Group Stay service is perfect for larger groups! 👥 We specialize in: 👨‍👩‍👧‍👦 Family accommodations, 🏢 Corporate group bookings, 🎉 Large parties, and special events 🎊. Group Stay offers: ✅ Verified properties suitable for groups, 💰 Special group rates and discounts, 🏨 Multiple room options, 🚗 Integrated transport arrangements, and 📋 Flexible group cancellation policies. All group accommodations are verified ✅ before listing. Planning a group stay? Browse our Group Stay options! Let's make your group trip unforgettable! 🎉";
   }
 
   // === REVIEWS / RATINGS / TESTIMONIALS ===
@@ -224,7 +219,7 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === COMPARISON / RECOMMENDATIONS ===
   if (/(compare|comparison|which is better|recommend|suggestion|best option|should i choose|difference between)/.test(input)) {
-    return "Choosing the perfect option depends on your preferences! 🤔 Consider: Budget 💰, Location preference 📍, Travel style (adventure, luxury, budget), Group size 👥, Activities you want, and Travel dates 📅. Our 'Plan with Us' service is perfect for getting personalized recommendations! Our agents know East Africa well and can suggest options based on what matters to you. Want specific comparisons? Tell me what you're considering and I can help you decide! 😊";
+    return "Choosing the perfect option depends on your preferences! 🤔 Consider: Budget 💰, Location preference 📍, Travel style (adventure, luxury, budget), Group size 👥, Activities you want, and Travel dates 📅. Want specific comparisons? Tell me what you're considering and I can help you decide! 😊";
   }
 
   // === SEASONAL / WEATHER SPECIFIC ===
@@ -234,16 +229,16 @@ export function getAutomatedResponse(userInput: string): string {
 
   // === GENERAL INFORMATION ===
   if (/(what|who|tell me|explain|information|details|about)/.test(input)) {
-    return "NoLSAF is East Africa's trusted accommodation booking platform 🌍! Our PRIMARY focus: 🏨 Verified property bookings across Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼. We also offer: 🚗 Integrated transport/riding services, 💳 Local & international payment support, 👥 Group Stay options, 🎯 Plan with Us (custom trip planning), ✅ Verified properties with trust & safety, and 📋 Flexible cancellation policies. All properties are verified before listing. Book your perfect stay with confidence! 💪 What would you like to know more about? 😊";
+    return "NoLSAF is East Africa's trusted accommodation booking platform 🌍! Our PRIMARY focus: 🏨 Verified property bookings across Tanzania 🇹🇿, Kenya 🇰🇪, Uganda 🇺🇬, and Rwanda 🇷🇼. We also offer: 🚗 Integrated transport/riding services, 💳 Local & international payment support, 👥 Group Stay options, ✅ Verified properties with trust & safety, and 📋 Flexible cancellation policies. All properties are verified before listing. Book your perfect stay with confidence! 💪 What would you like to know more about? 😊";
   }
 
   // === GOODBYE / CLOSING ===
   if (/(goodbye|bye|see you|farewell|thank you|thanks|that's all|done|finish|close|end|exit|quit|asante)/.test(input)) {
-    return "Asante sana! (Thank you very much!) 😊 It was great helping you! I'm always here whenever you need assistance with accommodation bookings 🏨, Group Stay options 👥, Plan with Us trips 🎯, verified properties ✅, or any questions about NoLSAF 🌍. Have a wonderful journey, and I hope to help you find your perfect stay! Karibu tena! (Welcome again!) Safe travels! 🎉✨";
+    return "Asante sana! (Thank you very much!) 😊 It was great helping you! I'm always here whenever you need assistance with accommodation bookings 🏨, Group Stay options 👥, verified properties ✅, or any questions about NoLSAF 🌍. Have a wonderful journey, and I hope to help you find your perfect stay! Karibu tena! (Welcome again!) Safe travels! 🎉✨";
   }
 
   // === DEFAULT RESPONSE (for unmatched messages) ===
-  return "Hmm, I'm not sure I fully understand that question! 😊 But don't worry - I'm here to help! 🤝 I can assist you with: 🏨 Accommodation bookings, ✅ Verified properties, 👥 Group Stay options, 🎯 Plan with Us custom trips, 🚗 Integrated transport services, 💳 Local & international payments, 📋 Cancellations, and much more! Try asking me something like: 'How do I book a property?', 'What is Group Stay?', 'Tell me about verified properties', or 'What payment methods do you accept?'. What can I help you with today? 😊";
+  return "Hmm, I'm not sure I fully understand that question! 😊 But don't worry - I'm here to help! 🤝 I can assist you with: 🏨 Accommodation bookings, ✅ Verified properties, 👥 Group Stay options, 🚗 Integrated transport services, 💳 Local & international payments, 📋 Cancellations, and much more! Try asking me something like: 'How do I book a property?', 'What is Group Stay?', 'Tell me about verified properties', or 'What payment methods do you accept?'. What can I help you with today? 😊";
 }
 
 /**
@@ -254,10 +249,10 @@ export function getTimeoutMessage(language: string = "en"): string {
 
   // Simple local handling: return Swahili when requested, otherwise English.
   if (lang.startsWith("sw")) {
-    return "Asante sana! 😊 Rudisha tena wakati wowote ukihitaji msaada kuhusu malazi 🏨, Group Stay 👥, Plan with Us 🎯, au maswali yoyote kuhusu NoLSAF. Karibu tena! 🎉";
+    return "Asante sana! 😊 Rudisha tena wakati wowote ukihitaji msaada kuhusu malazi 🏨, Group Stay 👥, au maswali yoyote kuhusu NoLSAF. Karibu tena! 🎉";
   }
 
   // For frontend, return English for now (translations handled by API)
-  return "Asante sana! 😊 Feel free to come back anytime if you need help with accommodation bookings 🏨, Group Stay 👥, Plan with Us 🎯, or any questions about NoLSAF. Karibu tena! 🎉";
+  return "Asante sana! 😊 Feel free to come back anytime if you need help with accommodation bookings 🏨, Group Stay 👥, or any questions about NoLSAF. Karibu tena! 🎉";
 }
 

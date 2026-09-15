@@ -271,7 +271,7 @@ export default function AdminGroupStaysPassengersPage() {
   // Nationality chart replaced by ranked list — no chartData needed
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       {/* Premium Banner */}
       <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #14532d 0%, #166534 40%, #1e3a5f 100%)", boxShadow: "0 24px 60px -12px rgba(20,83,45,0.45), 0 8px 20px -8px rgba(30,58,138,0.30)", padding: "2rem 2rem 1.75rem" }}>
         <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.10, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">

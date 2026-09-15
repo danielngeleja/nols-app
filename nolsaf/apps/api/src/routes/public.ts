@@ -20,7 +20,6 @@ import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
-import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
 import publicPropertySharesRouter from "./public.propertyShares.js";
@@ -75,10 +74,6 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);
-}
-
-export function registerPublicPlanRequestRoute(app: Express): void {
-  app.use("/api/plan-request", publicPlanRequestRouter);
 }
 
 export function registerPublicAvailabilityRoute(app: Express): void {

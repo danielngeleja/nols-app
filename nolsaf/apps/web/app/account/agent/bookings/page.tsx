@@ -759,13 +759,11 @@ export default function AgentBookingsPage() {
       try {
         setLoading(true);
         setError(null);
-        const [assignmentsRes, tourBookingsRes, meRes] = await Promise.all([
-          api.get("/api/agent/assignments"),
-          api.get("/api/agent/tour-bookings").catch(() => ({ data: { items: [] } })),
+        const [tourBookingsRes, meRes] = await Promise.all([
+          api.get("/api/agent/tour-bookings"),
           api.get("/api/account/me").catch(() => null),
         ]);
         if (!alive) return;
-        const assignments: BookingItem[] = (assignmentsRes as any)?.data?.items ?? [];
         const tourBookings: BookingItem[] = (tourBookingsRes as any)?.data?.items ?? [];
         const meData = (meRes as any)?.data?.data ?? (meRes as any)?.data ?? null;
         const resolvedAgentName = String(
@@ -776,10 +774,7 @@ export default function AgentBookingsPage() {
             || meData?.user?.name
             || "Operator"
         ).trim();
-        const merged = [
-          ...assignments,
-          ...tourBookings,
-        ].sort((a, b) => {
+        const merged = [...tourBookings].sort((a, b) => {
           const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return tb - ta;
@@ -1195,9 +1190,7 @@ export default function AgentBookingsPage() {
                               <p className="mt-0.5 text-sm text-slate-600">{bookingBy} &bull; {nationality}</p>
                             </div>
                             <Link
-                              href={booking.source === "TOUR_BOOKING"
-                                ? `/account/agent/tour-bookings/${encodeURIComponent(bid)}`
-                                : `/account/agent/assignments/${encodeURIComponent(bid)}`}
+                              href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
                               className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 no-underline shadow-sm transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -1654,25 +1647,14 @@ export default function AgentBookingsPage() {
                               >
                                 {isExpanded ? "Hide Preview" : "Preview Roadmap"}
                               </button>
-                              {!isTourBooking ? (
-                                <Link
-                                  href={`/account/agent/assignments/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              ) : (
-                                <Link
-                                  href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View tour booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              )}
+                              <Link
+                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                aria-label={`View tour booking ${String(booking.id)}`}
+                                title="View details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Link>
                             </div>
                           </div>
 
@@ -1813,25 +1795,14 @@ export default function AgentBookingsPage() {
                             </td>
                             <td className="px-4 py-3 text-sm font-semibold text-slate-700">{amountPaid}</td>
                             <td className="px-4 py-3 text-right">
-                              {!isTourBooking ? (
-                                <Link
-                                  href={`/account/agent/assignments/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              ) : (
-                                <Link
-                                  href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View tour booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              )}
+                              <Link
+                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                aria-label={`View tour booking ${String(booking.id)}`}
+                                title="View details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Link>
                             </td>
                           </TableRow>
                         );

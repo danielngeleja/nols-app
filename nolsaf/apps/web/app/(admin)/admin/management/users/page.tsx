@@ -303,7 +303,7 @@ export default function Page() {
   const tableTheme = getTableTheme(role);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur">
         <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-50" />
         <div className="relative p-6">

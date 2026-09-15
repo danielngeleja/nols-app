@@ -237,15 +237,6 @@ export const limitCancellationMessages = rateLimit({
   message: { error: "Too many messages. Please wait a moment before sending another message." },
 });
 
-// Rate limiter for plan request submissions (prevents spam)
-export const limitPlanRequestSubmit = rateLimit({
-  windowMs: 15 * 60_000, // 15 minutes
-  limit: 3, // 3 submissions per 15 minutes per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many plan request submissions. Please wait before submitting another request." },
-});
-
 // Rate limiter for plan request messages (follow-up messages)
 export const limitPlanRequestMessages = rateLimit({
   windowMs: 60_000, // 1 minute

@@ -133,7 +133,7 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === ABOUT NOLSAF ===
   if (/(what is nolsaf|what'?s nolsaf|about nolsaf|nolsaf is|tell me about nolsaf|who is nolsaf|who are you|what do you do|what is this platform|explain nolsaf|nolsaf mean|meaning of nolsaf)/.test(input)) {
-    return { response: "NoLSAF connects your entire African journey in one unified platform 🌍\n\nBook verified accommodation, get transport to and from your stay, discover destinations, and pay with local methods, all seamlessly linked.\n\nPlanning a Serengeti safari? Book your lodge, add transport to get there and around, arrange game drives, and pay with Mpesa. No app switching, no friction.\n\n🏨 Verified Stays: hotels, lodges, villas, apartments across East Africa\n🚗 Integrated Transport: rides to/from your accommodation, city tours, inter-city travel\n🧭 Destination Discovery: safaris, cultural experiences, local guides\n💳 Local Payments: MPesa, Tigo, Airtel Money, cards accepted\n👥 Group Bookings: families, corporates, events\n🎯 Custom Trip Planning: end-to-end itineraries by local experts\n\nAccommodation and tourism access, unified. Operating across Tanzania 🇹🇿, Kenya 🇰🇪, and expanding pan-Africa. What would you like to know more about?", type: "other" };
+    return { response: "NoLSAF connects your entire African journey in one unified platform 🌍\n\nBook verified accommodation, get transport to and from your stay, discover destinations, and pay with local methods, all seamlessly linked.\n\nPlanning a Serengeti safari? Book your lodge, add transport to get there and around, arrange game drives, and pay with Mpesa. No app switching, no friction.\n\n🏨 Verified Stays: hotels, lodges, villas, apartments across East Africa\n🚗 Integrated Transport: rides to/from your accommodation, city tours, inter-city travel\n🧭 Destination Discovery: safaris, cultural experiences, local guides\n💳 Local Payments: MPesa, Tigo, Airtel Money, cards accepted\n👥 Group Bookings: families, corporates, events\n\nAccommodation and tourism access, unified. Operating across Tanzania 🇹🇿, Kenya 🇰🇪, and expanding pan-Africa. What would you like to know more about?", type: "other" };
   }
 
   // === NOLSAF NAME / BRAND ===
@@ -198,17 +198,12 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === TRANSPORT / RIDES ===
   if (/(transport|ride|taxi|vehicle|car (hire|rental)|bus|driver|pickup|drop.?off|airport (transfer|pickup)|get (to|from)|how (to|do i) get (to|from|there)|travel from|inter.?city|shuttle)/.test(input)) {
-    return { response: "NoLSAF transport services 🚗\n\nAvailable options:\n✈️ Airport transfers: pickup/drop-off at any airport\n🚙 City rides: get around town\n🗺️ Inter-city travel: Dar to Arusha, Zanzibar ferry connections, etc.\n🚐 Group transport: for families and larger parties\n\nAll drivers are verified with valid licenses. Book transport:\n1️⃣ Through your property booking (add-on)\n2️⃣ Separately via the transport section\n3️⃣ Request through Plan with Us for complex routes\n\nSpecify pickup point 📍, destination, date & time. Driver details are shared before your trip.", type: "other" };
+    return { response: "NoLSAF transport services 🚗\n\nAvailable options:\n✈️ Airport transfers: pickup/drop-off at any airport\n🚙 City rides: get around town\n🗺️ Inter-city travel: Dar to Arusha, Zanzibar ferry connections, etc.\n🚐 Group transport: for families and larger parties\n\nAll drivers are verified with valid licenses. Book transport:\n1️⃣ Through your property booking (add-on)\n2️⃣ Separately via the transport section\n\nSpecify pickup point 📍, destination, date & time. Driver details are shared before your trip.", type: "other" };
   }
 
   // === GROUP STAY ===
   if (/(group stay|group (booking|accommodation|travel|trip)|family (stay|trip|booking)|large group|corporate (booking|stay|event)|team (building|retreat)|many (people|rooms)|wedding (accommodation|venue)|conference)/.test(input)) {
-    return { response: "Group Stay, perfect for larger parties! 👥\n\nGreat for:\n👨‍👩‍👧‍👦 Family vacations\n🏢 Corporate retreats & conferences\n🎉 Weddings & celebrations\n🏫 School/university trips\n👥 Friend groups\n\nBenefits:\n💰 Group rates & potential discounts\n🏨 Multiple room coordination\n🚗 Group transport arrangements\n📋 Flexible group cancellation\n👤 Single point of contact\n\nSubmit a Group Stay request through the platform or use Plan with Us for a fully customized package. Properties with group-friendly tags show up in filters!", type: "other" };
-  }
-
-  // === PLAN WITH US / CUSTOM TRIPS ===
-  if (/(plan (with us|my trip|a trip)|trip planning|custom (trip|itinerary|plan)|itinerary|personalized|tailored|request a plan|plan with us|help me plan|plan for me|i need a plan|organize my trip|travel plan)/.test(input)) {
-    return { response: "Plan with Us: your personal trip planner 🗺️\n\nHow it works:\n1️⃣ Submit a request with your dates, budget & preferences\n2️⃣ Our local experts review and create a custom itinerary\n3️⃣ Get a plan covering accommodation, transport & activities\n4️⃣ Approve, adjust, or ask questions\n5️⃣ We handle the bookings!\n\nPerfect for:\n• First-time visitors to East Africa\n• Complex multi-city trips\n• Safari + beach combinations\n• Group trips needing coordination\n\nYou set the budget, we find the best options. Submit your request through the Plan with Us section!", type: "other" };
+    return { response: "Group Stay, perfect for larger parties! 👥\n\nGreat for:\n👨‍👩‍👧‍👦 Family vacations\n🏢 Corporate retreats & conferences\n🎉 Weddings & celebrations\n🏫 School/university trips\n👥 Friend groups\n\nBenefits:\n💰 Group rates & potential discounts\n🏨 Multiple room coordination\n🚗 Group transport arrangements\n📋 Flexible group cancellation\n👤 Single point of contact\n\nSubmit a Group Stay request through the platform. Properties with group-friendly tags show up in filters!", type: "other" };
   }
 
   // === PRICING / COST / PAYMENTS ===
@@ -253,7 +248,7 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === DESTINATIONS - KENYA ===
   if (/(kenya|nairobi|masai mara|maasai mara|mombasa|malindi|lamu|diani|amboseli|tsavo|lake nakuru|kenyan)/.test(input)) {
-    return { response: "Kenya 🇰🇪, incredible wildlife & culture!\n\n🦁 Maasai Mara: Great Migration (Jul-Oct), Big Five\n🏙️ Nairobi: capital, Nairobi National Park, Giraffe Centre\n🏖️ Mombasa/Diani: Indian Ocean beaches, water sports\n🏝️ Lamu: UNESCO heritage island, Swahili culture\n🐘 Amboseli: elephants with Kilimanjaro backdrop\n🦏 Tsavo: vast wilderness, red elephants\n🦩 Lake Nakuru: flamingos, rhinos\n\nNoLSAF is expanding property listings in Kenya. Airport transfers and transport services available in Nairobi and Mombasa.\n\nPlanning a Kenya trip? Use Plan with Us for a custom itinerary!", type: "other" };
+    return { response: "Kenya 🇰🇪, incredible wildlife & culture!\n\n🦁 Maasai Mara: Great Migration (Jul-Oct), Big Five\n🏙️ Nairobi: capital, Nairobi National Park, Giraffe Centre\n🏖️ Mombasa/Diani: Indian Ocean beaches, water sports\n🏝️ Lamu: UNESCO heritage island, Swahili culture\n🐘 Amboseli: elephants with Kilimanjaro backdrop\n🦏 Tsavo: vast wilderness, red elephants\n🦩 Lake Nakuru: flamingos, rhinos\n\nNoLSAF is expanding property listings in Kenya. Airport transfers and transport services available in Nairobi and Mombasa.", type: "other" };
   }
 
   // === DESTINATIONS - GENERAL / WHERE TO GO ===
@@ -263,7 +258,7 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === SAFARI / WILDLIFE ===
   if (/(safari|wildlife|animal|game drive|big five|lion|elephant|giraffe|zebra|wildebeest|migration|national park|game reserve|bird|birding|flamingo)/.test(input)) {
-    return { response: "East Africa, the world's best safari destination! 🦁\n\nTop safari parks:\n🦓 Serengeti: Great Migration, Big Five\n🦏 Ngorongoro Crater: incredible density of wildlife\n🐘 Tarangire: elephant herds, baobabs\n🦁 Maasai Mara: Kenya's premier park\n🐆 Ruaha/Selous: off-the-beaten-track\n\nSafari types:\n🚙 Game drives (most common)\n🚶 Walking safaris\n🎈 Hot air balloon safaris\n🏕️ Camping safaris\n\nBook safari lodges on NoLSAF, then arrange game drives through your property or Plan with Us. Best viewing: dry season (June–October, December–February).", type: "other" };
+    return { response: "East Africa, the world's best safari destination! 🦁\n\nTop safari parks:\n🦓 Serengeti: Great Migration, Big Five\n🦏 Ngorongoro Crater: incredible density of wildlife\n🐘 Tarangire: elephant herds, baobabs\n🦁 Maasai Mara: Kenya's premier park\n🐆 Ruaha/Selous: off-the-beaten-track\n\nSafari types:\n🚙 Game drives (most common)\n🚶 Walking safaris\n🎈 Hot air balloon safaris\n🏕️ Camping safaris\n\nBook safari lodges on NoLSAF, then arrange game drives through your property or a verified tour operator. Best viewing: dry season (June–October, December–February).", type: "other" };
   }
 
   // === CHECK-IN / CHECK-OUT ===
@@ -278,7 +273,7 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === CULTURE & EXPERIENCES ===
   if (/(culture|cultural|tradition|traditional|local experience|tribe|tribal|masai|maasai|swahili|experience|authentic|heritage|local life|immersion)/.test(input)) {
-    return { response: "East African cultural experiences 🎭\n\n🏘️ Maasai village visits: warriors, traditions, beadwork\n🕌 Zanzibar Stone Town: UNESCO heritage, Swahili architecture, spice tours\n🛒 Local markets: Kariakoo (Dar), Maasai Market (Nairobi)\n💃 Traditional dance & music\n🍽️ Cooking classes: learn to make pilau, ugali, chapati\n🎨 Art galleries & craft workshops\n☕ Coffee plantation tours (Arusha/Kilimanjaro)\n🏗️ Historical sites: Bagamoyo, Kilwa ruins\n\nOur Plan with Us service can include cultural activities in your itinerary. Always respectful, always authentic!", type: "other" };
+    return { response: "East African cultural experiences 🎭\n\n🏘️ Maasai village visits: warriors, traditions, beadwork\n🕌 Zanzibar Stone Town: UNESCO heritage, Swahili architecture, spice tours\n🛒 Local markets: Kariakoo (Dar), Maasai Market (Nairobi)\n💃 Traditional dance & music\n🍽️ Cooking classes: learn to make pilau, ugali, chapati\n🎨 Art galleries & craft workshops\n☕ Coffee plantation tours (Arusha/Kilimanjaro)\n🏗️ Historical sites: Bagamoyo, Kilwa ruins", type: "other" };
   }
 
   // === FOOD & DINING ===
@@ -363,12 +358,12 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === COMPARISON / WHAT'S BETTER ===
   if (/(compare|which is better|vs|versus|difference between|should i choose|what'?s (better|best)|between .+ and)/.test(input)) {
-    return { response: "Need help choosing? Consider these factors 🤔\n\n📍 Location: close to your activities?\n💰 Budget: what's your nightly range?\n✨ Amenities: WiFi, pool, breakfast, AC?\n👥 Group size: rooms/beds needed?\n⭐ Reviews: what do other guests say?\n📋 Cancellation policy: flexibility needed?\n\nUse our search filters to narrow down options, then compare listings side by side.\n\nOr use Plan with Us. Tell us your preferences and our experts will recommend the best match for your needs!", type: "other" };
+    return { response: "Need help choosing? Consider these factors 🤔\n\n📍 Location: close to your activities?\n💰 Budget: what's your nightly range?\n✨ Amenities: WiFi, pool, breakfast, AC?\n👥 Group size: rooms/beds needed?\n⭐ Reviews: what do other guests say?\n📋 Cancellation policy: flexibility needed?\n\nUse our search filters to narrow down options, then compare listings side by side.", type: "other" };
   }
 
   // === ACCESSIBILITY ===
   if (/(accessible|disability|wheelchair|mobility|special needs|handicap|disabled)/.test(input)) {
-    return { response: "Accessible travel on NoLSAF ♿\n\nAccessibility varies by property. When searching:\n→ Check property descriptions for accessibility info\n→ Contact the property directly to confirm specific needs\n→ Mention requirements in your booking notes\n\nMany hotels offer:\n• Ground floor rooms\n• Wheelchair ramps\n• Accessible bathrooms\n• Elevator access\n\nFor transport: Request accessible vehicles when booking. Our Plan with Us team can help find fully accessible options for your trip.\n\nEvery traveler deserves a great experience. Let us know your needs!", type: "other" };
+    return { response: "Accessible travel on NoLSAF ♿\n\nAccessibility varies by property. When searching:\n→ Check property descriptions for accessibility info\n→ Contact the property directly to confirm specific needs\n→ Mention requirements in your booking notes\n\nMany hotels offer:\n• Ground floor rooms\n• Wheelchair ramps\n• Accessible bathrooms\n• Elevator access\n\nFor transport: Request accessible vehicles when booking.\n\nEvery traveler deserves a great experience. Let us know your needs!", type: "other" };
   }
 
   // === GENERAL CATCH-ALL (what/who/tell me) ===
@@ -383,7 +378,7 @@ function getEnglishResponse(input: string): { response: string; type: ResponseTy
 
   // === DEFAULT RESPONSE ===
   return {
-    response: "I'm not sure I caught that, but I'm here to help! 🤝\n\nNoLSAF connects accommodation and tourism access in one unified platform. Here's what I can assist with:\n\n🏨 Book verified stays\n🚗 Add transport to your booking (to/from your stay, tours)\n🧭 Discover destinations and plan trips\n💳 Pay with Mpesa, cards, or bank transfer\n👥 Group bookings for families & corporates\n🎯 Custom trip planning with local experts\n👤 Account, registration & referrals\n\nTry asking:\n• \"How do I book a property?\"\n• \"Tell me about Zanzibar\"\n• \"What payment methods do you accept?\"\n• \"How do I become a property owner?\"",
+    response: "I'm not sure I caught that, but I'm here to help! 🤝\n\nNoLSAF connects accommodation and tourism access in one unified platform. Here's what I can assist with:\n\n🏨 Book verified stays\n🚗 Add transport to your booking (to/from your stay, tours)\n🧭 Discover destinations and plan trips\n💳 Pay with Mpesa, cards, or bank transfer\n👥 Group bookings for families & corporates\n👤 Account, registration & referrals\n\nTry asking:\n• \"How do I book a property?\"\n• \"Tell me about Zanzibar\"\n• \"What payment methods do you accept?\"\n• \"How do I become a property owner?\"",
     type: "default"
   };
 }

@@ -21,7 +21,6 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleSlash,
-  ClipboardList,
   CreditCard,
   Eye,
   FileSignature,
@@ -72,7 +71,6 @@ const GROUPS: NavGroup[] = [
     title: "Workspace",
     items: [
       { href: "/account/agent", label: "Dashboard", Icon: LayoutDashboard, exact: true },
-      { href: "/account/agent/assignments", label: "Assignments", Icon: ClipboardList },
       {
         href: "/account/agent/bookings",
         label: "My bookings",

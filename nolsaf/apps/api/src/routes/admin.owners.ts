@@ -146,7 +146,7 @@ router.get("/counts", async (req, res) => {
 router.get("/", async (req, res) => {
   // Wrap everything in try-catch at the very top level
   try {
-    const { q = "", status = "", page = "1", pageSize, limit, from, to, propertiesMin, propertiesMax, nrms, payments } = req.query as any;
+    const { q = "", status = "", page = "1", pageSize, limit, from, to, propertiesMin, propertiesMax, nrms, payments, assignable } = req.query as any;
     const pageSizeValue = pageSize || limit || "50";
     const pageNum = Number(page) || 1;
     const skip = (pageNum - 1) * Number(pageSizeValue);
@@ -175,6 +175,14 @@ router.get("/", async (req, res) => {
       }
     }
     
+    // Owners an admin may hand work to (e.g. group stay assignment): not
+    // suspended, not disabled, and not a soft-deleted account.
+    if (String(assignable) === "true") {
+      where.suspendedAt = null;
+      where.deletedAt = null;
+      where.NOT = [...(where.NOT ?? []), { isDisabled: true }];
+    }
+
     // Date range filter (joined date)
     if (from || to) {
       where.createdAt = {};

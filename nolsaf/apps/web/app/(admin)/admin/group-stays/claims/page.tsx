@@ -1,16 +1,14 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { 
-  Gift, Search, X, Calendar, MapPin, Clock, User, 
-  Loader2, Eye, 
-  Sparkles, Tag, DollarSign,
-  Filter, Building2, Users as UsersIcon, ArrowRight, ArrowLeft, FileText, ChevronDown, ChevronUp,
-  CheckCircle2, ListFilter
+import {
+  Gift, Search, X, MapPin, Clock, Loader2, Sparkles, Tag, Building2, Users as UsersIcon,
+  ArrowRight, ArrowLeft, FileText, ChevronDown, CheckCircle2, ListFilter, Lock,
 } from "lucide-react";
 import Image from "next/image";
 import apiClient from "@/lib/apiClient";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import TablePagination from "@/components/TablePagination";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
 const api = apiClient;
@@ -80,21 +78,34 @@ type ClaimsSummary = {
   withdrawn: number;
 };
 
-function badgeClasses(v: string) {
+// NRMS-style status pill tones for owner claims.
+function claimStatusClasses(v: string) {
   switch (v) {
-    case "PENDING":
-      return "bg-blue-100 text-blue-700 border-blue-300";
-    case "REVIEWING":
-      return "bg-purple-100 text-purple-700 border-purple-300";
-    case "ACCEPTED":
-      return "bg-green-100 text-green-700 border-green-300";
-    case "REJECTED":
-      return "bg-red-100 text-red-700 border-red-300";
-    case "WITHDRAWN":
-      return "bg-gray-100 text-gray-700 border-gray-300";
-    default:
-      return "bg-gray-100 text-gray-700 border-gray-300";
+    case "PENDING": return "bg-blue-50 text-blue-700";
+    case "REVIEWING": return "bg-purple-50 text-purple-700";
+    case "ACCEPTED": return "bg-emerald-600 text-white"; // customer chose it and paid the deposit
+    case "REJECTED": return "bg-rose-50 text-rose-700";
+    default: return "bg-neutral-100 text-neutral-600";
   }
+}
+
+function humanizeLabel(value: string | null | undefined) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
+}
+
+// "dar-es-salaam" -> "Dar es Salaam", "UBUNGO" -> "Ubungo", "CBD" stays "CBD".
+function formatPlaceName(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word, i) => {
+      if (i > 0 && ["es", "la", "wa", "na", "ya"].includes(word.toLowerCase())) return word.toLowerCase();
+      // Keep real abbreviations only; "DAR" in "DAR es Salaam" is a word, not one.
+      if (["CBD", "UDSM", "JNIA", "KIA"].includes(word.toUpperCase())) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
 }
 
 type BookingClaimsResponse = {
@@ -378,719 +389,645 @@ export default function AdminGroupStaysClaimsPage() {
     }
   };
 
+  const recommendationsLockedGlobal = (bookingClaims?.recommendedClaimIds?.length || 0) > 0;
+  const statusTiles: Array<{ value: string; label: string; count: number | undefined; tone: string; active: string }> = [
+    { value: "", label: "All claims", count: summary?.total, tone: "text-neutral-900", active: "border-neutral-400 bg-neutral-50 ring-neutral-100" },
+    { value: "PENDING", label: "Pending", count: summary?.pending, tone: "text-blue-700", active: "border-blue-400 bg-blue-50/60 ring-blue-100" },
+    { value: "RECOMMENDED_INFO", label: "Recommended", count: summary?.accepted, tone: "text-violet-700", active: "" },
+    { value: "REJECTED", label: "Rejected", count: summary?.rejected, tone: "text-rose-700", active: "border-rose-400 bg-rose-50/60 ring-rose-100" },
+    { value: "WITHDRAWN", label: "Withdrawn", count: summary?.withdrawn, tone: "text-neutral-600", active: "border-neutral-400 bg-neutral-50 ring-neutral-100" },
+  ];
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-      {/* In-page Review Modal (keeps auction workflow on this page) */}
+    <div className="w-full min-w-0 space-y-4 sm:space-y-6">
+      {/* In-page review modal (keeps the auction workflow on this page) */}
       {activeBookingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/40" onClick={closeBookingReview} />
-          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="sticky top-0 z-10 bg-white p-4 sm:p-5 border-b border-gray-200 flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Booking #{activeBookingId}</div>
-                <div className="mt-1 text-xl sm:text-2xl font-bold text-gray-950 truncate">Review offers</div>
-                {bookingClaims?.groupBooking && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    {bookingClaims.groupBooking.toRegion}
-                    {bookingClaims.groupBooking.toDistrict ? `, ${bookingClaims.groupBooking.toDistrict}` : ""} • Guests {bookingClaims.groupBooking.headcount} • Rooms {bookingClaims.groupBooking.roomsNeeded}
-                  </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+          <div className="absolute inset-0 bg-neutral-950/50 backdrop-blur-sm" onClick={closeBookingReview} />
+          <div className="relative box-border flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-neutral-50 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-4 sm:gap-4 sm:px-6">
+              <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100">
+                <Gift className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="m-0 text-lg font-bold tracking-tight text-neutral-900">Review offers</h2>
+                  <span className="inline-flex items-center rounded-md bg-neutral-100 px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-700">
+                    GS-{String(activeBookingId).padStart(4, "0")}
+                  </span>
+                  {recommendationsLockedGlobal && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                      <Sparkles className="h-3 w-3" /> Recommendations saved
+                    </span>
+                  )}
+                </div>
+                {bookingClaims?.groupBooking ? (
+                  <p className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-neutral-500">
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5 text-neutral-400" />
+                      {formatPlaceName(bookingClaims.groupBooking.toRegion || "")}
+                      {bookingClaims.groupBooking.toDistrict ? `, ${formatPlaceName(bookingClaims.groupBooking.toDistrict)}` : ""}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <UsersIcon className="h-3.5 w-3.5 text-neutral-400" />
+                      {bookingClaims.groupBooking.headcount} guests · {bookingClaims.groupBooking.roomsNeeded} rooms
+                    </span>
+                  </p>
+                ) : (
+                  <p className="m-0 mt-1 text-xs text-neutral-500">Loading booking...</p>
                 )}
               </div>
               <button
+                type="button"
                 onClick={closeBookingReview}
-                className="h-10 w-10 inline-flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+                className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-900"
                 aria-label="Close"
-                title="Close"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            {bookingClaims && (
-              <div className="border-b border-gray-200 bg-white px-4 sm:px-5 py-3 grid grid-cols-3 gap-2">
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Offers</div>
-                  <div className="mt-0.5 text-sm font-bold text-gray-950">{bookingClaims.claims.length}</div>
+            {/* Toolbar: counts on the left, the workflow actions on the right (hidden once locked) */}
+            {bookingClaims && (() => {
+              const pendingCount = bookingClaims.claims.filter((c) => c.status === "PENDING").length;
+              const recommendedCount = bookingClaims.recommendedClaimIds?.length || 0;
+              return (
+                <div className="flex flex-wrap items-center gap-2 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-2.5 sm:px-6">
+                  <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-neutral-700">
+                    {bookingClaims.claims.length} {bookingClaims.claims.length === 1 ? "offer" : "offers"}
+                  </span>
+                  {recommendationsLockedGlobal ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-violet-700">
+                      <Sparkles className="h-3 w-3" /> {recommendedCount} recommended
+                    </span>
+                  ) : (
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${selectedClaimIds.length === 3 ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-700"}`}>
+                      {selectedClaimIds.length}/3 selected
+                    </span>
+                  )}
+                  {bookingClaims.shortlist && bookingClaims.claims.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowShortlistOnly((v) => !v)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-solid border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 transition hover:border-neutral-300"
+                      title={showShortlistOnly ? "Showing the shortlist only" : "Showing every offer"}
+                    >
+                      <ListFilter className="h-3 w-3 text-neutral-500" />
+                      {showShortlistOnly ? "Shortlist" : "All offers"}
+                    </button>
+                  )}
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
+                    {pendingCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={startReview}
+                        disabled={startingReview}
+                        className="rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        title={`Mark ${pendingCount} pending ${pendingCount === 1 ? "offer" : "offers"} as reviewing`}
+                      >
+                        {startingReview ? "Starting..." : `Mark reviewing (${pendingCount})`}
+                      </button>
+                    )}
+                    {recommendationsLockedGlobal ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500" title="Recommendations cannot be changed once saved">
+                        <Lock className="h-3.5 w-3.5" /> Locked
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={recommendSelected}
+                        disabled={bookingClaimsLoading || recommending || selectedClaimIds.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-lg border-0 bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
+                        title="Save recommendations for the customer"
+                      >
+                        {recommending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                        {recommending ? "Saving..." : `Recommend ${selectedClaimIds.length || ""}`.trim()}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Selected</div>
-                  <div className="mt-0.5 text-sm font-bold text-gray-950">{selectedClaimIds.length}/3</div>
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Saved</div>
-                  <div className="mt-0.5 text-sm font-bold text-gray-950">{bookingClaims.recommendedClaimIds?.length || 0}</div>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-gray-50/60">
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
               {bookingClaimsLoading ? (
                 <div className="flex flex-col items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-emerald-600 mb-3" />
-                  <div className="text-sm text-gray-600">Loading offers...</div>
+                  <Loader2 className="mb-3 h-7 w-7 animate-spin text-emerald-600" />
+                  <p className="m-0 text-sm text-neutral-500">Loading offers...</p>
                 </div>
               ) : !bookingClaims ? (
-                <div className="py-10 text-center text-sm text-gray-600">Failed to load offers.</div>
-              ) : (
-                <>
-                  {bookingClaims?.recommendedClaimIds?.length > 0 && (
-                    <div className="mb-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-700" />
-                      <div>Recommendations are saved for this booking. Review the audit history below to confirm.</div>
-                    </div>
+                <p className="m-0 py-10 text-center text-sm text-neutral-500">Failed to load offers.</p>
+              ) : (() => {
+                const visible = bookingClaims.claims.filter((c) => {
+                  if (!showShortlistOnly || !bookingClaims.shortlist) return true;
+                  const ids = [bookingClaims.shortlist.high.id, bookingClaims.shortlist.mid?.id, bookingClaims.shortlist.low.id].filter(Boolean) as number[];
+                  return ids.includes(c.id);
+                });
+                return (
+                <div className="space-y-4">
+                  {!recommendationsLockedGlobal && (
+                    <p className="m-0 text-xs text-neutral-500">Pick up to three offers to recommend to the customer, then save.</p>
                   )}
-                  <div className="mb-4 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {bookingClaims.shortlist && (
-                          <button
-                            onClick={() => setShowShortlistOnly((v) => !v)}
-                            className="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-800 hover:bg-gray-100"
-                            title={showShortlistOnly ? "Showing shortlist" : "Showing all offers"}
-                          >
-                            <ListFilter className="h-4 w-4 text-gray-500" />
-                            {showShortlistOnly ? "Shortlist" : "All offers"}
-                          </button>
-                        )}
-                        <div className="text-sm text-gray-500">Choose up to three offers.</div>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <button
-                          onClick={startReview}
-                          disabled={startingReview}
-                          className="h-10 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                          title="Mark all pending as REVIEWING"
-                        >
-                          {startingReview ? "Starting..." : "Mark reviewing"}
-                        </button>
-                        <button
-                          onClick={recommendSelected}
-                          disabled={
-                            bookingClaimsLoading ||
-                            recommending ||
-                            selectedClaimIds.length === 0 ||
-                            (bookingClaims?.recommendedClaimIds?.length || 0) > 0
-                          }
-                          className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                          title={(bookingClaims?.recommendedClaimIds?.length || 0) > 0 ? "Already recommended (locked)" : "Save recommendations for customer"}
-                        >
-                          {recommending ? "Saving..." : "Recommend selected"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {bookingClaims.claims
-                      .filter((c) => {
-                        if (!showShortlistOnly || !bookingClaims.shortlist) return true;
-                        const ids = [bookingClaims.shortlist.high.id, bookingClaims.shortlist.mid?.id, bookingClaims.shortlist.low.id].filter(Boolean) as number[];
-                        return ids.includes(c.id);
-                      })
-                      .map((c) => {
+                  {/* A lone offer spans the full width instead of leaving half the modal empty */}
+                  <div className={`grid grid-cols-1 gap-3 ${visible.length > 1 ? "lg:grid-cols-2" : ""}`}>
+                    {visible.map((c) => {
                         const isSelected = selectedClaimIds.includes(c.id);
                         const isRecommended = (bookingClaims.recommendedClaimIds || []).includes(c.id);
-                        const recommendationsLocked = (bookingClaims?.recommendedClaimIds?.length || 0) > 0;
                         const isHigh = bookingClaims.shortlist?.high?.id === c.id;
                         const isMid = bookingClaims.shortlist?.mid?.id === c.id;
                         const isLow = bookingClaims.shortlist?.low?.id === c.id;
+                        const band = isHigh ? { label: "High match", cls: "bg-amber-50 text-amber-800" } : isMid ? { label: "Mid match", cls: "bg-slate-100 text-slate-700" } : isLow ? { label: "Low match", cls: "bg-indigo-50 text-indigo-700" } : null;
+                        const perks = (c.specialOffers || "").split(/[,;\n]+/).map((p) => p.trim()).filter(Boolean);
+                        const shownPerks = perks.slice(0, 5);
+                        const cardTone = isRecommended
+                          ? "border-violet-300 ring-4 ring-violet-50"
+                          : isSelected
+                            ? "border-emerald-400 ring-4 ring-emerald-50"
+                            : "border-neutral-200";
 
                         return (
-                          <div
-                            key={c.id}
-                            className={`rounded-xl border bg-white p-4 shadow-sm transition-colors ${
-                              isSelected || isRecommended ? "border-emerald-300 ring-1 ring-emerald-100" : "border-gray-200"
-                            }`}
-                          >
+                          <div key={c.id} className={`flex flex-col rounded-xl border border-solid bg-white p-4 transition-colors ${cardTone}`}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {isRecommended && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-                                      <CheckCircle2 className="h-3 w-3" />
-                                      Recommended
-                                    </span>
-                                  )}
-                                  <span className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${badgeClasses(c.status)}`}>{c.status}</span>
-                                  {(isHigh || isMid || isLow) && (
-                                    <span
-                                      className={`px-2.5 py-1 text-[11px] font-bold rounded-full ${
-                                        isHigh
-                                          ? "bg-amber-50 text-amber-800"
-                                          : isMid
-                                          ? "bg-slate-100 text-slate-700"
-                                          : "bg-indigo-50 text-indigo-700"
-                                      }`}
-                                    >
-                                      {isHigh ? "High match" : isMid ? "Mid match" : "Low match"}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-3 text-base font-bold text-gray-950 truncate">
-                                  {c.property?.title || `Property #${c.propertyId}`}
-                                </div>
-                                <div className="mt-1 text-sm text-gray-600 truncate">Owner: {c.owner.name}</div>
+                                <p className="m-0 truncate text-sm font-bold text-neutral-900">{c.property?.title || `Property #${c.propertyId}`}</p>
+                                <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{c.owner.name}</p>
                               </div>
-                              <div className="text-right flex-shrink-0">
-                                <div className="text-base font-bold text-emerald-700">
-                                  {c.currency} {Number(c.totalAmount).toLocaleString()}
-                                </div>
-                                <div className="text-xs text-gray-500">Total</div>
+                              <div className="flex-shrink-0 text-right">
+                                <p className="m-0 text-base font-bold tabular-nums text-neutral-900">{c.currency} {Number(c.totalAmount).toLocaleString()}</p>
+                                <p className="m-0 mt-0.5 text-[11px] tabular-nums text-neutral-400">{Number(c.offeredPricePerNight).toLocaleString()} per room night</p>
                               </div>
                             </div>
 
-                            {c.specialOffers && (
-                              <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900">
-                                {c.specialOffers}
+                            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${claimStatusClasses(c.status)}`}>
+                                {c.status.replace(/_/g, " ").toLowerCase()}
+                              </span>
+                              {band && <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${band.cls}`}>{band.label}</span>}
+                              {c.discountPercent && c.discountPercent > 0 ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                  <Tag className="h-3 w-3" /> {c.discountPercent}% off
+                                </span>
+                              ) : null}
+                            </div>
+
+                            {perks.length > 0 && (
+                              <div className="mt-3 flex flex-wrap items-center gap-1" title={perks.join("\n")}>
+                                {shownPerks.map((p) => (
+                                  <span key={p} className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600">{p}</span>
+                                ))}
+                                {perks.length > shownPerks.length && (
+                                  <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-500">+{perks.length - shownPerks.length} more</span>
+                                )}
                               </div>
                             )}
 
-                            <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                              <button
-                                onClick={() => toggleSelection(c.id)}
-                                disabled={
-                                  recommendationsLocked ||
-                                  isRecommended ||
-                                  (!isSelected && selectedClaimIds.length >= 3)
-                                }
-                                className={`h-10 rounded-lg px-4 text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                                  isSelected || isRecommended
-                                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                                    : "border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                                }`}
-                              >
-                                {isRecommended ? "Recommended" : isSelected ? "Selected" : "Select"}
-                              </button>
-                              <div className="text-sm text-gray-500">{c.currency} {Number(c.offeredPricePerNight).toLocaleString()}/night</div>
+                            <div className="mt-auto flex items-center justify-end gap-2 pt-3">
+                              {isRecommended ? (
+                                // A saved recommendation is a state, not an action.
+                                <span className="inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">
+                                  <Sparkles className="h-3.5 w-3.5" /> Recommended to customer
+                                </span>
+                              ) : recommendationsLockedGlobal ? (
+                                <span className="text-xs text-neutral-400">Not recommended</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSelection(c.id)}
+                                  disabled={!isSelected && selectedClaimIds.length >= 3}
+                                  aria-pressed={isSelected}
+                                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    isSelected
+                                      ? "border-0 bg-emerald-600 text-white hover:bg-emerald-700"
+                                      : "border border-solid border-neutral-200 bg-white text-neutral-700 hover:border-emerald-300 hover:bg-emerald-50"
+                                  }`}
+                                >
+                                  {isSelected ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                                  {isSelected ? "Selected" : "Select offer"}
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
                       })}
                   </div>
 
-                  <div className="mt-6">
-                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setAuditOpen((v) => !v)}
-                        className={`w-full flex items-center justify-between gap-3 p-3 sm:p-4 text-left transition-colors ${
-                          auditOpen ? "bg-gray-50" : "bg-white hover:bg-gray-50"
-                        }`}
-                        aria-expanded={auditOpen}
-                        aria-controls="audit-history-panel"
-                      >
-                        <div className="min-w-0 flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                          <div className="min-w-0 flex items-center gap-2">
-                            <div className="text-sm font-semibold text-gray-900 truncate">Audit history</div>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-700">
-                              {auditItems.length}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-gray-600 flex-shrink-0">
-                          <span className="text-xs font-semibold">
-                            {auditOpen ? "Hide" : "View"}
-                          </span>
-                          {auditOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        </div>
-                      </button>
-
-                      {auditOpen && (
-                        <div id="audit-history-panel" className="border-t border-gray-200 bg-gray-50 p-3 sm:p-4">
-                          {auditLoading ? (
-                            <div className="text-xs text-gray-500">Loading audit history…</div>
-                          ) : auditItems.length === 0 ? (
-                            <div className="text-xs text-gray-500">No audit entries found.</div>
-                          ) : (
-                            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                              <div className="grid grid-cols-1 sm:grid-cols-[170px_1fr_140px] gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-semibold text-gray-500">
-                                <div>Time</div>
-                                <div>Action</div>
-                                <div className="sm:text-right">Admin</div>
-                              </div>
-
-                              <div className="divide-y divide-gray-200">
-                                {auditItems.slice(0, 12).map((a) => {
-                                  const meta = a?.metadata as any;
-                                  const claimIds = Array.isArray(meta?.claimIds) ? meta.claimIds : null;
-                                  const when = new Date(a.createdAt);
-                                  const adminName = a.admin?.name || a.admin?.email || "—";
-
-                                  return (
-                                    <div
-                                      key={a.id}
-                                      className="grid grid-cols-1 sm:grid-cols-[170px_1fr_140px] gap-2 px-4 py-3 hover:bg-gray-50"
-                                    >
-                                      <div className="text-xs text-gray-800 font-semibold">
-                                        {when.toLocaleDateString()} {when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                                      </div>
-
-                                      <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="inline-flex items-center px-2 py-0.5 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-bold text-gray-800">
-                                            {a.action}
-                                          </span>
-                                          {claimIds && (
-                                            <span className="text-[11px] text-gray-500">
-                                              Claims: <span className="font-mono">{claimIds.join(", ")}</span>
-                                            </span>
-                                          )}
-                                        </div>
-                                        {a.description && (
-                                          <div className="mt-1 text-xs text-gray-600 leading-relaxed">
-                                            {a.description}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      <div className="text-xs text-gray-700 sm:text-right truncate">
-                                        {adminName}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                  {/* Audit history: collapsed by default, a compact log for confirming recommendations */}
+                  <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setAuditOpen((v) => !v)}
+                      className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-2.5 text-left transition-colors hover:bg-neutral-50"
+                      aria-expanded={auditOpen}
+                      aria-controls="audit-history-panel"
+                    >
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-neutral-100 text-neutral-600">
+                        <FileText className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="text-sm font-semibold text-neutral-900">Activity</span>
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-neutral-600">{auditItems.length}</span>
+                      <ChevronDown className={`ml-auto h-4 w-4 text-neutral-400 transition-transform ${auditOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {auditOpen && (
+                      <div id="audit-history-panel" className="border-0 border-t border-solid border-neutral-100 px-4 py-3">
+                        {auditLoading ? (
+                          <p className="m-0 text-xs text-neutral-500">Loading activity...</p>
+                        ) : auditItems.length === 0 ? (
+                          <p className="m-0 text-xs text-neutral-500">No activity yet.</p>
+                        ) : (
+                          <ul className="m-0 list-none space-y-2.5 p-0">
+                            {auditItems.slice(0, 12).map((a) => {
+                              const meta = a?.metadata as any;
+                              const claimIds = Array.isArray(meta?.claimIds) ? meta.claimIds : null;
+                              const when = new Date(a.createdAt);
+                              return (
+                                <li key={a.id} className="flex items-start gap-3 text-xs">
+                                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-neutral-300" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="m-0 font-semibold text-neutral-800">
+                                      {humanizeLabel(a.action)}
+                                      {claimIds ? <span className="font-normal text-neutral-500"> · claims {claimIds.join(", ")}</span> : null}
+                                    </p>
+                                    {a.description ? <p className="m-0 mt-0.5 text-neutral-500">{a.description}</p> : null}
+                                  </div>
+                                  <span className="flex-shrink-0 text-right text-neutral-400">
+                                    {when.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                    <br />
+                                    {a.admin?.name || a.admin?.email || ""}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </>
-              )}
+                </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end border-0 border-t border-solid border-neutral-200 bg-white px-4 py-3 sm:px-6">
+              <button
+                type="button"
+                onClick={closeBookingReview}
+                className="rounded-lg border border-solid border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 hover:text-neutral-900"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Auction focus (arrived from Assignments with ?bookingId) */}
       {focusedBookingId && (
-        <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50/70 via-white to-white p-4 sm:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="rounded-xl border border-solid border-emerald-200 bg-white">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
             <Link
               href="/admin/group-stays/assignments"
-              className="no-underline hover:no-underline inline-flex items-center justify-center h-10 w-10 rounded-xl bg-white border border-emerald-200 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 hover:shadow-sm transition-all"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 no-underline transition hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline"
               aria-label="Back to assignments"
               title="Back to assignments"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <div className="text-sm font-bold text-gray-900">Auction focus: Group Stay #{focusedBookingId}</div>
+            <span className="text-sm font-bold text-neutral-900">Auction focus</span>
+            <span className="inline-flex items-center rounded-md bg-neutral-100 px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-700">
+              GS-{String(focusedBookingId).padStart(4, "0")}
+            </span>
+            <button
+              type="button"
+              onClick={() => openBookingReview(focusedBookingId)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border-0 bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"
+            >
+              Review offers <ArrowRight className="h-3.5 w-3.5" />
+            </button>
           </div>
-
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="rounded-lg border border-gray-200 bg-white/70 p-3">
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Destination</div>
-              <div className="mt-1 text-sm font-bold text-gray-900">
-                {bookingClaims?.groupBooking?.toRegion || "—"}
-              </div>
-              <div className="mt-1 text-xs text-gray-600">
-                {bookingClaims?.groupBooking?.toDistrict || bookingClaims?.groupBooking?.toLocation || ""}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-gray-200 bg-white/70 p-3">
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Deadline
-              </div>
-              <div className="mt-1 text-sm font-bold text-gray-900">
-                {bookingClaims?.claimsConfig?.deadline
-                  ? new Date(bookingClaims.claimsConfig.deadline).toLocaleString()
-                  : "Not set"}
-              </div>
-              {bookingClaims?.claimsConfig?.updatedAt ? (
-                <div className="mt-1 text-xs text-gray-500">Updated: {new Date(bookingClaims.claimsConfig.updatedAt).toLocaleString()}</div>
-              ) : null}
-            </div>
-
-            <div className="rounded-lg border border-gray-200 bg-white/70 p-3">
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                <Tag className="h-3 w-3" />
-                Min discount
-              </div>
-              <div className="mt-1 text-sm font-bold text-gray-900">
-                {bookingClaims?.claimsConfig?.minDiscountPercent !== null && bookingClaims?.claimsConfig?.minDiscountPercent !== undefined
-                  ? `${bookingClaims.claimsConfig.minDiscountPercent}%`
-                  : "None"}
-              </div>
-              <div className="mt-1 text-xs text-gray-500">Quality gate</div>
-            </div>
+          <div className="grid grid-cols-1 gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-3">
+            {[
+              { icon: MapPin, label: "Destination", value: bookingClaims?.groupBooking?.toRegion ? formatPlaceName(bookingClaims.groupBooking.toRegion) : "Not set", sub: bookingClaims?.groupBooking?.toDistrict ? formatPlaceName(bookingClaims.groupBooking.toDistrict) : bookingClaims?.groupBooking?.toLocation || null },
+              { icon: Clock, label: "Deadline", value: bookingClaims?.claimsConfig?.deadline ? new Date(bookingClaims.claimsConfig.deadline).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not set", sub: bookingClaims?.claimsConfig?.updatedAt ? `Updated ${new Date(bookingClaims.claimsConfig.updatedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}` : null },
+              { icon: Tag, label: "Minimum discount", value: bookingClaims?.claimsConfig?.minDiscountPercent != null ? `${bookingClaims.claimsConfig.minDiscountPercent}%` : "None", sub: "Quality gate" },
+            ].map((fact) => {
+              const Icon = fact.icon;
+              return (
+                <div key={fact.label} className="flex min-w-0 items-start gap-3 bg-white px-4 py-3 sm:px-5">
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">{fact.label}</p>
+                    <p className="m-0 mt-0.5 truncate text-sm font-bold text-neutral-900">{fact.value}</p>
+                    {fact.sub ? <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{fact.sub}</p> : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
           {bookingClaims?.claimsConfig?.notes ? (
-            <div className="mt-3 rounded-lg border border-gray-200 bg-white/70 p-3">
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                Notes
-              </div>
-              <div className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">{bookingClaims.claimsConfig.notes}</div>
+            <div className="border-0 border-t border-solid border-neutral-100 px-4 py-3 sm:px-5">
+              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Notes</p>
+              <p className="m-0 mt-1 whitespace-pre-wrap text-sm text-neutral-700">{bookingClaims.claimsConfig.notes}</p>
             </div>
           ) : null}
         </div>
       )}
 
-      {/* Header - Modern & Clean */}
-      <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md flex-shrink-0">
-              <Gift className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 leading-tight">Submitted Claims & Offers</h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-1.5">Review and manage all owner claims for group bookings</p>
-            </div>
+      {/* Header */}
+      <div className="flex w-full min-w-0 flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100 sm:h-12 sm:w-12">
+            <Gift className="h-5 w-5 sm:h-6 sm:w-6" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-neutral-900 sm:text-xl">Claims &amp; Offers</h1>
+            <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">Owner offers submitted for group stay bookings</p>
           </div>
         </div>
-
-        {/* Summary Stats - Clean Grid Layout */}
-        {summary && (
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Total</div>
-                <div className="text-2xl sm:text-3xl font-bold text-gray-900">{summary.total}</div>
-              </div>
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-lg p-4 border border-blue-200 shadow-sm hover:shadow-md transition-all duration-200">
-                <div className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1.5">Pending</div>
-                <div className="text-2xl sm:text-3xl font-bold text-blue-700">{summary.pending}</div>
-              </div>
-              <div className="bg-gradient-to-br from-green-50 to-green-100/50 rounded-lg p-4 border border-green-200 shadow-sm hover:shadow-md transition-all duration-200">
-                <div className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-1.5">Recommended</div>
-                <div className="text-2xl sm:text-3xl font-bold text-green-700">{summary.accepted}</div>
-              </div>
-              <div className="bg-gradient-to-br from-red-50 to-red-100/50 rounded-lg p-4 border border-red-200 shadow-sm hover:shadow-md transition-all duration-200">
-                <div className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-1.5">Rejected</div>
-                <div className="text-2xl sm:text-3xl font-bold text-red-700">{summary.rejected}</div>
-              </div>
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200">
-                <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Withdrawn</div>
-                <div className="text-2xl sm:text-3xl font-bold text-gray-700">{summary.withdrawn}</div>
-              </div>
-            </div>
-          </div>
-        )}
+        <Link
+          href="/admin/group-stays"
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:no-underline sm:self-auto"
+        >
+          <Building2 className="h-3.5 w-3.5 text-emerald-600" />
+          Group Stays overview
+        </Link>
       </div>
 
-      {/* Modern Integrated Search & Filter - Premium Design */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-0 overflow-hidden">
-          {/* Search - Left Side */}
-          <div className="flex-1 relative min-w-0 order-1 sm:order-1">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none z-10" />
+      {/* Status tiles (also the status filter) + search */}
+      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+        <div className="grid grid-cols-2 gap-2.5 p-4 sm:grid-cols-3 sm:px-5 lg:grid-cols-5">
+          {statusTiles.map((t) => {
+            const isActive = status === t.value;
+            // summary.accepted is the recommended count (admin shortlist), which has no status filter.
+            if (t.value === "RECOMMENDED_INFO") {
+              return (
+                <div key={t.label} className="rounded-xl border border-dashed border-violet-200 bg-violet-50/40 px-3.5 py-3" title="Offers an admin shortlisted for the customer">
+                  <span className="flex items-center gap-1 text-xs font-medium text-violet-700"><Sparkles className="h-3 w-3" />{t.label}</span>
+                  <span className={`block text-xl font-bold leading-tight tabular-nums ${t.tone}`}>{typeof t.count === "number" ? t.count.toLocaleString() : "..."}</span>
+                </div>
+              );
+            }
+            return (
+              <button
+                key={t.label}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => {
+                  setStatus(t.value);
+                  setPage(1);
+                }}
+                className={`rounded-xl border border-solid px-3.5 py-3 text-left transition-all ${isActive ? `${t.active} ring-4` : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50/70"}`}
+              >
+                <span className="block text-xs font-medium text-neutral-500">{t.label}</span>
+                <span className={`block text-xl font-bold leading-tight tabular-nums ${t.tone}`}>
+                  {typeof t.count === "number" ? t.count.toLocaleString() : "..."}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-col gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/50 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
             <input
               ref={searchRef}
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by property, owner, customer, region..."
-              className="w-full pl-12 pr-12 sm:pr-4 py-3.5 sm:py-3.5 border-0 rounded-xl sm:rounded-l-xl sm:rounded-r-none focus:ring-0 focus:outline-none text-sm sm:text-base text-gray-900 placeholder-gray-400 bg-transparent transition-all duration-200 hover:bg-gray-50/50 focus:bg-gray-50/50"
+              placeholder="Search by property, owner, customer or region"
+              className="box-border h-10 w-full rounded-lg border border-solid border-neutral-200 bg-white pl-10 pr-10 font-[inherit] text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
               aria-label="Search claims"
-              title="Search by property, owner, customer, region"
             />
             {q && (
               <button
+                type="button"
                 onClick={() => setQ("")}
-                className="absolute right-3 sm:right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-md hover:bg-gray-100 active:scale-95 z-10"
+                className="absolute right-2.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
                 aria-label="Clear search"
-                title="Clear search"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-
-          {/* Divider - Only visible on larger screens */}
-          <div className="hidden sm:block w-px h-8 bg-gray-200 self-center order-2 mx-1"></div>
-
-          {/* Status Filter - Right Side, Integrated */}
-          <div className="relative min-w-full sm:min-w-[200px] order-2 sm:order-3 border-t sm:border-t-0 border-gray-200 sm:border-l sm:border-l-gray-200">
-            {/* Filter Icon - Left Side Only */}
-            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 pointer-events-none z-10">
-              <Filter className="h-4 w-4 text-emerald-600" />
-            </div>
-            
-            {/* Dropdown Select */}
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
-              className={`w-full pl-11 pr-4 py-3.5 sm:py-3.5 border-0 rounded-xl sm:rounded-l-none sm:rounded-r-xl focus:ring-0 focus:outline-none text-sm sm:text-base font-semibold bg-transparent appearance-none cursor-pointer hover:bg-gray-50/50 focus:bg-gray-50/50 transition-all duration-200 ${
-                status === "" ? "text-gray-700" :
-                status === "PENDING" ? "text-blue-700" :
-                status === "REVIEWING" ? "text-purple-700" :
-                status === "ACCEPTED" ? "text-green-700" :
-                status === "REJECTED" ? "text-red-700" :
-                status === "WITHDRAWN" ? "text-gray-700" :
-                "text-gray-700"
-              }`}
-              aria-label="Filter by status"
-              title="Filter by status"
-            >
-              <option value="" className="text-gray-700">All Status</option>
-              <option value="PENDING" className="text-blue-700">Pending</option>
-              <option value="REVIEWING" className="text-purple-700">Reviewing</option>
-              <option value="ACCEPTED" className="text-green-700">Accepted</option>
-              <option value="REJECTED" className="text-red-700">Rejected</option>
-              <option value="WITHDRAWN" className="text-gray-700">Withdrawn</option>
-            </select>
-          </div>
+          {/* Reviewing has no summary tile, so the full status list stays available here */}
+          <select
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+            className="box-border h-10 rounded-lg border border-solid border-neutral-200 bg-white px-3 font-[inherit] text-sm font-medium text-neutral-700 outline-none transition hover:border-neutral-300 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:w-44"
+            aria-label="Filter by status"
+          >
+            <option value="">All statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="REVIEWING">Reviewing</option>
+            <option value="ACCEPTED">Accepted (deposit paid)</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="WITHDRAWN">Withdrawn</option>
+          </select>
         </div>
       </div>
 
-      {/* Claims List - Modern Card Layout */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Claims */}
+      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 sm:py-20">
-            <Loader2 className="h-8 w-8 sm:h-10 sm:w-10 animate-spin text-emerald-600 mb-3" />
-            <span className="text-sm sm:text-base text-gray-600 font-medium">Loading claims...</span>
+          <div className="flex flex-col items-center justify-center py-16">
+            <Loader2 className="mb-3 h-7 w-7 animate-spin text-emerald-600" />
+            <p className="m-0 text-sm text-neutral-500">Loading claims...</p>
           </div>
         ) : list.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 sm:py-20 px-4">
-            <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-              <Gift className="h-8 w-8 sm:h-10 sm:w-10 text-gray-400" />
-            </div>
-            <p className="text-base sm:text-lg text-gray-700 font-semibold mb-1">No claims found</p>
-            <p className="text-xs sm:text-sm text-gray-500 text-center max-w-md">
-              {q || status ? "Try adjusting your search or filter criteria" : "No claims have been submitted yet for review"}
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-neutral-400">
+              <Gift className="h-6 w-6" />
+            </span>
+            <p className="m-0 text-sm font-semibold text-neutral-800">No claims found</p>
+            <p className="m-0 mt-1 max-w-md text-xs text-neutral-500">
+              {q || status ? "Try adjusting your search or status filter." : "No owner offers have been submitted yet."}
             </p>
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <div className="min-w-full divide-y divide-gray-100">
-                {list.map((claim) => (
-                  <div
-                    key={claim.id}
-                    className="p-4 sm:p-5 hover:bg-gray-50/50 transition-all duration-200 border-l-4 border-l-transparent hover:border-l-emerald-500 active:bg-gray-100/50"
-                  >
-                    <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
-                      {/* Left: Property Image & Basic Info */}
-                      <div className="flex gap-3 sm:gap-4 flex-1 min-w-0">
-                        {claim.property?.primaryImage && (
-                          <div className="flex-shrink-0 hidden sm:block">
-                            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-lg overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+            {/* Desktop table: follows the NRMS reservations table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                    <th className="whitespace-nowrap px-4 py-3">Property &amp; owner</th>
+                    <th className="whitespace-nowrap px-4 py-3">Booking</th>
+                    <th className="whitespace-nowrap px-4 py-3">Customer</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Total</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Per night</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Discount</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Per guest</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Status</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((claim) => {
+                    const gb = claim.groupBooking;
+                    const fmtDay = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+                    // Preflight is off: each cell carries its own top rule instead of divide-y.
+                    const cell = "border-0 border-t border-solid border-neutral-100 px-4 py-3.5 align-top";
+                    return (
+                      <tr key={claim.id} className="transition-colors hover:bg-neutral-50/80">
+                        <td className={`max-w-[22rem] ${cell}`}>
+                          <div className="flex min-w-0 items-start gap-3">
+                            {claim.property?.primaryImage ? (
                               <Image
                                 src={claim.property.primaryImage}
                                 alt={claim.property.title || "Property"}
-                                width={120}
-                                height={120}
-                                className="w-full h-full object-cover"
+                                width={44}
+                                height={44}
+                                className="h-11 w-11 flex-shrink-0 rounded-lg object-cover"
                               />
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3 mb-3">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="text-base sm:text-lg font-bold text-gray-900 truncate mb-2 leading-tight">
-                                {claim.property?.title || "Property #" + claim.propertyId}
-                              </h3>
-                              <div className="flex items-center gap-2 flex-wrap mb-2">
-                                <span className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${badgeClasses(claim.status)}`}>
-                                  {claim.status}
-                                </span>
-                                {claim.isRecommended && (
-                                  <div className="flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded-md border border-green-200">
-                                    <Sparkles className="h-3 w-3" />
-                                    Recommended
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-left sm:text-right flex-shrink-0 sm:ml-auto">
-                              <div className="text-lg sm:text-xl font-bold text-emerald-700">
-                                {claim.currency} {claim.totalAmount.toLocaleString()}
-                              </div>
-                              <div className="text-xs text-gray-500 mt-0.5">Total Amount</div>
-                            </div>
-                          </div>
-
-                          {/* Owner Info & Location - Clean Row Layout */}
-                          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-3 text-sm">
-                            <div className="flex items-center gap-1.5 text-gray-700">
-                              <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                              <span className="font-semibold truncate max-w-[200px]">{claim.owner.name}</span>
-                            </div>
-                            <span className="text-gray-300 hidden sm:inline">|</span>
-                            <span className="text-xs text-gray-500 truncate max-w-[250px] hidden sm:inline">{claim.owner.email}</span>
-                            {claim.property && (
-                              <>
-                                <span className="text-gray-300 hidden sm:inline">|</span>
-                                <div className="flex items-center gap-1.5 text-gray-600">
-                                  <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                                  <span className="truncate max-w-[200px]">
-                                    {[claim.property.regionName, claim.property.district]
-                                      .filter(Boolean)
-                                      .join(", ")}
-                                  </span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-
-                          {/* Pricing Details - Compact Grid */}
-                          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-3">
-                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
-                              <DollarSign className="h-4 w-4 text-gray-400" />
-                              <span className="font-medium">
-                                {claim.currency} {claim.offeredPricePerNight.toLocaleString()}/night
+                            ) : (
+                              <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-400">
+                                <Building2 className="h-5 w-5" />
                               </span>
+                            )}
+                            <div className="min-w-0">
+                              <div className="truncate font-bold text-neutral-900" title={claim.property?.title || undefined}>
+                                {claim.property?.title || `Property #${claim.propertyId}`}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-neutral-500" title={claim.owner.email}>
+                                {claim.owner.name}
+                                {claim.property ? ` · ${[formatPlaceName(claim.property.regionName || ""), claim.property.district ? formatPlaceName(claim.property.district) : null].filter(Boolean).join(", ")}` : ""}
+                              </div>
+                              {claim.specialOffers ? (() => {
+                                const perks = claim.specialOffers.split(/[,;\n]+/).map((p) => p.trim()).filter(Boolean);
+                                return (
+                                  // Compact count; the full list lives in the tooltip so rows stay two lines tall.
+                                  <span
+                                    className="mt-1 inline-flex cursor-help items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                                    title={perks.join("\n")}
+                                    aria-label={`Special offers: ${perks.join(", ")}`}
+                                  >
+                                    <Tag className="h-3 w-3" />
+                                    {perks.length} {perks.length === 1 ? "perk" : "perks"}
+                                  </span>
+                                );
+                              })() : null}
                             </div>
-                            {claim.discountPercent && claim.discountPercent > 0 && (
-                              <div className="flex items-center gap-1.5 text-sm font-semibold text-green-700 bg-green-50 px-2.5 py-1 rounded-md border border-green-200">
-                                <Tag className="h-3.5 w-3.5" />
-                                <span>{claim.discountPercent}% off</span>
-                              </div>
-                            )}
-                            {claim.pricePerGuest && (
-                              <div className="text-xs text-gray-600 bg-gray-50 px-2.5 py-1 rounded-md border border-gray-200">
-                                {claim.currency} {claim.pricePerGuest.toFixed(0)}/guest
-                              </div>
-                            )}
                           </div>
-
-                          {/* Special Offers - Enhanced Display */}
-                          {claim.specialOffers && (
-                            <div className="flex items-start gap-2.5 mt-2 p-3 bg-gradient-to-r from-amber-50 to-amber-100/50 border border-amber-200 rounded-lg">
-                              <Tag className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                              <p className="text-xs sm:text-sm text-amber-900 leading-relaxed flex-1">{claim.specialOffers}</p>
-                            </div>
+                        </td>
+                        <td className={`whitespace-nowrap ${cell}`}>
+                          <span className="inline-flex items-center rounded-md bg-neutral-100 px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-700">
+                            GS-{String(claim.groupBookingId).padStart(4, "0")}
+                          </span>
+                          <div className="mt-1 text-xs text-neutral-500">
+                            {gb.headcount} guests · {gb.roomsNeeded} rooms · {claim.nights} {claim.nights === 1 ? "night" : "nights"}
+                          </div>
+                          <div className="mt-0.5 text-xs text-neutral-400">
+                            {gb.checkIn ? `${fmtDay(gb.checkIn)} to ${gb.checkOut ? fmtDay(gb.checkOut) : "TBD"}` : "Flexible dates"}
+                          </div>
+                        </td>
+                        <td className={`max-w-[14rem] ${cell}`}>
+                          {gb.user ? (
+                            <>
+                              <div className="truncate font-semibold text-neutral-800">{gb.user.name}</div>
+                              <div className="mt-0.5 truncate text-xs text-neutral-400" title={gb.user.email}>{gb.user.email}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-400">Unknown</span>
                           )}
-                        </div>
-                      </div>
-
-                      {/* Right: Booking Info & Actions - Clean Sidebar */}
-                      <div className="lg:w-72 xl:w-80 flex-shrink-0 border-t lg:border-t-0 lg:border-l border-gray-200 pt-4 lg:pt-0 lg:pl-5 space-y-4">
-                        {/* Booking Details - Compact Card */}
-                        <div className="bg-gray-50 rounded-lg p-3 sm:p-4 border border-gray-200">
-                          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5" />
-                            <span>Booking Info</span>
-                          </div>
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <UsersIcon className="h-4 w-4 text-gray-400" />
-                                <span>Guests</span>
-                              </div>
-                              <span className="font-semibold text-gray-900">{claim.groupBooking.headcount}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <Building2 className="h-4 w-4 text-gray-400" />
-                                <span>Rooms</span>
-                              </div>
-                              <span className="font-semibold text-gray-900">{claim.groupBooking.roomsNeeded}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <Clock className="h-4 w-4 text-gray-400" />
-                                <span>Nights</span>
-                              </div>
-                              <span className="font-semibold text-gray-900">{claim.nights}</span>
-                            </div>
-                            {claim.groupBooking.checkIn && (
-                              <div className="pt-2 border-t border-gray-200">
-                                <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
-                                  <Calendar className="h-3.5 w-3.5" />
-                                  <span>Dates</span>
-                                </div>
-                                <div className="text-xs text-gray-700 leading-relaxed">
-                                  {new Date(claim.groupBooking.checkIn).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                  })}{" "}
-                                  - {claim.groupBooking.checkOut
-                                    ? new Date(claim.groupBooking.checkOut).toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                      })
-                                    : "TBD"}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Customer - Compact */}
-                          {claim.groupBooking.user && (
-                            <div className="pt-3 mt-3 border-t border-gray-200">
-                              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                <User className="h-3.5 w-3.5" />
-                                <span>Customer</span>
-                              </div>
-                              <div className="text-sm font-medium text-gray-900 mb-0.5">{claim.groupBooking.user.name}</div>
-                              <div className="text-xs text-gray-500 truncate">{claim.groupBooking.user.email}</div>
-                            </div>
+                        </td>
+                        <td className={`whitespace-nowrap text-right ${cell}`}>
+                          <div className="font-bold tabular-nums text-neutral-900">{claim.totalAmount.toLocaleString()}</div>
+                          <div className="mt-0.5 text-[11px] font-semibold text-neutral-400">{claim.currency}</div>
+                        </td>
+                        <td className={`whitespace-nowrap text-right ${cell}`}>
+                          <div className="font-semibold tabular-nums text-neutral-700">{claim.offeredPricePerNight.toLocaleString()}</div>
+                          <div className="mt-0.5 text-[11px] text-neutral-400">per room night</div>
+                        </td>
+                        <td className={`whitespace-nowrap text-center ${cell}`}>
+                          {claim.discountPercent && claim.discountPercent > 0 ? (
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-emerald-700">{claim.discountPercent}% off</span>
+                          ) : (
+                            <span className="text-xs text-neutral-300">None</span>
                           )}
-                        </div>
-
-                        {/* Actions - Modern Button */}
-                        <div className="space-y-2">
+                        </td>
+                        <td className={`whitespace-nowrap text-right ${cell}`}>
+                          {claim.pricePerGuest ? (
+                            <div className="font-semibold tabular-nums text-neutral-700">{Math.round(claim.pricePerGuest).toLocaleString()}</div>
+                          ) : (
+                            <span className="text-xs text-neutral-300">None</span>
+                          )}
+                        </td>
+                        <td className={`whitespace-nowrap text-center ${cell}`}>
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${claimStatusClasses(claim.status)}`}>
+                            {claim.status.replace(/_/g, " ").toLowerCase()}
+                          </span>
+                          {claim.isRecommended ? (
+                            <div className="mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-violet-700" title="Shortlisted by an admin for the customer">
+                              <Sparkles className="h-3 w-3" /> Recommended
+                            </div>
+                          ) : null}
+                          <div className="mt-1 text-[11px] text-neutral-400">
+                            {new Date(claim.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                          </div>
+                        </td>
+                        <td className={`whitespace-nowrap text-right ${cell}`}>
                           <button
+                            type="button"
                             onClick={() => openBookingReview(claim.groupBookingId)}
-                            className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg text-sm font-semibold hover:from-emerald-700 hover:to-teal-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
+                            className="rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                           >
-                            <Eye className="h-4 w-4" />
-                            <span>Review & Recommend</span>
-                            <ArrowRight className="h-4 w-4" />
+                            Review
                           </button>
-                          <div className="text-xs text-gray-400 text-center pt-1 flex items-center justify-center gap-1.5">
-                            <Clock className="h-3 w-3" />
-                            <span>
-                              Submitted {new Date(claim.createdAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* Modern Pagination */}
-            {pages > 1 && (
-              <div className="px-4 sm:px-6 py-4 border-t border-gray-200 bg-gray-50/50">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="text-xs sm:text-sm text-gray-600 font-medium">
-                    Showing <span className="font-semibold text-gray-900">{(page - 1) * pageSize + 1}</span> to{" "}
-                    <span className="font-semibold text-gray-900">{Math.min(page * pageSize, total)}</span> of{" "}
-                    <span className="font-semibold text-gray-900">{total}</span> claims
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-all duration-200 shadow-sm hover:shadow-md"
-                      aria-label="Previous page"
-                    >
-                      Previous
-                    </button>
-                    <div className="px-3 sm:px-4 py-2 bg-white border border-gray-300 rounded-lg text-xs sm:text-sm font-semibold text-gray-900 shadow-sm">
-                      Page {page} of {pages}
+            {/* Mobile cards */}
+            <ul className="m-0 list-none p-0 md:hidden">
+              {list.map((claim, i) => (
+                <li key={claim.id} className={`px-4 py-3.5 ${i > 0 ? "border-0 border-t border-solid border-neutral-100" : ""}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="m-0 truncate text-sm font-bold text-neutral-900">{claim.property?.title || `Property #${claim.propertyId}`}</p>
+                      <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{claim.owner.name} · GS-{String(claim.groupBookingId).padStart(4, "0")}</p>
                     </div>
-                    <button
-                      onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                      disabled={page === pages}
-                      className="px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-all duration-200 shadow-sm hover:shadow-md"
-                      aria-label="Next page"
-                    >
-                      Next
-                    </button>
+                    <span className={`inline-flex flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${claimStatusClasses(claim.status)}`}>
+                      {claim.status.replace(/_/g, " ").toLowerCase()}
+                    </span>
                   </div>
-                </div>
-              </div>
-            )}
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="text-xs text-neutral-500">
+                      {claim.groupBooking.headcount} guests · {claim.nights} {claim.nights === 1 ? "night" : "nights"}
+                      {claim.isRecommended ? <span className="ml-1 font-semibold text-violet-700">· Recommended</span> : null}
+                    </div>
+                    <div className="text-right">
+                      <p className="m-0 text-sm font-bold tabular-nums text-neutral-900">{claim.currency} {claim.totalAmount.toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openBookingReview(claim.groupBookingId)}
+                    className="mt-2.5 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+                  >
+                    Review offers
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            {/* Pagination: the shared table footer used by the NRMS reservations table */}
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              onPageChange={(next) => setPage(Math.min(pages, Math.max(1, next)))}
+            />
           </>
         )}
       </div>

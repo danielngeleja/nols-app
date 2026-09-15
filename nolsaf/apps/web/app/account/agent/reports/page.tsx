@@ -116,7 +116,7 @@ const RANGE_PRESETS: Array<{ label: string; days?: number; months?: number }> = 
 ];
 
 type RevenueItem = {
-  source?: "PLAN_REQUEST" | "TOUR_BOOKING";
+  source?: "TOUR_BOOKING";
   id: string | number;
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;

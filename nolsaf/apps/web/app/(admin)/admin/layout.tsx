@@ -115,7 +115,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <div ref={mainRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
                 <main className="min-w-0 overflow-x-hidden">
                   <div className="w-full min-w-0 overflow-x-hidden">
-                    <div className="mx-auto w-full min-w-0 overflow-x-hidden">
+                    {/* One shared gutter and sizing model for every admin page, the
+                        same as the NRMS shell's <main className="p-3 sm:p-5">.
+                        Pages should not add their own outer padding or max-width. */}
+                    <div className="admin-workspace mx-auto w-full min-w-0 overflow-x-hidden p-3 sm:p-5">
                       {children}
                     </div>
                   </div>

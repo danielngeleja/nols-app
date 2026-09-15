@@ -15,7 +15,6 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
-  ClipboardList,
   FileText,
   Headset,
   Mail,
@@ -30,7 +29,6 @@ import {
 import TableScroller from "@/components/TableScroller";
 
 const MODULES: Array<{ icon: LucideIcon; title: string; description: string; href: string }> = [
-  { icon: ClipboardList, title: "Assignments", description: "Work handed to your operator account, with the detail needed to run each trip.", href: "/account/agent/assignments" },
   { icon: CalendarDays, title: "Bookings by stage", description: "Trips grouped as New, Confirmed, In Progress and Completed.", href: "/account/agent/bookings" },
   { icon: MessagesSquare, title: "Cancellation cases", description: "Traveller cancellation requests needing your response, evidence or awareness.", href: "/account/agent/cancellations" },
   { icon: TrendingUp, title: "Revenues and payouts", description: "Earnings per trip, payout claims and the commission retained by the platform.", href: "/account/agent/revenues" },

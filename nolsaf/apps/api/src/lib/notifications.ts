@@ -38,10 +38,6 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Tour Cancellation Evidence Submitted",
         body: `${data.actor || "A participant"} submitted evidence for tour cancellation case #${data.caseId || ""}, booking ${data.bookingCode || ""}.`
       },
-      plan_request_submitted: {
-        title: "New Plan Request Submitted",
-        body: `A new plan request${data.requestId ? ` #${data.requestId}` : ""} has been submitted${data.customerName ? ` by ${data.customerName}` : ""}${data.role ? ` (${data.role})` : ""}.`
-      },
       booking_created: {
         title: "New Booking Created",
         body: `A new booking${data.bookingId ? ` #${data.bookingId}` : ""} has been created${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}.`

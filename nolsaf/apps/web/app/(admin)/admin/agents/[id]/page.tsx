@@ -114,7 +114,6 @@ type Agent = {
   };
   maxActiveRequests: number;
   currentActiveRequests: number;
-  assignedPlanRequests?: Array<{ id: number; status: string }>;
   accommodationCapability?: {
     workspace: "ACCOMMODATION";
     status: string | null;

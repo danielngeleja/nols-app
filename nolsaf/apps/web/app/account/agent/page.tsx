@@ -260,7 +260,7 @@ export default function AgentPortalHomePage() {
 
         const routeError = (res as any)?.__routeError;
         if (routeError) {
-          setDataIssue("Assignment metrics are unavailable from the current API route.");
+          setDataIssue("Booking metrics are unavailable right now.");
         }
 
         const total = Number((res as any)?.data?.total ?? 0);
@@ -440,20 +440,13 @@ export default function AgentPortalHomePage() {
             <h1 className="m-0 mt-2 text-xl font-bold tracking-tight sm:text-2xl">
               {greeting}{displayName ? `, ${displayName}` : ""}
             </h1>
-            <p className="m-0 mt-1 text-xs text-white/55">Your assignments, workload and payout position at a glance.</p>
+            <p className="m-0 mt-1 text-xs text-white/55">Your bookings, workload and payout position at a glance.</p>
 
             <div className="mt-4 max-w-full overflow-x-auto rounded-2xl border border-solid border-white/10 bg-black/25 p-1.5 backdrop-blur-md">
               <div className="flex w-max gap-1.5">
                 <Link
-                  href="/account/agent/assignments"
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3.5 text-xs font-bold text-emerald-950 no-underline transition hover:bg-emerald-300 hover:no-underline"
-                >
-                  <ClipboardList className="h-4 w-4" aria-hidden />
-                  My assignments
-                </Link>
-                <Link
                   href="/account/agent/bookings"
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:no-underline"
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3.5 text-xs font-bold text-emerald-950 no-underline transition hover:bg-emerald-300 hover:no-underline"
                 >
                   <CalendarDays className="h-4 w-4" aria-hidden />
                   My bookings
@@ -491,7 +484,7 @@ export default function AgentPortalHomePage() {
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3">
           <div className="min-w-0">
             <p className="m-0 text-sm font-bold text-amber-900">Sign in required</p>
-            <p className="m-0 mt-0.5 text-xs text-amber-800/80">Sign in to load your assignments and workload.</p>
+            <p className="m-0 mt-0.5 text-xs text-amber-800/80">Sign in to load your bookings and workload.</p>
           </div>
           <Link
             href="/login"
@@ -509,7 +502,7 @@ export default function AgentPortalHomePage() {
           <div className="min-w-0">
             <p className="m-0 text-sm font-bold text-red-800">Account temporarily suspended</p>
             <p className="m-0 mt-0.5 text-xs leading-relaxed text-red-700/85">
-              Assignment access is paused while this is reviewed. Contact{" "}
+              Booking access is paused while this is reviewed. Contact{" "}
               <a href="mailto:security@nolsaf.com" className="font-semibold text-red-800 underline">security@nolsaf.com</a> for
               security matters or <a href="mailto:hr@nolsaf.com" className="font-semibold text-red-800 underline">hr@nolsaf.com</a> for
               account standing.
@@ -541,8 +534,8 @@ export default function AgentPortalHomePage() {
                   <ClipboardList className="h-5 w-5" aria-hidden />
                 </span>
                 <div>
-                  <h2 className="m-0 text-sm font-bold text-neutral-900">Assignment workload</h2>
-                  <p className="m-0 mt-0.5 text-xs text-neutral-400">Every assignment on your account, by stage</p>
+                  <h2 className="m-0 text-sm font-bold text-neutral-900">Booking workload</h2>
+                  <p className="m-0 mt-0.5 text-xs text-neutral-400">Every booking on your account, by stage</p>
                 </div>
               </div>
               <p className="m-0 text-sm font-bold tabular-nums text-neutral-900">
@@ -550,7 +543,7 @@ export default function AgentPortalHomePage() {
               </p>
             </div>
 
-            <div className="mt-5 flex h-2.5 w-full gap-1.5 overflow-hidden rounded-full" aria-label={`${completionPercent}% of assignments completed`}>
+            <div className="mt-5 flex h-2.5 w-full gap-1.5 overflow-hidden rounded-full" aria-label={`${completionPercent}% of bookings completed`}>
               {stats.total > 0 ? (
                 workloadSegments.map((segment) =>
                   segment.value > 0 ? (
@@ -596,7 +589,7 @@ export default function AgentPortalHomePage() {
           <div className="grid min-w-0 gap-4 xl:grid-cols-[1.4fr_1fr]">
             <DashPanel
               title="Booking trends"
-              description="Assignments received over the last 14 days."
+              description="Bookings received over the last 14 days."
               action={
                 <span className="text-[11px] font-bold tabular-nums text-neutral-500">
                   {Math.round(trendSummary.completionRate14 * 100)}% completed
@@ -607,7 +600,7 @@ export default function AgentPortalHomePage() {
                 <DashEmpty
                   icon={TrendingUp}
                   title="No activity in the last 14 days"
-                  text="New assignments will chart here as they arrive."
+                  text="New bookings will chart here as they arrive."
                 />
               ) : (
                 <div className="min-w-0 space-y-3">
@@ -628,11 +621,11 @@ export default function AgentPortalHomePage() {
             </DashPanel>
 
             <DashPanel
-              title="Recent assignments"
-              description="Your most recently received work."
+              title="Recent bookings"
+              description="Your most recently received bookings."
               action={
                 <Link
-                  href="/account/agent/assignments"
+                  href="/account/agent/bookings"
                   className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 no-underline transition hover:text-emerald-800 hover:no-underline"
                 >
                   View all
@@ -644,17 +637,17 @@ export default function AgentPortalHomePage() {
               {recent.length === 0 ? (
                 <DashEmpty
                   icon={ClipboardList}
-                  title="No assignments yet"
-                  text="Work assigned to you will appear here."
-                  actionHref="/account/agent/assignments"
-                  actionLabel="Open assignments"
+                  title="No bookings yet"
+                  text="Tour bookings on your account will appear here."
+                  actionHref="/account/agent/bookings"
+                  actionLabel="Open bookings"
                 />
               ) : (
                 <ul className="m-0 list-none space-y-1.5 p-0">
                   {recent.map((item) => (
                     <li key={String(item.id)}>
                       <Link
-                        href={`/account/agent/assignments/${item.id}`}
+                        href={`/account/agent/tour-bookings/${item.id}`}
                         className="flex min-w-0 items-start gap-3 rounded-xl px-2.5 py-2.5 no-underline transition hover:bg-emerald-50/50 hover:no-underline"
                       >
                         <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-neutral-50 text-neutral-400">
@@ -665,7 +658,7 @@ export default function AgentPortalHomePage() {
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-bold text-neutral-800">{item.title || "Assignment"}</span>
+                          <span className="block truncate text-xs font-bold text-neutral-800">{item.title || "Tour booking"}</span>
                           {item.description ? (
                             <span className="mt-0.5 block truncate text-[11px] text-neutral-500">{item.description}</span>
                           ) : null}

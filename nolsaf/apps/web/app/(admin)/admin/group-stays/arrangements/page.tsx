@@ -341,7 +341,7 @@ export default function AdminGroupStaysArrangementsPage() {
   }, [stats]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       {/* Header */}
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <div className="flex flex-col items-center text-center">

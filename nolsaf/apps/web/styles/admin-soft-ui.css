@@ -18,6 +18,18 @@
   max-width: none;
 }
 
+/* Shared admin page dimensions, mirroring .owner-workspace (globals.css) and
+   the NRMS shell. Preflight is disabled in this app, so without this a `w-full`
+   card with padding and a border renders wider than the content area and its
+   right edge is clipped by the workspace surface. Applied once on the admin
+   layout's content wrapper so individual pages never need their own fix. */
+.admin-workspace,
+.admin-workspace *,
+.admin-workspace *::before,
+.admin-workspace *::after {
+  box-sizing: border-box;
+}
+
 /* Keep padding and borders inside Payments' fluid grid tracks. This project
    does not apply a universal border-box reset to every form control. */
 .payments-workspace,

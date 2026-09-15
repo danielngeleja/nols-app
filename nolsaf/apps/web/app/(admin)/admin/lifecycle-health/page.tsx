@@ -126,7 +126,7 @@ export default function LifecycleHealthPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl min-w-0 space-y-4 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
+    <div className="min-w-0 space-y-4 w-full">
       <section className="box-border min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/15 shadow-2xl" style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}>
         <div className="min-w-0 p-4 sm:p-5 lg:p-6">
           <div className="mb-4 flex min-w-0 items-center justify-between gap-3">

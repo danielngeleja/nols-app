@@ -13,7 +13,7 @@ import TableRow from "@/components/TableRow";
 const api = apiClient;
 
 type RevenueItem = {
-  source?: "PLAN_REQUEST" | "TOUR_BOOKING";
+  source?: "TOUR_BOOKING";
   id: string | number;
   bookingCode?: string | null;
   paymentRef?: string | null;
@@ -118,8 +118,6 @@ export default function AgentRevenuesPage() {
   const [items, setItems] = useState<RevenueItem[]>([]);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [claimingIds, setClaimingIds] = useState<Set<string | number>>(new Set());
-  const [claimSuccess, setClaimSuccess] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>("updatedAt");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
@@ -259,45 +257,6 @@ export default function AgentRevenuesPage() {
       setClaimLookupError(String(msg));
     } finally {
       setClaimSubmitting(false);
-    }
-  };
-
-  const handleClaimPayout = async (itemId: string | number) => {
-    if (typeof itemId !== "number") {
-      setError("Payout claim is available for assigned legacy trips only.");
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-    setClaimingIds((prev) => new Set(prev).add(itemId));
-    try {
-      const res = await api.post("/api/agent/revenues/claim", { planRequestId: itemId });
-      const data = (res as any)?.data;
-      if (data?.ok) {
-        setClaimSuccess(`Payout request submitted (${data.invoiceNumber || "Invoice created"})`);
-        setTimeout(() => setClaimSuccess(null), 4000);
-        setItems((prev) =>
-          prev.map((item) =>
-            item.id === itemId
-              ? {
-                  ...item,
-                  invoiceNumber: data.invoiceNumber || item.invoiceNumber || null,
-                  invoiceStatus: data.invoiceStatus || item.invoiceStatus || "DRAFT",
-                  payoutRequestedAt: data.claimedAt || item.payoutRequestedAt || new Date().toISOString(),
-                }
-              : item
-          )
-        );
-      }
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.response?.data?.error || "Failed to claim payout";
-      setError(String(msg));
-      setTimeout(() => setError(null), 4000);
-    } finally {
-      setClaimingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(itemId);
-        return next;
-      });
     }
   };
 
@@ -766,11 +725,6 @@ export default function AgentRevenuesPage() {
             {error}
           </div>
         )}
-        {claimSuccess && (
-          <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            ✓ {claimSuccess}
-          </div>
-        )}
 
         {/* Payments tracker (moved to trend area) */}
         <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
@@ -882,7 +836,6 @@ export default function AgentRevenuesPage() {
                 </thead>
                 <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
               {pagedOperationRows.map((item, rowIndex) => {
-                const isClaiming = claimingIds.has(item.id);
                 const serialNumber = (currentPage - 1) * pageSize + rowIndex + 1;
                 const earningCurrency = item.source === "TOUR_BOOKING" ? "USD" : (item.currency || displayCurrency);
                 const stage = normalizedStage(item);
@@ -899,7 +852,6 @@ export default function AgentRevenuesPage() {
                       hour12: false,
                     })
                   : null;
-                const canClaim = typeof item.id === "number" && item.isCompleted && !item.invoiceNumber;
                 const claimStarted = hasClaimStarted(item);
                 const stageTone =
                   stage === "DISBURSED"
@@ -1010,15 +962,7 @@ export default function AgentRevenuesPage() {
                       {earningCurrency} {Number(item.agentEarning || 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {canClaim ? (
-                        <button
-                          onClick={() => handleClaimPayout(item.id)}
-                          disabled={isClaiming}
-                          className="px-3 py-1 text-xs font-semibold rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-                        >
-                          {isClaiming ? "..." : "Claim"}
-                        </button>
-                      ) : !item.isCompleted ? (
+                      {!item.isCompleted ? (
                         <span className="text-[11px] font-semibold text-neutral-500">Awaiting completion</span>
                       ) : stage === "REJECTED" ? (
                         <span className="text-[11px] font-semibold text-red-600">Rejected</span>

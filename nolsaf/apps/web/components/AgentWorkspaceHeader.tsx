@@ -13,7 +13,6 @@ import {
   BarChart3,
   Bell,
   CalendarDays,
-  ClipboardList,
   Handshake,
   LayoutDashboard,
   LogOut,
@@ -29,7 +28,6 @@ type Tab = { href: string; label: string; Icon: LucideIcon; exact?: boolean };
 // rail still carries the full set.
 const PRIMARY_TABS: Tab[] = [
   { href: "/account/agent", label: "Dashboard", Icon: LayoutDashboard, exact: true },
-  { href: "/account/agent/assignments", label: "Assignments", Icon: ClipboardList },
   { href: "/account/agent/bookings", label: "Bookings", Icon: CalendarDays },
   { href: "/account/agent/cancellations", label: "Cases", Icon: MessagesSquare },
   { href: "/account/agent/revenues", label: "Revenues", Icon: TrendingUp },
