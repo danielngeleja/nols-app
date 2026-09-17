@@ -328,6 +328,11 @@ function formatReservation(r: any) {
           totalAmount: decimal(r.booking.totalAmount),
           paymentStatus: marketplaceInvoice?.status ?? null,
           paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
+          /** The reference the guest holds and the payout reconciles against.
+           * Views show this rather than the internal booking id. */
+          invoiceNumber: marketplaceInvoice?.invoiceNumber ?? null,
+          /** ACTIVE, USED or VOID. Null when no code has been issued yet. */
+          checkInCodeStatus: r.booking.code?.status ?? null,
         }
       : null,
     agentBooking: operationalAgentRequest
@@ -498,10 +503,15 @@ const detailInclude = {
       roomsQty: true,
       totalAmount: true,
       user: { select: { email: true } },
+      // The single-use arrival code is the only thing that can check a
+      // marketplace stay in, so the front desk has to see its state before it
+      // sends anyone to the validation page. A USED or VOID code is a support
+      // case, not a check-in.
+      code: { select: { status: true } },
       invoices: {
         orderBy: { createdAt: "desc" as const },
         take: 1,
-        select: { status: true, paymentMethod: true },
+        select: { status: true, paymentMethod: true, invoiceNumber: true, createdAt: true },
       },
     },
   },
@@ -550,11 +560,33 @@ const detailInclude = {
   events: { orderBy: { createdAt: "asc" as const } },
 };
 
+/**
+ * What a route is about to touch on a marketplace-linked stay.
+ *
+ * The question that decides access is not "is this a marketplace record?" but
+ * "whose money is this?". The commercial contract belongs to NoLSAF: the rate
+ * the guest paid for, that payment, its refund, the cancellation and the
+ * arrival code that releases the owner's payout. Everything inside the
+ * property's own four walls belongs to the hotel, and a NoLSAF guest must be
+ * servable exactly like any other guest.
+ *
+ * - COMMERCIAL (the default): dates, rate, room payment, cancel, no-show,
+ *   check-in. Refused, because the hotel and NoLSAF would otherwise disagree
+ *   about what the guest owes.
+ * - OPERATIONS: room assignment and other work with no money attached.
+ * - INCIDENTALS: the hotel's own revenue on the folio (restaurant, bar,
+ *   laundry, late checkout) and the payments that settle it. The room line is
+ *   zero on a marketplace reservation, so the outstanding balance these routes
+ *   compute is the incidental balance and nothing else.
+ * - SETTLEMENT: closing the stay and issuing its folio document.
+ */
+type MarketplaceAccess = "COMMERCIAL" | "OPERATIONS" | "INCIDENTALS" | "SETTLEMENT";
+
 async function loadOwnedReservation(
   res: Response,
   ownerId: number,
   id: number,
-  options: { allowMarketplace?: boolean } = {},
+  options: { marketplace?: MarketplaceAccess } = {},
 ) {
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid reservation id" });
@@ -565,10 +597,7 @@ async function loadOwnedReservation(
     res.status(404).json({ error: "Reservation not found" });
     return null;
   }
-  if (reservation.bookingId != null && !options.allowMarketplace) {
-    // Marketplace check-in remains protected by the existing single-use code
-    // flow. Specific NRMS operations (currently checkout) may opt in after
-    // they have implemented atomic synchronization back to Booking.
+  if (reservation.bookingId != null && (options.marketplace ?? "COMMERCIAL") === "COMMERCIAL") {
     res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
     return null;
   }
@@ -2522,7 +2551,7 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     const verification = checkoutVerificationSchema.safeParse(req.body ?? {});
     if (!verification.success) return res.status(400).json({ error: "Invalid charge verification list" });
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { allowMarketplace: true });
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "SETTLEMENT" });
     if (!reservation) return;
     const activeProperty = await loadOwnedActiveNrmsProperty(res, ownerId, reservation.propertyId);
     if (!activeProperty) return;
@@ -2638,7 +2667,10 @@ router.post(
 router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    // Which physical room a guest sleeps in is the property's decision, not a
+    // commercial one. Without this a marketplace stay could never be given a
+    // room number and would sit on the front desk as permanently unassigned.
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "OPERATIONS" });
     if (!reservation) return;
     if (!["CONFIRMED", "CHECKED_IN", "HELD"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot move rooms on a ${reservation.status.toLowerCase()} reservation` });
@@ -2696,6 +2728,22 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({ error: "The target room is not available for these dates", code: "ROOM_CONFLICT", conflict: result.conflict });
     }
+    // NRMS check-in refuses to run without an assigned room, so the welcome
+    // SMS always has one to name. Marketplace check-in happens against the
+    // guest's code instead and carries no such gate, so a NoLSAF guest can be
+    // in house with no unit, which skips the welcome as NO_ASSIGNED_ROOM and
+    // leaves them with no room-ordering link for the rest of the stay.
+    // Assigning the room is the moment that becomes possible. The unique
+    // (template, reservation) delivery key makes the retry harmless for a
+    // guest who was already sent one, and a failure here must not undo a
+    // completed room move.
+    if (reservation.status === "CHECKED_IN") {
+      try {
+        await queueNrmsCheckInWelcome(prisma, reservation.id);
+      } catch (err) {
+        console.error("[owner.nrms.reservations] welcome retry after room move failed", err);
+      }
+    }
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
   } catch (err) {
@@ -2711,7 +2759,7 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     if (["CANCELLED", "EXPIRED"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot record a payment on a ${reservation.status.toLowerCase()} reservation` });
@@ -2846,7 +2894,7 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     const paymentId = Number(req.params.paymentId);
     const payment = reservation.payments.find((p: any) => p.id === paymentId);
@@ -2896,7 +2944,7 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
 router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot post a charge on a ${reservation.status.toLowerCase().replace(/_/g, " ")} reservation`, code: "CHARGE_INVALID_STATUS" });
@@ -2955,7 +3003,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     const chargeId = Number(req.params.chargeId);
     const charge = (reservation as any).charges.find((c: any) => c.id === chargeId);
@@ -3011,9 +3059,6 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       },
     });
     if (!reservation) return res.status(404).json({ error: "Reservation not found" });
-    if (reservation.bookingId != null) {
-      return res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
-    }
     if (!["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(reservation.status)) {
       return res.status(409).json({ error: "An invoice is only available for confirmed, checked-in or checked-out stays", code: "INVOICE_INVALID_STATUS" });
     }
@@ -3022,7 +3067,24 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       .filter(Boolean)
       .join(", ");
     const activeAllocations = reservation.allocations.filter((a: any) => a.status === "ACTIVE");
-    const amountPaid = decimal(reservation.amountPaid) ?? 0;
+    // A marketplace stay keeps its money on Booking, so the reservation's own
+    // room total and amountPaid are zero. The guest still stayed in this
+    // property's room and is entitled to this property's folio, so the
+    // accommodation is read from the booking and presented as already settled
+    // through NoLSAF. Anything the desk posted here is the property's own
+    // incidental revenue and prints exactly as it does for any other stay.
+    const marketplace = (reservation as any).booking ?? null;
+    const marketplaceInvoiceRow = marketplace?.invoices?.[0] ?? null;
+    const marketplaceRoomTotal = marketplace ? decimal(marketplace.totalAmount) ?? 0 : 0;
+    const marketplacePayments = marketplace && marketplaceRoomTotal > 0
+      ? [{
+          date: marketplaceInvoiceRow?.createdAt ?? reservation.confirmedAt ?? reservation.createdAt,
+          method: "NOLSAF_MARKETPLACE",
+          reference: marketplaceInvoiceRow?.invoiceNumber ?? null,
+          amount: marketplaceRoomTotal,
+        }]
+      : [];
+    const amountPaid = (decimal(reservation.amountPaid) ?? 0) + marketplaceRoomTotal;
     const transferredToMaster = reservation.masterFolioItems
       .filter((item: any) => !item.voidedAt)
       .reduce((sum: number, item: any) => sum + (decimal(item.amount) ?? 0), 0);
@@ -3037,7 +3099,8 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     // For an agency stay the folio is the ledger, so the document reports what
     // the agency paid there rather than the reservation's own figure.
     const collected = agentSettlement ? agentSettlement.paidAmount : amountPaid;
-    const balanceDue = computeGuestBalance(reservation.totalAmount, reservation.chargesTotal, collected + settledTransfer);
+    const effectiveRoomTotal = marketplace ? marketplaceRoomTotal : decimal(reservation.totalAmount) ?? 0;
+    const balanceDue = computeGuestBalance(effectiveRoomTotal, reservation.chargesTotal, collected + settledTransfer);
     const validPayments = reservation.payments.filter((payment) => !payment.voidedAt);
     const validOutletPayments = reservation.outletOrders.filter((order: any) =>
       order.settlementMode === "OUTLET_PAYMENT" && order.status === "SETTLED" && !order.voidedAt,
@@ -3047,6 +3110,7 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     const settlementDates = [
       ...validPayments.map((payment) => payment.createdAt),
       ...validOutletPayments.map((order: any) => order.settledAt || order.createdAt),
+      ...marketplacePayments.map((payment) => new Date(payment.date)),
     ];
     const issuedAt = settled && settlementDates.length
       ? settlementDates.reduce((latest, date) => date > latest ? date : latest, settlementDates[0])
@@ -3096,13 +3160,16 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       checkOut: reservation.checkOut,
       rooms: activeAllocations.map((a: any) => ({ label: a.roomUnit?.code ?? a.roomType?.name ?? "Room" })),
       currency: reservation.currency,
-      roomTotal: decimal(reservation.totalAmount) ?? 0,
+      roomTotal: effectiveRoomTotal,
       charges: (reservation as any).charges
         .filter((c: any) => !c.voidedAt)
         .map((c: any) => ({ date: c.createdAt, category: c.category, description: c.description, amount: decimal(c.amount) ?? 0 })),
-      payments: reservation.payments
-        .filter((p: any) => !p.voidedAt)
-        .map((p: any) => ({ date: p.createdAt, method: p.method, reference: p.reference, amount: decimal(p.amount) ?? 0 })),
+      payments: [
+        ...marketplacePayments,
+        ...reservation.payments
+          .filter((p: any) => !p.voidedAt)
+          .map((p: any) => ({ date: p.createdAt, method: p.method, reference: p.reference, amount: decimal(p.amount) ?? 0 })),
+      ],
       outletPayments: validOutletPayments.map((order: any) => ({
         date: order.settledAt || order.createdAt,
         orderNumber: order.orderNumber,

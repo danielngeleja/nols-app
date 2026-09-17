@@ -127,6 +127,9 @@ type Reservation = {
     totalAmount: number | null;
     paymentStatus: string | null;
     paymentMethod: string | null;
+    /** The reference the guest holds, shown instead of the internal id. */
+    invoiceNumber: string | null;
+    checkInCodeStatus: string | null;
   } | null;
   allocations?: Allocation[];
   payments?: Payment[];
@@ -1668,16 +1671,23 @@ function ReservationDetailModal({
       : !roomVacantConfirmed
         ? "Confirm that the room is vacant."
         : "Ready to complete checkout.";
-  const canPostCharges = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
-  const canPrintInvoice = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
+  // Incidentals and the folio document are the property's own business on a
+  // marketplace stay: only the accommodation rate and its payment belong to
+  // NoLSAF. A NoLSAF guest orders from the bar and takes a receipt like anyone.
+  const canPostCharges = r != null && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
+  const canPrintInvoice = r != null && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
+  // Confirm, check-in, no-show and cancel are commercial state a marketplace
+  // booking owns: check-in happens against the guest's code, and the rest would
+  // let NRMS and NoLSAF disagree about what the guest owes. Check-out is the
+  // property closing its own stay, and the folio opened above has to be
+  // settleable from the same place it is posted.
   const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
-    && !isMarketplace
     ? [
-        { key: "confirm", label: "Confirm", show: ["DRAFT", "HELD"].includes(r.status) },
-        { key: "check-in", label: "Check in", show: r.status === "CONFIRMED" },
+        { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(r.status) },
+        { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED" },
         { key: "check-out", label: folioBalanceBlocked ? "Settle balance first" : outletReconciliationBlocked ? "Classify outlet payments" : chargesNeedVerification ? "Verify every charge" : "Check out", show: r.status === "CHECKED_IN", disabled: checkoutBlocked },
-        { key: "no-show", label: "No show", show: r.status === "CONFIRMED" },
-        { key: "cancel", label: "Cancel", show: ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
+        { key: "no-show", label: "No show", show: !isMarketplace && r.status === "CONFIRMED" },
+        { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
       ]
     : [];
 
@@ -1732,8 +1742,8 @@ function ReservationDetailModal({
               <div className="flex items-start gap-3">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
                 <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold">Connected NoLSAF marketplace booking #{r.marketplaceBooking?.id ?? r.bookingId}</p>
-                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Guest identity, dates and room allocation are synchronized into NRMS. Payment and stay-status changes remain managed by NoLSAF to prevent duplicate records.</p>
+                  <p className="m-0 text-xs font-bold">Connected NoLSAF marketplace booking {r.marketplaceBooking?.invoiceNumber ?? `#${r.marketplaceBooking?.id ?? r.bookingId}`}</p>
+                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Guest identity, dates and room allocation are synchronized into NRMS. The accommodation rate, its payment and the stay status stay with NoLSAF. Room assignment and anything the guest spends here are yours to post and settle.</p>
                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-emerald-900">
                     <span><strong>Phone:</strong> {r.guestProfile?.phone ?? "Not provided"}</span>
                     <span><strong>Email:</strong> {r.guestProfile?.email ?? "Not provided"}</span>
@@ -1757,7 +1767,7 @@ function ReservationDetailModal({
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
               <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "NRMS folio" : "Outlet paid"}</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Read only" : money(settledAtOutletTotal, r.currency)}</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? money(r.chargesTotal ?? 0, r.currency) : money(settledAtOutletTotal, r.currency)}</p>
               {unclassifiedOutletPayments.length > 0 && <p className="mb-0 mt-0.5 text-[9px] font-semibold text-amber-700">Payment method missing</p>}
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
@@ -1925,7 +1935,7 @@ function ReservationDetailModal({
             </section>
           )}
 
-          {!isMarketplace && !["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
+          {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
             <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
               <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white px-4 py-3.5">
                 <div className="flex min-w-0 items-center gap-3">

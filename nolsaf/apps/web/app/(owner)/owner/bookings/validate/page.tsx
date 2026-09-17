@@ -60,6 +60,24 @@ export default function CheckinValidation() {
   const lockSecondsPart = lockSeconds % 60;
   const lockCountdown = isLocked ? `${lockMinutesPart}:${String(lockSecondsPart).padStart(2, "0")}` : null;
 
+  // The NRMS front desk sends a receptionist here because the code is the only
+  // way a marketplace stay can be checked in. `booking` says which arrival they
+  // left to validate, `return` is the NRMS screen to hand them back to once it
+  // is done, so the trip out of NRMS closes itself. Read from the URL directly
+  // rather than useSearchParams, which would force a Suspense boundary around
+  // this whole client page.
+  const [handoff, setHandoff] = useState<{ bookingId: number | null; returnTo: string | null }>({ bookingId: null, returnTo: null });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bookingId = Number(params.get("booking"));
+    const returnTo = params.get("return");
+    setHandoff({
+      bookingId: Number.isInteger(bookingId) && bookingId > 0 ? bookingId : null,
+      // Only an in-app path, never an absolute URL an open redirect could ride.
+      returnTo: returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null,
+    });
+  }, []);
+
   useEffect(() => {
     if (!lockedUntil) return;
     const t = window.setInterval(() => {
@@ -207,8 +225,9 @@ export default function CheckinValidation() {
 
       // notify sidebar (and any listeners) to refresh checked-in counts immediately
       window.dispatchEvent(new Event("nols:checkedin-changed"));
-      // redirect to checked-in list
-      router.push('/owner/bookings/checked-in');
+      // Back to whoever sent us here: the NRMS front desk when the arrival was
+      // started there, otherwise the checked-in list as before.
+      router.push(handoff.returnTo ?? '/owner/bookings/checked-in');
     } catch (err: any) {
       setResultMsg(err?.response?.data?.error ?? 'Could not confirm check-in');
     } finally {
@@ -509,6 +528,26 @@ export default function CheckinValidation() {
             </div>
 
             <div className="p-4 space-y-4">
+
+              {/* Front desk handoff: which arrival NRMS sent them here for. */}
+              {handoff.bookingId ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <p className="m-0 font-semibold">Front desk check-in for booking #{handoff.bookingId}</p>
+                  <p className="m-0 mt-0.5 text-xs text-emerald-800">
+                    Enter the guest&apos;s code to complete the arrival. You will return to the front desk once it is accepted.
+                  </p>
+                  {preview && preview.bookingId !== handoff.bookingId ? (
+                    <p className="m-0 mt-2 text-xs font-semibold text-amber-800">
+                      This code belongs to booking #{preview.bookingId}, not the arrival you opened. Check you have the right guest before confirming.
+                    </p>
+                  ) : null}
+                  {handoff.returnTo ? (
+                    <a href={handoff.returnTo} className="mt-2 inline-block text-xs font-bold text-emerald-800 underline">
+                      Back to front desk
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Code input */}
               <div className="space-y-2">

@@ -13,6 +13,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   ArrowUpFromLine,
+  ArrowUpRight,
   BarChart3,
   BedDouble,
   CalendarDays,
@@ -38,6 +39,8 @@ type Reservation = {
   id: number;
   status: string;
   source: string;
+  bookingId?: number | null;
+  marketplaceBooking?: { id: number; checkInCodeStatus?: string | null } | null;
   checkIn: string;
   checkOut: string;
   currency: string;
@@ -134,6 +137,34 @@ function roomsLabel(r: Reservation): string {
 
 function hasAssignedRoom(r: Reservation): boolean {
   return (r.allocations ?? []).some((allocation) => allocation.status === "ACTIVE" && Boolean(allocation.roomUnitCode));
+}
+
+/**
+ * A marketplace stay cannot be checked in from NRMS. The guest's single-use
+ * code is the only proof of arrival, it is what releases the owner's payout,
+ * and the API refuses this reservation with MARKETPLACE_BOOKING. So the row
+ * hands the receptionist over to the marketplace validation page and brings
+ * them back here once the code is accepted, rather than offering a button that
+ * can only fail.
+ */
+function marketplaceCheckInHref(r: Reservation): string | null {
+  const bookingId = r.marketplaceBooking?.id ?? r.bookingId ?? null;
+  if (!bookingId) return null;
+  return `/owner/bookings/validate?booking=${bookingId}&return=${encodeURIComponent("/owner/nrms")}`;
+}
+
+/** Why a marketplace arrival may not be checkable in yet, for the row detail. */
+function marketplaceCodeNote(r: Reservation): string | null {
+  switch (String(r.marketplaceBooking?.checkInCodeStatus ?? "")) {
+    case "USED":
+      return "code already used";
+    case "VOID":
+      return "code voided, contact support";
+    case "ACTIVE":
+      return "code required";
+    default:
+      return null;
+  }
 }
 
 function sourceLabel(source: string): string {
@@ -430,20 +461,25 @@ function NrmsFrontDeskPage() {
             emptyActionHref="/owner/nrms/reservations?create=1"
             emptyActionLabel="Add reservation"
           >
-            {arrivals.map((reservation) => (
-              <OperationRow
-                key={reservation.id}
-                reservation={reservation}
-                actionLabel="Check in"
-                actionTone="emerald"
-                busy={busyId === reservation.id}
-                onAction={() => {
-                  setError(null);
-                  setPendingAction({ reservation, action: "check-in" });
-                }}
-                detail={`${sourceLabel(reservation.source)} · check-in today`}
-              />
-            ))}
+            {arrivals.map((reservation) => {
+              const marketplaceHref = marketplaceCheckInHref(reservation);
+              const codeNote = marketplaceCodeNote(reservation);
+              return (
+                <OperationRow
+                  key={reservation.id}
+                  reservation={reservation}
+                  actionLabel={marketplaceHref ? "Check in with code" : "Check in"}
+                  actionTone="emerald"
+                  actionHref={marketplaceHref}
+                  busy={busyId === reservation.id}
+                  onAction={() => {
+                    setError(null);
+                    setPendingAction({ reservation, action: "check-in" });
+                  }}
+                  detail={`${sourceLabel(reservation.source)} · ${codeNote ?? "check-in today"}`}
+                />
+              );
+            })}
           </OperationList>
 
           <OperationList
@@ -1146,6 +1182,7 @@ function OperationRow({
   detail,
   actionLabel,
   actionTone,
+  actionHref = null,
   busy,
   onAction,
   overdue = false,
@@ -1155,6 +1192,8 @@ function OperationRow({
   detail: string;
   actionLabel: string;
   actionTone: "emerald" | "dark";
+  /** When set the action leaves NRMS for this page instead of acting here. */
+  actionHref?: string | null;
   busy: boolean;
   onAction: () => void;
   overdue?: boolean;
@@ -1216,15 +1255,25 @@ function OperationRow({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onAction}
-          disabled={busy}
-          className={`col-start-2 row-start-1 inline-flex min-h-9 w-[5.5rem] shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-2 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-24 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
-        >
-          {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-          <span className="truncate">{busy ? "Working..." : actionLabel}</span>
-        </button>
+        {actionHref ? (
+          <Link
+            href={actionHref}
+            className={`col-start-2 row-start-1 inline-flex min-h-9 w-[8.5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-lg px-2 text-xs font-bold no-underline transition hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-36 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
+          >
+            <span className="truncate">{actionLabel}</span>
+            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={onAction}
+            disabled={busy}
+            className={`col-start-2 row-start-1 inline-flex min-h-9 w-[5.5rem] shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-2 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-24 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
+          >
+            {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+            <span className="truncate">{busy ? "Working..." : actionLabel}</span>
+          </button>
+        )}
       </div>
     </li>
   );
