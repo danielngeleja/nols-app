@@ -1741,15 +1741,27 @@ function ReservationDetailModal({
             <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
               <div className="flex items-start gap-3">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold">Connected NoLSAF marketplace booking {r.marketplaceBooking?.invoiceNumber ?? `#${r.marketplaceBooking?.id ?? r.bookingId}`}</p>
-                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Guest identity, dates and room allocation are synchronized into NRMS. The accommodation rate, its payment and the stay status stay with NoLSAF. Room assignment and anything the guest spends here are yours to post and settle.</p>
-                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-emerald-900">
-                    <span><strong>Phone:</strong> {r.guestProfile?.phone ?? "Not provided"}</span>
-                    <span><strong>Email:</strong> {r.guestProfile?.email ?? "Not provided"}</span>
-                    <span><strong>Nationality:</strong> {r.guestProfile?.nationality ?? "Not provided"}</span>
-                    <span><strong>Sex:</strong> {r.marketplaceBooking?.sex ?? "Not provided"}</span>
-                    <span><strong>Age group:</strong> {r.marketplaceBooking?.ageGroup ?? "Not provided"}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="m-0 text-xs font-bold">NoLSAF marketplace</p>
+                    <p className="m-0 font-mono text-[10px] tracking-tight text-emerald-700">{r.marketplaceBooking?.invoiceNumber ?? `#${r.marketplaceBooking?.id ?? r.bookingId}`}</p>
+                  </div>
+                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Rate and payment stay with NoLSAF. Room and extras are yours.</p>
+                  {/* Values speak for themselves, so the labels are dropped and
+                      anything missing simply does not print. */}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-emerald-900">
+                    {[
+                      r.guestProfile?.phone,
+                      r.guestProfile?.email,
+                      r.guestProfile?.nationality,
+                      r.marketplaceBooking?.sex,
+                      r.marketplaceBooking?.ageGroup,
+                    ].filter(Boolean).map((fact, index) => (
+                      <span key={String(fact)} className="flex items-center gap-2">
+                        {index > 0 && <span className="text-emerald-300" aria-hidden="true">·</span>}
+                        {String(fact)}
+                      </span>
+                    ))}
                   </div>
                 </div>
               </div>
