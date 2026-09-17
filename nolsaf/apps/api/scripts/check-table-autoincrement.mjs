@@ -52,25 +52,42 @@ async function main() {
 
   const connection = await mariadb.createConnection(config);
   try {
+    const mode = await connection.query("SELECT @@sql_mode AS mode");
+    console.log(`sql_mode: ${mode?.[0]?.mode ?? "unknown"}`);
+
     for (const table of targets) {
       const safeName = String(table).replace(/[^A-Za-z0-9_]/g, "");
       if (!safeName) continue;
 
       console.log(`\n=== ${safeName} ===`);
       try {
-        const rows = await connection.query(`SHOW CREATE TABLE \`${safeName}\``);
-        const ddl = String(rows?.[0]?.["Create Table"] || "");
-        const idLine = ddl.split(/\r?\n/).find((line) => /^\s*`id`/.test(line)) || "(no id column found)";
-        const hasAutoIncrement = /`id`[^,]*AUTO_INCREMENT/i.test(ddl);
+        // information_schema is the authoritative answer here. Parsing the text
+        // of SHOW CREATE TABLE is fragile: the driver does not always hand back
+        // that column as a plain string, and an empty parse reads as "missing"
+        // when the column is in fact fine.
+        // Every literal is bound, never inlined: this server runs with
+        // ANSI_QUOTES, where a double quoted value is read as an identifier.
+        const columns = await connection.query(
+          "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, EXTRA AS extra, COLUMN_KEY AS keyType" +
+            " FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+          [config.database, safeName, "id"]
+        );
 
-        console.log(`id column : ${idLine.trim()}`);
-        console.log(`AUTO_INCREMENT on id : ${hasAutoIncrement ? "YES" : "NO  <-- this is the fault"}`);
+        const idColumn = columns?.[0];
+        if (!idColumn) {
+          console.log("id column : none (this table has no column called id)");
+        } else {
+          const extra = String(idColumn.extra || "");
+          const isAutoIncrement = /auto_increment/i.test(extra);
+          console.log(`id column : ${idColumn.name} ${idColumn.type} ${extra || "(no extra)"} key=${idColumn.keyType || "-"}`);
+          console.log(`AUTO_INCREMENT on id : ${isAutoIncrement ? "YES" : "NO  <-- this is the fault"}`);
+        }
 
         const meta = await connection.query(
           "SELECT AUTO_INCREMENT AS nextValue, TABLE_ROWS AS approxRows FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
           [config.database, safeName]
         );
-        console.log(`next AUTO_INCREMENT value : ${meta?.[0]?.nextValue ?? "none"}`);
+        console.log(`next AUTO_INCREMENT value : ${meta?.[0]?.nextValue ?? "none (table has no auto-increment column)"}`);
 
         const zeroRow = await connection.query(`SELECT COUNT(*) AS zeros FROM \`${safeName}\` WHERE id = 0`);
         const zeros = Number(zeroRow?.[0]?.zeros ?? 0);
