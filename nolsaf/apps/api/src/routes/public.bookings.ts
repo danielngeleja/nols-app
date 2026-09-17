@@ -19,6 +19,17 @@ import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
 import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
 
+/**
+ * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
+ * row and then run the whole capacity pass, so Prisma's default interactive
+ * transaction budget (maxWait 2s, timeout 5s) is too small: on production
+ * latency the pass plus the booking and transport writes overrun it, the
+ * transaction is closed underneath the remaining writes, and the request fails
+ * late with a confusing error while the held connections starve the background
+ * workers. Same shape as the other long transactions in this codebase.
+ */
+const BOOKING_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
+
 /** Sign a short-lived token proving the caller created this booking. */
 function signBookingAccessToken(bookingId: number): string {
   const secret =
@@ -792,7 +803,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         selectedRoomType: typeKey || undefined,
         availableForSelectedType: typeKey != null ? (availabilityByRoomType[typeKey]?.availableRooms ?? 0) : undefined,
       };
-    });
+    }, BOOKING_TX_OPTIONS);
 
     if (!availabilityCheck.available) {
       const conflictReasons: string[] = [];
@@ -974,9 +985,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     // Security: never let guest-provided identifiers override an authenticated session.
     let userId: number | null = (req as any)?.user?.id ?? null;
     if (!userId) {
-      if (data.guestEmail) {
+      const lookupEmail = sanitizedGuestEmail || data.guestEmail;
+      if (lookupEmail) {
         const user = await prisma.user.findUnique({
-          where: { email: data.guestEmail },
+          where: { email: lookupEmail },
           select: { id: true },
         });
         if (user) userId = user.id;
@@ -1228,36 +1240,23 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       }
 
       // Ensure we have a userId when transport is included (TransportBooking requires userId)
+      // The email and phone lookups already ran before this transaction opened,
+      // so only the fallback create is left: matching reads do not belong inside
+      // the property row lock.
       if (data.includeTransport && !userId) {
-        if (sanitizedGuestEmail) {
-          const u = await tx.user.findUnique({ where: { email: sanitizedGuestEmail }, select: { id: true } });
-          if (u) userId = u.id;
-        }
-
-        if (!userId && sanitizedGuestPhone) {
-          const phoneVariants = buildPhoneVariants(sanitizedGuestPhone);
-          const u = await tx.user.findFirst({
-            where: { phone: { in: phoneVariants } },
-            select: { id: true },
-          });
-          if (u) userId = u.id;
-        }
-
-        if (!userId) {
-          // Create a minimal customer record so transport requests can be linked correctly.
-          const created = await tx.user.create({
-            data: {
-              role: "CUSTOMER",
-              name: sanitizedGuestName,
-              fullName: sanitizedGuestName,
-              email: sanitizedGuestEmail,
-              phone: sanitizedGuestPhone,
-              kycStatus: "PENDING_KYC",
-            } as any,
-            select: { id: true },
-          });
-          userId = created.id;
-        }
+        // Create a minimal customer record so transport requests can be linked correctly.
+        const created = await tx.user.create({
+          data: {
+            role: "CUSTOMER",
+            name: sanitizedGuestName,
+            fullName: sanitizedGuestName,
+            email: sanitizedGuestEmail,
+            phone: sanitizedGuestPhone,
+            kycStatus: "PENDING_KYC",
+          } as any,
+          select: { id: true },
+        });
+        userId = created.id;
       }
 
       const transportSummary = (() => {
@@ -1363,6 +1362,14 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           } as any,
             });
 
+            // A create must come back with a row. When the surrounding
+            // transaction has already been closed underneath us, this resolved
+            // to null and the old code failed with an opaque
+            // "Cannot read properties of null (reading 'id')".
+            if (!tb || (tb as any).id == null) {
+              throw new Error("Transport booking was not created (no row returned)");
+            }
+
             transportBookingForOffer = {
               id: Number((tb as any).id),
               tripCode: ((tb as any).tripCode ?? null) as any,
@@ -1397,7 +1404,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         checkOut: booking.checkOut,
         transportBookingForOffer,
       };
-    });
+    }, BOOKING_TX_OPTIONS);
 
     // NOTE: do not broadcast transport offers here.
     // The transport auto-dispatch worker issues targeted offers (top drivers) based on live locations.
