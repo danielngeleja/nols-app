@@ -9,6 +9,7 @@ import {
 } from "@simplewebauthn/server";
 import { authenticator } from "otplib";
 import { decrypt } from "../lib/crypto.js";
+import { verifyTotp } from "../lib/totp.js";
 import { audit } from "../lib/audit.js";
 import { hashCode } from "../lib/otp.js";
 import { getRedis } from "../lib/redis.js";
@@ -377,7 +378,7 @@ adminMfaRouter.post("/admin-mfa/totp/verify", async (req, res) => {
       user?.twoFactorEnabled &&
       String(user.twoFactorMethod || "").toUpperCase() === "TOTP" &&
       user.totpSecretEnc &&
-      authenticator.verify({ token: code, secret: decrypt(user.totpSecretEnc, { log: false }) }),
+      verifyTotp(code, decrypt(user.totpSecretEnc, { log: false })),
     );
   } catch {
     verified = false;

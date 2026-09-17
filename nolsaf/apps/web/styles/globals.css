@@ -3277,3 +3277,32 @@ figure[aria-label="Testimonial"] {
   }
 }
 
+/* Partner logo strip (homepage "Trusted by"). The list is rendered twice, so moving
+   by exactly half its width loops without a jump. Plain CSS so it works without a
+   Tailwind config reload. */
+@keyframes nols-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+.nols-marquee {
+  animation: nols-marquee 32s linear infinite;
+  will-change: transform;
+}
+.nols-marquee-wrap:hover .nols-marquee,
+.nols-marquee-wrap:focus-within .nols-marquee {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nols-marquee { animation: none; }
+}
+
+/* Building layout: dashes travel from the selected floor toward its card */
+@keyframes nols-connector-flow {
+  to { stroke-dashoffset: -18; }
+}
+.nols-connector-flow {
+  animation: nols-connector-flow 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nols-connector-flow { animation: none; }
+}

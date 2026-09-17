@@ -218,89 +218,83 @@ const adminPropertyDTOSelect = {
   rejectionReasons: true,
 } as const;
 
-/** GET /admin/properties?status=&q=&regionId=&regionName=&type=&ownerId=&page=&pageSize= */
+/**
+ * Filters for the admin property list and its status counts.
+ * - status / statuses: one or many (comma separated); "ALL" means no status filter
+ * - q: title, region, district, ward, city, owner name/email, or "#123" / "123" for an id
+ * - region: regionId slug or region name; matches either stored form ("Dar es Salaam" / "DAR-ES-SALAAM")
+ * - type, ownerId
+ * `ignoreStatus` lets /counts reuse every other filter while counting per status.
+ */
+function buildAdminPropertyWhere(query: Record<string, unknown>, opts: { ignoreStatus?: boolean } = {}) {
+  const and: any[] = [];
+
+  if (!opts.ignoreStatus) {
+    const statusList = String(query.statuses || query.status || "")
+      .split(",")
+      .map((v) => v.trim().toUpperCase())
+      .filter((v) => v && v !== "ALL")
+      .slice(0, 8);
+    if (statusList.length === 1) and.push({ status: statusList[0] });
+    else if (statusList.length > 1) and.push({ status: { in: statusList } });
+  }
+
+  const regionRaw = String(query.region || query.regionId || query.regionName || "").trim().slice(0, 80);
+  if (regionRaw) {
+    const spaced = regionRaw.replace(/[-_]+/g, " ").trim();
+    const hyphen = spaced.replace(/\s+/g, "-");
+    const slug = hyphen.toLowerCase();
+    and.push({
+      OR: [
+        { regionId: slug },
+        { regionName: { contains: spaced } },
+        { regionName: { contains: hyphen } },
+      ],
+    });
+  }
+
+  const districtRaw = String(query.district || "").trim().slice(0, 80);
+  if (districtRaw) {
+    const spaced = districtRaw.replace(/[-_]+/g, " ").trim();
+    and.push({
+      OR: [{ district: { contains: spaced } }, { district: { contains: spaced.replace(/\s+/g, "-") } }],
+    });
+  }
+
+  const type = String(query.type || "").trim().toUpperCase();
+  if (type) and.push({ type });
+
+  const ownerIdNum = Number(query.ownerId);
+  if (query.ownerId && Number.isFinite(ownerIdNum)) and.push({ ownerId: ownerIdNum });
+
+  const q = String(query.q || "").trim().slice(0, 120);
+  if (q) {
+    const idMatch = q.replace(/^#/, "");
+    const or: any[] = [
+      { title: { contains: q } },
+      { regionName: { contains: q } },
+      { district: { contains: q } },
+      { ward: { contains: q } },
+      { city: { contains: q } },
+      { owner: { is: { name: { contains: q } } } },
+      { owner: { is: { email: { contains: q } } } },
+    ];
+    if (/^\d{1,9}$/.test(idMatch)) or.push({ id: Number(idMatch) });
+    and.push({ OR: or });
+  }
+
+  return and.length ? { AND: and } : {};
+}
+
+/** GET /admin/properties?status=&q=&region=&type=&ownerId=&page=&pageSize= */
 router.get("/", (async (req: AuthedRequest, res) => {
   try {
     // Explicitly set Content-Type to JSON
     res.setHeader('Content-Type', 'application/json');
     
-    const { status, statuses, q, regionId, regionName, type, ownerId, page = "1", pageSize = "20" } =
-      req.query as any;
-
-    const where: any = {};
-    
-    // Build base filters
-    const statusList = String(statuses || status || "")
-      .split(",")
-      .map((value) => value.trim().toUpperCase())
-      .filter(Boolean)
-      .slice(0, 8);
-    if (statusList.length === 1 && statusList[0] !== "ALL") {
-      where.status = statusList[0];
-    } else if (statusList.length > 1) {
-      where.status = { in: statusList.filter((value) => value !== "ALL") };
-    }
-    if (regionId) {
-      const regionIdNum = Number(regionId);
-      if (!isNaN(regionIdNum)) {
-        where.regionId = regionIdNum;
-      }
-    }
-    if (regionName) {
-      where.regionName = { contains: String(regionName) };
-    }
-    if (type) {
-      where.type = type;
-    }
-    if (ownerId) {
-      const ownerIdNum = Number(ownerId);
-      if (!isNaN(ownerIdNum)) {
-        where.ownerId = ownerIdNum;
-      }
-    }
-    
-    // If search query is provided, combine with existing filters using AND
-    if (q) {
-      const searchTerm = String(q).trim().slice(0, 120);
-      if (searchTerm) {
-        // Save regionName filter separately if it exists
-        const savedRegionName = where.regionName;
-        delete where.regionName;
-        
-        // If we have other filters, combine them with search using AND
-        const hasOtherFilters = Object.keys(where).length > 0;
-        
-        // Clear where to rebuild
-        const otherFilters = hasOtherFilters ? { ...where } : null;
-        Object.keys(where).forEach(key => delete where[key]);
-        
-        // Build the search conditions
-        const searchConditions = {
-          OR: [
-            { title: { contains: searchTerm } },
-            { regionName: { contains: searchTerm } },
-            { district: { contains: searchTerm } },
-          ],
-        };
-        
-        if (hasOtherFilters || savedRegionName) {
-          // Combine filters with search using AND
-          const baseFilters: any = otherFilters || {};
-          if (savedRegionName) {
-            // If we have a regionName filter, it should match exactly (not via search)
-            baseFilters.regionName = savedRegionName;
-          }
-          where.AND = [
-            baseFilters,
-            searchConditions,
-          ];
-        } else {
-          // No existing filters, just use OR for search
-          where.OR = searchConditions.OR;
-        }
-      }
-      // If searchTerm is empty after trim, where already has the base filters, so we're good
-    }
+    const { page = "1", pageSize = "20" } = req.query as any;
+    // One filter builder shared with /counts, so tab badges and the list always agree
+    const where: any = buildAdminPropertyWhere(req.query as any);
 
     const skip = (Number(page) - 1) * Number(pageSize);
     const take = Math.min(Number(pageSize), 100);
@@ -720,10 +714,12 @@ router.get("/counts", (async (req: AuthedRequest, res) => {
   try {
     const statuses = ["DRAFT","PENDING","APPROVED","NEEDS_FIXES","REJECTED","SUSPENDED"] as const;
     const results: Record<string, number> = {};
-    
+    // Same search/region/type/owner filters as the list, so badges match what the tab shows
+    const base = buildAdminPropertyWhere(req.query as any, { ignoreStatus: true });
+
     await Promise.all(statuses.map(async (s) => {
       try {
-        const c = await prisma.property.count({ where: { status: s as any } });
+        const c = await prisma.property.count({ where: { AND: [base, { status: s as any }] } });
         // Ensure count is a number (not BigInt) for JSON serialization
         results[s] = typeof c === 'bigint' ? Number(c) : Number(c);
       } catch (countErr: any) {

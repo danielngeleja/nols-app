@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { authenticator } from "otplib";
+import { backupCodeCandidates, verifyTotp } from "../lib/totp.js";
 import { decrypt, verifyCode } from "../lib/crypto.js";
 import { getRedis } from "../lib/redis.js";
 import { audit } from "../lib/audit.js";
@@ -131,10 +131,11 @@ accountMfaRouter.post("/mfa/verify", limitOtpVerify, async (req, res) => {
     let matchedHash: string | undefined;
     let valid = false;
     if (backup && suppliedCode.length >= 6 && suppliedCode.length <= 128) {
-      for (const hash of hashes) if (await verifyCode(hash, suppliedCode)) { matchedHash = hash; break; }
+      const candidates = backupCodeCandidates(suppliedCode);
+      outer: for (const hash of hashes) for (const candidate of candidates) if (await verifyCode(hash, candidate)) { matchedHash = hash; break outer; }
       valid = Boolean(matchedHash);
     } else if (!backup && /^\d{6}$/.test(suppliedCode) && user.totpSecretEnc) {
-      try { valid = authenticator.verify({ token: suppliedCode, secret: decrypt(user.totpSecretEnc, { log: false }) }); }
+      try { valid = verifyTotp(suppliedCode, decrypt(user.totpSecretEnc, { log: false })); }
       catch { valid = false; }
     }
     if (!valid) return res.status(400).json({ code: "MFA_INVALID", message: "The verification code is invalid." });

@@ -42,6 +42,16 @@ const ROLE_CARDS: Array<{ role: string; title: string; subtitle: string }> = [
   { role: "AGENT", title: "Operators", subtitle: "Tour companies" },
 ];
 
+/** Per-role accent, so each tab is recognisable at a glance and matches its row badge */
+const ROLE_TONE: Record<string, { dot: string; badge: string }> = {
+  "": { dot: "bg-[#02665e]", badge: "bg-[#02665e]/10 text-[#02665e]" },
+  ADMIN: { dot: "bg-purple-500", badge: "bg-purple-50 text-purple-700" },
+  CUSTOMER: { dot: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-700" },
+  OWNER: { dot: "bg-blue-500", badge: "bg-blue-50 text-blue-700" },
+  DRIVER: { dot: "bg-cyan-500", badge: "bg-cyan-50 text-cyan-700" },
+  AGENT: { dot: "bg-amber-500", badge: "bg-amber-50 text-amber-800" },
+};
+
 function roleLabel(role: string): string {
   return String(role || "").toUpperCase() === "AGENT" ? "OPERATOR" : String(role || "").toUpperCase();
 }
@@ -49,8 +59,9 @@ function roleLabel(role: string): string {
 export default function Page() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [page, setPage] = useState(1);
-  const [perPage] = useState(25);
+  const [perPage, setPerPage] = useState(25);
   const [total, setTotal] = useState(0);
+  const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [role, setRole] = useState("ADMIN");
   const [countsByRole, setCountsByRole] = useState<Record<string, number>>({});
@@ -98,6 +109,15 @@ export default function Page() {
   }, [page, perPage, q, role]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Typing should not fire a request per keystroke once the table is large
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setQ(qInput.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [qInput]);
 
   useEffect(() => {
     const userId = editing?.id;
@@ -300,24 +320,11 @@ export default function Page() {
   }
 
   const countsTotal = Object.values(countsByRole).reduce((sum, n) => sum + (Number(n) || 0), 0);
+  const activeRoleCard = ROLE_CARDS.find((c) => c.role === role) || null;
   const tableTheme = getTableTheme(role);
 
   return (
-    <div className="space-y-6 w-full min-w-0">
-      <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-50" />
-        <div className="relative p-6">
-          <div className="flex flex-col items-center text-center">
-            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-emerald-50 to-slate-50 border border-slate-200/60 flex items-center justify-center shadow-sm">
-              <Users className="h-7 w-7 text-[#02665e]" />
-            </div>
-            <h1 className="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
-              Users
-            </h1>
-            <p className="mt-1 text-sm text-slate-600">Manage platform users</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-3 w-full min-w-0">
 
       {notice && !editing ? (
         <div
@@ -339,116 +346,99 @@ export default function Page() {
         </div>
       ) : null}
 
-      <div className="rounded-3xl border border-slate-200/60 bg-white/70 p-4 shadow-sm backdrop-blur overflow-hidden">
-        <div className="max-w-6xl mx-auto space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {ROLE_CARDS.map((c) => {
-              const active = role === c.role;
-              const count = Number(countsByRole?.[c.role] ?? 0);
-              const pct = countsTotal > 0 ? Math.max(0, Math.min(100, (count / countsTotal) * 100)) : 0;
-              return (
-                <button
-                  key={c.role}
-                  type="button"
-                  onClick={() => {
-                    setRole((prev) => (prev === c.role ? "" : c.role));
-                    setPage(1);
-                  }}
-                  className={
-                    active
-                      ? "group relative text-left rounded-3xl border border-[#02665e]/35 bg-gradient-to-br from-emerald-50/80 via-white/75 to-slate-50/60 p-4 shadow-sm ring-1 ring-[#02665e]/15 transition-all duration-300 ease-out hover:-translate-y-px hover:shadow-md dark:border-emerald-400/25 dark:bg-gradient-to-br dark:from-emerald-400/10 dark:via-slate-950/30 dark:to-slate-900/40 dark:ring-emerald-400/10"
-                      : "group relative text-left rounded-3xl border border-slate-200/70 bg-white/60 p-4 shadow-sm transition-all duration-300 ease-out hover:-translate-y-px hover:border-[#02665e]/25 hover:bg-white/75 hover:shadow-md dark:border-slate-700/60 dark:bg-slate-950/25 dark:hover:bg-slate-950/35"
-                  }
-                  aria-pressed={active}
-                  title={active ? "Click to show all roles" : `Show ${c.title}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-50">{c.title}</div>
-                    <div
-                      className={
-                        active
-                          ? "text-sm font-semibold text-[#02665e] dark:text-emerald-300"
-                          : "text-sm font-semibold text-slate-700 dark:text-slate-200"
-                      }
-                      aria-label={`${count} ${c.title}`}
-                    >
-                      {count}
-                    </div>
-                  </div>
-                  <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{c.subtitle}</div>
-
-                  <div
-                    className="relative mt-3 h-2 w-full rounded-full bg-slate-200/70 overflow-hidden ring-1 ring-black/5 dark:bg-slate-800/70 dark:ring-white/10"
-                    aria-hidden="true"
-                  >
-                    <div
-                      className={
-                        active
-                          ? "h-full bg-gradient-to-r from-[#02665e] via-emerald-400 to-emerald-200 dark:from-emerald-400 dark:via-emerald-300 dark:to-emerald-200"
-                          : "h-full bg-gradient-to-r from-slate-500/60 to-slate-300/40 dark:from-slate-400/60 dark:to-slate-200/20"
-                      }
-                      style={{ width: `${pct}%` }}
-                    />
-                    <div
-                      className={
-                        active
-                          ? "absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-[#02665e]/35 shadow-sm dark:bg-slate-950 dark:ring-emerald-300/35"
-                          : "absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-slate-400/25 shadow-sm dark:bg-slate-950 dark:ring-slate-200/20"
-                      }
-                      style={{ left: `${pct}%` }}
-                    />
-                  </div>
-
-                  {active ? (
-                    <div className="pointer-events-none absolute inset-x-4 -bottom-1 h-[3px] rounded-full bg-gradient-to-r from-[#02665e]/70 via-emerald-300/60 to-transparent" />
-                  ) : null}
-                </button>
-              );
-            })}
+      {/* Title, search and role filter in one compact bar: the table is the page */}
+      <div className="rounded-2xl border border-solid border-slate-200/70 bg-white shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+          <span className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-[#02665e] text-white shadow-[0_6px_16px_-8px_rgba(2,102,94,0.9)]">
+            <Users className="h-[18px] w-[18px]" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="m-0 text-[16px] font-semibold tracking-tight text-slate-900">Users</h1>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/8 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" aria-hidden />
+                {countsTotal} total
+              </span>
+            </div>
+            <p className="m-0 text-[12px] text-slate-500">
+              {activeRoleCard ? `${activeRoleCard.title}: ${activeRoleCard.subtitle.toLowerCase()}` : "Every account on the platform"}
+            </p>
           </div>
 
-          <div className="relative w-full sm:max-w-2xl mx-auto">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <div className="relative ml-auto w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
-              className="w-full pl-10 pr-10 py-2.5 border border-slate-200/70 rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all duration-300 bg-white hover:border-slate-300"
+              className="box-border h-9 w-full rounded-xl border border-solid border-slate-200 bg-slate-50/80 pl-9 pr-9 text-[13.5px] text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:bg-white focus:ring-4 focus:ring-[#02665e]/10"
               placeholder="Search name, email or phone"
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setPage(1);
-              }}
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
             />
-            {q ? (
+            {qInput ? (
               <button
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                onClick={() => {
-                  setQ("");
-                  setPage(1);
-                }}
+                type="button"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                onClick={() => setQInput("")}
                 title="Clear search"
                 aria-label="Clear search"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             ) : null}
           </div>
         </div>
+
+        <div className="border-0 border-t border-solid border-slate-100 px-3 py-2 sm:px-5">
+          <div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100/70 p-1 [scrollbar-width:none]" role="tablist" aria-label="Role">
+            {[{ role: "", title: "All", subtitle: "Every account" }, ...ROLE_CARDS].map((c) => {
+              const active = role === c.role;
+              const count = c.role ? Number(countsByRole?.[c.role] ?? 0) : countsTotal;
+              const tone = ROLE_TONE[c.role] || ROLE_TONE[""];
+              return (
+                <button
+                  key={c.role || "ALL"}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    setRole(c.role);
+                    setPage(1);
+                  }}
+                  title={c.subtitle}
+                  className={`group relative inline-flex h-8 flex-none items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 text-[13px] font-semibold transition-all ${
+                    active
+                      ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200"
+                      : "bg-transparent text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full transition-opacity ${tone.dot} ${active ? "opacity-100" : "opacity-40 group-hover:opacity-80"}`} aria-hidden />
+                  {c.title}
+                  <span
+                    className={`rounded-md px-1.5 text-[11px] font-bold tabular-nums transition-colors ${
+                      active ? tone.badge : "bg-white/70 text-slate-500"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      <div className={`bg-white/70 dark:bg-slate-950/25 rounded-3xl border ${tableTheme.wrapper} shadow-sm overflow-hidden backdrop-blur transition-all duration-300 hover:shadow-md`}>
-        <div className={`h-[3px] bg-gradient-to-r ${tableTheme.accentBar}`} aria-hidden="true" />
-        <div className="overflow-x-auto">
+      <div className={`bg-white/70 dark:bg-slate-950/25 rounded-2xl border ${tableTheme.wrapper} shadow-sm overflow-hidden backdrop-blur transition-all duration-300 hover:shadow-md`}>
+        <div className="max-h-[calc(100vh-260px)] overflow-auto">
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className={tableTheme.header}>
+            <thead className={`sticky top-0 z-10 ${tableTheme.header}`}>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">ID</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Phone</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">2FA</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Disabled</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Actions</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">ID</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Name</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Email</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Phone</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Role</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">2FA</th>
+                <th className="bg-inherit px-3 py-2 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Disabled</th>
+                <th className="bg-inherit px-3 py-2 text-center text-[11px] font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
             <tbody className="bg-white/60 dark:bg-slate-950/10 divide-y divide-slate-200 dark:divide-slate-800 transition-colors duration-300">
@@ -480,47 +470,47 @@ export default function Page() {
                     hover={false}
                     className={`transition-colors duration-200 ${tableTheme.rowHover}`}
                   >
-                    <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-50 whitespace-nowrap">
+                    <td className="px-3 py-2 text-[13px] text-slate-500 dark:text-slate-300 whitespace-nowrap tabular-nums">
                       {u.id}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-50 font-medium">
-                      {u.name || '—'}
+                    <td className="px-3 py-2 text-[13px] text-slate-900 dark:text-slate-50 font-medium">
+                      {u.name || "Not set"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                      {u.email || '—'}
+                    <td className="px-3 py-2 text-[13px] text-slate-700 dark:text-slate-200">
+                      {u.email || "Not set"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                      {u.phone || '—'}
+                    <td className="px-3 py-2 text-[13px] text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                      {u.phone || "Not set"}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-3 py-2 text-[13px]">
                       <span className={getRoleBadgeClass(u.role)}>{roleLabel(u.role)}</span>
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-3 py-2 text-[13px]">
                       {u.twoFactorEnabled ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-green-50 text-green-700 text-xs font-medium dark:bg-emerald-400/10 dark:text-emerald-200 dark:border dark:border-emerald-400/20">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-green-50 text-green-700 text-[11px] font-semibold dark:bg-emerald-400/10 dark:text-emerald-200 dark:border dark:border-emerald-400/20">
                           Yes
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-50 text-gray-700 text-xs font-medium dark:bg-slate-800/50 dark:text-slate-200 dark:border dark:border-slate-700/60">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-gray-50 text-gray-700 text-[11px] font-semibold dark:bg-slate-800/50 dark:text-slate-200 dark:border dark:border-slate-700/60">
                           No
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-3 py-2 text-[13px]">
                       {u.isDisabled ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-red-50 text-red-700 text-xs font-medium dark:bg-red-400/10 dark:text-red-200 dark:border dark:border-red-400/20">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 text-[11px] font-semibold dark:bg-red-400/10 dark:text-red-200 dark:border dark:border-red-400/20">
                           Yes
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-green-50 text-green-700 text-xs font-medium dark:bg-emerald-400/10 dark:text-emerald-200 dark:border dark:border-emerald-400/20">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-green-50 text-green-700 text-[11px] font-semibold dark:bg-emerald-400/10 dark:text-emerald-200 dark:border dark:border-emerald-400/20">
                           No
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-3 py-2 text-[13px] text-center">
                       <button
                         type="button"
-                        className={`h-9 w-9 inline-flex items-center justify-center border border-slate-200 rounded-2xl text-slate-600 bg-white/70 hover:bg-slate-50 transition-all duration-200 active:scale-[0.99] hover:scale-[1.03] touch-manipulation cursor-pointer dark:border-slate-700/60 dark:bg-slate-950/25 dark:text-slate-200 dark:hover:bg-slate-950/35 ${tableTheme.actionHover}`}
+                        className={`h-8 w-8 inline-flex items-center justify-center border border-solid border-slate-200 rounded-lg text-slate-600 bg-white/70 hover:bg-slate-50 transition-colors touch-manipulation cursor-pointer dark:border-slate-700/60 dark:bg-slate-950/25 dark:text-slate-200 dark:hover:bg-slate-950/35 ${tableTheme.actionHover}`}
                         onClick={() => openEdit(u)}
                         aria-label={`View user ${u.id}`}
                         title="View"
@@ -536,29 +526,62 @@ export default function Page() {
         </div>
           </div>
 
-      <div className="flex items-center justify-between bg-white rounded-3xl border border-slate-200/60 p-4 shadow-sm">
-        <div className="text-sm text-gray-600">
-          Total: <span className="font-semibold text-gray-900">{total}</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200/70 bg-white px-3 py-2 shadow-sm">
+        <div className="text-[13px] text-slate-600">
+          {total === 0 ? (
+            "No users"
+          ) : (
+            <>
+              Showing{" "}
+              <span className="font-semibold text-slate-900 tabular-nums">
+                {(page - 1) * perPage + 1}
+                {"-"}
+                {Math.min(page * perPage, total)}
+              </span>{" "}
+              of <span className="font-semibold text-slate-900 tabular-nums">{total}</span>
+            </>
+          )}
         </div>
-            <div className="flex items-center gap-2">
-          <button 
-            className="p-2 border border-slate-200 rounded-2xl hover:border-[#02665e]/40 hover:text-[#02665e] transition-all duration-200 active:scale-[0.99] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
-            onClick={()=>setPage(p=>Math.max(1,p-1))} 
-            disabled={page<=1 || loading}
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-[13px] text-slate-600">
+            <span className="hidden sm:inline">Rows</span>
+            <select
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value));
+                setPage(1);
+              }}
+              className="box-border h-8 rounded-lg border border-solid border-slate-300 bg-white px-2 text-[13px] text-slate-700 outline-none focus:border-[#02665e]"
+              aria-label="Rows per page"
+            >
+              {[25, 50, 100, 200].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-600 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1 || loading}
             aria-label="Previous page"
           >
-            <ChevronLeft className="h-5 w-5" />
+            <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="text-sm text-gray-600">
-            Page <span className="font-semibold text-gray-900">{page}</span>
+          <div className="text-[13px] text-slate-600 tabular-nums">
+            Page <span className="font-semibold text-slate-900">{page}</span> of{" "}
+            <span className="font-semibold text-slate-900">{Math.max(1, Math.ceil(total / perPage))}</span>
           </div>
-          <button 
-            className="p-2 border border-slate-200 rounded-2xl hover:border-[#02665e]/40 hover:text-[#02665e] transition-all duration-200 active:scale-[0.99] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
-            onClick={()=>setPage(p=>p+1)} 
-            disabled={page*perPage >= total || loading}
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-600 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page * perPage >= total || loading}
             aria-label="Next page"
           >
-            <ChevronRight className="h-5 w-5" />
+            <ChevronRight className="h-4 w-4" />
           </button>
         </div>
       </div>

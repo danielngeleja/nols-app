@@ -69,7 +69,9 @@ export function registerFxRoutes(app: Express): void {
 }
 
 export function registerChatbotRoute(app: Express): void {
-  app.use("/api/chatbot", chatbotRouter as RequestHandler);
+  // maybeAuth so a signed-in visitor's conversation is linked to their account
+  // and can be authorised by user id. Anonymous visitors still pass through.
+  app.use("/api/chatbot", maybeAuth as RequestHandler, chatbotRouter as RequestHandler);
 }
 
 export function registerReportSealRoute(app: Express): void {

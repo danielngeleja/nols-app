@@ -183,6 +183,8 @@
     "20260907090000_add_room_type_staff_rate_floor": "cda08c61fdd24ec910b8646c57e9d164cdb5ad44ec2c69d8e2b1efd7b0007846",
     "20260910103000_add_nrms_inquiry_sales_workflow": "7f567569fb9b939e0f843cde1447debbb65d28bc0447e3a080dcd123e81fa32f",
     "20260914120000_add_nrms_booking_key": "b328e2a66f1e1b034e07835083c3573f18a894fa4d48c946a48f9fba5d3ad7e1",
-    "20260914130000_add_agent_public_key": "d28eb15f1452381009b7ebca3f8f40ac40930b7f1a0eb480f7e566d577e33c65"
+    "20260914130000_add_agent_public_key": "d28eb15f1452381009b7ebca3f8f40ac40930b7f1a0eb480f7e566d577e33c65",
+    "20260916090000_add_twiga_support_handoff": "5cebb0a9fa853760e6448d9e308b3bd98371f39c99ec97349bcbebe3a1b89c16",
+    "20260916150000_add_twiga_read_receipts": "79ddcaab8267bc10db6e5a95ce3a809510c35fbca6b62fea76848aa341be209d"
   }
 }

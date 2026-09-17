@@ -3364,11 +3364,31 @@ model ChatbotConversation {
   id            Int       @id @default(autoincrement())
   userId        Int? // Optional: user ID if authenticated
   sessionId     String    @unique @db.VarChar(100) // Unique session identifier for anonymous users
-  language      String    @default("en") @db.VarChar(10) // Language code: en, es, fr, pt, ar, zh
+  language      String    @default("en") @db.VarChar(10) // Language code: en, sw, es, fr, pt, ar, zh
   needsFollowUp Boolean   @default(false) // Track if conversation needs agent follow-up
   followUpNotes String?   @db.Text // Notes for agents about the conversation
   followedUpAt  DateTime? // When an agent followed up
   followedUpBy  Int? // Agent/admin user ID who followed up
+
+  /// Where the conversation sits between Twiga and a human.
+  /// BOT, AWAITING_AGENT, AGENT_ACTIVE, RESOLVED.
+  status        String    @default("BOT") @db.VarChar(20)
+  /// Admin handling the thread. Deliberately a plain id rather than a relation:
+  /// these two tables carry no foreign keys at all (see the migration that
+  /// created them), and an assignee pointing at a removed admin should read as
+  /// unassigned rather than block the row.
+  assignedToId  Int?
+  /// Why it left the bot, for triage. Short and set by the server, never by the visitor.
+  handoffReason String?   @db.VarChar(160)
+  handoffAt     DateTime?
+  resolvedAt    DateTime?
+  /// Read receipts. When an admin last opened the thread: visitor messages
+  /// older than this show two blue ticks in the widget.
+  agentLastReadAt   DateTime?
+  /// When the visitor last had the chat open and visible: agent replies older
+  /// than this show as seen in the admin console.
+  visitorLastReadAt DateTime?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -3381,7 +3401,40 @@ model ChatbotConversation {
   @@index([language])
   @@index([createdAt])
   @@index([needsFollowUp])
+  @@index([status])
+  @@index([assignedToId])
   @@map("chatbot_conversations")
+}
+
+// =========================================================
+//  NEWSLETTER SUBSCRIBER - public footer signups (double opt-in)
+// =========================================================
+/// One row per email. A signup starts PENDING and becomes SUBSCRIBED only after
+/// the owner of the address clicks the confirmation link, so nobody can sign up
+/// someone else's inbox. Unsubscribing keeps the row (status UNSUBSCRIBED) so the
+/// choice is remembered and never silently reversed.
+model NewsletterSubscriber {
+  id                     Int       @id @default(autoincrement())
+  /// Lower-cased and trimmed before storage.
+  email                  String    @unique @db.VarChar(254)
+  /// PENDING | SUBSCRIBED | UNSUBSCRIBED
+  status                 String    @default("PENDING") @db.VarChar(20)
+  /// Where the signup came from, e.g. "footer".
+  source                 String    @default("footer") @db.VarChar(40)
+  /// SHA-256 of the single-use confirmation token; the raw token only exists in the email.
+  confirmTokenHash       String?   @unique @db.Char(64)
+  confirmTokenExpiresAt  DateTime?
+  /// Long-lived token for one-click unsubscribe links in every newsletter.
+  unsubscribeToken       String    @unique @db.Char(64)
+  lastConfirmationSentAt DateTime?
+  confirmedAt            DateTime?
+  unsubscribedAt         DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("newsletter_subscribers")
 }
 
 // =========================================================
@@ -3390,9 +3443,12 @@ model ChatbotConversation {
 model ChatbotMessage {
   id             Int      @id @default(autoincrement())
   conversationId Int
-  role           String   @db.VarChar(20) // "user" | "assistant"
+  role           String   @db.VarChar(20) // "user" | "assistant" | "agent"
   content        String   @db.Text
   language       String   @default("en") @db.VarChar(10) // Language code at time of message
+  /// Set only when role is "agent": the admin who wrote the reply, so a thread
+  /// shows who answered. Null for bot and visitor messages.
+  authorId       Int?
   createdAt      DateTime @default(now())
 
   // Relations
@@ -3402,6 +3458,7 @@ model ChatbotMessage {
   @@index([role])
   @@index([createdAt])
   @@index([conversationId, createdAt])
+  @@index([authorId])
   @@map("chatbot_messages")
 }
 

@@ -1,6 +1,7 @@
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { storedReferralCodesFor } from "../lib/referralCode.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("DRIVER") as unknown as RequestHandler);
@@ -33,7 +34,9 @@ router.get("/", async (req, res) => {
         where: {
           OR: [
             { referredBy: Number(driverId) },
-            { referralCode: { contains: String(driverId).slice(-6) } },
+            // Exact codes only. The old `contains` on the last digits of the id also
+            // matched other people's codes (driver 2 matched CUSTOMER-12, DRIVER-20...).
+            { referralCode: { in: storedReferralCodesFor("DRIVER", Number(driverId)) } },
           ],
         },
         select: {

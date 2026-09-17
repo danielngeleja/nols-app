@@ -30,6 +30,22 @@ import { accountMfaRouter, beginAccountMfaChallenge } from './auth.accountMfa.js
 import { requiresAccountTotp } from '../lib/accountMfaPolicy.js';
 import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
 import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
+import { referralCandidates, type ReferralKind } from '../lib/referralCode.js';
+
+/**
+ * Who a referral code belongs to. A driver code only credits an actual driver;
+ * a customer code credits any existing account (the same rules as the old
+ * CUSTOMER-<id> / DRIVER-<id> parser this replaced).
+ */
+async function resolveReferrer(code: string): Promise<{ id: number; kind: ReferralKind } | null> {
+  for (const candidate of referralCandidates(code)) {
+    const referrer = await prisma.user.findUnique({ where: { id: candidate.id }, select: { id: true, role: true } });
+    if (!referrer) continue;
+    if (candidate.kind === 'DRIVER' && String(referrer.role || '').toUpperCase() !== 'DRIVER') continue;
+    return { id: referrer.id, kind: candidate.kind };
+  }
+  return null;
+}
 
 const router = Router();
 router.use(accountMfaRouter);
@@ -1651,24 +1667,11 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
     let referrerKind: 'DRIVER' | 'CUSTOMER' | null = null;
     if (referralCode) {
       try {
-        // Driver referral code format: DRIVER-XXXXXX
-        const driverMatch = String(referralCode).match(/^DRIVER-(\d+)$/i);
-        // Customer (invite friends) referral code format: CUSTOMER-XXXXXX
-        const customerMatch = String(referralCode).match(/^CUSTOMER-(\d+)$/i);
-        if (driverMatch) {
-          const candidateId = parseInt(driverMatch[1], 10);
-          const driver = await prisma.user.findUnique({ where: { id: candidateId, role: 'DRIVER' } as any });
-          if (driver) {
-            referredBy = candidateId;
-            referrerKind = 'DRIVER';
-          }
-        } else if (customerMatch) {
-          const candidateId = parseInt(customerMatch[1], 10);
-          const referrer = await prisma.user.findUnique({ where: { id: candidateId }, select: { id: true } });
-          if (referrer) {
-            referredBy = candidateId;
-            referrerKind = 'CUSTOMER';
-          }
+        // Opaque codes (C7K2M-9QX) and legacy CUSTOMER-<id> / DRIVER-<id> links both resolve here.
+        const resolved = await resolveReferrer(String(referralCode));
+        if (resolved) {
+          referredBy = resolved.id;
+          referrerKind = resolved.kind;
         }
       } catch (e) {
         console.warn('Failed to process referral code', referralCode, e);
@@ -1937,24 +1940,11 @@ router.post('/profile', requireAuth, blockImpersonated, upload.none(), async (re
     let referrerKind: 'DRIVER' | 'CUSTOMER' | null = null;
     if (referralCode) {
       try {
-        // Driver referral code format: DRIVER-XXXXXX
-        const driverMatch = String(referralCode).match(/^DRIVER-(\d+)$/i);
-        // Customer (invite friends) referral code format: CUSTOMER-XXXXXX
-        const customerMatch = String(referralCode).match(/^CUSTOMER-(\d+)$/i);
-        if (driverMatch) {
-          const candidateId = parseInt(driverMatch[1], 10);
-          const driver = await prisma.user.findUnique({ where: { id: candidateId, role: 'DRIVER' } as any });
-          if (driver) {
-            referredBy = candidateId;
-            referrerKind = 'DRIVER';
-          }
-        } else if (customerMatch) {
-          const candidateId = parseInt(customerMatch[1], 10);
-          const referrer = await prisma.user.findUnique({ where: { id: candidateId }, select: { id: true } });
-          if (referrer) {
-            referredBy = candidateId;
-            referrerKind = 'CUSTOMER';
-          }
+        // Opaque codes (C7K2M-9QX) and legacy CUSTOMER-<id> / DRIVER-<id> links both resolve here.
+        const resolved = await resolveReferrer(String(referralCode));
+        if (resolved) {
+          referredBy = resolved.id;
+          referrerKind = resolved.kind;
         }
       } catch (e) {
         console.warn('Failed to process referral code', referralCode, e);

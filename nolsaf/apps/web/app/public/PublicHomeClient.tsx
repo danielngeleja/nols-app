@@ -13,22 +13,25 @@ import {
   Car,
   Users,
   CreditCard,
-  LifeBuoy,
+  Calculator,
+  Compass,
+  KeyRound,
+  ShieldCheck,
+  Smartphone,
   BedDouble,
   Search,
   CalendarDays,
   MapPin,
+  Megaphone,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, FormEvent, useMemo } from "react";
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import AttentionBlink from '../../components/AttentionBlink';
-import CountryCard from '../../components/CountryCard';
 import BookingFlowCard from '../../components/BookingFlowCard';
 import FounderStory from '../../components/FounderStory';
 import LatestUpdate from '../../components/LatestUpdate';
 import PodcastSection from '../../components/PodcastSection';
-import TrustedBySection from '../../components/TrustedBySection';
 import ScrollReveal from '../../components/ScrollReveal';
 import TravelRolesConnected from '../../components/home/TravelRolesConnected';
 import DatePicker from '../../components/ui/DatePicker';
@@ -37,26 +40,12 @@ type TrustPartnerBrand = { name: string; logoUrl?: string; href?: string };
 
 const DESTINATION_IMAGES: Record<string, { src: string; position: string }> = {
   "Dar es Salaam": { src: "/assets/five_star.jpg", position: "center 58%" },
-  Nairobi: { src: "/assets/Apartments.jpg", position: "center" },
+  Kilimanjaro: { src: "/assets/Apartments.jpg", position: "center" },
   Zanzibar: { src: "/assets/villa.jpg", position: "center 62%" },
   Arusha: { src: "/assets/Toursite.jpeg", position: "center" },
   Mwanza: { src: "/assets/hotel.jpg", position: "center 68%" },
   Dodoma: { src: "/assets/Bungalow.jpg", position: "center" },
 };
-
-function TrustedBySectionWithData({
-  brands,
-  loading,
-}: {
-  brands: TrustPartnerBrand[];
-  loading: boolean;
-}) {
-  // Admin fully controls this section. If no partners are configured (or API fails), hide the section.
-  if (!loading && brands.length === 0) return null;
-  if (brands.length === 0) return null;
-
-  return <TrustedBySection brands={brands} hideTitle className={loading ? "opacity-90" : ""} />;
-}
 
 function _SectionHeading({
   title,
@@ -321,6 +310,26 @@ export default function Page() {
   const [trustBrands, setTrustBrands] = useState<TrustPartnerBrand[]>([]);
   const [trustBrandsLoading, setTrustBrandsLoading] = useState(true);
 
+  // Newest updates, listed inside the expanded "Latest updates" band on large screens.
+  const [latestUpdatePreviews, setLatestUpdatePreviews] = useState<{ id: string; title: string; createdAt: string }[]>([]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia("(min-width: 1024px)").matches) return;
+    const controller = new AbortController();
+    fetch("/api/public/updates", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setLatestUpdatePreviews(
+          items
+            .filter((u: any) => u?.title)
+            .slice(0, 3)
+            .map((u: any) => ({ id: String(u.id ?? u.title), title: String(u.title), createdAt: String(u.createdAt || "") }))
+        );
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const FEATURED_DESTINATIONS = useMemo(
     () =>
       [
@@ -330,11 +339,12 @@ export default function Page() {
           tagline: "Coastal city stays, business travel, and quick getaways.",
           filterParam: "region",
         },
+        // Tanzania only while it is our live market (Nairobi was here; re-add Kenya when we launch there).
         {
-          city: "Nairobi",
-          country: "Kenya",
-          tagline: "Major hub for safaris, conferences, and city breaks.",
-          filterParam: "city",
+          city: "Kilimanjaro",
+          country: "Tanzania",
+          tagline: "Moshi stays and mountain lodges near the peak.",
+          filterParam: "region",
         },
         {
           city: "Zanzibar",
@@ -754,26 +764,6 @@ export default function Page() {
   }, []);
 
   // Countries list: stable order (no auto-rotation)
-  const countryList = useMemo(
-    () => [
-      {
-        id: 'tanzania',
-        name: 'Tanzania',
-        flag: '🇹🇿',
-        subtitle: 'Safaris, parks & islands',
-        blurb: 'From Serengeti to Zanzibar find stays near major attractions, coordinate transport, and book securely with clear terms.',
-        href: '/public/countries/tanzania',
-        accentClass: 'from-sky-100/75 via-white/70 to-emerald-100/55',
-        stats: { cities: 12, regions: 31, listings: 1250, payments: ['M-Pesa', 'Airtel Money', 'Halopesa', 'Mixx by Yas', 'Visa'] },
-      },
-      // Kenya and Uganda removed — Tanzania is our only current coverage.
-      // Re-add here (and in countries/[country]/page.tsx) when we expand.
-    ],
-    []
-  );
-
-  const orderedCountries = countryList;
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Layout edge markers (left/right) to indicate content boundaries */}
@@ -1482,16 +1472,11 @@ export default function Page() {
         </div>
       </div>
 
-      <section id="public-audience" className="relative py-14 sm:py-18 lg:py-24 overflow-hidden">
-        {/* Premium section background */}
+      <section id="public-audience" className="relative py-10 sm:py-12 lg:py-14 overflow-hidden">
+        {/* Section background: soft brand tint only */}
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,#f0fdf8 0%,#ffffff 55%,#f0fdf4 100%)' }} />
-        {/* Ambient color blooms matching the cards beneath */}
         <div aria-hidden className="pointer-events-none absolute -top-32 -left-24 w-[500px] h-[500px] rounded-full opacity-[0.07] blur-[100px]"
           style={{ background: 'radial-gradient(circle, #10b981, transparent 70%)' }} />
-        <div aria-hidden className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[440px] h-[380px] rounded-full opacity-[0.05] blur-[110px]"
-          style={{ background: 'radial-gradient(circle, #38bdf8, transparent 70%)' }} />
-        <div aria-hidden className="pointer-events-none absolute -top-28 -right-20 w-[480px] h-[480px] rounded-full opacity-[0.06] blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #a78bfa, transparent 70%)' }} />
         {/* Subtle dot grid */}
         <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.018]"
           style={{ backgroundImage: 'radial-gradient(circle, #64748b 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
@@ -1501,51 +1486,41 @@ export default function Page() {
 
         <div className="public-container relative z-10">
 
-          <motion.div
-            className="mb-12 flex flex-col items-center text-center"
-            transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
-          >
-            <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-semibold tracking-[0.12em] uppercase shadow-sm ring-1 bg-gradient-to-r from-emerald-50 via-white to-sky-50 ring-slate-200/80 text-slate-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-emerald-400 to-sky-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]" aria-hidden />
-              Who It&apos;s For
-            </div>
-
-            <h2 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-none">
-              <span className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-transparent">Built&nbsp;</span>
-              <span style={{ color: '#02665e' }}>for&nbsp;you</span>
-            </h2>
-
-            <div className="mt-5 flex items-center gap-3 w-full max-w-xs" aria-hidden>
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent to-slate-200" />
-              <span className="w-2 h-2 rounded-full bg-gradient-to-br from-emerald-400 to-sky-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
-              <div className="flex-1 h-px bg-gradient-to-l from-transparent to-slate-200" />
-            </div>
-
-            <p className="mt-4 text-sm sm:text-base leading-relaxed max-w-[62ch] text-slate-500">
-              NoLSAF connects travellers, drivers, property owners, and tour operators {" "}
-              <span className="text-slate-700 font-medium">so every booking can move clearly from search to service delivery.</span>
+          {/* Compact header: same scale as the other homepage sections */}
+          <div className="mb-6 flex flex-col items-center text-center sm:mb-8">
+            <p className="m-0 inline-flex items-center rounded-md bg-[#02665e]/[0.08] px-2 py-1 text-[11px] font-semibold text-[#02665e]">
+              Who it&apos;s for
             </p>
-          </motion.div>
+            <h2 className="m-0 mt-3 text-[22px] font-bold leading-snug tracking-tight text-slate-900 sm:text-[26px] lg:text-[30px]">
+              Built for <span className="text-[#02665e]">everyone in the trip</span>
+            </h2>
+            <p className="m-0 mt-2 max-w-[52ch] text-[14px] leading-relaxed text-slate-500">
+              Travellers, drivers, property owners and tour operators, connected in one booking.
+            </p>
+          </div>
 
           <div className="mb-6 sm:mb-8">
             <TravelRolesConnected />
           </div>
 
           {/* ── Explore heading — left-aligned editorial ── */}
-          <ScrollReveal direction="up" className="relative z-10 mt-14 sm:mt-16">
-            {/* Gradient top accent */}
-            <div className="h-[3px] w-16 rounded-full bg-gradient-to-r from-[#02b4f5] to-[#02665e] mb-6" aria-hidden />
-
-            <p className="text-[11px] font-semibold tracking-[0.14em] uppercase text-slate-400 mb-3">Property Types</p>
-
-            <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold tracking-tight leading-[1.1] text-slate-900">
-              Explore <span className="text-[#02665e]">stays</span>
-            </h2>
-
-            <p className="mt-3 max-w-[52ch] text-sm sm:text-[15px] leading-relaxed text-slate-500">
-              Browse by property type, compare verified options, and{" "}
-              <span className="font-medium text-slate-700">move from discovery to booking in minutes.</span>
-            </p>
+          <ScrollReveal direction="up" className="relative z-10 mt-10 sm:mt-12">
+            {/* Compact header: label, title and one line on the left, the next step on the right */}
+            <div className="border-0 border-b border-solid border-slate-200/80 pb-3">
+              <div className="flex items-baseline justify-between gap-4">
+                <h2 className="m-0 text-[20px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[24px]">
+                  Explore stays
+                </h2>
+                <Link
+                  href="/public/properties"
+                  className="group inline-flex shrink-0 items-center gap-0.5 text-[13.5px] font-semibold text-[#02665e] no-underline hover:no-underline"
+                >
+                  See all
+                  <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                </Link>
+              </div>
+              <p className="m-0 mt-1 text-[13.5px] text-slate-500">Verified places to stay, by type</p>
+            </div>
           </ScrollReveal>
 
           {/* ── Property type cards — bespoke premium grid ── */}
@@ -1646,29 +1621,55 @@ export default function Page() {
           </div>
 
           {/* ── Featured Destinations ── */}
-          <motion.div
-            className="relative mt-14 flex flex-col gap-6 sm:mt-16 sm:flex-row sm:items-end sm:justify-between"
-            transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
-          >
-            <div>
-              <div className="mb-5 h-1 w-12 rounded-full bg-[#087f69]" aria-hidden />
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Explore East Africa</p>
-              <h2 className="text-3xl font-extrabold leading-[1.08] tracking-[-0.035em] text-slate-950 sm:text-4xl lg:text-[2.75rem]">
-                Featured destinations
-              </h2>
-              <p className="mt-3 max-w-[58ch] text-sm leading-relaxed text-slate-500 sm:text-[15px]">
-                Explore verified stays across East Africa&apos;s leading travel cities.
-              </p>
-            </div>
+          {/* Header row: title on the left; slide arrows and See all together on the right */}
+          <div className="relative mt-10 border-0 border-b border-solid border-slate-200/80 pb-3 sm:mt-12">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="m-0 text-[20px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[24px]">
+                  Popular destinations
+                </h2>
+                <p className="m-0 mt-1 text-[13.5px] text-slate-500">
+                  Top places to stay in Tanzania
+                  {featuredDestinationSlides.length > 1 && (
+                    <span className="text-slate-400" aria-live="polite">
+                      {" · "}
+                      {featuredSlide + 1} of {featuredDestinationSlides.length}
+                    </span>
+                  )}
+                </p>
+              </div>
 
-            <Link
-              href="/public/properties?page=1"
-              className="group/all inline-flex w-fit items-center gap-2 rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 no-underline shadow-sm transition-[color,border-color,box-shadow] duration-300 hover:border-slate-300 hover:text-[#087f69] hover:no-underline hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f69]/40 focus-visible:ring-offset-4"
-            >
-              View all stays
-              <ChevronRight className="h-4 w-4 transition-transform duration-300 group-hover/all:translate-x-1" aria-hidden />
-            </Link>
-          </motion.div>
+              <div className="flex shrink-0 items-center gap-2">
+                {featuredDestinationSlides.length > 1 && (
+                  <div className="hidden items-center gap-1 sm:flex">
+                    <button
+                      type="button"
+                      onClick={() => setFeaturedSlide((s) => (s - 1 + featuredDestinationSlides.length) % featuredDestinationSlides.length)}
+                      aria-label="Previous destinations"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-600 transition hover:border-[#02665e]/40 hover:text-[#02665e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                    >
+                      <ChevronRight className="h-4 w-4 rotate-180" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFeaturedSlide((s) => (s + 1) % featuredDestinationSlides.length)}
+                      aria-label="Next destinations"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-600 transition hover:border-[#02665e]/40 hover:text-[#02665e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+                )}
+                <Link
+                  href="/public/properties?page=1"
+                  className="group/all inline-flex items-center gap-0.5 text-[13.5px] font-semibold text-[#02665e] no-underline hover:no-underline"
+                >
+                  See all
+                  <ChevronRight className="h-4 w-4 transition-transform group-hover/all:translate-x-0.5" aria-hidden />
+                </Link>
+              </div>
+            </div>
+          </div>
 
             <div
               className="mt-7"
@@ -1697,39 +1698,31 @@ export default function Page() {
                       <Link
                         key={`${d.city}-${idx}`}
                         href={href}
-                        aria-label={`Browse stays in ${d.city}`}
-                        className="group/card relative block min-h-[220px] overflow-hidden rounded-xl bg-slate-200 no-underline shadow-[0_5px_18px_rgba(15,23,42,0.08)] ring-1 ring-slate-950/[0.07] transition-[transform,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f69] focus-visible:ring-offset-4 sm:aspect-[5/3] sm:min-h-0"
+                        aria-label={`Browse stays in ${d.city}${typeof total === "number" && total > 0 ? `, ${total} stays` : ""}`}
+                        className="group/card relative block min-h-[170px] overflow-hidden rounded-xl bg-[#02665e] no-underline shadow-[0_5px_18px_rgba(15,23,42,0.08)] transition-[transform,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:no-underline hover:shadow-[0_12px_28px_rgba(15,23,42,0.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e] focus-visible:ring-offset-4 sm:aspect-[16/10] sm:min-h-0"
                       >
                         <NextImage
                           src={image.src}
                           alt=""
                           fill
                           sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                          className="object-cover saturate-[0.94] transition-[transform,filter] duration-700 ease-out group-hover/card:scale-[1.03] group-hover/card:saturate-100"
+                          className="object-cover transition-transform duration-700 ease-out group-hover/card:scale-[1.03]"
                           style={{ objectPosition: image.position }}
                         />
-                        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/5 to-black/75" />
+                        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/70" />
 
-                        <div className="absolute inset-0 z-10 flex flex-col p-4 sm:p-5">
-                          <div className="flex items-start justify-between gap-3">
-                            <span className="inline-flex min-h-7 items-center rounded border border-white/40 bg-white/90 px-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-800 shadow-sm backdrop-blur-md">
-                              {d.country}
-                            </span>
-
-                            <span className="inline-flex min-h-7 items-center gap-1.5 text-[11px] font-semibold text-white drop-shadow-md">
-                              {featuredCitiesLoading ? (
-                                <span className="inline-block h-2.5 w-8 animate-pulse rounded-sm bg-white/30" aria-hidden />
-                              ) : (
-                                <span className="tabular-nums font-bold">{typeof total === "number" ? total.toLocaleString() : "—"}</span>
-                              )}
-                              <span className="text-white/85">stays</span>
-                            </span>
+                        <div className="absolute inset-0 z-10 flex flex-col p-3.5 sm:p-4">
+                          <div className="flex justify-end">
+                            {featuredCitiesLoading ? (
+                              <span className="inline-block h-5 w-12 animate-pulse rounded bg-white/30" aria-hidden />
+                            ) : typeof total === "number" && total > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded bg-white/95 px-1.5 py-0.5 text-[11px] font-semibold text-[#02665e] shadow-sm">
+                                <span className="tabular-nums">{total.toLocaleString()}</span> {total === 1 ? "stay" : "stays"}
+                              </span>
+                            ) : null}
                           </div>
-
                           <div className="mt-auto flex items-end justify-between gap-3">
-                            <h3 className="text-[24px] font-extrabold leading-none tracking-[-0.03em] text-white drop-shadow-sm sm:text-[26px]">
-                              {d.city}
-                            </h3>
+                            <h3 className="m-0 text-[20px] font-bold leading-none tracking-tight text-white drop-shadow-sm sm:text-[22px]">{d.city}</h3>
                             <ChevronRight className="mb-0.5 h-4 w-4 flex-none text-white/80 transition-transform duration-300 group-hover/card:translate-x-0.5" aria-hidden />
                           </div>
                         </div>
@@ -1760,347 +1753,334 @@ export default function Page() {
               )}
             </div>
 
-          <ScrollReveal direction="up" distance={28} className="mt-10">
-            <div className="relative overflow-hidden rounded-2xl bg-[#090c12] ring-1 ring-white/12 shadow-[0_20px_60px_rgba(2,6,23,0.24)]">
-              <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-[#02665e]" />
-              <div
-                aria-hidden
-                className="absolute inset-0 opacity-[0.18]"
-                style={{
-                  backgroundImage:
-                    "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.22) 1px, transparent 0)",
-                  backgroundSize: "7px 7px",
-                }}
-              />
-              <div
-                aria-hidden
-                className="absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(circle at 12% 56%, rgba(2,102,94,0.34), transparent 30%), radial-gradient(circle at 88% 56%, rgba(2,102,94,0.28), transparent 32%), linear-gradient(180deg, rgba(9,12,18,0.12), rgba(9,12,18,0.88) 78%)",
-                }}
-              />
-              <div
-                aria-hidden
-                className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#090c12] via-[#090c12]/88 to-transparent"
-              />
-              <div className="relative p-5 sm:p-6 lg:p-8">
-                <div className="mx-auto max-w-7xl text-center">
-                  <div className="mx-auto max-w-[680px] pt-2 sm:pt-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
-                      Trust Infrastructure
-                    </p>
-                    <h2 className="mx-auto mt-[16px] text-[36px] font-black leading-none tracking-[-0.035em] text-white drop-shadow-[0_14px_32px_rgba(0,0,0,0.45)] sm:whitespace-nowrap sm:text-[44px] lg:text-[50px]">
-                      Protected travel flow
-                    </h2>
-                    <p className="mx-auto mt-[16px] max-w-[48ch] text-[15px] font-medium leading-[1.65] text-white/80">
-                      Verified stays, tour operators, transport, payments, confirmation codes, and support are linked into one accountable travel trail from search to arrival.
-                    </p>
-                  </div>
+          {/* ── Why NoLSAF: compact trust section ── */}
+          <ScrollReveal direction="up" distance={24} className="mt-10">
+            <section
+              aria-labelledby="why-nolsaf-heading"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white shadow-[0_18px_44px_-20px_rgba(0,0,0,0.75)] ring-1 ring-inset ring-white/[0.06] lg:rounded-[20px]"
+              style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
+            >
+              <div aria-hidden className="pointer-events-none absolute inset-0">
+                <div className="absolute inset-0" style={{ background: "radial-gradient(520px circle at 100% 0%, rgba(2,102,94,0.28), transparent 60%), radial-gradient(360px circle at 0% 100%, rgba(52,211,153,0.07), transparent 60%)" }} />
+                <div aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(52,211,153,0.45), transparent)" }} />
+                <div
+                  className="absolute inset-0 opacity-[0.14]"
+                  style={{
+                    backgroundImage: "radial-gradient(rgba(255,255,255,0.55) 1px, transparent 1px)",
+                    backgroundSize: "18px 18px",
+                    WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 65%)",
+                    maskImage: "linear-gradient(90deg, transparent 0%, #000 65%)",
+                  }}
+                />
+              </div>
 
-                  <div className="relative mx-auto my-6 flex h-32 w-32 items-center justify-center sm:my-7 sm:h-36 sm:w-36">
-                    <div aria-hidden className="absolute inset-0 rounded-full bg-[#02665e]/18 blur-3xl" />
-                    <svg viewBox="0 0 220 240" className="relative h-full w-full drop-shadow-[0_26px_34px_rgba(0,0,0,0.34)]" role="img" aria-label="NoLSAF trust shield">
-                      <path d="M110 12 198 48v74c0 58-38 92-88 112-50-20-88-54-88-112V48L110 12Z" fill="rgba(255,255,255,0.055)" stroke="rgba(2,102,94,0.92)" strokeWidth="2" />
-                      <path d="M110 24 186 55v65c0 48-31 78-76 97-45-19-76-49-76-97V55l76-31Z" fill="rgba(255,255,255,0.045)" stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
-                      <text x="110" y="125" textAnchor="middle" fill="rgba(255,255,255,0.68)" fontSize="28" fontWeight="800" letterSpacing="1">
-                        NoLSAF
-                      </text>
-                      <text x="110" y="151" textAnchor="middle" fill="rgba(255,255,255,0.40)" fontSize="10" fontWeight="700" letterSpacing="3">
-                        VERIFIED FLOW
-                      </text>
-                    </svg>
-                  </div>
-
-                  <div className="w-full overflow-visible">
-                    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-2.5 overflow-visible sm:grid-cols-2 lg:grid-cols-5">
-                      {[
-                        { title: "Verified stays", desc: "Checked properties", Icon: Home, href: "/public/properties?page=1" },
-                        { title: "Tour trail", desc: "Timeline supported", Icon: Users, href: "/public/tour-packages" },
-                        { title: "Transport", desc: "Arrival linked", Icon: Car, href: "/public/nolscope" },
-                        { title: "Group stays", desc: "Offer-based booking", Icon: Gavel, href: "/public/group-stays" },
-                        { title: "Estimator", desc: "Planning clarity", Icon: Sparkles, href: "/public/nolscope" },
-                      ].map(({ title, desc, Icon, href }) => (
-                        <Link
-                          key={title}
-                          href={href}
-                          className="group relative flex min-h-[88px] flex-col items-center justify-center overflow-hidden rounded-xl border border-white/13 bg-white/[0.05] px-3 py-3.5 text-center no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_24px_rgba(0,0,0,0.16)] transition-[transform,border-color,background-color,box-shadow] duration-500 ease-out hover:z-10 hover:-translate-y-0.5 hover:border-[#02665e]/55 hover:bg-white/[0.075] hover:no-underline hover:shadow-[0_14px_28px_rgba(0,0,0,0.20)] focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[#02665e]/45"
-                        >
-                          <span className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[#02665e]/70 to-transparent" aria-hidden />
-                          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#02665e]/35 bg-[#02665e]/12 text-white shadow-[0_8px_18px_rgba(2,102,94,0.12)] transition-colors duration-500 group-hover:bg-[#02665e]/20">
-                            <Icon className="h-4 w-4" aria-hidden />
-                          </span>
-                          <span className="mt-2 min-w-0">
-                            <span className="block text-[12px] font-black tracking-tight text-white">{title}</span>
-                            <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-[0.09em] text-white/55">{desc}</span>
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                {/* ── Connected Services heading — left-aligned editorial (dark) ── */}
-                <div className="hidden flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                  <div className="max-w-2xl">
-                  {/* Gradient top accent */}
-                  <div className="mb-5 flex items-center gap-2" aria-hidden>
-                    <span className="h-1 w-10 rounded-full bg-white" />
-                    <span className="h-1 w-5 rounded-full bg-white/45" />
-                    <span className="h-1 w-2 rounded-full bg-white/25" />
-                  </div>
-
-                  <p className="inline-flex rounded-full border border-[#02665e]/35 bg-[#02665e]/16 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-white/75">NoLSAF Advantage</p>
-
-                  <h2 className="mt-4 max-w-[15ch] text-3xl font-black leading-[0.98] tracking-tight text-white sm:text-4xl lg:text-5xl">
-                    Trust that follows the whole trip
+              <div className="relative box-border grid w-full grid-cols-[minmax(0,1fr)] gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-8 lg:p-8">
+                {/* Left: the promise, in one breath */}
+                <div className="min-w-0">
+                  <p className="m-0 inline-flex items-center gap-1.5 rounded-md bg-emerald-300/10 px-2 py-1 text-[11px] font-semibold tracking-[0.04em] text-emerald-200 ring-1 ring-inset ring-emerald-300/20">Why NoLSAF</p>
+                  <h2 id="why-nolsaf-heading" className="m-0 mt-3 text-[21px] font-bold leading-snug tracking-tight sm:text-[24px] lg:text-[26px]">
+                    Protected from search to arrival
                   </h2>
 
-                  <p className="hidden" aria-hidden="true">
-                    An end‑to‑end travel flow {" "}
-                    <span className="font-medium text-white/75">stays, transport, and experiences coordinated around your booking.</span>
-                  </p>
-                  <p className="mt-4 max-w-[58ch] text-sm font-medium leading-relaxed text-white/90 sm:text-[15px]">
-                    NoLSAF connects verified stays, tour operators, transport, payments, confirmation codes, and support so every journey has a clear trail from search to arrival.
-                  </p>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 sm:min-w-[420px]">
+                  <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
                     {[
-                      ["Verified", "Checked services"],
-                      ["Linked", "One booking trail"],
-                      ["Supported", "Help stays close"],
-                    ].map(([label, desc]) => (
-                      <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.065] px-3 py-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                        <p className="text-sm font-black text-white">{label}</p>
-                        <p className="mt-1 text-[11px] leading-snug text-white/70">{desc}</p>
-                      </div>
+                      { Icon: ShieldCheck, text: "Verified listings" },
+                      { Icon: Smartphone, text: "Mobile money, bank & card" },
+                      { Icon: KeyRound, text: "Code on arrival" },
+                    ].map(({ Icon, text }) => (
+                      <li key={text} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-white/[0.06] py-1 pl-1.5 pr-2.5 text-[12px] font-medium text-white/80 ring-1 ring-inset ring-white/10">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-emerald-300/15 text-emerald-300">
+                          <Icon className="h-3 w-3" aria-hidden />
+                        </span>
+                        {text}
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
 
-                <div className="hidden mt-7 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {[
-                    { title: "Verified Stays", desc: "Book checked properties with secure payment and confirmation codes.", label: "Verified properties", Icon: Home, href: "/public/properties?page=1" },
-                    { title: "Tour Packages", desc: "Follow tour arrangements from meetup validation to completed timeline.", label: "Timeline supported", Icon: Users, href: "/public/tour-packages" },
-                    { title: "Transport", desc: "Keep pickup and driver confirmation connected to the booking.", label: "Arrival linked", Icon: Car, href: "/public/nolscope" },
-                    { title: "Group Stays", desc: "Send one group request and compare real owner responses.", label: "Offer-based booking", Icon: Gavel, href: "/public/group-stays" },
-                    { title: "Cost Estimator", desc: "Preview stay, transport, and activity costs before committing.", label: "Planning clarity", Icon: Sparkles, href: "/public/nolscope" },
-                    { title: "Support", desc: "Keep help attached to the booking trail instead of scattered messages.", label: "Booking-aware help", Icon: LifeBuoy, href: "/help" },
-                  ].map(({ title, desc, label, Icon, href }, idx) => (
-                    <motion.div
-                      key={title}
-                      transition={{ duration: 0.38, delay: idx * 0.05, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                    <Link
-                      href={href}
-                        className="group relative flex min-h-[168px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.065] p-4 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_34px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-[#02665e]/55 hover:bg-white/[0.095] hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/45"
-                      >
-                      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-[#02665e]/60" aria-hidden />
-                      <div className="flex items-start justify-between gap-3">
-                          <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#02665e]/35 bg-[#02665e]/15 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]">
+                {/* Right: where to go next, as real links */}
+                <nav aria-label="NoLSAF services" className="min-w-0">
+                  <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] overflow-hidden rounded-xl bg-white/[0.05] p-0 ring-1 ring-inset ring-white/10 sm:grid-cols-2 sm:gap-2 sm:overflow-visible sm:rounded-none sm:bg-transparent sm:ring-0">
+                    {[
+                      { title: "Verified stays", desc: "Checked properties, instant booking code", Icon: Home, href: "/public/properties?page=1" },
+                      { title: "Tour packages", desc: "Trusted operators with a clear itinerary", Icon: Compass, href: "/public/tour-packages" },
+                      { title: "Group stays", desc: "One request, compare real owner offers", Icon: Users, href: "/public/group-stays" },
+                      { title: "Transport", desc: "Pickup linked to your booking", Icon: Car, href: "/account/rides" },
+                      { title: "Cost estimator", desc: "See trip costs before you commit", Icon: Calculator, href: "/public/nolscope", wide: true },
+                    ].map(({ title, desc, Icon, href, wide }) => (
+                      <li key={title} className={`min-w-0 border-0 border-t border-solid border-white/10 first:border-t-0 sm:border-t-0 ${wide ? "sm:col-span-2" : ""}`}>
+                        <Link
+                          href={href}
+                          className="group box-border flex h-full min-w-0 items-center gap-3 px-3 py-3 no-underline transition active:bg-white/[0.06] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-300/50 sm:rounded-xl sm:bg-white/[0.045] sm:ring-1 sm:ring-inset sm:ring-white/[0.08] sm:hover:bg-white/[0.08] sm:hover:ring-emerald-300/30"
+                        >
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#02665e] shadow-[0_6px_14px_-8px_rgba(0,0,0,0.6)]">
                             <Icon className="h-[18px] w-[18px]" aria-hidden />
                           </span>
-                          <span className="rounded-full bg-white/[0.07] px-2.5 py-1 text-[10px] font-black tracking-[0.16em] text-white/40">
-                            {String(idx + 1).padStart(2, "0")}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[13.5px] font-semibold text-white">{title}</span>
+                            <span className="mt-0.5 block truncate text-[12px] text-white/55 sm:whitespace-normal sm:leading-snug">{desc}</span>
                           </span>
-                        </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white" aria-hidden />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              </div>
+            </section>
+          </ScrollReveal>
+          {/* ── Explore Tanzania: our current coverage, in one compact block ── */}
+          <ScrollReveal direction="up" distance={24} className="mt-10">
+            <section
+              aria-labelledby="explore-tanzania-heading"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white shadow-[0_18px_44px_-20px_rgba(1,40,36,0.7)] lg:rounded-[20px]"
+              style={{ background: "linear-gradient(135deg, #023a35 0%, #02665e 60%, #037a70 100%)" }}
+            >
+              <div aria-hidden className="pointer-events-none absolute inset-0">
+                <div className="absolute inset-0" style={{ background: "radial-gradient(480px circle at 0% 100%, rgba(1,26,24,0.55), transparent 60%)" }} />
+                <div
+                  className="absolute inset-0 opacity-[0.12]"
+                  style={{
+                    backgroundImage: "linear-gradient(rgba(255,255,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.4) 1px, transparent 1px)",
+                    backgroundSize: "28px 28px",
+                    WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 70%)",
+                    maskImage: "linear-gradient(90deg, transparent 0%, #000 70%)",
+                  }}
+                />
+              </div>
 
-                        <div className="mt-4">
-                          <h3 className="text-[16px] font-black tracking-tight text-white">{title}</h3>
-                          <p className="mt-2 text-[13px] leading-relaxed text-white/80">{desc}</p>
-                        </div>
-
-                        <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-                          <span className="rounded-full border border-[#02665e]/30 bg-[#02665e]/12 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-white/70">
-                            {label}
-                          </span>
-                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-white/[0.08] text-white/75 transition-all duration-200 group-hover:translate-x-0.5 group-hover:border-[#02665e]/55 group-hover:bg-[#02665e]/18 group-hover:text-white">
-                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                          </span>
-                        </div>
-                    </Link>
-                    </motion.div>
-                  ))}
+              <div className="relative box-border grid w-full grid-cols-[minmax(0,1fr)] gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-center lg:gap-8 lg:p-8">
+                <div className="min-w-0">
+                  <p className="m-0 inline-flex items-center gap-2 rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/85 ring-1 ring-inset ring-white/15">
+                    {/* Tanzania flag colours */}
+                    <span className="flex h-2 w-6 overflow-hidden rounded-sm" aria-hidden>
+                      <span className="flex-1 bg-[#1eb53a]" />
+                      <span className="flex-1 bg-[#fcd116]" />
+                      <span className="flex-1 bg-black" />
+                      <span className="flex-1 bg-[#00a3dd]" />
+                    </span>
+                    Destination
+                  </p>
+                  <h2 id="explore-tanzania-heading" className="m-0 mt-3 text-[21px] font-bold leading-snug tracking-tight sm:text-[24px] lg:text-[26px]">
+                    Explore Tanzania
+                  </h2>
+                  <p className="m-0 mt-2 max-w-[44ch] text-[13.5px] leading-relaxed text-white/70">
+                    Safaris, parks and islands. Find verified stays near the places you want to see, and arrange transport in the same booking.
+                  </p>
+                  <Link
+                    href="/public/countries/tanzania"
+                    className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-4 text-[13.5px] font-semibold text-[#02665e] no-underline shadow-[0_8px_18px_-10px_rgba(0,0,0,0.6)] transition hover:bg-emerald-50 hover:no-underline"
+                  >
+                    Explore Tanzania
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </Link>
                 </div>
 
+                {/* Popular places: straight into a filtered stay search */}
+                <nav aria-label="Popular places in Tanzania" className="min-w-0">
+                  <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">Popular places</p>
+                  <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0">
+                    {[
+                      { name: "Zanzibar", note: "Beaches & Stone Town" },
+                      { name: "Arusha", note: "Gateway to safaris" },
+                      { name: "Dar es Salaam", note: "City & coast" },
+                      { name: "Kilimanjaro", note: "Moshi & the mountain" },
+                    ].map((place) => (
+                      <li key={place.name} className="min-w-0">
+                        <Link
+                          href={`/public/properties?q=${encodeURIComponent(place.name)}`}
+                          className="group box-border flex h-full min-w-0 items-center gap-2.5 rounded-xl bg-white/[0.08] px-3 py-2.5 no-underline ring-1 ring-inset ring-white/10 transition hover:bg-white/[0.14] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                        >
+                          <MapPin className="h-4 w-4 shrink-0 text-emerald-200" aria-hidden />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13.5px] font-semibold text-white">{place.name}</span>
+                            <span className="block truncate text-[11.5px] text-white/60">{place.note}</span>
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
               </div>
-            </div>
+            </section>
           </ScrollReveal>
-
-          {/* ── Explore Tourism by Country ── */}
-          <ScrollReveal direction="up" className="mt-12 relative overflow-hidden rounded-3xl">
-            {/* Base */}
-            <div aria-hidden className="absolute inset-0 bg-[#02665e]" />
-            {/* Depth and soft brand glow */}
-            <div aria-hidden className="absolute inset-0"
-              style={{ background: "radial-gradient(ellipse at 0% 100%, rgba(1,51,46,0.62) 0%, transparent 58%), radial-gradient(ellipse at 100% 0%, rgba(255,255,255,0.08) 0%, transparent 48%)" }} />
-
-            {/* White graph-paper overlay */}
-            <div aria-hidden className="absolute inset-0 pointer-events-none opacity-[0.3]"
-              style={{
-                backgroundImage:
-                  "linear-gradient(rgba(255,255,255,0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.22) 1px, transparent 1px)",
-                backgroundSize: "22px 22px",
-              }} />
-            <div aria-hidden className="absolute inset-0 pointer-events-none opacity-[0.16]"
-              style={{
-                backgroundImage:
-                  "linear-gradient(rgba(255,255,255,0.34) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.34) 1px, transparent 1px)",
-                backgroundSize: "88px 88px",
-              }} />
-            <div aria-hidden className="absolute inset-0 pointer-events-none"
-              style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 34%, transparent 100%)" }} />
-
-            <div className="relative z-10 px-6 py-8 sm:px-8 sm:py-10">
-              {/* Top rule — bolder, dual-tone */}
-              <div className="flex items-center gap-2 mb-6" aria-hidden>
-                <div className="h-[3px] w-8 rounded-full bg-white/80" />
-                <div className="h-[3px] w-4 rounded-full bg-white/30" />
-                <div className="h-[3px] w-2 rounded-full bg-white/15" />
-              </div>
-
-              <p className="text-[11px] font-bold tracking-[0.18em] uppercase text-white/50 mb-3">Regional Focus</p>
-
-              <h2 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold tracking-tight leading-[1.1]">
-                <span className="text-white">Explore Tourism </span>
-                <span className="text-white/35 font-light">by </span>
-                <span className="text-white">Country</span>
-              </h2>
-
-              <p className="mt-3 max-w-[52ch] text-sm sm:text-[15px] leading-relaxed text-white/55">
-                Choose a country to see major and minor tourist sites{" "}
-                <span className="font-medium text-white/80">then book verified stays and coordinate transport in one flow.</span>
-              </p>
-
-              {/* Country indicators — pill style with flag stripe */}
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                {[
-                  { name: 'Tanzania', colors: ['#1eb53a','#fcd116','#00a3dd','#000000'] },
-                  { name: 'Kenya',    colors: ['#006600','#cc0001','#ffffff','#000000'] },
-                  { name: 'Uganda',   colors: ['#000000','#fcdc04','#da121a'] },
-                ].map(c => (
-                  <div key={c.name} className="flex items-center gap-2.5 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 backdrop-blur-sm">
-                    <div className="flex rounded-full overflow-hidden h-2 w-10 flex-shrink-0">
-                      {c.colors.map((col, i) => (
-                        <div key={i} className="flex-1 h-full" style={{ background: col }} />
-                      ))}
-                    </div>
-                    <span className="text-[11px] font-bold tracking-wide text-white/70">{c.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </ScrollReveal>
-          <div className="mt-6">
-            <div
-              className="grid grid-cols-1 md:grid-cols-3 gap-6"
-              style={{ contain: 'layout style' }}
-            >
-              {orderedCountries.map((c, idx) => (
-                <ScrollReveal key={c.id} direction="up" delay={idx * 0.1} distance={24}>
-                  <CountryCard id={c.id} name={c.name} flag={c.flag} subtitle={c.subtitle} blurb={c.blurb} href={c.href} stats={c.stats} variant="compact" accentClass={c.accentClass} />
-                </ScrollReveal>
-              ))}
-            </div>
-          </div>
-
 
           
 
           {/* Booking flow card: explain booking steps and allow driver options */}
-          <ScrollReveal direction="up" distance={40} className="mt-12">
+          <ScrollReveal direction="up" distance={24} className="mt-10">
             <div id="booking-flow">
               <BookingFlowCard />
             </div>
           </ScrollReveal>
 
-          {/* ── Our story — chapter / memoir heading ── */}
-          <ScrollReveal direction="up" className="mt-12 relative">
-            {/* Faint ruled-paper lines behind the heading */}
-            <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
-              style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(203,213,225,0.35) 27px,rgba(203,213,225,0.35) 28px)', backgroundSize: '100% 28px' }} />
-            <div className="relative z-10 px-1 py-2">
-              {/* Title with italic contrast */}
-              <h2 className="text-[clamp(28px,5vw,56px)] leading-none tracking-tight">
-                <em className="not-italic font-light text-slate-400">Our </em>
-                <span className="font-black text-slate-900" style={{ letterSpacing: '-0.03em' }}>story</span>
-              </h2>
-              {/* Ink-stroke underline */}
-              <div aria-hidden className="mt-2 h-[3px] w-24 rounded-full" style={{ background: 'linear-gradient(90deg,#fb7185,#f43f5e,transparent)' }} />
-              {/* Subtitle as pull-quote */}
-              <p className="mt-4 text-[13px] sm:text-sm text-slate-500 max-w-[55ch] border-l-2 border-rose-200 pl-4 italic">
-                How NoLSAF was built and the standards we hold ourselves to.
-              </p>
-            </div>
-          </ScrollReveal>
           <ScrollReveal direction="up" delay={0.1}>
             <FounderStory />
           </ScrollReveal>
 
-          {/* ── Trusted by — authority / institutional heading ── */}
-          <ScrollReveal direction="left" distance={24} className="mt-14 relative overflow-hidden">
-            <div className="pl-6 py-1">
-              {/* Top row: shield icon + spaced label */}
-              <div className="flex items-center gap-3 mb-2">
-                <svg className="w-4 h-4 text-amber-400 flex-shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden>
-                  <path d="M8 1.5L2 4v4c0 3.31 2.55 6.21 6 6.93C11.45 14.21 14 11.31 14 8V4L8 1.5z" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                  <path d="M5.5 8l1.75 1.75L10.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="text-[10px] font-black tracking-[0.28em] uppercase text-amber-500/80">Verified Partners</span>
-                <span className="h-px flex-1 max-w-[60px] bg-amber-200/50" aria-hidden />
-              </div>
-              {/* Title */}
-              <h2 className="text-[clamp(24px,4.5vw,50px)] leading-tight tracking-tight">
-                <span className="font-black text-slate-900">Trusted </span>
-                <span className="font-light text-slate-400">by</span>
-              </h2>
-              {/* Dotted rule */}
-              <div aria-hidden className="mt-2.5 flex gap-1">
-                {Array.from({length: 16}).map((_,i) => <span key={i} className="w-1.5 h-1.5 rounded-full bg-amber-200/70" />)}
-              </div>
-              {/* Subtitle */}
-              <p className="mt-3 text-[13px] sm:text-sm text-slate-500 max-w-[55ch]">
-                Organizations that trust NoLSAF for reliable bookings and operations.
-              </p>
-            </div>
-          </ScrollReveal>
-          <ScrollReveal direction="up" delay={0.1}>
-            <TrustedBySectionWithData brands={trustBrands} loading={trustBrandsLoading} />
-          </ScrollReveal>
+          {/* ── Trusted by: admin-managed partner logos. Hidden entirely when there are none. ── */}
+          {trustBrands.length > 0 && (
+            <ScrollReveal direction="up" distance={20} className="mt-10">
+              <section
+                aria-labelledby="trusted-by-heading"
+                className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)] lg:rounded-[20px]"
+                style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
+              >
+                <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(420px circle at 0% 0%, rgba(2,102,94,0.3), transparent 60%)" }} />
 
-          {/* ── Latest updates — changelog / terminal heading ── */}
-          <ScrollReveal direction="up" className="mt-14 relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-r from-slate-50 to-emerald-50/40">
-            {/* Scan-line texture */}
-            <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.025]"
-              style={{ backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,1) 0px,rgba(0,0,0,1) 1px,transparent 1px,transparent 3px)' }} />
-            {/* Green accent top bar */}
-            <div aria-hidden className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent" />
-            <div className="relative z-10 px-6 py-6 sm:px-8 flex flex-col sm:flex-row sm:items-center gap-5">
-              <div className="flex-1">
-                {/* Terminal-style label */}
-                <div className="inline-flex items-center gap-2 rounded-md border border-emerald-200/80 bg-emerald-50 px-3 py-1 mb-3">
-                  {/* Pulse dot */}
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                  </span>
-                  <span className="text-[10px] font-mono font-bold tracking-widest text-emerald-700 uppercase">Changelog</span>
+                <div className="relative box-border flex flex-col gap-4 p-4 sm:p-5 md:flex-row md:items-center md:gap-6">
+                  {/* Label */}
+                  <div className="flex shrink-0 items-center gap-3 md:w-[220px]">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-300 ring-1 ring-inset ring-emerald-300/20">
+                      <ShieldCheck className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 id="trusted-by-heading" className="m-0 text-[16px] font-bold leading-tight tracking-tight text-white">
+                        Trusted by
+                      </h2>
+                      <p className="m-0 mt-0.5 text-[12px] text-white/55">
+                        {trustBrands.length} {trustBrands.length === 1 ? "partner" : "partners"} and growing
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Logo strip: scrolls on its own, pauses on hover, sits still for reduced-motion users */}
+                  <div
+                    className="nols-marquee-wrap relative min-w-0 flex-1 overflow-hidden"
+                    style={{
+                      WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)",
+                      maskImage: "linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)",
+                    }}
+                  >
+                    <ul className="nols-marquee m-0 flex w-max list-none p-0">
+                      {[...trustBrands, ...trustBrands, ...(trustBrands.length < 4 ? [...trustBrands, ...trustBrands] : [])].map((brand, index) => {
+                        const duplicate = index >= trustBrands.length;
+                        const chip = (
+                          <span className="box-border flex h-14 w-[148px] items-center justify-center rounded-xl bg-white px-4 shadow-[0_8px_20px_-12px_rgba(0,0,0,0.6)] transition-transform duration-300 hover:-translate-y-0.5">
+                            {brand.logoUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={brand.logoUrl} alt={duplicate ? "" : brand.name} loading="lazy" className="max-h-9 max-w-full object-contain" />
+                            ) : (
+                              <span className="truncate text-[13px] font-semibold text-slate-700">{brand.name}</span>
+                            )}
+                          </span>
+                        );
+                        return (
+                          // Copies exist only to make the loop seamless; hide them from assistive tech.
+                          <li key={`${brand.name}-${index}`} className="shrink-0 pr-3" aria-hidden={duplicate || undefined}>
+                            {brand.href && !duplicate ? (
+                              <a href={brand.href} target="_blank" rel="noopener noreferrer" aria-label={`${brand.name} (opens in a new tab)`} className="block no-underline">
+                                {chip}
+                              </a>
+                            ) : (
+                              chip
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 </div>
-                {/* Title */}
-                <h2 className="text-[clamp(22px,4vw,44px)] leading-tight tracking-tight">
-                  <span className="font-black text-slate-900">Latest </span>
-                  <span className="font-light" style={{ background: 'linear-gradient(100deg,#059669,#10b981)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>updates</span>
-                </h2>
+              </section>
+            </ScrollReveal>
+          )}
+
+          {/* ── Latest updates. Phones: compact bar. Large screens: expanded band with the latest three updates. ── */}
+          <ScrollReveal direction="up" distance={20} className="mt-10">
+            <section
+              aria-labelledby="latest-updates-heading"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white lg:rounded-[20px]"
+              style={{ background: "linear-gradient(135deg, #013d38 0%, #02665e 55%, #037a70 100%)" }}
+            >
+              <div aria-hidden className="pointer-events-none absolute inset-0">
+                <div className="absolute inset-0" style={{ background: "radial-gradient(520px circle at 100% 0%, rgba(255,255,255,0.14), transparent 60%), radial-gradient(420px circle at 0% 100%, rgba(1,26,24,0.45), transparent 60%)" }} />
+                <div
+                  className="absolute inset-0 hidden opacity-[0.14] lg:block"
+                  style={{
+                    backgroundImage: "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
+                    backgroundSize: "18px 18px",
+                    WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 60%)",
+                    maskImage: "linear-gradient(90deg, transparent 0%, #000 60%)",
+                  }}
+                />
+                {/* Large megaphone watermark */}
+                <Megaphone className="absolute -bottom-10 left-[38%] hidden h-48 w-48 -rotate-12 text-white opacity-[0.05] lg:block" />
               </div>
-              {/* Right: version tag */}
-              <div className="flex-shrink-0 font-mono text-right">
-                <div className="text-[10px] text-slate-400 tracking-wider">NOLSAF</div>
-                <div className="text-[11px] font-bold text-emerald-600 tracking-wider">EAST AFRICA</div>
-                <p className="mt-1.5 text-[11px] text-slate-400 max-w-[200px] text-right font-sans">
-                  Verified stays, integrated transport & group travel. Built for every traveller.
-                </p>
+
+              <div className="relative box-border grid grid-cols-[minmax(0,1fr)] gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-10 lg:p-9">
+                {/* Left: what this is */}
+                <div className="flex min-w-0 items-center justify-between gap-4 lg:block">
+                  <div className="flex min-w-0 items-center gap-3 lg:block">
+                    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-inset ring-white/20 lg:h-12 lg:w-12">
+                      <Megaphone className="h-[18px] w-[18px] lg:h-[22px] lg:w-[22px]" aria-hidden />
+                      <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5" aria-hidden>
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300 ring-2 ring-[#02665e]" />
+                      </span>
+                    </span>
+                    <div className="min-w-0 lg:mt-5">
+                      <h2 id="latest-updates-heading" className="m-0 text-[18px] font-bold leading-tight tracking-tight sm:text-[21px] lg:text-[30px]">
+                        Latest updates
+                      </h2>
+                      <p className="m-0 mt-0.5 truncate text-[12.5px] text-white/70 lg:mt-2 lg:whitespace-normal lg:text-[15px] lg:leading-relaxed">
+                        New features and news from NoLSAF<span className="hidden lg:inline">, so you always know what just got better.</span>
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/updates"
+                    className="group inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-white px-3 text-[13px] font-semibold text-[#02665e] no-underline transition hover:bg-emerald-50 hover:no-underline lg:mt-6 lg:h-11 lg:px-5 lg:text-[14px]"
+                  >
+                    <span className="lg:hidden">View all</span>
+                    <span className="hidden lg:inline">See all updates</span>
+                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                  </Link>
+                </div>
+
+                {/* Right (large screens): the latest three as a small timeline */}
+                {latestUpdatePreviews.length > 0 && (
+                  <ol className="relative m-0 hidden list-none p-0 lg:block">
+                    <span aria-hidden className="absolute bottom-6 left-[15px] top-6 w-px bg-white/20" />
+                    {latestUpdatePreviews.map((u, index) => {
+                      const date = new Date(u.createdAt);
+                      const valid = !Number.isNaN(date.getTime());
+                      const isRecent = valid && Date.now() - date.getTime() < 30 * 24 * 60 * 60 * 1000;
+                      return (
+                        <li key={u.id} className={index > 0 ? "mt-2.5" : ""}>
+                          <Link
+                            href="/updates"
+                            className="group/item relative flex items-center gap-4 rounded-xl py-1 pr-2 no-underline hover:no-underline"
+                          >
+                            <span
+                              aria-hidden
+                              className={`relative z-10 flex h-[31px] w-[31px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-4 ring-[#02665e] ${
+                                index === 0 ? "bg-emerald-300 text-[#013d38]" : "bg-white/15 text-white/80"
+                              }`}
+                            >
+                              {index + 1}
+                            </span>
+                            <span className="flex min-w-0 flex-1 items-center gap-3 rounded-xl bg-black/15 px-4 py-3 ring-1 ring-inset ring-white/10 transition group-hover/item:bg-black/25 group-hover/item:ring-white/25">
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[14.5px] font-semibold text-white">{u.title}</span>
+                                {valid && (
+                                  <span className="mt-0.5 block text-[12px] text-white/55">
+                                    {date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                                  </span>
+                                )}
+                              </span>
+                              {isRecent && (
+                                <span className="shrink-0 rounded-md bg-emerald-300 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-[#013d38]">New</span>
+                              )}
+                              <ChevronRight className="h-4 w-4 shrink-0 text-white/40 transition group-hover/item:translate-x-0.5 group-hover/item:text-white" aria-hidden />
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
               </div>
-            </div>
+            </section>
           </ScrollReveal>
           <ScrollReveal direction="up" delay={0.1}>
             <LatestUpdate hideTitle />

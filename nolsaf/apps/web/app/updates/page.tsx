@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
-import { ArrowLeft, Calendar, ExternalLink, Megaphone, Play, X } from "lucide-react";
+import { ArrowLeft, Calendar, ExternalLink, Megaphone, Play, Share2, X } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 import UpdateRadialFan, { type RadialItem } from "@/components/UpdateRadialFan";
 
@@ -67,109 +67,169 @@ function DetailModal({ item, onClose }: { item: Update; onClose: () => void }) {
   const { safeImages, ytId, mediaSrc } = parseUpdate(item);
   const embedUrl = ytId ? `https://www.youtube-nocookie.com/embed/${ytId}` : null;
   const watchUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : null;
-  const thumbSrc = embedUrl ? mediaSrc : safeImages[0] ?? null;
+  // The hero image is only shown when it is not already the video; the rest go in the strip
+  const heroImage = embedUrl ? null : safeImages[0] ?? null;
+  const galleryImages = embedUrl ? safeImages : safeImages.slice(1);
+  const [copied, setCopied] = useState(false);
+  const words = item.content.trim().split(/\s+/).filter(Boolean).length;
+  const readMinutes = Math.max(1, Math.round(words / 200));
+  const isRecent = Date.now() - new Date(item.createdAt).getTime() < 14 * 24 * 60 * 60 * 1000;
+
+  // Esc closes; the page behind stops scrolling while the dialog is open
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  async function share() {
+    const url = typeof window !== "undefined" ? `${window.location.origin}/updates` : "/updates";
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: item.title, text: item.content.slice(0, 140), url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* the visitor cancelled the share sheet */
+    }
+  }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6"
-      style={{ background: "rgba(0,0,0,0.55)" }}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 backdrop-blur-[3px] sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
-      aria-label={item.title}
+      aria-labelledby="update-dialog-title"
       onClick={onClose}
     >
       <div
-        className="relative w-full sm:max-w-xl overflow-y-auto bg-white"
-        style={{ maxHeight: "94dvh", borderRadius: "28px 28px 0 0" }}
+        className="relative box-border flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-[0_30px_80px_-20px_rgba(0,0,0,0.5)] sm:max-w-2xl sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Rounded corners on desktop */}
-        <style>{`@media (min-width: 640px) { .detail-sheet { border-radius: 24px !important; } }`}</style>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-black/50"
-          style={{ background: "rgba(0,0,0,0.28)" }}
-          aria-label="Close"
+        {/* Header band: brand, kind and date, with the close button; no empty placeholder art */}
+        <div
+          className="relative flex flex-none items-center justify-between gap-3 px-5 py-3.5 text-white sm:px-6"
+          style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 55%, #02665e 140%)" }}
         >
-          <X className="h-4 w-4" />
-        </button>
-
-        {/* Media */}
-        {embedUrl ? (
-          <div className="aspect-video w-full overflow-hidden bg-black" style={{ borderRadius: "28px 28px 0 0" }}>
-            <iframe
-              src={embedUrl}
-              className="h-full w-full"
-              frameBorder="0"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              allow="autoplay; encrypted-media; picture-in-picture"
-              allowFullScreen
-              title={item.title}
-            />
-          </div>
-        ) : thumbSrc ? (
-          <div className="aspect-video w-full overflow-hidden bg-slate-100" style={{ borderRadius: "28px 28px 0 0" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={thumbSrc}
-              alt={item.title}
-              className="h-full w-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        ) : (
-          <div
-            className="aspect-video w-full flex items-center justify-center"
-            style={{ borderRadius: "28px 28px 0 0", background: "linear-gradient(135deg, #d6eeec 0%, #f0fffe 100%)" }}
-          >
-            <Megaphone className="h-14 w-14 text-[#02665e]/20" />
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="px-5 pt-5 pb-8">
-          <div className="flex items-center gap-1.5 mb-2 text-[11px]" style={{ color: "#94a3b8" }}>
-            <Calendar className="h-3 w-3" />
-            <span>{formatDate(item.createdAt)}</span>
-          </div>
-          <h2 className="text-[19px] font-bold text-slate-900 leading-snug mb-3">{item.title}</h2>
-          <p className="whitespace-pre-line text-slate-600" style={{ fontSize: 14, lineHeight: "1.72" }}>
-            {item.content}
-          </p>
-
-          {safeImages.length > 0 && (
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {safeImages.map((img, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={i}
-                  src={img}
-                  alt={`${item.title} image ${i + 1}`}
-                  className="aspect-video w-full rounded-xl object-cover bg-slate-100"
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                />
-              ))}
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-white/10 ring-1 ring-inset ring-white/15">
+              <Megaphone className="h-4 w-4 text-emerald-300" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="m-0 flex items-center gap-2 text-[13px] font-semibold leading-tight">
+                NoLSAF Update
+                {isRecent && (
+                  <span className="rounded-[4px] bg-emerald-300 px-1.5 py-px text-[9.5px] font-extrabold uppercase tracking-[0.08em] text-[#012e29]">New</span>
+                )}
+              </p>
+              <p className="m-0 mt-1 flex items-center gap-1.5 text-[11.5px] leading-none text-white/60">
+                <Calendar className="h-3 w-3" aria-hidden />
+                {formatDate(item.createdAt)}
+                <span aria-hidden className="text-white/30">·</span>
+                {readMinutes} min read
+              </p>
             </div>
-          )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border-0 bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-          {watchUrl && (
-            <a
-              href={watchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-5 flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-[14px] font-bold text-white no-underline transition-opacity hover:opacity-85"
-              style={{ background: "#FF0000" }}
+        {/* Scrollable body */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {embedUrl ? (
+            <div className="aspect-video w-full bg-black">
+              <iframe
+                src={embedUrl}
+                className="h-full w-full"
+                frameBorder="0"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+                title={item.title}
+              />
+            </div>
+          ) : heroImage ? (
+            <div className="aspect-[16/8] w-full overflow-hidden bg-slate-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={heroImage} alt={item.title} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+            </div>
+          ) : null}
+
+          <article className="px-5 pb-6 pt-5 sm:px-7 sm:pt-6">
+            <h2 id="update-dialog-title" className="m-0 text-[22px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[24px]">
+              {item.title}
+            </h2>
+            <span aria-hidden className="mt-3 block h-[3px] w-10 rounded-full bg-[#02665e]" />
+            <p className="m-0 mt-4 whitespace-pre-line text-[15px] leading-[1.75] text-slate-700">
+              {item.content}
+            </p>
+
+            {galleryImages.length > 0 && (
+              <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {galleryImages.map((img, i) => (
+                  <a key={i} href={img} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-md bg-slate-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img}
+                      alt={`${item.title} image ${i + 2}`}
+                      className="aspect-video w-full object-cover transition-transform duration-300 hover:scale-[1.04]"
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                    />
+                  </a>
+                ))}
+              </div>
+            )}
+          </article>
+        </div>
+
+        {/* Footer actions stay visible while the body scrolls */}
+        <div className="flex flex-none items-center justify-between gap-2 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-5 py-3 sm:px-7">
+          <button
+            type="button"
+            onClick={() => void share()}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+          >
+            <Share2 className="h-3.5 w-3.5" aria-hidden />
+            {copied ? "Link copied" : "Share"}
+          </button>
+          <div className="flex items-center gap-2">
+            {watchUrl && (
+              <a
+                href={watchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#FF0000] px-3 text-[13px] font-semibold text-white no-underline transition-opacity hover:opacity-90"
+              >
+                <Play className="h-3.5 w-3.5 fill-white" aria-hidden />
+                YouTube
+                <ExternalLink className="h-3 w-3" aria-hidden />
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-9 items-center rounded-lg border-0 bg-[#02665e] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#014e47]"
             >
-              <Play className="h-4 w-4 fill-white" />
-              Watch on YouTube
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
+              Done
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -266,6 +326,8 @@ export default function UpdatesIndexPage() {
   }
 
   const gridItems = updates.slice(5);
+  // Stable so the dialog's Esc listener is not re-attached on every render
+  const closeDetail = useCallback(() => setSelected(null), []);
 
   return (
     <main style={{ minHeight: "100dvh", background: "#f7f8fa" }}>
@@ -282,7 +344,7 @@ export default function UpdatesIndexPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold leading-none text-slate-900">Updates</h1>
-              <p className="mt-0.5 text-[11px] text-slate-400">News &amp; announcements from NOLSAF</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">News &amp; announcements from NoLSAF</p>
             </div>
           </div>
           <Link
@@ -306,7 +368,7 @@ export default function UpdatesIndexPage() {
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
             <Megaphone className="mx-auto mb-3 h-8 w-8 text-slate-300" />
             <p className="text-sm font-semibold text-slate-700">No updates yet</p>
-            <p className="mt-1 text-xs text-slate-400">Check back soon — we will post announcements here.</p>
+            <p className="mt-1 text-xs text-slate-400">Check back soon, we will post announcements here.</p>
           </div>
         )}
 
@@ -367,7 +429,7 @@ export default function UpdatesIndexPage() {
       </div>
 
       {/* Detail modal */}
-      {selected && <DetailModal item={selected} onClose={() => setSelected(null)} />}
+      {selected && <DetailModal item={selected} onClose={closeDetail} />}
     </main>
   );
 }

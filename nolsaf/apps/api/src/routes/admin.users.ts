@@ -4,6 +4,7 @@ import { requireAuth, requireRole, blockImpersonated } from '../middleware/auth.
 import { hasFinanceGrant, hasNrmsFinanceRole } from '../middleware/financeGrant.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { audit } from '../lib/audit.js';
+import { referralCodeFor, referralKindForRole } from '../lib/referralCode.js';
 import { sendMail } from '../lib/mailer.js';
 import { sendSms } from '../lib/sms.js';
 import { getAdminRevocationEmail, getAdminRevocationSms } from '../lib/adminEmailTemplates.js';
@@ -1799,7 +1800,7 @@ router.get('/:id/behaviour', asyncHandler(async (req: any, res: any) => {
    *
    * Two different things live under "sharing" and they are not equivalent:
    *
-   * - A referral link carries `CUSTOMER-<id>` into registration, which writes
+   * - A referral link carries the user's opaque code into registration, which writes
    *   `User.referredBy`. That is real attribution: we know exactly who joined
    *   through whom and when.
    * - A property share only stamps `SavedProperty.sharedAt`. There is no
@@ -1848,9 +1849,7 @@ router.get('/:id/behaviour', asyncHandler(async (req: any, res: any) => {
   }).catch(() => [] as any[]);
 
   const sharedProperties = savedProperties.filter((row: any) => row.sharedAt).length;
-  const referralCodeForUser = String(user.role || '').toUpperCase() === 'DRIVER'
-    ? `DRIVER-${user.id}`
-    : `CUSTOMER-${user.id}`;
+  const referralCodeForUser = referralCodeFor(referralKindForRole(user.role), user.id);
 
   const earningsByStatus = new Map<string, { count: number; amount: number; currency: string }>();
   for (const earning of referralEarnings) {

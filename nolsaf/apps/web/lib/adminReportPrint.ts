@@ -124,6 +124,14 @@ export function adminReportPrintStyles(orientation: AdminReportPrintOrientation)
     .signatureSpace { flex: 1; min-height: 54px; }
     .signatureLine { padding-top: 4px; border-top: 1px solid #8d9693; color: var(--muted); font-size: 7px; text-align: center; }
     .documentFooter { display: flex; justify-content: space-between; gap: 20px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 6.8px; }
+    /* Attribution that repeats on every sheet. A fixed element is painted once
+       per printed page, so page two onward still names who took the export.
+       It sits behind the content and is faint enough to read through. */
+    .reportWatermark { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .reportWatermark div { transform: rotate(-31deg); color: rgba(7, 60, 53, .075); font-size: 34px; font-weight: 900; letter-spacing: 1.5px; line-height: 1.35; text-align: center; text-transform: uppercase; }
+    .reportWatermark div span { display: block; font-size: 15px; font-weight: 700; letter-spacing: 2.5px; }
+    .reportWatermark div code { display: block; font-family: Consolas, "Courier New", monospace; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: none; }
+    .reportDocument { position: relative; z-index: 1; }
     @media screen {
       body { background: #eef2f0; }
       .reportPage { max-width: ${orientation === "landscape" ? "1123px" : "794px"}; margin: 18px auto; background: #fff; box-shadow: 0 24px 70px rgba(7, 60, 53, .14); }
@@ -134,6 +142,30 @@ export function adminReportPrintStyles(orientation: AdminReportPrintOrientation)
       .reportCover, .reportPanel, .tableWrap, .metricCard, .verificationCard, .certificationCopy, .signatureCard { border-radius: 0; }
     }
   `;
+}
+
+/**
+ * A per page watermark naming the person who printed, when, and the sealed
+ * reference. Put it inside `.reportPage`, before the `.reportDocument` main, so
+ * every sheet of a financial export carries its own attribution instead of
+ * relying on the certification block on the last page.
+ */
+export function buildAdminReportWatermark(options: {
+  printedBy: string;
+  role?: string;
+  reportRef: string;
+  printedAt: string;
+  classification?: string;
+}) {
+  const who = options.role ? `${options.printedBy} · ${options.role}` : options.printedBy;
+  return `
+    <div class="reportWatermark" aria-hidden="true">
+      <div>
+        ${escapeHtml(options.classification || "NoLSAF confidential")}
+        <span>Printed by ${escapeHtml(who)} · ${escapeHtml(options.printedAt)}</span>
+        <code>${escapeHtml(options.reportRef)}</code>
+      </div>
+    </div>`;
 }
 
 export function buildAdminReportHeader(options: ReportHeaderOptions) {

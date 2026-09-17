@@ -43,7 +43,8 @@ const HOME_PROPERTY_TYPE_CARDS = [
 
 const HOME_FEATURED_DESTINATIONS = [
   { city: "Dar es Salaam", filterParam: "region" },
-  { city: "Nairobi", filterParam: "city" },
+  // Must match FEATURED_DESTINATIONS in apps/web/app/public/PublicHomeClient.tsx (Tanzania only for now).
+  { city: "Kilimanjaro", filterParam: "region" },
   { city: "Zanzibar", filterParam: "region" },
   { city: "Arusha", filterParam: "region" },
   { city: "Mwanza", filterParam: "region" },

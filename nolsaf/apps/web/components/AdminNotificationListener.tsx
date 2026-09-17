@@ -110,13 +110,22 @@ export default function AdminNotificationListener() {
       if (soundEnabledRef.current) playChime(urgent);
     };
 
+    // A visitor handed to support, or writing again in a support chat. The toast
+    // and chime come from admin:notification:new; this only tells the Twiga
+    // page and the sidebar badge to refresh.
+    const onTwigaActivity = (activity: { kind?: string; conversationId?: number }) => {
+      window.dispatchEvent(new CustomEvent("nols:twiga-activity", { detail: activity }));
+    };
+
     if (socket.connected) joinAdminRoom();
     socket.on("connect", joinAdminRoom);
     socket.on("admin:notification:new", onNotification);
+    socket.on("chatbot:activity", onTwigaActivity);
 
     return () => {
       socket.off("connect", joinAdminRoom);
       socket.off("admin:notification:new", onNotification);
+      socket.off("chatbot:activity", onTwigaActivity);
       if (socket.connected) socket.emit("leave-admin-room");
     };
   }, [playChime, socket]);

@@ -1,34 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+// Cancellation case file. One screen that answers, in order: what is being claimed,
+// is it safe to refund, and what happens next. The workflow rules are unchanged:
+// the API still gates approvals on a confirmed payment, and every status change
+// messages the customer.
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Loader2, MessageSquare, Save, Send, CheckCircle, XCircle, AlertTriangle, CreditCard, FileText, Calendar, MapPin, User, Phone, Mail, Building, DollarSign, Shield, Clock, Lock } from "lucide-react";
+import {
+  AlertTriangle, ArrowLeft, Ban, Calendar, CheckCircle2, ChevronDown, ChevronRight, Clock,
+  CreditCard, FileText, Loader2, Lock, Mail, MapPin, MessageSquare, Phone, RefreshCw,
+  Save, Search, Send, Shield, ShieldCheck, User, XCircle,
+} from "lucide-react";
 
 const api = apiClient;
 
 type Msg = { id: number; senderId: number; senderRole: string; body: string; createdAt: string };
-type PaymentEvent = {
-  id: number;
-  eventId: string;
-  provider: string;
-  amount: number;
-  currency: string;
-  status: string;
-  createdAt: string;
-};
+type PaymentEvent = { id: number; eventId: string; provider: string; amount: number; currency: string; status: string; createdAt: string };
 type PaymentInfo = {
-  invoice: {
-    id: number;
-    invoiceNumber: string | null;
-    receiptNumber: string | null;
-    total: number;
-    status: string;
-    paymentMethod: string | null;
-    paymentRef: string | null;
-    createdAt: string;
-  };
+  invoice: { id: number; invoiceNumber: string | null; receiptNumber: string | null; total: number; status: string; paymentMethod: string | null; paymentRef: string | null; createdAt: string };
   paymentEvents: PaymentEvent[];
   hasTransactionId: boolean;
   paymentConfirmed: boolean;
@@ -62,44 +54,55 @@ type Item = {
     guestName: string | null;
     guestPhone: string | null;
     createdAt: string;
-    property: { 
-      id: number;
-      title: string; 
-      regionName?: string | null; 
-      city?: string | null; 
-      district?: string | null;
-      type?: string | null;
-    };
-    code: {
-      id: number;
-      code: string;
-      codeVisible: string | null;
-      status: string;
-      generatedAt: string;
-      usedAt: string | null;
-    } | null;
+    property: { id: number; title: string; regionName?: string | null; city?: string | null; district?: string | null; type?: string | null };
+    code: { id: number; code: string; codeVisible: string | null; status: string; generatedAt: string; usedAt: string | null } | null;
   };
   messages: Msg[];
 };
 
-function fmt(d: string) {
-  try {
-    return new Date(d).toLocaleString();
-  } catch {
-    return d;
-  }
-}
+/* ---------------------------------------------------------------- *
+ * Workflow. Unchanged rules, one definition.
+ * Reviewing cannot jump to Refunded; Refunded and Rejected are final.
+ * ---------------------------------------------------------------- */
+const NEXT_STEPS: Record<string, string[]> = {
+  SUBMITTED: ["REVIEWING"],
+  REVIEWING: ["NEED_INFO", "APPROVED", "REJECTED"],
+  NEED_INFO: ["REVIEWING"],
+  APPROVED: ["REFUND_PENDING"],
+  REFUND_PENDING: ["REFUNDED"],
+  REFUNDED: [],
+  REJECTED: [],
+};
 
-function statusTone(status: string) {
-  const key = String(status || "").toUpperCase();
-  if (key === "REFUNDED") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  if (key === "REJECTED") return "bg-red-50 text-red-700 ring-red-200";
-  if (key === "REFUND_PENDING") return "bg-teal-50 text-teal-700 ring-teal-200";
-  if (key === "APPROVED") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  if (key === "NEED_INFO") return "bg-amber-50 text-amber-700 ring-amber-200";
-  if (key === "REVIEWING") return "bg-blue-50 text-blue-700 ring-blue-200";
-  return "bg-slate-50 text-slate-700 ring-slate-200";
+const STATUS_META: Record<string, { label: string; text: string; dot: string; soft: string; ring: string }> = {
+  SUBMITTED: { label: "Submitted", text: "text-slate-700", dot: "bg-slate-400", soft: "bg-slate-100", ring: "ring-slate-200" },
+  REVIEWING: { label: "Reviewing", text: "text-blue-700", dot: "bg-blue-500", soft: "bg-blue-50", ring: "ring-blue-200" },
+  NEED_INFO: { label: "Need info", text: "text-amber-700", dot: "bg-amber-500", soft: "bg-amber-50", ring: "ring-amber-200" },
+  APPROVED: { label: "Approved", text: "text-emerald-700", dot: "bg-emerald-500", soft: "bg-emerald-50", ring: "ring-emerald-200" },
+  REFUND_PENDING: { label: "Refund pending", text: "text-teal-700", dot: "bg-teal-500", soft: "bg-teal-50", ring: "ring-teal-200" },
+  REFUNDED: { label: "Refunded", text: "text-emerald-700", dot: "bg-emerald-600", soft: "bg-emerald-50", ring: "ring-emerald-200" },
+  REJECTED: { label: "Rejected", text: "text-rose-700", dot: "bg-rose-500", soft: "bg-rose-50", ring: "ring-rose-200" },
+};
+const meta = (status: string) => STATUS_META[String(status || "").toUpperCase()] || STATUS_META.SUBMITTED;
+
+/** The happy path, for the progress rail. Rejected is shown as a fork, not a step. */
+const TRACK = ["SUBMITTED", "REVIEWING", "APPROVED", "REFUND_PENDING", "REFUNDED"];
+
+const money = (value: number | null | undefined) => `TZS ${Number(value || 0).toLocaleString("en-US")}`;
+const dateOnly = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not set";
+const dateTime = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not set";
+function ago(value: string | null | undefined) {
+  if (!value) return null;
+  const mins = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  if (mins < 60) return `${mins || 1} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
+const nights = (from: string, to: string) => Math.max(1, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86400000));
 
 export default function AdminCancellationDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
@@ -119,31 +122,31 @@ export default function AdminCancellationDetailPage() {
   const [refundReference, setRefundReference] = useState<string>("");
   const [bankCharges, setBankCharges] = useState<string>("");
   const [message, setMessage] = useState<string>("");
+  const [threadOpen, setThreadOpen] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await api.get(`/api/admin/cancellations/${id}`);
-      const it: Item = res.data.item;
-      setItem(it);
+      const next: Item = res.data.item;
+      setItem(next);
       setStatus("");
       setDecisionNote("");
-      setRefundProvider(it.refundProvider || res.data.paymentInfo?.invoice?.paymentMethod || "");
-      setRefundReference(it.refundReference || "");
+      setRefundProvider(next.refundProvider || res.data.paymentInfo?.invoice?.paymentMethod || "");
+      setRefundReference(next.refundReference || "");
       setPaymentInfo(res.data.paymentInfo || null);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load cancellation request");
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
 
   useEffect(() => {
     if (!Number.isFinite(id)) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, load]);
 
   const canSave = useMemo(() => {
     if (!item || !status) return false;
@@ -153,64 +156,16 @@ export default function AdminCancellationDetailPage() {
     return true;
   }, [decisionNote, item, refundProvider, refundReference, status]);
 
-  // Get workflow flow - next possible actions based on current status
-  // Workflow principles:
-  // 1. From Reviewing: Can go to Need Info, Processing, or Rejected (NOT directly to Refunded)
-  // 2. From Need Info: Can go back to Reviewing, or proceed to Processing/Rejected if info is sufficient
-  //    - Admin should not use NEED_INFO as a required step if they can proceed directly to Processing
-  // 3. Processing is required before Refunded (cannot skip Processing)
-  // 4. Reviewing can be reached from both SUBMITTED and NEED_INFO (for re-review after getting info)
-  // 5. REFUNDED and REJECTED are mutually exclusive final states:
-  //    - Once REFUNDED, the claim cannot be REJECTED (void)
-  //    - Once REJECTED, the claim cannot be REFUNDED (void)
-  //    - These are terminal states with no further actions
-  function getWorkflowFlow(currentStatus: string): { current: string; next: string[] } {
-    const workflow: Record<string, { current: string; next: string[] }> = {
-      SUBMITTED: {
-        current: "Submitted",
-        next: ["Reviewing"]
-      },
-      REVIEWING: {
-        current: "Reviewing",
-        // Can request more info, proceed to processing if all info is available, or reject
-        // CANNOT go directly to Refunded - must go through Processing first
-        // CANNOT go to both Refunded and Rejected - they are mutually exclusive
-        next: ["Need Info", "Approved", "Rejected"]
-      },
-      NEED_INFO: {
-        current: "Need Info",
-        // After getting info: can re-review, or if info is sufficient, proceed to Processing/Rejected
-        // Admin should not use NEED_INFO as a required step if they can proceed directly to Processing
-        // CANNOT go to Refunded from here - must go through Processing
-        next: ["Reviewing"]
-      },
-      APPROVED: { current: "Approved", next: ["Refund Pending"] },
-      REFUND_PENDING: { current: "Refund Pending", next: ["Refunded"] },
-      REFUNDED: {
-        current: "Refunded",
-        // Final state - mutually exclusive with REJECTED
-        // Once refunded, cannot be rejected (void)
-        next: []
-      },
-      REJECTED: {
-        current: "Rejected",
-        // Final state - mutually exclusive with REFUNDED
-        // Once rejected, cannot be refunded (void)
-        next: []
-      }
-    };
-    
-    return workflow[currentStatus] || { current: currentStatus, next: [] };
-  }
-
   async function save() {
-    if (!item) return;
-    if (!canSave) return;
-    
+    if (!item || !canSave) return;
     setSaving(true);
     setError(null);
     try {
-      await api.patch(`/api/admin/cancellations/${item.id}`, { status, decisionNote, refundProvider, refundReference, ...(Number(bankCharges) > 0 ? { actualBankCharges: Number(bankCharges) } : {}) });
+      await api.patch(`/api/admin/cancellations/${item.id}`, {
+        status, decisionNote, refundProvider, refundReference,
+        ...(Number(bankCharges) > 0 ? { actualBankCharges: Number(bankCharges) } : {}),
+      });
+      setBankCharges("");
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to save changes");
@@ -226,13 +181,9 @@ export default function AdminCancellationDetailPage() {
     setSending(true);
     setError(null);
     try {
-      await api.post(`/api/admin/cancellations/${item.id}/messages`, {
-        body,
-      });
+      await api.post(`/api/admin/cancellations/${item.id}/messages`, { body });
       setMessage("");
-      // Reload to get latest thread + status
       await load();
-      // Keep local status aligned
       setStatus("");
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to send message");
@@ -241,732 +192,458 @@ export default function AdminCancellationDetailPage() {
     }
   }
 
-  return (
-    <div className="mx-auto w-[calc(100%-1rem)] max-w-6xl min-w-0 space-y-5 overflow-x-clip py-5 sm:w-[calc(100%-1.5rem)]">
-      {/* Header with Back Button */}
-      <div className="flex items-center justify-between">
-        <Link 
-          href="/admin/cancellations" 
-          className="inline-flex items-center justify-center w-10 h-10 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors duration-200"
-          title="Back to Cancellations"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+  if (loading && !item) {
+    return <div className="flex min-h-[60vh] items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading cancellation request</div>;
+  }
+  if (error && !item) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600"><XCircle className="h-5 w-5" /></span>
+        <p className="m-0 mt-3 text-sm font-semibold text-slate-900">Could not open this request</p>
+        <p className="m-0 mt-1 text-xs text-slate-500">{error}</p>
+        <Link href="/admin/cancellations" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-sm font-semibold text-white no-underline hover:bg-slate-800 hover:no-underline"><ArrowLeft className="h-4 w-4" /> Back to cancellations</Link>
       </div>
+    );
+  }
+  if (!item) return null;
 
-      {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#02665e] mx-auto mb-4" />
-          <p className="text-sm font-medium text-gray-600">Loading cancellation request...</p>
-        </div>
-      ) : error ? (
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-start gap-3">
-            <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="text-sm font-semibold text-red-900 mb-1">Error</div>
-              <div className="text-sm text-red-800">{error}</div>
-            </div>
+  const current = meta(item.status);
+  const nextSteps = NEXT_STEPS[item.status] ?? [];
+  const isFinal = nextSteps.length === 0;
+  const rejected = item.status === "REJECTED";
+  const paymentVerified = Boolean(paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed);
+  const stayNights = nights(item.booking.checkIn, item.booking.checkOut);
+  const place = [item.booking.property.regionName, item.booking.property.city, item.booking.property.district].filter(Boolean).join(", ");
+  const policyLabel = item.policyRefundPercent === 100 ? "100% refund" : item.policyRefundPercent != null ? `${item.policyRefundPercent}% refund` : "Manual review";
+  const expectedRefund = item.refundAmount ?? (item.policyRefundPercent != null ? (Number(item.booking.totalAmount) * item.policyRefundPercent) / 100 : null);
+
+  // Track position: a rejected case stops wherever it was.
+  const trackIndex = rejected ? 1 : Math.max(0, TRACK.indexOf(item.status));
+  const stepDate: Record<string, string | null> = {
+    SUBMITTED: item.createdAt,
+    REVIEWING: item.status === "SUBMITTED" ? null : item.createdAt,
+    APPROVED: item.approvedAt,
+    REFUND_PENDING: item.refundInitiatedAt,
+    REFUNDED: item.refundedAt,
+  };
+
+  const lastMessage = item.messages[item.messages.length - 1];
+
+  const checks = [
+    { label: "Payment confirmed", ok: paymentVerified, detail: paymentVerified ? "Transaction identifier and successful payment on file" : "Approval stays blocked until the payment is confirmed" },
+    { label: "Booking code matched", ok: true, detail: `Code ${item.bookingCode} matched this booking on submission` },
+    { label: "Customer verified", ok: true, detail: "The requester was signed in and matched to the booking customer" },
+    { label: "Policy checked", ok: item.policyEligible, detail: `${item.policyRefundPercent ?? 0}% under ${item.policyRule || "manual review"}` },
+  ];
+  const passed = checks.filter((c) => c.ok).length;
+
+  return (
+    <div className="w-full min-w-0 space-y-4">
+      {/* Case header */}
+      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <div className="flex flex-wrap items-start gap-3 px-4 py-4 sm:px-5">
+          <Link href="/admin/cancellations" className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-500 no-underline transition hover:bg-slate-50 hover:text-slate-900" aria-label="Back to cancellations">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <p className="m-0 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-semibold uppercase tracking-[0.14em] text-slate-400">Cancellation</span>
+              <span className="font-mono">#{item.id}</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${current.soft} ${current.text} ${current.ring}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${current.dot}`} />{current.label}
+              </span>
+              {isFinal && <span className="text-[11px] text-slate-400">Final</span>}
+            </p>
+            <h1 className="m-0 mt-1 truncate text-lg font-bold tracking-tight text-slate-900">{item.booking.property.title}</h1>
+            <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" />{item.user?.name || `User #${item.user.id}`}</span>
+              <span className="inline-flex items-center gap-1 font-mono">{item.bookingCode}</span>
+              <span title={dateTime(item.createdAt)}>Requested {ago(item.createdAt)}</span>
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <span className="hidden text-right sm:block">
+              <span className="block text-[11px] text-slate-400">Booking value</span>
+              <span className="block text-sm font-bold tabular-nums text-slate-900">{money(item.booking.totalAmount)}</span>
+            </span>
+            <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
           </div>
         </div>
-      ) : !item ? null : (
-        <div className="min-w-0 max-w-full space-y-6 overflow-x-clip">
-          {/* Main Request Card */}
-          <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* Header Section */}
-            <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-5 py-5 sm:px-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e] shadow-sm">
-                      <FileText className="h-5 w-5 text-white" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Cancellation Request</div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                        <span className="text-2xl font-black text-slate-950">#{item.id}</span>
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusTone(item.status)}`}>
-                          {getWorkflowFlow(item.status).current}
-                        </span>
-                      </div>
-                    </div>
+
+        {/* Progress rail */}
+        <ol className="m-0 flex list-none gap-0 overflow-x-auto border-0 border-t border-solid border-slate-100 px-4 py-3 sm:px-5">
+          {TRACK.map((step, index) => {
+            const done = !rejected && index < trackIndex;
+            const active = !rejected && index === trackIndex;
+            const stepMeta = meta(step);
+            return (
+              <li key={step} className="flex min-w-[8.5rem] flex-1 items-start gap-2">
+                <span className={`mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full text-[10px] font-bold ${done ? "bg-emerald-600 text-white" : active ? `${stepMeta.soft} ${stepMeta.text} ring-2 ring-inset ${stepMeta.ring}` : "bg-slate-100 text-slate-400"}`}>
+                  {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className={`truncate text-xs font-semibold ${done || active ? "text-slate-900" : "text-slate-400"}`}>{stepMeta.label}</span>
+                    {index < TRACK.length - 1 && <span className={`hidden h-px flex-1 sm:block ${done ? "bg-emerald-300" : "bg-slate-200"}`} />}
+                  </span>
+                  <span className="block truncate text-[11px] text-slate-400">{stepDate[step] ? dateOnly(stepDate[step]) : active ? "In progress" : "Pending"}</span>
+                </span>
+              </li>
+            );
+          })}
+          {rejected && (
+            <li className="flex min-w-[8.5rem] items-start gap-2">
+              <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full bg-rose-600 text-white"><Ban className="h-3.5 w-3.5" /></span>
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-rose-700">Rejected</span>
+                <span className="block truncate text-[11px] text-slate-400">{dateOnly(item.updatedAt)}</span>
+              </span>
+            </li>
+          )}
+        </ol>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-800" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        {/* ---------------- Case body ---------------- */}
+        <div className="min-w-0 space-y-4">
+          {/* Claim facts */}
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
+              {[
+                { icon: Calendar, label: "Check-in", value: dateOnly(item.booking.checkIn), sub: `${stayNights} ${stayNights === 1 ? "night" : "nights"} to ${dateOnly(item.booking.checkOut)}` },
+                { icon: CreditCard, label: "Booking value", value: money(item.booking.totalAmount), sub: `Booking #${item.booking.id} · ${item.booking.status}` },
+                { icon: Shield, label: "Policy", value: policyLabel, sub: item.policyRule || "No rule recorded" },
+                { icon: FileText, label: expectedRefund != null ? "Refund due" : "Refund", value: expectedRefund != null ? money(expectedRefund) : "Not set", sub: item.refundAmount != null ? "Approved amount" : "Estimated from policy" },
+              ].map((fact) => {
+                const Icon = fact.icon;
+                return (
+                  <div key={fact.label} className="min-w-0 bg-white px-4 py-3">
+                    <p className="m-0 flex items-center gap-1.5 text-[11px] text-slate-400"><Icon className="h-3.5 w-3.5" /> {fact.label}</p>
+                    <p className="m-0 mt-0.5 truncate text-sm font-semibold text-slate-900" title={fact.value}>{fact.value}</p>
+                    <p className="m-0 mt-0.5 truncate text-[11px] text-slate-500" title={fact.sub}>{fact.sub}</p>
                   </div>
-                  <div className="mt-3 inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                    <span className="font-semibold">Booking code</span>
-                    <span className="break-all font-mono font-bold text-slate-950">{item.bookingCode}</span>
-                  </div>
-                </div>
-                <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:w-auto sm:min-w-[240px] sm:max-w-[320px]">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><User className="h-3.5 w-3.5 text-[#02665e]" />Customer</div>
-                  <div className="font-bold text-slate-950">{item.user?.name || `User #${item.user.id}`}</div>
-                  <div className="mt-1 break-all text-sm text-gray-600">{item.user.email || item.user.phone || "—"}</div>
-                </div>
+                );
+              })}
+            </div>
+            <div className="grid gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 sm:grid-cols-2">
+              <div className="min-w-0 bg-white px-4 py-3">
+                <p className="m-0 text-[11px] text-slate-400">Customer</p>
+                <p className="m-0 mt-0.5 truncate text-sm font-semibold text-slate-900">{item.booking.guestName || item.user?.name || `User #${item.user.id}`}</p>
+                <p className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1 truncate"><Mail className="h-3.5 w-3.5" />{item.user?.email || "No email"}</span>
+                  <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{item.booking.guestPhone || item.user?.phone || "No phone"}</span>
+                </p>
+              </div>
+              <div className="min-w-0 bg-white px-4 py-3">
+                <p className="m-0 text-[11px] text-slate-400">Property</p>
+                <Link href={`/admin/nrms/${item.booking.property.id}`} className="m-0 mt-0.5 block truncate text-sm font-semibold text-slate-900 no-underline hover:text-[#02665e]">{item.booking.property.title}</Link>
+                <p className="m-0 mt-1 flex items-center gap-1 truncate text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 flex-shrink-0" />{place || "Location not recorded"}{item.booking.property.type ? ` · ${item.booking.property.type}` : ""}</p>
               </div>
             </div>
-
-            {/* Quick Info Cards */}
-            <div className="px-5 py-5 sm:px-6">
-              <div className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-3">
-                <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Building className="h-4 w-4 text-blue-600" />
-                    <div className="text-xs font-bold text-blue-700 uppercase tracking-wider">Property</div>
-                  </div>
-                  <div className="font-bold text-gray-900 text-sm mb-1">{item.booking.property.title}</div>
-                  <div className="flex min-w-0 items-start gap-1 text-xs text-gray-600">
-                    <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0" />
-                    <span className="break-words">
-                    {[item.booking.property.regionName, item.booking.property.city, item.booking.property.district].filter(Boolean).join(" • ") || "—"}
-                    </span>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="h-4 w-4 text-emerald-600" />
-                    <div className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Check-in</div>
-                  </div>
-                  <div className="font-bold text-gray-900 text-sm">{new Date(item.booking.checkIn).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                  <div className="text-xs text-gray-600 mt-1">{new Date(item.booking.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
-                <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="h-4 w-4 text-amber-600" />
-                    <div className="text-xs font-bold text-amber-700 uppercase tracking-wider">Policy</div>
-                  </div>
-                  <div className="font-bold text-gray-900 text-sm">
-                    {item.policyRefundPercent === 100 ? "100% (free)" : item.policyRefundPercent === 50 ? "50%" : "Manual"}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1">{item.policyRule || "—"}</div>
-                </div>
+            {item.reason && (
+              <div className="border-0 border-t border-solid border-slate-100 px-4 py-3">
+                <p className="m-0 text-[11px] text-slate-400">Customer&apos;s reason</p>
+                <p className="m-0 mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.reason}</p>
               </div>
+            )}
+          </section>
 
-              {/* Status Section */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Workflow action</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-950">Update cancellation status</div>
-                  </div>
-                  <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusTone(item.status)}`}>
-                    Current: {getWorkflowFlow(item.status).current}
+          {/* Verification */}
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
+              <ShieldCheck className="h-4 w-4 text-[#02665e]" />
+              <h2 className="m-0 text-sm font-bold text-slate-900">Verification</h2>
+              <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${passed === checks.length ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{passed} of {checks.length} cleared</span>
+            </div>
+            <ul className="m-0 grid list-none gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 p-0 sm:grid-cols-2">
+              {checks.map((check) => (
+                <li key={check.label} className={`flex min-w-0 items-start gap-2.5 px-4 py-3 ${check.ok ? "bg-white" : "bg-amber-50/60"}`}>
+                  {check.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />}
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-900">{check.label}</span>
+                    <span className="block text-xs leading-5 text-slate-500">{check.detail}</span>
                   </span>
-                </div>
-                
-                {/* Warning for SUBMITTED status - must review first */}
-                {item.status === "SUBMITTED" && (
-                  <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <div className="text-xs font-semibold text-amber-900 mb-1">Review Required - Cannot Skip</div>
-                        <div className="text-xs text-amber-800 leading-relaxed">
-                          This claim is in &quot;Submitted&quot; status. <strong>You must move it to Reviewing first</strong> before requesting information, approving, or rejecting it.
-                        </div>
+                </li>
+              ))}
+            </ul>
+
+            {/* Payment evidence */}
+            <div className="border-0 border-t border-solid border-slate-100 px-4 py-3 sm:px-5">
+              <p className="m-0 mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400"><CreditCard className="h-3.5 w-3.5" /> Original payment</p>
+              {paymentInfo ? (
+                <>
+                  <dl className="m-0 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+                    <div><dt className="text-[11px] text-slate-400">Invoice</dt><dd className="m-0 truncate font-mono text-slate-800">{paymentInfo.invoice.invoiceNumber || `#${paymentInfo.invoice.id}`}</dd></div>
+                    <div><dt className="text-[11px] text-slate-400">Receipt</dt><dd className="m-0 truncate font-mono text-slate-800">{paymentInfo.invoice.receiptNumber || "Not issued"}</dd></div>
+                    <div><dt className="text-[11px] text-slate-400">Paid</dt><dd className="m-0 font-semibold tabular-nums text-slate-900">{money(Number(paymentInfo.invoice.total))}</dd></div>
+                    <div><dt className="text-[11px] text-slate-400">Method</dt><dd className="m-0 truncate text-slate-800">{paymentInfo.invoice.paymentMethod || "Not recorded"} · {paymentInfo.invoice.status}</dd></div>
+                  </dl>
+                  <div className={`mt-3 rounded-xl px-3 py-2.5 text-xs ring-1 ${paymentInfo.invoice.paymentRef ? "bg-emerald-50/70 text-emerald-900 ring-emerald-200" : paymentInfo.paymentEvents.length ? "bg-blue-50/70 text-blue-900 ring-blue-200" : "bg-rose-50/70 text-rose-900 ring-rose-200"}`}>
+                    {paymentInfo.invoice.paymentRef ? (
+                      <p className="m-0 flex flex-wrap items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Transaction reference <code className="break-all rounded bg-white/70 px-1.5 py-0.5 font-mono">{paymentInfo.invoice.paymentRef}</code></p>
+                    ) : paymentInfo.paymentEvents.length ? (
+                      <div>
+                        <p className="m-0 font-semibold">No invoice reference, but {paymentInfo.paymentEvents.length} gateway {paymentInfo.paymentEvents.length === 1 ? "event" : "events"} found</p>
+                        <ul className="m-0 mt-1.5 list-none space-y-1 p-0">
+                          {paymentInfo.paymentEvents.map((event) => (
+                            <li key={event.id} className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold">{event.provider}</span>
+                              <code className="break-all rounded bg-white/70 px-1.5 py-0.5 font-mono">{event.eventId}</code>
+                              <span>{event.status}</span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
+                    ) : (
+                      <p className="m-0 flex items-start gap-2"><XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" /> No transaction identifier was found. Confirm the payment before any refund is approved.</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="m-0 rounded-xl bg-amber-50/70 px-3 py-2.5 text-xs text-amber-900 ring-1 ring-amber-200">Payment information could not be loaded for this booking. Verify the payment and ask the customer for transaction details.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Conversation */}
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            {/* Collapsed by default: the thread is reference material, the decision is the work. */}
+            <button
+              type="button"
+              onClick={() => setThreadOpen((open) => !open)}
+              aria-expanded={threadOpen}
+              className="flex w-full flex-wrap items-center gap-2 border-0 bg-transparent px-4 py-3 text-left transition hover:bg-slate-50 sm:px-5"
+            >
+              <MessageSquare className="h-4 w-4 flex-shrink-0 text-[#02665e]" />
+              <h2 className="m-0 text-sm font-bold text-slate-900">Conversation</h2>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{item.messages.length}</span>
+              {!threadOpen && lastMessage && (
+                <span className="hidden min-w-0 flex-1 truncate text-xs text-slate-400 sm:block">
+                  {lastMessage.senderRole === "ADMIN" ? "You" : "Customer"}: {lastMessage.body}
+                </span>
+              )}
+              <span className="ml-auto inline-flex flex-shrink-0 items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                {threadOpen ? "Hide" : "Show"}
+                <ChevronDown className={`h-4 w-4 transition-transform ${threadOpen ? "rotate-180" : ""}`} />
+              </span>
+            </button>
+
+            {threadOpen && (<>
+            <div className="max-h-96 space-y-3 overflow-y-auto border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-4 py-4 sm:px-5">
+              {item.messages.length === 0 ? (
+                <p className="m-0 py-6 text-center text-xs text-slate-400">No messages yet. Ask for evidence or explain the decision.</p>
+              ) : (
+                item.messages.map((m) => {
+                  const mine = m.senderRole === "ADMIN";
+                  return (
+                    <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                      {!mine && <span className="mt-auto grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200"><User className="h-3.5 w-3.5" /></span>}
+                      <div className={`min-w-0 max-w-[80%] rounded-2xl px-3.5 py-2.5 ${mine ? "rounded-br-sm bg-[#02665e] text-white" : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200"}`}>
+                        <p className={`m-0 text-[11px] font-semibold ${mine ? "text-white/70" : "text-slate-400"}`}>{mine ? "Admin" : "Customer"}</p>
+                        <p className="m-0 mt-1 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{m.body}</p>
+                        <p className={`m-0 mt-1 text-[10px] ${mine ? "text-white/60" : "text-slate-400"}`} title={dateTime(m.createdAt)}>{ago(m.createdAt)}</p>
+                      </div>
+                      {mine && <span className="mt-auto grid h-7 w-7 flex-shrink-0 place-items-center rounded-full bg-[#02665e]/10 text-[#02665e]"><Shield className="h-3.5 w-3.5" /></span>}
                     </div>
-                  </div>
-                )}
-                
-                <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-                  <div className="min-w-0">
-                    <label htmlFor="status-select" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                      New status
-                    </label>
-                    <select
-                      id="status-select"
-                      aria-label="Status"
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none transition-all focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20"
-                    >
-                      <option value="" disabled>Select the next workflow step</option>
-                      {(() => {
-                        const flow = getWorkflowFlow(item.status);
-                        return flow.next.map((nextStatus) => {
-                          const valueMap: Record<string, string> = {
-                            "Reviewing": "REVIEWING",
-                            "Need Info": "NEED_INFO",
-                            "Approved": "APPROVED",
-                            "Refund Pending": "REFUND_PENDING",
-                            "Refunded": "REFUNDED",
-                            "Rejected": "REJECTED"
-                          };
-                          return (
-                            <option key={valueMap[nextStatus]} value={valueMap[nextStatus]}>
-                              {nextStatus}
-                            </option>
-                          );
-                        });
-                      })()}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={save}
-                    disabled={!canSave || saving}
-                    className="inline-flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#02665e] px-5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-[#014d47] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Save Changes
+                  );
+                })
+              )}
+            </div>
+
+            <div className="border-0 border-t border-solid border-slate-100 p-3 sm:p-4">
+              {isFinal ? (
+                <p className="m-0 flex items-center justify-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                  <Lock className="h-4 w-4" /> This claim is {current.label.toLowerCase()}. Messaging is closed.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send(); }}
+                    rows={2}
+                    className="min-h-[3.25rem] w-full flex-1 resize-none rounded-xl border border-solid border-slate-200 bg-white px-3.5 py-2.5 font-[inherit] text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                    placeholder="Write to the customer, for example asking for the payment receipt"
+                  />
+                  <button type="button" onClick={send} disabled={sending || !message.trim()} className="inline-flex h-11 flex-shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:opacity-50">
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send
                   </button>
+                </div>
+              )}
+            </div>
+            </>)}
+          </section>
+        </div>
+
+        {/* ---------------- Decision rail ---------------- */}
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <div className={`flex items-center gap-2 px-4 py-3 ${current.soft}`}>
+              <span className={`h-2 w-2 rounded-full ${current.dot}`} />
+              <h2 className={`m-0 text-sm font-bold ${current.text}`}>{isFinal ? `${current.label} · closed` : "Decision"}</h2>
+            </div>
+
+            {isFinal ? (
+              <div className="space-y-3 px-4 py-4">
+                <p className="m-0 text-xs leading-5 text-slate-600">
+                  {item.status === "REFUNDED"
+                    ? "The refund is complete. A refunded claim can never be rejected."
+                    : "This claim was rejected. A rejected claim can never be refunded."}
+                </p>
+                {item.decisionNote && (
+                  <p className="m-0 rounded-xl bg-slate-50 px-3 py-2.5 text-xs italic leading-5 text-slate-600">&ldquo;{item.decisionNote}&rdquo;</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 px-4 py-4">
+                {item.status === "SUBMITTED" && (
+                  <p className="m-0 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /> Move the claim to Reviewing first. Approvals and rejections are not allowed straight from Submitted.
+                  </p>
+                )}
+                {!paymentVerified && (
+                  <p className="m-0 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-xs leading-5 text-rose-900">
+                    <Lock className="mt-0.5 h-4 w-4 flex-shrink-0" /> The API blocks approval until the original payment is confirmed.
+                  </p>
+                )}
+
+                <div>
+                  <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Next step</p>
+                  <div className="mt-2 grid gap-1.5">
+                    {nextSteps.map((step) => {
+                      const stepMeta = meta(step);
+                      const chosen = status === step;
+                      return (
+                        <button
+                          key={step}
+                          type="button"
+                          onClick={() => setStatus(chosen ? "" : step)}
+                          aria-pressed={chosen}
+                          className={`flex items-center gap-2.5 rounded-xl border border-solid px-3 py-2.5 text-left text-sm transition ${chosen ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"}`}
+                        >
+                          <span className={`h-2 w-2 rounded-full ${chosen ? "bg-white" : stepMeta.dot}`} />
+                          <span className="flex-1 font-medium">{stepMeta.label}</span>
+                          <ChevronRight className={`h-4 w-4 ${chosen ? "text-white/70" : "text-slate-300"}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {["NEED_INFO", "APPROVED", "REJECTED"].includes(status) && (
-                  <div className="mt-4">
-                    <label htmlFor="decision-note" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                      {status === "NEED_INFO" ? "Information required" : status === "REJECTED" ? "Rejection reason" : "Approval decision"}
-                    </label>
-                    <textarea id="decision-note" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} rows={3} maxLength={4000} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Record the evidence and reason for this decision" />
-                  </div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    {status === "NEED_INFO" ? "What do you need from the customer?" : status === "REJECTED" ? "Rejection reason" : "Approval note"}
+                    <textarea value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} rows={3} maxLength={4000} className="mt-1.5 w-full resize-none rounded-xl border border-solid border-slate-200 bg-white px-3 py-2.5 font-[inherit] text-sm font-normal text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" placeholder="Recorded on the claim and sent to the customer" />
+                  </label>
                 )}
 
                 {status === "REFUND_PENDING" && (
-                  <div className="mt-4">
-                    <label htmlFor="refund-provider" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Refund provider</label>
-                    <input id="refund-provider" value={refundProvider} onChange={(e) => setRefundProvider(e.target.value)} maxLength={80} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Original payment provider or bank" />
-                    <label htmlFor="bank-charges" className="mb-2 mt-3 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Actual bank charges debited (optional)</label>
-                    <input id="bank-charges" value={bankCharges} onChange={(e) => setBankCharges(e.target.value)} inputMode="decimal" className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="TZS amount from the bank debit advice" />
-                    <p className="mt-2 text-xs text-slate-500">Refund payment charges apply per policy section 8.4: 6% card surcharge or actual bank charges, plus the administrative charge. Free-cancellation window and pre-policy bookings are exempt.</p>
+                  <div className="space-y-2.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Refund provider
+                      <input value={refundProvider} onChange={(e) => setRefundProvider(e.target.value)} maxLength={80} className="mt-1.5 h-10 w-full rounded-xl border border-solid border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" placeholder="Original payment provider or bank" />
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Actual bank charges <span className="font-normal text-slate-400">(optional)</span>
+                      <input value={bankCharges} onChange={(e) => setBankCharges(e.target.value)} inputMode="decimal" className="mt-1.5 h-10 w-full rounded-xl border border-solid border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" placeholder="TZS amount from the bank advice" />
+                    </label>
+                    <p className="m-0 text-[11px] leading-4 text-slate-500">Policy 8.4: 6% card surcharge or actual bank charges, plus the administrative charge. Free-cancellation and pre-policy bookings are exempt.</p>
                   </div>
                 )}
 
                 {status === "REFUNDED" && (
-                  <div className="mt-4">
-                    <label htmlFor="refund-reference" className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Provider refund reference</label>
-                    <input id="refund-reference" value={refundReference} onChange={(e) => setRefundReference(e.target.value)} maxLength={160} className="box-border w-full min-w-0 max-w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20" placeholder="Required proof that the refund completed" />
-                  </div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Provider refund reference
+                    <input value={refundReference} onChange={(e) => setRefundReference(e.target.value)} maxLength={160} className="mt-1.5 h-10 w-full rounded-xl border border-solid border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" placeholder="Proof that the refund completed" />
+                    <span className="mt-1 block text-[11px] font-normal text-slate-400">At least 3 characters. This is the evidence the refund left the account.</span>
+                  </label>
                 )}
-                
-                {/* Workflow Flow Indicator */}
-                {(() => {
-                  const flow = getWorkflowFlow(item.status);
-                  if (flow.next.length > 0) {
-                    return (
-                      <div className="mt-4 border-t border-slate-200 pt-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-semibold text-slate-500">Next allowed:</span>
-                          {flow.next.map((next, idx) => (
-                            <span key={idx} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-                              <span className="h-1 w-1 rounded-full bg-[#02665e]"></span>
-                              {next}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="mt-4 border-t border-slate-200 pt-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-emerald-600"></div>
-                        <span className="text-xs font-semibold text-gray-700">Status: <span className="text-emerald-600">{flow.current}</span> (Final)</span>
-                      </div>
-                    </div>
-                  );
-                })()}
 
-                {item.refundAmount != null && (
-                  <div className="mt-4 grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:grid-cols-3">
-                    <div><div className="text-xs font-semibold text-emerald-700">Approved refund</div><div className="mt-1 font-bold text-emerald-950">TZS {Number(item.refundAmount).toLocaleString()}</div></div>
-                    <div><div className="text-xs font-semibold text-emerald-700">Provider</div><div className="mt-1 font-bold text-emerald-950">{item.refundProvider || "Not initiated"}</div></div>
-                    <div><div className="text-xs font-semibold text-emerald-700">Refund reference</div><div className="mt-1 break-all font-bold text-emerald-950">{item.refundReference || "Awaiting confirmation"}</div></div>
-                    {item.refundChargesJson && (
-                      <div className="sm:col-span-3 border-t border-emerald-200 pt-3">
-                        <div className="text-xs font-semibold text-emerald-700">Refund payment charges (policy 8.4)</div>
-                        <div className="mt-1 text-sm font-semibold text-emerald-950">
-                          {item.refundChargesJson.exempt
-                            ? "Exempt: no charges apply to this refund."
-                            : `Card surcharge TZS ${Number(item.refundChargesJson.cardSurcharge || 0).toLocaleString()} · Bank charges TZS ${Number(item.refundChargesJson.bankCharges || 0).toLocaleString()} · Admin charge TZS ${Number(item.refundChargesJson.adminCharge || 0).toLocaleString()} · Net payable TZS ${Number(item.refundChargesJson.netRefundAmount || 0).toLocaleString()}`}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                <p className="mt-3 text-xs text-slate-500">
-                  Changing the status will automatically send a message to the customer
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Verification & Investigation Section */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            {/* Section Header */}
-            <div className="bg-gradient-to-r from-[#02665e]/5 to-transparent border-b border-gray-200 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-[#02665e] to-[#014d47] flex items-center justify-center">
-                  <Shield className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Verification & Investigation</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Review and verify all claim details before processing</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-5 space-y-6">
-
-              {/* Security Alert for Missing Transaction ID */}
-              {paymentInfo && (!paymentInfo.hasTransactionId || !paymentInfo.paymentConfirmed) && (
-                <div className="rounded-lg border-2 border-red-300 bg-gradient-to-r from-red-50 to-red-100/50 p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                      <AlertTriangle className="h-5 w-5 text-red-600" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-bold text-red-900 mb-1.5 text-sm">Payment verification required</div>
-                      <div className="text-sm text-red-800 leading-relaxed">
-                        The original payment needs both a transaction identifier and a successful payment status.
-                        <strong className="block mt-2 text-red-900">Approval is blocked by the API until the payment is confirmed.</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step-by-Step Verification Checklist */}
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-[#02665e]"></div>
-                  Verification Steps
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-all ${
-                    paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed
-                      ? "border-emerald-200 bg-emerald-50/50" 
-                      : "border-amber-200 bg-amber-50/50"
-                  }`}>
-                    <div className="mt-0.5 flex-shrink-0">
-                      {paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed ? (
-                        <div className="h-6 w-6 rounded-full bg-emerald-100 flex items-center justify-center">
-                          <CheckCircle className="h-4 w-4 text-emerald-600" />
-                        </div>
-                      ) : (
-                        <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center">
-                          <Clock className="h-4 w-4 text-amber-600" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">1. Payment {paymentInfo?.hasTransactionId && paymentInfo?.paymentConfirmed ? "Verified" : "Not Verified"}</div>
-                      <div className="text-xs text-gray-600 leading-relaxed">
-                        A successful payment status and transaction identifier are required
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-4">
-                    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                      <CheckCircle className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">2. Booking Code Verified</div>
-                      <div className="text-xs text-gray-600 leading-relaxed">
-                        The authenticated submission route matched this code to the booking
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-4">
-                    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                      <CheckCircle className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">3. Customer Ownership Verified</div>
-                      <div className="text-xs text-gray-600 leading-relaxed">
-                        The requester was authenticated and matched to the booking customer
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`flex items-start gap-3 rounded-lg border-2 p-4 ${item.policyEligible ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50"}`}>
-                    <div className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${item.policyEligible ? "bg-emerald-100" : "bg-red-100"}`}>
-                      {item.policyEligible ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-red-600" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm mb-1">4. Policy {item.policyEligible ? "Verified" : "Not Eligible"}</div>
-                      <div className="text-xs text-gray-600 leading-relaxed">
-                        Stored policy decision: {item.policyRefundPercent ?? 0}% refund under {item.policyRule || "manual review"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Booking Details */}
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-[#02665e]"></div>
-                  Booking Details
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <FileText className="h-4 w-4 text-blue-600" />
-                      </div>
-                      <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Booking Information</div>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                        <span className="font-medium text-gray-600">Booking ID:</span>
-                        <span className="font-semibold text-gray-900">#{item.booking.id}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                        <span className="font-medium text-gray-600">Booking Code:</span>
-                        <span className="font-mono font-semibold text-gray-900">{item.bookingCode}</span>
-                      </div>
-                      {item.booking.code && (
-                        <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                          <span className="font-medium text-gray-600">Check-in Code:</span>
-                          <span className="font-mono font-semibold text-gray-900">{item.booking.code.codeVisible || item.booking.code.code}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                        <span className="font-medium text-gray-600">Status:</span>
-                        <span className="font-semibold text-gray-900">{item.booking.status}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1">
-                        <span className="font-medium text-gray-600">Created:</span>
-                        <span className="text-gray-700 text-xs">{new Date(item.booking.createdAt).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                        <Calendar className="h-4 w-4 text-emerald-600" />
-                      </div>
-                      <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Dates & Amount</div>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                        <span className="font-medium text-gray-600">Check-in:</span>
-                        <span className="text-gray-900">{new Date(item.booking.checkIn).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                        <span className="font-medium text-gray-600">Check-out:</span>
-                        <span className="text-gray-900">{new Date(item.booking.checkOut).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1 pt-2">
-                        <span className="font-medium text-gray-600">Total Amount:</span>
-                        <span className="font-bold text-lg text-[#02665e]">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'TZS' }).format(item.booking.totalAmount)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-8 w-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                        <Building className="h-4 w-4 text-purple-600" />
-                      </div>
-                      <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Property</div>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="py-1">
-                        <div className="font-medium text-gray-600 mb-1">Name</div>
-                        <div className="font-semibold text-gray-900">{item.booking.property.title}</div>
-                      </div>
-                      <div className="py-1 border-t border-gray-100">
-                        <div className="font-medium text-gray-600 mb-1">Type</div>
-                        <div className="text-gray-700">{item.booking.property.type || "—"}</div>
-                      </div>
-                      <div className="py-1 border-t border-gray-100">
-                        <div className="font-medium text-gray-600 mb-1 flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          Location
-                        </div>
-                        <div className="text-gray-700 text-xs">
-                          {[item.booking.property.regionName, item.booking.property.city, item.booking.property.district].filter(Boolean).join(", ") || "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-8 w-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-                        <User className="h-4 w-4 text-indigo-600" />
-                      </div>
-                      <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Guest Information</div>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2 py-1 border-b border-gray-100">
-                        <User className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-600 text-xs">Name</div>
-                          <div className="font-semibold text-gray-900">{item.booking.guestName || item.user?.name || "—"}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 py-1 border-b border-gray-100">
-                        <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-600 text-xs">Phone</div>
-                          <div className="text-gray-900">{item.booking.guestPhone || item.user?.phone || "—"}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 py-1">
-                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-600 text-xs">Email</div>
-                          <div className="text-gray-900">{item.user?.email || "—"}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment & Transaction Information */}
-              {paymentInfo ? (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-                    <div className="h-1.5 w-1.5 rounded-full bg-[#02665e]"></div>
-                    Payment & Transaction Details
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="h-8 w-8 rounded-lg bg-green-100 flex items-center justify-center">
-                          <CreditCard className="h-4 w-4 text-green-600" />
-                        </div>
-                        <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Invoice Information</div>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                          <span className="font-medium text-gray-600">Invoice #:</span>
-                          <span className="text-gray-900">{paymentInfo.invoice.invoiceNumber || "—"}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                          <span className="font-medium text-gray-600">Receipt #:</span>
-                          <span className="text-gray-900">{paymentInfo.invoice.receiptNumber || "—"}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                          <span className="font-medium text-gray-600">Amount:</span>
-                          <span className="font-bold text-[#02665e]">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'TZS' }).format(Number(paymentInfo.invoice.total))}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                          <span className="font-medium text-gray-600">Status:</span>
-                          <span className="text-gray-900">{paymentInfo.invoice.status}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="font-medium text-gray-600">Method:</span>
-                          <span className="text-gray-900">{paymentInfo.invoice.paymentMethod || "—"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="h-8 w-8 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
-                          <Shield className="h-4 w-4 text-[#02665e]" />
-                        </div>
-                        <div className="text-xs font-bold text-gray-700 uppercase tracking-wider">Transaction ID Verification</div>
-                      </div>
-                      <div className="space-y-2">
-                        {paymentInfo.invoice.paymentRef ? (
-                          <div className="p-3 rounded-lg bg-emerald-50 border-2 border-emerald-200 shadow-sm">
-                            <div className="flex items-start gap-2">
-                              <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs font-bold text-emerald-900 mb-1">Transaction ID Found</div>
-                                <div className="text-xs text-emerald-700 font-mono break-all bg-emerald-100 px-2 py-1 rounded">{paymentInfo.invoice.paymentRef}</div>
-                              </div>
-                            </div>
-                          </div>
-                        ) : paymentInfo.paymentEvents.length > 0 ? (
-                          <div className="space-y-2">
-                            {paymentInfo.paymentEvents.map((event) => (
-                              <div key={event.id} className="p-3 rounded-lg bg-blue-50 border-2 border-blue-200 shadow-sm">
-                                <div className="text-xs font-bold text-blue-900 mb-1">{event.provider}</div>
-                                <div className="text-xs text-blue-700 font-mono break-all bg-blue-100 px-2 py-1 rounded mb-1">{event.eventId}</div>
-                                <div className="text-xs text-blue-600">Status: <span className="font-semibold">{event.status}</span></div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="p-3 rounded-lg bg-red-50 border-2 border-red-200 shadow-sm">
-                            <div className="flex items-start gap-2">
-                              <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                              <div className="flex-1">
-                                <div className="text-xs font-bold text-red-900 mb-1">No Transaction ID Found</div>
-                                <div className="text-xs text-red-700 leading-relaxed">⚠️ This is a security risk. Verify payment before processing refund.</div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-amber-100/50 p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-bold text-amber-900 mb-1 text-sm">Payment Information Not Available</div>
-                      <div className="text-sm text-amber-800 leading-relaxed">
-                        Unable to retrieve payment information for this booking. Please verify the payment was made and request transaction details from the customer.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Cancellation Reason */}
-              {item.reason && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="h-8 w-8 rounded-lg bg-orange-100 flex items-center justify-center">
-                      <FileText className="h-4 w-4 text-orange-600" />
-                    </div>
-                    <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">Cancellation Reason</div>
-                  </div>
-                  <div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{item.reason}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Messages Section */}
-          <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* Messages Header */}
-            <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-4 py-4 sm:px-5">
-              <div className="flex min-w-0 items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]">
-                    <MessageSquare className="h-5 w-5 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-bold text-slate-950 sm:text-lg">Messages</h2>
-                    <p className="mt-0.5 truncate text-xs text-slate-500">Communicate with the customer about this claim</p>
-                  </div>
-                </div>
                 <button
                   type="button"
-                  onClick={() => load()}
-                  className="mr-0.5 inline-flex flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] shadow-sm transition-colors hover:bg-[#02665e]/5"
+                  onClick={save}
+                  disabled={!canSave || saving}
+                  className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-45 ${status === "REJECTED" ? "bg-rose-600 hover:bg-rose-700" : "bg-[#02665e] hover:bg-[#014d47]"}`}
                 >
-                  Refresh
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {status ? `Move to ${meta(status).label}` : "Choose a next step"}
                 </button>
+                <p className="m-0 text-center text-[11px] text-slate-400">The customer is messaged automatically on every change.</p>
               </div>
-            </div>
+            )}
+          </section>
 
-            <div className="space-y-4 overflow-x-hidden px-4 py-4 sm:px-5">
-              {/* Messages List */}
-              <div className="max-h-[22rem] space-y-3 overflow-y-auto pr-1">
-                {item.messages.length === 0 ? (
-                  <div className="text-center py-8">
-                    <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-gray-500">No messages yet</p>
-                    <p className="text-xs text-gray-400 mt-1">Start a conversation with the customer</p>
-                  </div>
-                ) : (
-                  item.messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`min-w-0 max-w-full overflow-hidden rounded-xl border p-3 shadow-sm ${
-                        m.senderRole === "ADMIN"
-                          ? "border-emerald-100 bg-emerald-50/70"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className={`h-6 w-6 rounded-full flex items-center justify-center ${
-                            m.senderRole === "ADMIN" ? "bg-emerald-100" : "bg-gray-100"
-                          }`}>
-                            {m.senderRole === "ADMIN" ? (
-                              <Shield className="h-3.5 w-3.5 text-emerald-600" />
-                            ) : (
-                              <User className="h-3.5 w-3.5 text-gray-600" />
-                            )}
-                          </div>
-                          <span className={`text-xs font-bold ${
-                            m.senderRole === "ADMIN" ? "text-emerald-900" : "text-gray-700"
-                          }`}>
-                            {m.senderRole === "ADMIN" ? "Admin" : "Customer"}
-                          </span>
-                        </div>
-                        <div className="flex-shrink-0 text-xs text-slate-500">{fmt(m.createdAt)}</div>
-                      </div>
-                      <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800 [overflow-wrap:anywhere]">{m.body}</div>
-                    </div>
-                  ))
-                )}
+          {/* Refund settlement */}
+          {item.refundAmount != null && (
+            <section className="overflow-hidden rounded-2xl border border-solid border-emerald-200 bg-white">
+              <div className="flex items-center gap-2 bg-emerald-50 px-4 py-3">
+                <CreditCard className="h-4 w-4 text-emerald-700" />
+                <h2 className="m-0 text-sm font-bold text-emerald-800">Refund settlement</h2>
               </div>
+              <dl className="m-0 space-y-2 px-4 py-3 text-sm">
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Approved</dt><dd className="m-0 font-semibold tabular-nums text-slate-900">{money(item.refundAmount)}</dd></div>
+                {item.refundChargesJson && !item.refundChargesJson.exempt && (
+                  <>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Card surcharge</dt><dd className="m-0 tabular-nums text-rose-600">- {money(item.refundChargesJson.cardSurcharge)}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Bank charges</dt><dd className="m-0 tabular-nums text-rose-600">- {money(item.refundChargesJson.bankCharges)}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Admin charge</dt><dd className="m-0 tabular-nums text-rose-600">- {money(item.refundChargesJson.adminCharge)}</dd></div>
+                    <div className="flex justify-between gap-3 border-0 border-t border-solid border-slate-200 pt-2"><dt className="font-medium text-slate-700">Net payable</dt><dd className="m-0 font-bold tabular-nums text-emerald-700">{money(item.refundChargesJson.netRefundAmount)}</dd></div>
+                  </>
+                )}
+                {item.refundChargesJson?.exempt && <p className="m-0 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">Exempt: no refund charges apply.</p>}
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Provider</dt><dd className="m-0 truncate text-slate-800">{item.refundProvider || "Not initiated"}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Reference</dt><dd className="m-0 break-all text-right font-mono text-xs text-slate-800">{item.refundReference || "Awaiting confirmation"}</dd></div>
+                {item.refundedAt && <div className="flex justify-between gap-3"><dt className="text-slate-500">Refunded</dt><dd className="m-0 text-slate-800">{dateOnly(item.refundedAt)}</dd></div>}
+              </dl>
+            </section>
+          )}
 
-              {/* Message Input */}
-              <div className="border-t border-gray-200 pt-4">
-                {item.status === "REFUNDED" || item.status === "REJECTED" ? (
-                  // Locked state - final status reached
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-lg border-2 border-gray-300 p-4 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center transition-all duration-300 animate-pulse">
-                        <Lock className="h-4 w-4 text-gray-500" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Message (Locked)
-                        </label>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          This claim has reached a final status ({item.status === "REFUNDED" ? "Refunded" : "Rejected"}). No further messages can be sent.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <textarea
-                        value=""
-                        rows={3}
-                        disabled
-                        className="flex-1 rounded-lg border-2 border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400 cursor-not-allowed transition-all duration-200"
-                        placeholder="Messaging is disabled - claim is finalized"
-                      />
-                      <button
-                        type="button"
-                        disabled
-                        className="sm:w-auto sm:min-w-[120px] inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-gray-200 to-gray-300 border-2 border-gray-300 px-6 py-2.5 text-sm font-semibold text-gray-500 cursor-not-allowed shadow-inner transition-all duration-300 hover:from-gray-300 hover:to-gray-400 hover:shadow-md relative overflow-hidden group"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                        <Lock className="h-4 w-4 relative z-10 transition-transform duration-300 group-hover:rotate-12" />
-                        <span className="relative z-10">Locked</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  // Active state - messaging enabled
-                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                      Message
-                    </label>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <textarea
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        rows={3}
-                        className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] outline-none transition-all resize-none"
-                        placeholder="Write a message to the customer (request more info, etc.)"
-                      />
-                      <button
-                        type="button"
-                        onClick={send}
-                        disabled={sending || !message.trim()}
-                        className="sm:w-auto sm:min-w-[120px] inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#014d47] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
-                      >
-                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+          {/* Trail */}
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <div className="flex items-center gap-2 px-4 py-3">
+              <Clock className="h-4 w-4 text-slate-400" />
+              <h2 className="m-0 text-sm font-bold text-slate-900">Trail</h2>
             </div>
-          </div>
-        </div>
-      )}
+            <ul className="m-0 list-none space-y-2.5 border-0 border-t border-solid border-slate-100 px-4 py-3 p-0 text-xs">
+              {[
+                { label: "Booking created", at: item.booking.createdAt },
+                { label: "Cancellation requested", at: item.createdAt },
+                { label: "Approved", at: item.approvedAt },
+                { label: "Refund initiated", at: item.refundInitiatedAt },
+                { label: "Refunded", at: item.refundedAt },
+                { label: "Last update", at: item.updatedAt },
+              ].filter((row) => row.at).map((row) => (
+                <li key={row.label} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-slate-300" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-slate-700">{row.label}</span>
+                    <span className="block text-[11px] text-slate-400">{dateTime(row.at)}</span>
+                  </span>
+                </li>
+              ))}
+              {item.booking.code && (
+                <li className="flex items-start gap-2.5 border-0 border-t border-solid border-slate-100 pt-2.5">
+                  <Search className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-300" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-slate-700">Check-in code</span>
+                    <span className="block font-mono text-[11px] text-slate-500">{item.booking.code.codeVisible || item.booking.code.code} · {item.booking.code.status}</span>
+                  </span>
+                </li>
+              )}
+            </ul>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
-
-

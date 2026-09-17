@@ -4,6 +4,56 @@ import { usePathname } from "next/navigation";
 import React from "react";
 import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck } from "lucide-react";
 import { useEffect, useState } from "react";
+import apiClient from "@/lib/apiClient";
+
+/**
+ * Twiga conversations waiting on a person. Refreshed when a visitor hands off
+ * or writes again (socket relay), when the Twiga page closes one out, and once
+ * a minute as a fallback if the socket is down.
+ */
+function useTwigaQueueCount() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (event?: Event) => {
+      // Read receipts do not change the queue size.
+      if ((event as CustomEvent<{ kind?: string }> | undefined)?.detail?.kind === "seen") return;
+      try {
+        const res = await apiClient.get<{ success: boolean; count: number }>("/api/admin/chatbot/follow-up-count");
+        if (!cancelled && res.data?.success) setCount(Number(res.data.count) || 0);
+      } catch {
+        // A badge is a hint; keep the last known value.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    window.addEventListener("nols:twiga-activity", load);
+    window.addEventListener("nols:twiga-queue-change", load);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("nols:twiga-activity", load);
+      window.removeEventListener("nols:twiga-queue-change", load);
+    };
+  }, []);
+  return count;
+}
+
+/** Small count pill for a sidebar row. */
+function CountBadge({ count, dark }: { count: number; dark: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      aria-label={`${count} waiting`}
+      className={`relative inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${
+        dark ? "bg-amber-400 text-amber-950" : "bg-red-500 text-white"
+      }`}
+    >
+      <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/40" aria-hidden />
+      <span className="relative">{count > 99 ? "99+" : count}</span>
+    </span>
+  );
+}
 
 type Item = {
   href: string;
@@ -21,6 +71,7 @@ function Item({
   collapsed = false,
   path,
   variant,
+  badge = 0,
 }: {
   href: string;
   label: string;
@@ -29,6 +80,7 @@ function Item({
   collapsed?: boolean;
   path: string | null;
   variant: SidebarVariant;
+  badge?: number;
 }) {
   const active = path === href || path?.startsWith(href + "/");
   const dark = variant === "dark";
@@ -78,6 +130,9 @@ function Item({
             </span>
           )
         ) : null}
+        {badge > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-[#0b1f1c]" aria-label={`${badge} waiting`} />
+        )}
         {/* Tooltip for collapsed state */}
         <span className={`absolute left-full ml-2 px-2 py-1 text-xs font-medium rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity duration-200 ${dark ? "text-white bg-black/70 border border-white/10" : "text-white bg-gray-900"}`}>
           {label}
@@ -115,6 +170,7 @@ function Item({
             </span>
           ) : null}
           <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
+          <CountBadge count={badge} dark />
         </>
       ) : (
         <>
@@ -126,10 +182,13 @@ function Item({
             ) : null}
             <span className={`${isSubItem ? "text-[13px]" : ""} truncate whitespace-nowrap`}>{label}</span>
           </div>
-          <ChevronRight
-            className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity text-[#02665e] ${active ? "opacity-85" : "group-hover:opacity-85"}`}
-            aria-hidden
-          />
+          <span className="flex items-center gap-2">
+            <CountBadge count={badge} dark={false} />
+            <ChevronRight
+              className={`h-4 w-4 opacity-60 flex-shrink-0 transition-opacity text-[#02665e] ${active ? "opacity-85" : "group-hover:opacity-85"}`}
+              aria-hidden
+            />
+          </span>
         </>
       )}
     </Link>
@@ -238,6 +297,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },
   { href: "/admin/management/settings", label: "Settings", Icon: Settings },
   { href: "/admin/management/updates", label: "Updates", Icon: Megaphone },
+  { href: "/admin/management/newsletter", label: "Newsletter", Icon: Send },
   { href: "/admin/management/users", label: "Users", Icon: Users },
 ];
 
@@ -253,6 +313,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [usersOpen, setUsersOpen] = useState(false);
   const [groupStayOpen, setGroupStayOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const twigaWaiting = useTwigaQueueCount();
+  const badges: Record<string, number> = { "/admin/agents/ai": twigaWaiting };
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
   const [nrmsOpen, setNrmsOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
@@ -387,13 +449,15 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     onClick, 
     collapsed,
     active,
-  }: { 
-    label: string; 
-    Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; 
-    isOpen: boolean; 
+    badge = 0,
+  }: {
+    label: string;
+    Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+    isOpen: boolean;
     onClick: () => void;
     collapsed: boolean;
     active: boolean;
+    badge?: number;
   }) => {
     if (collapsed) {
       return (
@@ -463,11 +527,15 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           )}
           <span className="truncate whitespace-nowrap">{label}</span>
         </span>
-        {isOpen ? (
-          <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
-        ) : (
-          <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
-        )}
+        <span className="flex shrink-0 items-center gap-2">
+          {/* Folded group: the waiting count rides on the header. Open: the sub-item shows it. */}
+          {!isOpen && <CountBadge count={badge} dark={dark} />}
+          {isOpen ? (
+            <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          ) : (
+            <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+          )}
+        </span>
       </button>
     );
   };
@@ -496,7 +564,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           <SectionHeader title={title} active={active} />
           <div className="mt-2 space-y-2">
             {items.map(({ href, label, Icon }) => (
-              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} />
             ))}
           </div>
         </div>
@@ -513,7 +581,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         <div className="min-h-0 overflow-hidden">
           <div className="ml-[1.35rem] mt-0.5 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2.5">
             {items.map(({ href, label, Icon }) => (
-              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} />
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} />
             ))}
           </div>
         </div>
@@ -621,7 +689,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Agents */}
         {collapsed ? (
-          <Item href="/admin/agents/dashboard" label="No4P Agents" Icon={Bot} collapsed={collapsed} path={path} variant={variant} />
+          <Item href="/admin/agents/dashboard" label="No4P Agents" Icon={Bot} collapsed={collapsed} path={path} variant={variant} badge={twigaWaiting} />
         ) : (
           <div>
             <CollapsibleButton 
@@ -631,6 +699,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setAgentsOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "No4P Agents"}
+              badge={twigaWaiting}
             />
             <NestedGroup open={agentsOpen} title="No4P Agents" active={activeSection === "No4P Agents"} items={agentsDetails} />
           </div>

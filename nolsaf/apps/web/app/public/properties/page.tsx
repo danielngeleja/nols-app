@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -51,6 +52,7 @@ import {
   SearchX,
   ArrowRight,
   Clock,
+  ArrowUpDown,
 } from "lucide-react";
 import SectionSeparator from "../../../components/SectionSeparator";
 import { REGIONS } from "@/lib/tzRegions";
@@ -116,6 +118,14 @@ const AMENITIES = [
 ] as const;
 
 type Amenity = (typeof AMENITIES)[number];
+
+/** Amenities grouped for the filters sheet; every entry in AMENITIES appears exactly once. */
+const AMENITY_GROUPS: Array<{ title: string; items: Amenity[] }> = [
+  { title: "Food and drink", items: ["Breakfast included", "Breakfast available", "Restaurant", "Bar"] },
+  { title: "Services", items: ["Free parking", "Laundry", "Room service", "On-site shop"] },
+  { title: "Wellness and leisure", items: ["Pool", "Sauna", "Gym", "Sports & games", "Social hall", "Nearby mall"] },
+  { title: "Safety", items: ["24h security", "First aid", "Fire extinguisher"] },
+];
 
 const PRICE_BUCKETS: Array<{ label: string; min: number | null; max: number | null }> = [
   { label: "Any", min: null, max: null },
@@ -215,6 +225,158 @@ function setOrDelete(qp: URLSearchParams, key: string, value: string) {
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+/** Filters sheet building blocks; module level so inputs inside keep their identity between renders. */
+function FilterSwitch({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden className={`relative inline-flex h-6 w-10 flex-none items-center rounded-full transition-colors ${on ? "bg-[#02665e]" : "bg-slate-300"}`}>
+      <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${on ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+    </span>
+  );
+}
+
+type FilterOption = { key: string; label: string; Icon?: LucideIcon; hint?: string };
+
+/**
+ * The filters sheet's shared option list: a white card split into a two-column grid,
+ * monochrome icons, and a checkbox (multi) or radio dot (single) on the right.
+ */
+function OptionGrid({
+  title,
+  options,
+  isOn,
+  onPick,
+  single = false,
+  columns = 2,
+}: {
+  title?: string;
+  options: FilterOption[];
+  isOn: (key: string) => boolean;
+  onPick: (key: string) => void;
+  single?: boolean;
+  columns?: 1 | 2;
+}) {
+  const picked = options.filter((o) => isOn(o.key)).length;
+  return (
+    <div>
+      {title && (
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</span>
+          {!single && picked > 0 && <span className="text-[11px] font-semibold text-[#02665e]">{picked} selected</span>}
+        </div>
+      )}
+      <div
+        role={single ? "radiogroup" : "group"}
+        aria-label={title}
+        className={`grid overflow-hidden rounded-lg border border-solid border-slate-200 bg-white ${columns === 2 ? "grid-cols-2" : "grid-cols-1"}`}
+      >
+        {options.map((o, i) => {
+          const on = isOn(o.key);
+          const Icon = o.Icon;
+          return (
+            <button
+              key={o.key}
+              type="button"
+              role={single ? "radio" : "checkbox"}
+              aria-checked={on}
+              onClick={() => onPick(o.key)}
+              className={[
+                "box-border flex min-w-0 items-center gap-2.5 border-0 border-solid border-slate-100 px-3 py-2.5 text-left transition-colors",
+                columns === 2 && i % 2 === 1 ? "border-l" : "",
+                i >= columns ? "border-t" : "",
+                on ? "bg-[#02665e]/[0.06]" : "bg-white hover:bg-slate-50",
+              ].join(" ")}
+            >
+              {Icon && <Icon className={`h-4 w-4 flex-none ${on ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />}
+              <span className="min-w-0 flex-1">
+                <span className={`block truncate text-[13px] ${on ? "font-semibold text-[#02665e]" : "text-slate-700"}`}>{o.label}</span>
+                {o.hint && <span className="block truncate text-[11.5px] text-slate-500">{o.hint}</span>}
+              </span>
+              {single ? (
+                <span
+                  aria-hidden
+                  className={`box-border flex h-4 w-4 flex-none items-center justify-center rounded-full border border-solid transition-colors ${on ? "border-[#02665e]" : "border-slate-300"}`}
+                >
+                  {on && <span className="h-2 w-2 rounded-full bg-[#02665e]" />}
+                </span>
+              ) : (
+                <span
+                  aria-hidden
+                  className={`box-border flex h-4 w-4 flex-none items-center justify-center rounded-[4px] border border-solid transition-colors ${
+                    on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"
+                  }`}
+                >
+                  {on && <Check className="h-3 w-3" strokeWidth={3} />}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One accordion row: icon, title and the current choice on the right.
+ * Only one row is expanded at a time, so the sheet stays short and scannable.
+ */
+function FilterSection({
+  id,
+  title,
+  Icon,
+  summary,
+  open,
+  onToggle,
+  onClear,
+  children,
+}: {
+  id: string;
+  title: string;
+  Icon: LucideIcon;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  onClear?: () => void;
+  children: React.ReactNode;
+}) {
+  const isSet = Boolean(onClear);
+  return (
+    <section className="border-0 border-t border-solid border-slate-100 first:border-t-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`filter-panel-${id}`}
+        className={`box-border flex h-[52px] w-full items-center gap-3 border-0 px-4 text-left transition-colors ${open ? "bg-slate-50" : "bg-white hover:bg-slate-50"}`}
+      >
+        <span
+          className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ring-1 ring-inset ${
+            isSet ? "bg-[#02665e] text-white ring-[#02665e]" : "bg-[#02665e]/[0.07] text-[#02665e] ring-[#02665e]/10"
+          }`}
+        >
+          <Icon className="h-4 w-4" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900">{title}</span>
+        {/* Current choice: quiet grey when open-ended, brand when set */}
+        <span className={`max-w-[42%] flex-none truncate text-[13px] ${isSet ? "font-semibold text-[#02665e]" : "text-slate-500"}`}>
+          {summary}
+        </span>
+        <ChevronRight className={`h-4 w-4 flex-none text-slate-400 transition-transform duration-200 ${open ? "rotate-90" : ""}`} aria-hidden />
+      </button>
+      {open && (
+        <div id={`filter-panel-${id}`} className="min-w-0 border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 pb-3.5 pt-3">
+          {children}
+          {onClear && (
+            <button type="button" onClick={onClear} className="mt-3 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline">
+              Clear {title.toLowerCase()}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function nextSort(cur: string): "" | "price_asc" | "price_desc" {
@@ -359,6 +521,8 @@ export default function PropertiesPage() {
   // Filters UI state
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filtersShown, setFiltersShown] = useState(false);
+  /** Which filter row is expanded in the sheet (one at a time) */
+  const [filterPanel, setFilterPanel] = useState<string | null>(null);
   const [filtersError, setFiltersError] = useState<string | null>(null);
   const [amenityHint, setAmenityHint] = useState<Amenity | null>(null);
   const [draft, setDraft] = useState<{
@@ -539,6 +703,24 @@ export default function PropertiesPage() {
     window.setTimeout(() => setFiltersOpen(false), 180);
   };
 
+  // While the filters sheet is open: Esc closes it and the page behind stops scrolling
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFiltersShown(false);
+        window.setTimeout(() => setFiltersOpen(false), 180);
+      }
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [filtersOpen]);
+
   const applyFilters = () => {
     const next = new URLSearchParams(qp.toString());
     // reset paging when filters change
@@ -637,139 +819,102 @@ export default function PropertiesPage() {
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45, ease: [0.22, 0.8, 0.32, 1] }}
-                className="relative overflow-hidden rounded-[27px] sm:rounded-[35px] px-6 sm:px-10 pt-7 sm:pt-8 pb-6 shadow-[0_20px_60px_rgba(2,102,94,0.22)]"
-                style={{ background: 'linear-gradient(140deg,#012e29 0%,#013530 55%,#01241f 100%)' }}
+                className="relative overflow-hidden rounded-3xl px-4 pb-4 pt-5 shadow-[0_18px_44px_-20px_rgba(1,40,36,0.75)] sm:rounded-[32px] sm:px-10 sm:pb-8 sm:pt-9"
+                style={{ background: 'linear-gradient(135deg, #011a18 0%, #023a35 50%, #02665e 100%)' }}
               >
-                  {/* Ambient glows */}
-                  <div className="pointer-events-none absolute -top-24 -right-24 w-80 h-80 rounded-full" style={{ background: 'radial-gradient(circle,rgba(2,180,245,0.22) 0%,transparent 65%)' }} aria-hidden />
-                  <div className="pointer-events-none absolute -bottom-20 -left-20 w-72 h-72 rounded-full" style={{ background: 'radial-gradient(circle,rgba(2,102,94,0.18) 0%,transparent 65%)' }} aria-hidden />
-                  <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse 70% 55% at 50% 0%,rgba(2,102,94,0.18),transparent 70%)' }} aria-hidden />
-                  {/* Dot-grid texture */}
-                  <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '22px 22px' }} aria-hidden />
-
-                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
-                    {/* Left: title + tagline */}
-                    <div className="min-w-0">
-                      <p className="text-[10px] sm:text-xs font-bold tracking-[0.20em] uppercase mb-2.5" style={{ color: '#02b4f5' }}>
-                        Verified &amp; Trusted
-                      </p>
-                      <h1 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight leading-[1.1] text-white">
-                        {q
-                          ? <>{`Search results for `}<span style={{ color: '#02b4f5' }}>&ldquo;{q}&rdquo;</span></>
-                          : 'Properties'}
-                      </h1>
-                      <p className="mt-2.5 text-sm sm:text-base font-medium" style={{ color: 'rgba(255,255,255,0.52)' }}>
-                        Trusted listings, smooth booking, reliable support.
-                      </p>
-                    </div>
-
-                    {/* Right: stat card */}
-                    <div className="shrink-0 select-none">
-                      <div
-                        className="flex items-center gap-3 rounded-2xl px-4 py-3"
-                        style={{
-                          background: 'linear-gradient(135deg, rgba(2,102,94,0.45) 0%, rgba(1,60,55,0.60) 100%)',
-                          border: '1px solid rgba(52,211,153,0.25)',
-                          boxShadow: '0 4px 24px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.07)',
-                          backdropFilter: 'blur(12px)',
-                        }}
-                      >
-                        {/* Icon circle */}
-                        <div
-                          className="flex items-center justify-center rounded-xl h-9 w-9 shrink-0"
-                          style={{
-                            background: 'rgba(16,185,129,0.15)',
-                            border: '1px solid rgba(52,211,153,0.30)',
-                          }}
-                        >
-                          <BadgeCheck className="w-4.5 h-4.5" style={{ color: '#34d399' }} />
-                        </div>
-
-                        {/* Text block */}
-                        <div className="flex flex-col leading-tight">
-                          {loading ? (
-                            <span className="text-sm font-semibold opacity-50 text-white">—</span>
-                          ) : (
-                            <span
-                              className="text-xl font-extrabold tabular-nums tracking-tight"
-                              style={{ color: '#6ee7b7', lineHeight: 1.1 }}
-                            >
-                              {total.toLocaleString()}
-                            </span>
-                          )}
-                          <span className="text-[10px] font-medium uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                            Verified &amp; Approved
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                  {/* Texture: same soft emerald light and dot grid as the account and header surfaces */}
+                  <div className="pointer-events-none absolute inset-0" aria-hidden>
+                    <div className="absolute inset-0" style={{ background: 'radial-gradient(520px circle at 100% 0%, rgba(52,211,153,0.22), transparent 60%), radial-gradient(380px circle at 0% 100%, rgba(2,102,94,0.45), transparent 60%)' }} />
+                    <div
+                      className="absolute inset-0 opacity-[0.16]"
+                      style={{
+                        backgroundImage: 'radial-gradient(rgba(255,255,255,0.55) 1px, transparent 1px)',
+                        backgroundSize: '18px 18px',
+                        WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, #000 60%)',
+                        maskImage: 'linear-gradient(90deg, transparent 0%, #000 60%)',
+                      }}
+                    />
                   </div>
 
-                  {/* Integrated search bar */}
-                  <div
-                    className="relative z-10 mt-5 flex flex-row items-center gap-1 sm:gap-1.5 rounded-full p-1 sm:p-1.5 transition-all focus-within:ring-1 focus-within:ring-white/20"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
-                  >
-                    <div className="relative flex-1 min-w-0">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(255,255,255,0.4)' }} />
+                  <div className="relative z-10 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+                    <div className="min-w-0">
+                      <h1 className="m-0 text-[26px] font-bold leading-[1.15] tracking-tight text-white sm:text-4xl lg:text-[2.75rem]">
+                        {q
+                          ? <>{`Results for `}<span className="text-emerald-300">&ldquo;{q}&rdquo;</span></>
+                          : 'Find your stay'}
+                      </h1>
+                      <p className="m-0 mt-1.5 text-[13.5px] text-white/60 sm:text-base">
+                        Verified properties across Tanzania, booked securely.
+                      </p>
+                    </div>
+
+                    {/* Count as a quiet chip, not a separate card */}
+                    <span className="mt-2.5 inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-emerald-300/10 px-2.5 py-1 text-[12px] font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-300/25 sm:mt-0">
+                      <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
+                      {loading ? 'Loading' : `${total.toLocaleString()} verified ${total === 1 ? 'property' : 'properties'}`}
+                    </span>
+                  </div>
+
+                  {/* Search: solid white so it is the obvious next step */}
+                  <div className="relative z-10 mt-4 flex items-center gap-1.5 rounded-2xl bg-white p-1.5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] sm:mt-6">
+                    <label className="relative flex min-w-0 flex-1 items-center">
+                      <span className="sr-only">Search properties</span>
+                      <Search className="pointer-events-none absolute left-3 h-[18px] w-[18px] text-slate-400" aria-hidden />
                       <input
+                        type="search"
                         value={searchInput}
                         onChange={(e) => onSearchChange(e.target.value)}
-                        placeholder="Search by region, district, city, title…"
-                        className="w-full min-w-0 rounded-full bg-transparent border border-transparent px-3 py-2 sm:py-2.5 pl-9 sm:pl-10 text-[13px] sm:text-sm text-white placeholder:text-white/40 focus:outline-none"
+                        placeholder="Region, city or property name"
+                        enterKeyHint="search"
+                        className="box-border h-11 w-full min-w-0 rounded-xl border-0 bg-transparent pl-10 pr-2 text-[14.5px] text-slate-900 outline-none placeholder:text-slate-400"
                       />
-                    </div>
-                    <div className="flex items-center gap-0.5 sm:gap-1 flex-none pl-1 sm:pl-1.5" style={{ borderLeft: '1px solid rgba(255,255,255,0.14)' }}>
-                      <button
-                        type="button"
-                        onClick={openFilters}
-                        aria-label="Filters"
-                        title="Filters"
-                        className="relative flex-none h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-transparent inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/15 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                      >
-                        <SlidersHorizontal className="w-4 h-4" />
-                        {appliedChips.length > 0 && (
-                          <span className="absolute -top-1 -right-1 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-[11px] font-bold" style={{ background: 'rgba(2,180,245,0.25)', color: '#02b4f5' }}>
-                            {appliedChips.length}
-                          </span>
-                        )}
-                      </button>
-                      {(() => {
-                        const cur = getParam(qp, "sort");
-                        const setSort = (v: "" | "price_asc" | "price_desc") => {
-                          const next = new URLSearchParams(qp.toString());
-                          next.set("page", "1");
-                          setOrDelete(next, "sort", v);
-                          router.push(`/public/properties?${next.toString()}`);
-                        };
-                        const label =
-                          cur === "price_asc"
-                            ? "Price: low → high"
-                            : cur === "price_desc"
-                              ? "Price: high → low"
-                              : "Price: none";
-                        const sortColor =
-                          cur === "price_asc"
-                            ? '#34d399'
-                            : cur === "price_desc"
-                              ? '#f87171'
-                              : 'rgba(255,255,255,0.7)';
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => setSort(nextSort(cur))}
-                            className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-transparent flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                            style={{ color: sortColor }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.10)')}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                            aria-label={`Sort (${label})`}
-                            title={label}
-                          >
-                            <ChevronsUpDown className="w-5 h-5" />
-                          </button>
-                        );
-                      })()}
-                    </div>
+                    </label>
+
+                    {(() => {
+                      const cur = getParam(qp, "sort");
+                      const setSort = (v: "" | "price_asc" | "price_desc") => {
+                        const next = new URLSearchParams(qp.toString());
+                        next.set("page", "1");
+                        setOrDelete(next, "sort", v);
+                        router.push(`/public/properties?${next.toString()}`);
+                      };
+                      const label =
+                        cur === "price_asc"
+                          ? "Price: low to high"
+                          : cur === "price_desc"
+                            ? "Price: high to low"
+                            : "Sort by price";
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setSort(nextSort(cur))}
+                          className={`flex h-11 w-11 flex-none items-center justify-center rounded-xl border-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 ${
+                            cur ? "bg-[#02665e]/[0.08] text-[#02665e]" : "bg-slate-100 text-slate-600 active:bg-slate-200"
+                          }`}
+                          aria-label={label}
+                          title={label}
+                        >
+                          <ChevronsUpDown className={`h-[18px] w-[18px] ${cur === "price_desc" ? "rotate-180" : ""}`} />
+                        </button>
+                      );
+                    })()}
+
+                    <button
+                      type="button"
+                      onClick={openFilters}
+                      aria-label={appliedChips.length > 0 ? `Filters, ${appliedChips.length} applied` : "Filters"}
+                      title="Filters"
+                      className="relative flex h-11 flex-none items-center justify-center gap-1.5 rounded-xl border-0 px-3 text-[13.5px] font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40 active:scale-[0.97] sm:px-4"
+                      style={{ background: 'linear-gradient(135deg, #014e47 0%, #02665e 100%)' }}
+                    >
+                      <SlidersHorizontal className="h-[18px] w-[18px]" />
+                      <span className="hidden sm:inline">Filters</span>
+                      {appliedChips.length > 0 && (
+                        <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-400 px-1 text-[11px] font-bold text-[#012e29] ring-2 ring-white">
+                          {appliedChips.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
               </motion.div>
 
@@ -1204,522 +1349,364 @@ export default function PropertiesPage() {
         </div>
       </section>
 
-      {/* Filters modal (mobile + desktop) */}
-      {filtersOpen && (
-        <div className="fixed inset-x-0 bottom-4 sm:bottom-6 z-[120] px-4 sm:px-6 pointer-events-none">
-          <motion.div
-            drag
-            dragMomentum={false}
-            dragElastic={0.08}
-            whileDrag={{ scale: 1.01, boxShadow: "0 32px 64px rgba(0,0,0,0.18)" }}
-            className={[
-              "relative w-full max-w-[28rem] sm:max-w-[26rem] mr-auto pointer-events-auto",
-              "rounded-2xl overflow-hidden",
-              // Prevent the panel from reaching the fixed header on short screens
-              "max-h-[calc(100vh-var(--header-height)-6rem)]",
-              "flex flex-col",
-              // Glass + subtle gradient
-              "bg-gradient-to-br from-white/85 via-white/75 to-emerald-50/70",
-              "backdrop-blur-md",
-              "border border-white/60 ring-1 ring-slate-200/70",
-              // Smooth enter/exit (keeps the old placement)
-              "transition-[opacity,transform] duration-200 ease-out",
-              "motion-reduce:transition-none",
-              filtersShown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]",
-              // Soft elevation & interaction
-              "shadow-xl",
-            ].join(" ")}
-          >
-            <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3 cursor-grab active:cursor-grabbing select-none">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-col gap-[3px] opacity-30">
-                    <div className="flex gap-[3px]">{[0,1,2].map(i => <span key={i} className="w-[3px] h-[3px] rounded-full bg-slate-600" />)}</div>
-                    <div className="flex gap-[3px]">{[0,1,2].map(i => <span key={i} className="w-[3px] h-[3px] rounded-full bg-slate-600" />)}</div>
-                  </div>
-                  <div className="text-base font-semibold text-slate-900">Filters</div>
-                </div>
-                <div className="text-xs text-slate-500 mt-0.5">Drag to move &middot; Refine your search</div>
-              </div>
-              <button
-                type="button"
-                onClick={closeFilters}
-                className={[
-                  "h-9 w-9 rounded-xl border border-slate-200 bg-white",
-                  "flex items-center justify-center",
-                  "hover:bg-slate-50 active:bg-slate-100",
-                  "transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                ].join(" ")}
-                aria-label="Close filters"
+      {/* Filters: bottom sheet on phones, right-side drawer on larger screens */}
+      {filtersOpen && (() => {
+        const chip = (on: boolean) =>
+          [
+            "box-border inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid px-3 text-[13px] font-medium transition-colors select-none",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30",
+            on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+          ].join(" ");
+        const selectCls =
+          "box-border h-11 w-full rounded-lg border border-solid border-slate-200 bg-white px-3 text-[14px] text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
+        const activeCount =
+          (draft.sort ? 1 : 0) +
+          (draft.region ? 1 : 0) +
+          (draft.minPrice || draft.maxPrice ? 1 : 0) +
+          draft.types.length +
+          draft.amenities.length +
+          draft.nearbyServices.length +
+          draft.paymentModes.length +
+          (draft.freeCancellation ? 1 : 0) +
+          (draft.groupStay ? 1 : 0) +
+          (draft.nearbyOn ? 1 : 0);
+        const bucketIdx = priceBucketIndex(draft.minPrice, draft.maxPrice);
+        const acc = (id: string) => ({
+          id,
+          open: filterPanel === id,
+          onToggle: () => setFilterPanel((p) => (p === id ? null : id)),
+        });
+        const many = (list: readonly string[], label: (v: string) => string = (v) => v) =>
+          list.length === 0 ? "Any" : list.length === 1 ? label(list[0]) : `${list.length} selected`;
+        const regionName = (REGIONS as any[]).find((r) => String(r.id) === draft.region)?.name as string | undefined;
+        const locationSummary = regionName ? [regionName, draft.district].filter(Boolean).join(", ") : "Anywhere";
+        const sortSummary = draft.sort === "price_asc" ? "Lowest price" : draft.sort === "price_desc" ? "Highest price" : "Recommended";
+        const policyList = [...draft.paymentModes, ...(draft.freeCancellation ? ["Free cancellation"] : []), ...(draft.groupStay ? ["Group stay"] : [])];
+
+        // Portal to <body>: a transformed page wrapper would otherwise trap the sheet
+        // under floating widgets and stretch its fixed positioning.
+        return createPortal(
+          <div className="fixed inset-0 z-[2147483000]" role="dialog" aria-modal="true" aria-labelledby="filters-title">
+            <div
+              aria-hidden
+              onClick={closeFilters}
+              className={`absolute inset-0 bg-slate-900/45 backdrop-blur-[2px] transition-opacity duration-200 ${filtersShown ? "opacity-100" : "opacity-0"}`}
+            />
+
+            <div
+              className={[
+                "absolute box-border flex h-auto flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]",
+                // Phone: bottom sheet that hugs its content
+                "inset-x-2 bottom-2 top-auto max-h-[calc(100vh-1rem)]",
+                // sm+: floating panel at the top right, also content height
+                "sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-4 sm:max-h-[calc(100vh-2rem)] sm:w-[420px]",
+                "transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none",
+                filtersShown ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 sm:translate-y-2",
+              ].join(" ")}
+            >
+
+              {/* Header */}
+              {/* Brand band: title, live count and one-tap quick picks */}
+              <div
+                className="relative flex-none overflow-hidden text-white sm:rounded-t-xl"
+                style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 55%, #02665e 160%)" }}
               >
-                <X className="w-4 h-4 text-slate-700 transition-transform duration-150 ease-out hover:rotate-90" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 overscroll-contain">
-              {/* Sort (inside panel for mobile convenience) */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-slate-900">Sort</div>
-                <button
-                  type="button"
-                  onClick={() => setDraft((d) => ({ ...d, sort: nextSort(d.sort) }))}
-                  className={[
-                    "h-9 w-9 rounded-xl border flex items-center justify-center",
-                    "bg-white/70 backdrop-blur",
-                    draft.sort ? "border-slate-300 shadow-sm" : "border-slate-200",
-                    "hover:bg-white hover:shadow-md transition-all",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                  ].join(" ")}
-                  aria-label={
-                    draft.sort === "price_asc"
-                      ? "Sort (Price: low → high)"
-                      : draft.sort === "price_desc"
-                        ? "Sort (Price: high → low)"
-                        : "Sort (Price: none)"
-                  }
-                  title={
-                    draft.sort === "price_asc"
-                      ? "Price: low → high"
-                      : draft.sort === "price_desc"
-                        ? "Price: high → low"
-                        : "Price: none"
-                  }
-                >
-                  <ChevronsUpDown
-                    className={[
-                      "w-5 h-5",
-                      draft.sort === "price_asc"
-                        ? "text-emerald-700"
-                        : draft.sort === "price_desc"
-                          ? "text-rose-600"
-                          : "text-slate-700",
-                    ].join(" ")}
-                  />
-                </button>
-              </div>
-
-              {/* Location */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-900">Region</label>
-                  <select
-                    value={draft.region}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        region: e.target.value,
-                        // Reset dependent fields when region changes
-                        district: "",
-                        ward: "",
-                        street: "",
-                      }))
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]"
-                  >
-                    <option value="">Any region</option>
-                    {REGIONS.map((r: any) => (
-                      <option key={r.id} value={String(r.id)}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-900">District</label>
-                  <select
-                    value={draft.district}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        district: e.target.value,
-                        // Reset dependent fields when district changes
-                        ward: "",
-                        street: "",
-                      }))
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]"
-                    disabled={!draft.region}
-                  >
-                    <option value="">{draft.region ? "Any district" : "Select region first"}</option>
-                    {locationOptions.districts.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-900">Ward</label>
-                  <select
-                    value={draft.ward}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        ward: e.target.value,
-                        // Reset dependent field when ward changes
-                        street: "",
-                      }))
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]"
-                    disabled={!draft.region || !draft.district}
-                  >
-                    <option value="">{draft.district ? "Any ward" : draft.region ? "Select district first" : "Select region first"}</option>
-                    {locationOptions.wards.map((w) => (
-                      <option key={w} value={w}>
-                        {w}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-900">Street</label>
-                  <select
-                    value={draft.street}
-                    onChange={(e) => setDraft((d) => ({ ...d, street: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]"
-                    disabled={!draft.region || !draft.district || !draft.ward}
-                  >
-                    <option value="">{draft.ward ? "Any street" : draft.district ? "Select ward first" : draft.region ? "Select district first" : "Select region first"}</option>
-                    {locationOptions.streets.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Price */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 overflow-hidden">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 min-w-0">
-                  <div className="space-y-2 min-w-0 md:col-span-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <label className="text-sm font-semibold text-slate-900">Price range</label>
-                      <div className="text-xs font-semibold text-slate-700">{PRICE_BUCKETS[priceBucketIndex(draft.minPrice, draft.maxPrice)]?.label}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { key: "budget", label: "Budget", bucketLabel: "5k–20k" },
-                        { key: "mid", label: "Mid", bucketLabel: "40k–80k" },
-                        { key: "premium", label: "Premium", bucketLabel: "100k–400k" },
-                      ].map((p) => {
-                        const idx = PRICE_BUCKETS.findIndex((b) => b.label === p.bucketLabel);
-                        const active = idx >= 0 && priceBucketIndex(draft.minPrice, draft.maxPrice) === idx;
-                        return (
-                          <button
-                            key={p.key}
-                            type="button"
-                            onClick={() => {
-                              const b = PRICE_BUCKETS[idx] || PRICE_BUCKETS[0];
-                              setDraft((d) => ({
-                                ...d,
-                                minPrice: b.min == null ? "" : String(b.min),
-                                maxPrice: b.max == null ? "" : String(b.max),
-                              }));
-                            }}
-                            className={[
-                              "inline-flex items-center justify-center h-8 px-3 rounded-full border text-xs font-semibold transition-colors",
-                              active
-                                ? "border-emerald-600 bg-emerald-600 text-white"
-                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                            ].join(" ")}
-                          >
-                            {p.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={PRICE_BUCKETS.length - 1}
-                      step={1}
-                      value={priceBucketIndex(draft.minPrice, draft.maxPrice)}
-                      onChange={(e) => {
-                        const idx = Number(e.target.value);
-                        const b = PRICE_BUCKETS[idx] || PRICE_BUCKETS[0];
-                        setDraft((d) => ({
-                          ...d,
-                          minPrice: b.min == null ? "" : String(b.min),
-                          maxPrice: b.max == null ? "" : String(b.max),
-                        }));
-                      }}
-                      className="w-full"
-                      aria-label="Price range"
-                    />
-                    <div className="grid grid-cols-7 gap-1 text-[10px] text-slate-500">
-                      {["Any", "20k", "40k", "80k", "100k", "400k", "1M+"].map((t) => (
-                        <div key={t} className="text-center">
-                          {t}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Types */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-semibold text-slate-900">Property type</label>
-                  {draft.types.length > 0 && (
-                    <button type="button" className="text-xs font-semibold text-slate-700 hover:underline" onClick={() => setDraft((d) => ({ ...d, types: [] }))}>
-                      Clear types
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {PROPERTY_TYPES.map((t) => {
-                    const checked = draft.types.includes(t.key);
-                    return (
-                      <button
-                        key={t.key}
-                        type="button"
-                        onClick={() =>
-                          setDraft((d) => {
-                            const next = checked ? d.types.filter((x) => x !== t.key) : [...d.types, t.key];
-                            return { ...d, types: next };
-                          })
-                        }
-                        className={[
-                          "text-left rounded-xl border px-3 py-2 text-sm transition",
-                          checked ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white hover:bg-slate-50 text-slate-900",
-                        ].join(" ")}
-                        aria-pressed={checked}
-                      >
-                        {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Amenities */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-semibold text-slate-900">Amenities</label>
-                  {draft.amenities.length > 0 && (
-                    <button type="button" className="text-xs font-semibold text-slate-700 hover:underline" onClick={() => setDraft((d) => ({ ...d, amenities: [] }))}>
-                      Clear amenities
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {AMENITIES.map((a) => {
-                    const checked = draft.amenities.includes(a);
-                    const meta = AMENITY_ICON_META[a];
-                    const Icon = meta?.Icon || Tag;
-                    return (
-                      <button
-                        key={a}
-                        type="button"
-                        onPointerDown={(e) => {
-                          // Show name briefly on touch/pen (mobile/tablet)
-                          if (e.pointerType !== "mouse") setAmenityHint(a);
-                        }}
-                        onClick={() =>
-                          setDraft((d) => {
-                            const next = checked ? d.amenities.filter((x) => x !== a) : [...d.amenities, a];
-                            return { ...d, amenities: next };
-                          })
-                        }
-                        className={[
-                          "group relative w-full rounded-full border transition select-none",
-                          "h-12 flex items-center justify-center",
-                          checked ? "border-emerald-600 bg-emerald-600 text-white shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50 text-slate-900",
-                        ].join(" ")}
-                        aria-pressed={checked}
-                        aria-label={a}
-                        title={a}
-                      >
-                        <Icon className={["w-5 h-5", checked ? "text-white" : meta.colorClass].join(" ")} aria-hidden />
-                        <span
-                          className={[
-                            "pointer-events-none absolute left-1/2 -top-2 -translate-x-1/2 -translate-y-full",
-                            "whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold shadow-lg ring-1 ring-black/5",
-                            checked ? "bg-emerald-700 text-white" : "bg-slate-900 text-white",
-                            "opacity-0 transition-opacity duration-150",
-                            "group-hover:opacity-100 group-focus-visible:opacity-100",
-                            amenityHint === a ? "opacity-100" : "",
-                          ].join(" ")}
-                        >
-                          {a}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Nearby services */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-semibold text-slate-900">Nearby services</label>
-                  {draft.nearbyServices.length > 0 && (
-                    <button type="button" className="text-xs font-semibold text-slate-700 hover:underline" onClick={() => setDraft((d) => ({ ...d, nearbyServices: [] }))}>
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2">
-                  {NEARBY_SERVICE_TAGS.map(({ tag, label, Icon, colorClass }) => {
-                    const checked = draft.nearbyServices.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() =>
-                          setDraft((d) => {
-                            const next = checked ? d.nearbyServices.filter((x) => x !== tag) : [...d.nearbyServices, tag];
-                            return { ...d, nearbyServices: next };
-                          })
-                        }
-                        className={[
-                          "group relative w-full rounded-full border transition select-none",
-                          "h-11 flex items-center justify-center",
-                          checked ? "border-emerald-600 bg-emerald-600 text-white shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50 text-slate-900",
-                        ].join(" ")}
-                        aria-pressed={checked}
-                        aria-label={label}
-                        title={label}
-                      >
-                        <Icon className={["w-5 h-5", checked ? "text-white" : colorClass].join(" ")} aria-hidden />
-                        <span
-                          className={[
-                            "pointer-events-none absolute left-1/2 -top-2 -translate-x-1/2 -translate-y-full",
-                            "whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold shadow-lg ring-1 ring-black/5",
-                            checked ? "bg-emerald-700 text-white" : "bg-slate-900 text-white",
-                            "opacity-0 transition-opacity duration-150",
-                            "group-hover:opacity-100 group-focus-visible:opacity-100",
-                          ].join(" ")}
-                        >
-                          {label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Payments, cancellation, group stay */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Payments & policies</div>
-                    <div className="text-xs text-slate-600 mt-0.5">Payments, cancellation, group stay</div>
-                  </div>
-                  {(draft.paymentModes.length > 0 || draft.freeCancellation || draft.groupStay) && (
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-slate-700 hover:underline"
-                      onClick={() => setDraft((d) => ({ ...d, paymentModes: [], freeCancellation: false, groupStay: false }))}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-xs font-semibold text-slate-700 mb-2">Payment modes</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PAYMENT_MODES.map(({ key, Icon }) => {
-                      const checked = draft.paymentModes.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() =>
-                            setDraft((d) => {
-                              const next = checked ? d.paymentModes.filter((x) => x !== key) : [...d.paymentModes, key];
-                              return { ...d, paymentModes: next };
-                            })
-                          }
-                          className={[
-                            "h-10 rounded-xl border flex items-center justify-center active:scale-[0.98]",
-                            "motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0",
-                            checked
-                              ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
-                              : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700",
-                            "transition-all duration-200",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                          ].join(" ")}
-                          aria-pressed={checked}
-                          aria-label={key}
-                          title={key}
-                        >
-                          <Icon className={["w-5 h-5", checked ? "text-white" : "text-slate-700"].join(" ")} />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {([
-                    { key: "freeCancellation", label: "Free cancellation", Icon: BadgeCheck },
-                    { key: "groupStay", label: "Group stay", Icon: UsersRound },
-                  ] as const).map(({ key, label, Icon }) => {
-                    const checked = key === "freeCancellation" ? draft.freeCancellation : draft.groupStay;
-                    const toggle = () =>
-                      setDraft((d) =>
-                        key === "freeCancellation"
-                          ? { ...d, freeCancellation: !d.freeCancellation }
-                          : { ...d, groupStay: !d.groupStay }
-                      );
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={toggle}
-                        className={[
-                          "w-full h-10 rounded-xl border px-3 flex items-center justify-between active:scale-[0.99]",
-                          "motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0",
-                          checked
-                            ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
-                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700",
-                          "transition-all duration-200",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                        ].join(" ")}
-                        aria-pressed={checked}
-                      >
-                        <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
-                          <Icon className={["w-4 h-4", checked ? "text-white" : "text-slate-700"].join(" ")} />
-                          {label}
-                        </span>
-                        <span className="inline-flex items-center gap-2" aria-hidden>
-                          <span className={["text-[11px] font-semibold tracking-wide", checked ? "text-white/80" : "text-slate-500"].join(" ")}>
-                            {checked ? "ON" : "OFF"}
-                          </span>
-                          <span
-                            className={[
-                              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                              checked ? "bg-white/30" : "bg-slate-200",
-                            ].join(" ")}
-                          >
-                            <span
-                              className={[
-                                "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-out",
-                                checked ? "translate-x-4" : "translate-x-1",
-                              ].join(" ")}
-                            />
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Nearby */}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Nearby me</div>
-                    <div className="text-xs text-slate-600 mt-0.5">Use your device location to show listings around you.</div>
+                <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(320px circle at 100% 0%, rgba(52,211,153,0.18), transparent 60%)" }} />
+                <div className="relative flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+                  <div className="min-w-0">
+                    <h2 id="filters-title" className="m-0 flex items-center gap-2 text-[17px] font-bold leading-tight">
+                      <SlidersHorizontal className="h-4 w-4 text-emerald-300" aria-hidden />
+                      Filters
+                      {activeCount > 0 && (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-emerald-300 px-1.5 text-[11px] font-bold text-[#012e29]">{activeCount}</span>
+                      )}
+                    </h2>
+                    <p className="m-0 mt-0.5 text-[12px] text-white/55">
+                      {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} ready to apply` : "Quick picks or refine below"}
+                    </p>
                   </div>
                   <button
                     type="button"
+                    onClick={closeFilters}
+                    aria-label="Close filters"
+                    className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border-0 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Quick picks: the most-used filters, one tap each */}
+                <div className="relative grid grid-cols-3 gap-1.5 px-4 pb-3.5 pt-1">
+                  {([
+                    { label: "Flexible", Icon: BadgeCheck, on: draft.freeCancellation, toggle: () => setDraft((d) => ({ ...d, freeCancellation: !d.freeCancellation })) },
+                    {
+                      label: "Breakfast",
+                      Icon: Coffee,
+                      on: draft.amenities.includes("Breakfast included"),
+                      toggle: () =>
+                        setDraft((d) => ({
+                          ...d,
+                          amenities: d.amenities.includes("Breakfast included")
+                            ? d.amenities.filter((x) => x !== "Breakfast included")
+                            : [...d.amenities, "Breakfast included"],
+                        })),
+                    },
+                    {
+                      label: "Under 20k",
+                      Icon: Wallet,
+                      on: bucketIdx === 1,
+                      toggle: () =>
+                        setDraft((d) => (bucketIdx === 1 ? { ...d, minPrice: "", maxPrice: "" } : { ...d, minPrice: "5000", maxPrice: "20000" })),
+                    },
+                    {
+                      label: "Pool",
+                      Icon: Waves,
+                      on: draft.amenities.includes("Pool"),
+                      toggle: () =>
+                        setDraft((d) => ({ ...d, amenities: d.amenities.includes("Pool") ? d.amenities.filter((x) => x !== "Pool") : [...d.amenities, "Pool"] })),
+                    },
+                    {
+                      label: "Parking",
+                      Icon: Car,
+                      on: draft.amenities.includes("Free parking"),
+                      toggle: () =>
+                        setDraft((d) => ({
+                          ...d,
+                          amenities: d.amenities.includes("Free parking") ? d.amenities.filter((x) => x !== "Free parking") : [...d.amenities, "Free parking"],
+                        })),
+                    },
+                    { label: "Groups", Icon: UsersRound, on: draft.groupStay, toggle: () => setDraft((d) => ({ ...d, groupStay: !d.groupStay })) },
+                  ] as const).map(({ label, Icon, on, toggle }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={toggle}
+                      className={`box-border inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid px-2 text-[12.5px] font-semibold transition-colors ${
+                        on ? "border-emerald-300 bg-emerald-300 text-[#012e29]" : "border-white/15 bg-white/[0.06] text-white/85 hover:bg-white/[0.12]"
+                      }`}
+                    >
+                      {on ? <Check className="h-3.5 w-3.5 flex-none" strokeWidth={3} aria-hidden /> : <Icon className="h-3.5 w-3.5 flex-none" aria-hidden />}
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="min-h-0 flex-initial overflow-y-auto overflow-x-hidden overscroll-contain bg-slate-50 p-3">
+                <div className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+                <FilterSection
+                  {...acc("sort")}
+                  title="Sort by"
+                  Icon={ArrowUpDown}
+                  summary={sortSummary}
+                  onClear={draft.sort ? () => setDraft((d) => ({ ...d, sort: "" })) : undefined}
+                >
+                  <OptionGrid
+                    single
+                    columns={1}
+                    options={[
+                      { key: "", label: "Recommended", Icon: BadgeCheck, hint: "Best match first" },
+                      { key: "price_asc", label: "Lowest price", Icon: ArrowUpDown, hint: "Cheapest stays first" },
+                      { key: "price_desc", label: "Highest price", Icon: ArrowUpDown, hint: "Premium stays first" },
+                    ]}
+                    isOn={(k) => (draft.sort || "") === k}
+                    onPick={(k) => setDraft((d) => ({ ...d, sort: k as typeof d.sort }))}
+                  />
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("location")}
+                  title="Location"
+                  Icon={MapPin}
+                  summary={locationSummary}
+                  onClear={draft.region ? () => setDraft((d) => ({ ...d, region: "", district: "", ward: "", street: "" })) : undefined}
+                >
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="block min-w-0">
+                      <span className="mb-1 block text-[12px] font-medium text-slate-500">Region</span>
+                      <select
+                        value={draft.region}
+                        onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value, district: "", ward: "", street: "" }))}
+                        className={selectCls}
+                      >
+                        <option value="">Any region</option>
+                        {REGIONS.map((r: any) => (
+                          <option key={r.id} value={String(r.id)}>{r.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block min-w-0">
+                      <span className="mb-1 block text-[12px] font-medium text-slate-500">District</span>
+                      <select
+                        value={draft.district}
+                        onChange={(e) => setDraft((d) => ({ ...d, district: e.target.value, ward: "", street: "" }))}
+                        className={selectCls}
+                        disabled={!draft.region}
+                      >
+                        <option value="">{draft.region ? "Any district" : "Pick region"}</option>
+                        {locationOptions.districts.map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {/* Ward and street only appear once a district narrows things down */}
+                    {draft.district && (
+                      <>
+                        <label className="block min-w-0">
+                          <span className="mb-1 block text-[12px] font-medium text-slate-500">Ward</span>
+                          <select
+                            value={draft.ward}
+                            onChange={(e) => setDraft((d) => ({ ...d, ward: e.target.value, street: "" }))}
+                            className={selectCls}
+                          >
+                            <option value="">Any ward</option>
+                            {locationOptions.wards.map((w) => (
+                              <option key={w} value={w}>{w}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block min-w-0">
+                          <span className="mb-1 block text-[12px] font-medium text-slate-500">Street</span>
+                          <select
+                            value={draft.street}
+                            onChange={(e) => setDraft((d) => ({ ...d, street: e.target.value }))}
+                            className={selectCls}
+                            disabled={!draft.ward}
+                          >
+                            <option value="">{draft.ward ? "Any street" : "Pick ward"}</option>
+                            {locationOptions.streets.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                  </div>
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("price")}
+                  title="Price per night"
+                  Icon={Wallet}
+                  summary={bucketIdx > 0 ? `TZS ${PRICE_BUCKETS[bucketIdx]?.label}` : "Any"}
+                  onClear={bucketIdx > 0 ? () => setDraft((d) => ({ ...d, minPrice: "", maxPrice: "" })) : undefined}
+                >
+                  <OptionGrid
+                    single
+                    options={PRICE_BUCKETS.map((b, idx) => ({ key: String(idx), label: idx === 0 ? "Any price" : `TZS ${b.label}` }))}
+                    isOn={(k) => String(bucketIdx) === k}
+                    onPick={(k) => {
+                      const b = PRICE_BUCKETS[Number(k)] || PRICE_BUCKETS[0];
+                      setDraft((d) => ({ ...d, minPrice: b.min == null ? "" : String(b.min), maxPrice: b.max == null ? "" : String(b.max) }));
+                    }}
+                  />
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("type")}
+                  title="Property type"
+                  Icon={Building2}
+                  summary={many(draft.types, (k) => PROPERTY_TYPES.find((t) => t.key === k)?.label || k)}
+                  onClear={draft.types.length ? () => setDraft((d) => ({ ...d, types: [] })) : undefined}>
+                  <OptionGrid
+                    options={PROPERTY_TYPES.map((t) => ({ key: t.key, label: t.label, Icon: t.key === "HOTEL" ? Hotel : Building2 }))}
+                    isOn={(k) => draft.types.includes(k as any)}
+                    onPick={(k) =>
+                      setDraft((d) => ({ ...d, types: d.types.includes(k as any) ? d.types.filter((x) => x !== k) : [...d.types, k as any] }))
+                    }
+                  />
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("amenities")}
+                  title="Amenities"
+                  Icon={ConciergeBell}
+                  summary={many(draft.amenities)}
+                  onClear={draft.amenities.length ? () => setDraft((d) => ({ ...d, amenities: [] })) : undefined}>
+                  {/* Grouped, monochrome checklist: easier to scan than a wall of coloured pills */}
+                  <div className="space-y-3">
+                    {AMENITY_GROUPS.map((group) => (
+                      <OptionGrid
+                        key={group.title}
+                        title={group.title}
+                        options={group.items.map((a) => ({ key: a, label: a, Icon: AMENITY_ICON_META[a]?.Icon || Tag }))}
+                        isOn={(k) => draft.amenities.includes(k as Amenity)}
+                        onPick={(k) =>
+                          setDraft((d) => ({
+                            ...d,
+                            amenities: d.amenities.includes(k as Amenity) ? d.amenities.filter((x) => x !== k) : [...d.amenities, k as Amenity],
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("nearby")}
+                  title="Nearby services"
+                  Icon={Hospital}
+                  summary={many(draft.nearbyServices, (t) => NEARBY_SERVICE_TAGS.find((x) => x.tag === t)?.label || t)}
+                  onClear={draft.nearbyServices.length ? () => setDraft((d) => ({ ...d, nearbyServices: [] })) : undefined}>
+                  <OptionGrid
+                    options={NEARBY_SERVICE_TAGS.map(({ tag, label, Icon }) => ({ key: tag, label, Icon }))}
+                    isOn={(k) => draft.nearbyServices.includes(k)}
+                    onPick={(k) =>
+                      setDraft((d) => ({
+                        ...d,
+                        nearbyServices: d.nearbyServices.includes(k) ? d.nearbyServices.filter((x) => x !== k) : [...d.nearbyServices, k],
+                      }))
+                    }
+                  />
+                </FilterSection>
+
+                <FilterSection
+                  {...acc("policies")}
+                  title="Payments and policies"
+                  Icon={CreditCard}
+                  summary={many(policyList)}
+                  onClear={
+                    draft.paymentModes.length || draft.freeCancellation || draft.groupStay
+                      ? () => setDraft((d) => ({ ...d, paymentModes: [], freeCancellation: false, groupStay: false }))
+                      : undefined
+                  }
+                >
+                  <div className="space-y-3">
+                    <OptionGrid
+                      title="Payment"
+                      options={PAYMENT_MODES.map(({ key, Icon }) => ({ key, label: key, Icon }))}
+                      isOn={(k) => draft.paymentModes.includes(k as PaymentMode)}
+                      onPick={(k) =>
+                        setDraft((d) => ({
+                          ...d,
+                          paymentModes: d.paymentModes.includes(k as PaymentMode)
+                            ? d.paymentModes.filter((x) => x !== k)
+                            : [...d.paymentModes, k as PaymentMode],
+                        }))
+                      }
+                    />
+                    <OptionGrid
+                      title="Policies"
+                      options={[
+                        { key: "freeCancellation", label: "Free cancellation", Icon: BadgeCheck },
+                        { key: "groupStay", label: "Group stay", Icon: UsersRound },
+                      ]}
+                      isOn={(k) => (k === "freeCancellation" ? draft.freeCancellation : draft.groupStay)}
+                      onPick={(k) =>
+                        setDraft((d) => (k === "freeCancellation" ? { ...d, freeCancellation: !d.freeCancellation } : { ...d, groupStay: !d.groupStay }))
+                      }
+                    />
+                  </div>
+                </FilterSection>
+
+                {/* Near me: a direct switch row, no need to expand */}
+                <section className="border-0 border-t border-solid border-slate-100">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.nearbyOn}
                     onClick={() => {
                       if (draft.nearbyOn) {
                         setDraft((d) => ({ ...d, nearbyOn: false, nearLat: "", nearLng: "" }));
@@ -1727,83 +1714,65 @@ export default function PropertiesPage() {
                       }
                       requestNearby();
                     }}
-                    className={[
-                      "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border",
-                      draft.nearbyOn ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50",
-                    ].join(" ")}
+                    title="Uses your location only for this search"
+                    className="box-border flex h-[52px] w-full items-center gap-3 border-0 bg-white px-4 text-left transition-colors hover:bg-slate-50"
                   >
-                    <LocateFixed className="w-4 h-4" />
-                    {draft.nearbyOn ? "On" : "Enable"}
+                    <span className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ${draft.nearbyOn ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.07] text-[#02665e]"}`}>
+                      <LocateFixed className="h-4 w-4" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900">Near me</span>
+                    <span className={`flex-none text-[13px] ${draft.nearbyOn ? "font-semibold text-[#02665e]" : "text-slate-500"}`}>
+                      {draft.nearbyOn ? `${draft.radiusKm || "15"} km` : "Off"}
+                    </span>
+                    <FilterSwitch on={draft.nearbyOn} />
                   </button>
-                </div>
-                {draft.nearbyOn && (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-semibold text-slate-900">Radius (km)</label>
+                  {draft.nearbyOn && (
+                    <div className="border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 pb-3.5 pt-2.5">
+                      <div className="mb-1 flex items-center justify-between text-[12.5px]">
+                        <span className="font-medium text-slate-600">Within</span>
+                        <span className="font-semibold tabular-nums text-[#02665e]">{draft.radiusKm || "15"} km</span>
+                      </div>
                       <input
                         type="range"
                         min={1}
                         max={50}
                         value={Number(draft.radiusKm || "15")}
                         onChange={(e) => setDraft((d) => ({ ...d, radiusKm: String(e.target.value) }))}
-                        className="w-full"
+                        className="w-full accent-[#02665e]"
+                        aria-label="Search radius in kilometres"
                       />
-                      <div className="text-xs text-slate-700">{draft.radiusKm || "15"} km</div>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-semibold text-slate-900">Detected location</label>
-                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
-                        {draft.nearLat && draft.nearLng ? `${draft.nearLat}, ${draft.nearLng}` : "—"}
-                      </div>
-                      <div className="text-[11px] text-slate-500">We only use this to filter nearby listings.</div>
-                    </div>
-                  </div>
-                )}
-                {filtersError && (
-                  <div className="mt-3 text-xs text-slate-700">{filtersError}</div>
-                )}
+                  )}
+                  {filtersError && <p className="m-0 px-4 pb-3 text-[12.5px] text-rose-600">{filtersError}</p>}
+                </section>
+                </div>
               </div>
-            </div>
 
-            <div className="px-4 py-3 border-t border-slate-100">
-              <div className="text-xs text-slate-600 mb-2">
-                {loading ? "Loading results\u2026" : `Showing ${total.toLocaleString()} results`}
-              </div>
-              <div className="flex items-center justify-between gap-2 flex-nowrap">
+              {/* Footer: two equal actions */}
+              <div className="grid flex-none grid-cols-2 gap-2.5 border-0 border-t border-solid border-slate-200 bg-white px-4 py-3">
                 <button
                   type="button"
                   onClick={clearFilters}
-                  title="Clear all filters"
-                  aria-label="Clear all filters"
-                  className="h-10 w-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 active:bg-slate-100 transition-colors focus-visible:outline-none"
+                  disabled={activeCount === 0}
+                  className="box-border inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 >
-                  <Trash2 className="w-4 h-4 text-slate-500" />
+                  <Trash2 className="h-4 w-4 flex-none" aria-hidden />
+                  Clear all
                 </button>
-                <div className="flex items-center justify-end gap-2 flex-nowrap">
-                  <button
-                    type="button"
-                    onClick={closeFilters}
-                    title="Cancel"
-                    aria-label="Cancel"
-                    className="h-10 w-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50 active:bg-slate-100 transition-colors focus-visible:outline-none"
-                  >
-                    <X className="w-4 h-4 text-slate-600" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applyFilters}
-                    title="Apply filters"
-                    aria-label="Apply filters"
-                    className="h-10 w-10 rounded-xl bg-[#02665e] text-white flex items-center justify-center shadow-sm hover:bg-[#014e47] active:bg-[#013a35] transition-all duration-200 motion-safe:active:scale-[0.99] focus-visible:outline-none"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={applyFilters}
+                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-3 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] active:bg-[#013a35] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
+                >
+                  <Check className="h-4 w-4" aria-hidden />
+                  Show results
+                </button>
               </div>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>,
+          document.body
+        );
+      })()}
 
       {pageNotice ? (
         <div

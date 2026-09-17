@@ -14,6 +14,7 @@ import adminCareersApplicationsRouter from "./admin.careers.applications";
 import adminCareersStatsRouter from "./admin.careers.stats";
 import { router as adminCareersRouter } from "./admin.careers";
 import adminChatbotRouter from "./admin.chatbot";
+import adminNewsletterRouter from "./admin.newsletter";
 import adminContractTemplatesRouter from "./admin.contractTemplates";
 import adminDriversLevelMessagesRouter from "./admin.drivers.level-messages";
 import adminDriversLevelsRouter from "./admin.drivers.levels";
@@ -219,5 +220,6 @@ export function registerAdminNolScopeRoute(app: Express): void {
 
 export function registerAdminChatbotReportsRoutes(app: Express): void {
   app.use("/api/admin/chatbot", adminChatbotRouter as RequestHandler);
+  app.use("/api/admin/newsletter", adminNewsletterRouter as RequestHandler);
   app.use("/api/admin/reports", adminReportsRouter as RequestHandler);
 }

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import "mapbox-gl/dist/mapbox-gl.css";
 
@@ -85,6 +85,8 @@ import {
   LogOut,
   Wifi,
   QrCode,
+  Star,
+  Check,
 
 } from "lucide-react";
 
@@ -372,7 +374,9 @@ function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[
 function PaymentLogo({ src, alt }: { src: string; alt: string }) {
   return (
     <span className="inline-flex items-center justify-center rounded-md bg-white/90 ring-1 ring-black/5 p-1.5 shadow-sm">
-      <Image src={src} alt={alt} width={32} height={32} className="h-[28px] w-[28px] object-contain" />
+      <span className="relative block h-[28px] w-[28px]">
+        <Image src={src} alt={alt} fill sizes="28px" className="object-contain" />
+      </span>
     </span>
   );
 
@@ -382,7 +386,7 @@ function PaymentModePill({ mode }: { mode: string }) {
   const m = String(mode || "").trim();
   const key = m.toLowerCase();
   const baseCls = [
-    "group w-full inline-flex items-center gap-2 rounded-xl border px-3 py-2",
+    "group box-border w-full inline-flex items-center gap-2 rounded-xl border border-solid px-3 py-2",
     "bg-slate-50 border-slate-200 text-slate-800",
     "shadow-sm shadow-transparent select-none",
     "motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out",
@@ -410,6 +414,7 @@ function PaymentModePill({ mode }: { mode: string }) {
         <span className="text-sm font-semibold text-slate-700">Card</span>
         <span className="inline-flex items-center gap-2">
           <PaymentLogo src="/assets/visa_card.png" alt="Visa card" />
+          <PaymentLogo src="/assets/Mastercard_Logo.png" alt="Mastercard" />
         </span>
       </div>
     );
@@ -542,10 +547,10 @@ function PropertyMap({ latitude, longitude, propertyTitle }: { latitude: number;
         {/* Brand teal gradient */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#02665e] via-[#025c55] to-[#013d38]" />
         {/* Decorative rings */}
-        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full border border-white/10" />
-        <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full border border-white/10" />
-        <div className="absolute -bottom-16 -left-16 w-52 h-52 rounded-full border border-white/10" />
-        <div className="absolute bottom-6 left-6 w-24 h-24 rounded-full border border-white/10" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full border border-solid border-white/10" />
+        <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full border border-solid border-white/10" />
+        <div className="absolute -bottom-16 -left-16 w-52 h-52 rounded-full border border-solid border-white/10" />
+        <div className="absolute bottom-6 left-6 w-24 h-24 rounded-full border border-solid border-white/10" />
         {/* Dot grid — map-like texture */}
         <div
           className="absolute inset-0 opacity-[0.07]"
@@ -603,7 +608,7 @@ function PropertyMap({ latitude, longitude, propertyTitle }: { latitude: number;
       <button
         type="button"
         onClick={() => { setIsOpen(false); initStartedRef.current = false; }}
-        className="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow backdrop-blur-sm transition hover:bg-white"
+        className="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-full border border-solid border-slate-200/80 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow backdrop-blur-sm transition hover:bg-white"
         aria-label="Close map"
       >
         <X className="h-3 w-3" />
@@ -681,7 +686,7 @@ function PolicyCard({
   return (
     <div
       className={[
-        "group w-full inline-flex items-center gap-2 rounded-xl border px-3 py-2",
+        "group box-border w-full inline-flex items-center gap-2 rounded-xl border border-solid px-3 py-2",
         cls,
         "shadow-sm shadow-transparent select-none",
         "motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out",
@@ -862,7 +867,27 @@ function normalizeRoomsSpec(
 }
 
 function joinLocation(p: Pick<PublicPropertyDetail, "city" | "district" | "regionName" | "country">) {
-  return [p.city, p.district, p.regionName, p.country].filter(Boolean).join(", ");
+  // Owners often type parts in capitals ("DAR-ES-SALAAM"); show them in title case
+  // and drop repeats such as a region that matches the city.
+  const tidy = (raw: unknown) => {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+    if (s !== s.toUpperCase()) return s;
+    return s
+      .toLowerCase()
+      .replace(/-/g, " ")
+      .replace(/\b(\w)(\w*)/g, (_m, a: string, b: string) => (["es", "wa", "la", "ya", "na"].includes(a + b) ? a + b : a.toUpperCase() + b));
+  };
+  const seen = new Set<string>();
+  return [p.city, p.district, p.regionName, p.country]
+    .map(tidy)
+    .filter((part) => {
+      const key = part.toLowerCase().replace(/[^a-z]/g, "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(", ");
 
 }
 
@@ -953,6 +978,8 @@ function PropertyAvailabilityChecker({
   onDatesChange,
   refreshSignal,
   dates,
+  compact = false,
+  openPickerSignal,
 
 }: {
   propertyId: number;
@@ -960,6 +987,10 @@ function PropertyAvailabilityChecker({
   onDatesChange?: (checkIn: string, checkOut: string) => void;
   refreshSignal?: number;
   dates?: { checkIn: string; checkOut: string };
+  /** Booking-card layout: one date pair plus a single live status line */
+  compact?: boolean;
+  /** Bump to open the next missing date picker (e.g. from the booking button) */
+  openPickerSignal?: number;
 
 }) {
   const [checkIn, setCheckIn] = useState<string>("");
@@ -1078,8 +1109,179 @@ function PropertyAvailabilityChecker({
       year: "numeric",
     });
   };
+  // The booking button can ask us to open whichever date is still missing.
+  useEffect(() => {
+    if (!openPickerSignal) return;
+    if (!checkIn) {
+      setCheckInPickerOpen(true);
+      setCheckOutPickerOpen(false);
+    } else if (!checkOut) {
+      setCheckOutPickerOpen(true);
+      setCheckInPickerOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPickerSignal]);
+
+  if (compact) {
+    const shortDate = (s: string) =>
+      parseBookingDateOnly(s).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    const rooms = Number(availability?.summary?.totalAvailableRooms ?? 0);
+    return (
+      <div>
+        {/* One bordered date pair, split down the middle */}
+        <div className="relative grid grid-cols-2 rounded-xl border border-solid border-slate-300 bg-white">
+          <button
+            type="button"
+            onClick={() => {
+              setCheckInPickerOpen(true);
+              setCheckOutPickerOpen(false);
+            }}
+            className={`box-border min-w-0 rounded-l-xl border-0 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 ${checkInPickerOpen ? "bg-slate-50 ring-2 ring-inset ring-[#02665e]" : "bg-transparent"}`}
+          >
+            <span className="block text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-500">Check-in</span>
+            <span className={`mt-0.5 block truncate text-[14px] ${checkIn ? "font-semibold text-slate-900" : "text-slate-400"}`}>
+              {checkIn ? shortDate(checkIn) : "Add date"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!checkIn) {
+                setCheckInPickerOpen(true);
+                return;
+              }
+              setCheckOutPickerOpen(true);
+              setCheckInPickerOpen(false);
+            }}
+            className={`box-border min-w-0 rounded-r-xl border-0 border-l border-solid border-slate-300 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 ${checkOutPickerOpen ? "bg-slate-50 ring-2 ring-inset ring-[#02665e]" : "bg-transparent"}`}
+          >
+            <span className="block text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-500">Check-out</span>
+            <span className={`mt-0.5 block truncate text-[14px] ${checkOut ? "font-semibold text-slate-900" : "text-slate-400"}`}>
+              {checkOut ? shortDate(checkOut) : "Add date"}
+            </span>
+          </button>
+
+          {checkInPickerOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setCheckInPickerOpen(false)} />
+              <div className="absolute left-0 top-full z-50 mt-2 rounded-xl border border-solid border-slate-200 bg-white shadow-xl">
+                <DatePicker
+                  selected={checkIn}
+                  allowRange={false}
+                  onSelectAction={(s) => {
+                    const date = Array.isArray(s) ? s[0] : s;
+                    setError(null);
+                    setCheckIn(date);
+                    onDatesChange?.(date, checkOut);
+                    setCheckInPickerOpen(false);
+                    if (checkOut && date && parseBookingDateOnly(checkOut) <= parseBookingDateOnly(date)) {
+                      setCheckOut("");
+                      onDatesChange?.(date, "");
+                    }
+                    // Flow straight on to check-out
+                    if (!checkOut || (date && parseBookingDateOnly(checkOut) <= parseBookingDateOnly(date))) setCheckOutPickerOpen(true);
+                  }}
+                  onCloseAction={() => setCheckInPickerOpen(false)}
+                  minDate={localIsoDate()}
+                />
+              </div>
+            </>
+          )}
+          {checkOutPickerOpen && checkIn && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setCheckOutPickerOpen(false)} />
+              <div className="absolute right-0 top-full z-50 mt-2 rounded-xl border border-solid border-slate-200 bg-white shadow-xl">
+                <DatePicker
+                  selected={checkOut}
+                  allowRange={false}
+                  onSelectAction={(s) => {
+                    const date = Array.isArray(s) ? s[0] : s;
+                    setError(null);
+                    setCheckOut(date);
+                    onDatesChange?.(checkIn, date);
+                    setCheckOutPickerOpen(false);
+                  }}
+                  onCloseAction={() => setCheckOutPickerOpen(false)}
+                  minDate={checkIn || localIsoDate()}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Live status line */}
+        <div className="mt-2.5 min-h-[20px] text-[12.5px]" aria-live="polite">
+          {error ? (
+            <p className="m-0 flex items-start gap-1.5 text-rose-600">
+              <AlertCircle className="mt-px h-3.5 w-3.5 flex-none" aria-hidden />
+              {error}
+            </p>
+          ) : loading ? (
+            <p className="m-0 flex items-center gap-1.5 text-slate-500">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-solid border-slate-300 border-t-[#02665e]" aria-hidden />
+              Checking live availability
+            </p>
+          ) : availability && checkIn && checkOut ? (
+            availability.available ? (
+              <p className="m-0 flex items-center gap-1.5 font-medium text-emerald-700">
+                <span className="relative flex h-2 w-2" aria-hidden>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+                Available{rooms > 0 ? `: ${rooms} room${rooms === 1 ? "" : "s"} left for these dates` : " for these dates"}
+              </p>
+            ) : (
+              <p className="m-0 flex items-center gap-1.5 font-medium text-amber-700">
+                <AlertCircle className="h-3.5 w-3.5" aria-hidden />
+                Fully booked for these dates. Try other dates.
+              </p>
+            )
+          ) : (
+            <p className="m-0 text-slate-500">Add your dates to see live availability.</p>
+          )}
+        </div>
+
+        {/* Per room type breakdown, folded away until asked for */}
+        {!error && !loading && availability?.available && checkIn && checkOut && availability.byRoomType && Object.keys(availability.byRoomType).length > 0 && (
+          <details className="group mt-2 rounded-lg border border-solid border-slate-200 bg-slate-50/60 [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[12.5px] font-semibold text-[#02665e]">
+              See by room type
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />
+            </summary>
+            <ul className="m-0 list-none border-0 border-t border-solid border-slate-200 px-0 py-1">
+              {Object.entries(availability.byRoomType).map(([code, d]: [string, any]) => {
+                const free = Math.max(0, Number(d?.availableRooms ?? 0));
+                const total = Math.max(0, Number(d?.totalRooms ?? 0));
+                const pct = total > 0 ? Math.round((free / total) * 100) : 0;
+                return (
+                  <li key={code} className="px-3 py-1.5">
+                    <div className="flex items-center justify-between gap-3 text-[12.5px]">
+                      <span className="truncate font-medium text-slate-800">{code === "default" ? "All rooms" : code}</span>
+                      <span className={`flex-none tabular-nums ${free > 0 ? "text-slate-600" : "text-amber-700"}`}>
+                        {free > 0 ? (
+                          <>
+                            <span className="font-bold text-slate-900">{free}</span> of {total} free
+                          </>
+                        ) : (
+                          "Full"
+                        )}
+                      </span>
+                    </div>
+                    <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-200">
+                      <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
         <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
           <Calendar className="w-5 h-5" aria-hidden />
@@ -1106,7 +1308,7 @@ function PropertyAvailabilityChecker({
                   setCheckInPickerOpen(true);
                   setCheckOutPickerOpen(false);
                 }}
-                className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] hover:border-slate-400 bg-white shadow-sm flex items-center justify-between"
+                className="w-full px-4 py-3 border-2 border-solid border-slate-300 rounded-xl text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] hover:border-slate-400 bg-white shadow-sm flex items-center justify-between"
               >
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-[#02665e]" />
@@ -1119,7 +1321,7 @@ function PropertyAvailabilityChecker({
               {checkInPickerOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setCheckInPickerOpen(false)} />
-                  <div className="absolute z-50 top-full left-0 mt-2 bg-white rounded-xl border-2 border-slate-200 shadow-xl">
+                  <div className="absolute z-50 top-full left-0 mt-2 bg-white rounded-xl border-2 border-solid border-slate-200 shadow-xl">
                     <DatePicker
                       selected={checkIn}
                       allowRange={false}
@@ -1155,7 +1357,7 @@ function PropertyAvailabilityChecker({
                   setCheckInPickerOpen(false);
                 }}
                 disabled={!checkIn}
-                className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] hover:border-slate-400 bg-white shadow-sm flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3 border-2 border-solid border-slate-300 rounded-xl text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] hover:border-slate-400 bg-white shadow-sm flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-[#02665e]" />
@@ -1168,7 +1370,7 @@ function PropertyAvailabilityChecker({
               {checkOutPickerOpen && checkIn && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setCheckOutPickerOpen(false)} />
-                  <div className="absolute z-50 top-full left-0 mt-2 bg-white rounded-xl border-2 border-slate-200 shadow-xl">
+                  <div className="absolute z-50 top-full left-0 mt-2 bg-white rounded-xl border-2 border-solid border-slate-200 shadow-xl">
                     <DatePicker
                       selected={checkOut}
                       allowRange={false}
@@ -1196,14 +1398,14 @@ function PropertyAvailabilityChecker({
         </div>
         {/* Error Message */}
         {error && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
+          <div className="p-3 rounded-lg bg-red-50 border border-solid border-red-200 flex items-start gap-2">
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
         {/* Availability Results */}
         {availability && !error && (
-          <div className="mt-4 overflow-hidden rounded-3xl border border-[#02665e]/20 bg-white shadow-[0_16px_40px_rgba(2,102,94,0.18)]">
+          <div className="mt-4 overflow-hidden rounded-3xl border border-solid border-[#02665e]/20 bg-white shadow-[0_16px_40px_rgba(2,102,94,0.18)]">
             <div className="relative px-5 py-4 border-b border-white/15 bg-gradient-to-br from-[#02665e] via-[#025c55] to-[#024a43] overflow-hidden">
               {/* Diagonal white slash stripes */}
               <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.045) 0px, rgba(255,255,255,0.045) 1px, transparent 1px, transparent 18px)' }} />
@@ -1248,7 +1450,7 @@ function PropertyAvailabilityChecker({
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {/* Premium summary */}
                   <div className="lg:col-span-1">
-                    <div className="rounded-3xl border border-[#02665e]/15 bg-white p-4 shadow-[0_4px_16px_rgba(2,102,94,0.08)]">
+                    <div className="rounded-3xl border border-solid border-[#02665e]/15 bg-white p-4 shadow-[0_4px_16px_rgba(2,102,94,0.08)]">
                       <div className="text-[11px] font-bold tracking-wide text-[#02665e] uppercase">Available now</div>
                       <div className="mt-3 grid grid-cols-2 gap-3">
                         <div className="rounded-2xl bg-[#f0faf9] ring-1 ring-[#02665e]/15 p-3">
@@ -1267,7 +1469,7 @@ function PropertyAvailabilityChecker({
                   </div>
                   {/* Clean breakdown table */}
                   <div className="lg:col-span-2">
-                    <div className="rounded-3xl border border-[#02665e]/15 overflow-hidden bg-white">
+                    <div className="rounded-3xl border border-solid border-[#02665e]/15 overflow-hidden bg-white">
                       <div className="px-4 py-3 bg-[#f0faf9] border-b border-[#02665e]/10">
                         <div className="hidden md:grid grid-cols-12 gap-3 text-[11px] font-bold tracking-wide text-[#02665e]/70 uppercase">
                           <div className="col-span-4">Room type</div>
@@ -1360,7 +1562,7 @@ function PropertyAvailabilityChecker({
               </div>
             ) : (
               <div className="p-5 bg-[#f5fbfa]">
-                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-3xl border border-solid border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-3">
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-800 ring-1 ring-amber-500/20">
                       <AlertCircle className="w-5 h-5" aria-hidden />
@@ -1640,7 +1842,7 @@ function RoomQuickViewModal({
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-3">
+            <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-solid border-rose-200 px-3.5 py-3">
               <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
               <span className="text-xs font-semibold text-rose-700">{error}</span>
             </div>
@@ -1683,7 +1885,7 @@ function RoomQuickViewModal({
               onClose();
               setTimeout(() => document.getElementById("roomsSection")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
             }}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 py-3.5 text-sm font-semibold hover:bg-slate-50 active:scale-[0.98] transition-all"
+            className="inline-flex items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-slate-700 py-3.5 text-sm font-semibold hover:bg-slate-50 active:scale-[0.98] transition-all"
           >
             View rooms
           </button>
@@ -1746,8 +1948,18 @@ export default function PublicPropertyDetailPage() {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [copyLinkSuccess, setCopyLinkSuccess] = useState(false);
   const [selectedDates, setSelectedDates] = useState<{ checkIn: string; checkOut: string }>({ checkIn: "", checkOut: "" });
+  // Pre-fill dates from a link (Twiga's "Book these dates" passes ?checkIn=&checkOut=),
+  // so the availability checker runs for the dates the visitor already asked about.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkIn = params.get("checkIn") ?? "";
+    const checkOut = params.get("checkOut") ?? "";
+    const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (isDay(checkIn) && isDay(checkOut) && checkOut > checkIn) setSelectedDates({ checkIn, checkOut });
+  }, []);
   const [roomQuickView, setRoomQuickView] = useState<null | { roomType: string; floor: number }>(null);
-  const [, setAvailabilityData] = useState<any | null>(null);
+  const [availabilityData, setAvailabilityData] = useState<any | null>(null);
+  const [datePickerSignal, setDatePickerSignal] = useState(0);
   const [, setAvailabilitySocket] = useState<Socket | null>(null);
   const [, setAvailabilityConnected] = useState(false);
   const [availabilityRefreshTick, setAvailabilityRefreshTick] = useState(0);
@@ -2227,7 +2439,7 @@ export default function PublicPropertyDetailPage() {
               <div className="mt-4 h-6 w-2/3 bg-slate-100 animate-pulse rounded" />
               <div className="mt-2 h-4 w-1/2 bg-slate-100 animate-pulse rounded" />
             </div>
-            <div className="rounded-2xl border border-slate-200 p-5">
+            <div className="rounded-2xl border border-solid border-slate-200 p-5">
               <div className="h-6 w-1/2 bg-slate-100 animate-pulse rounded" />
               <div className="mt-3 h-10 bg-slate-100 animate-pulse rounded-xl" />
             </div>
@@ -2248,7 +2460,7 @@ export default function PublicPropertyDetailPage() {
             <ChevronLeft className="w-4 h-4" />
             Back
           </button>
-          <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-6">
+          <div className="mt-6 rounded-2xl border border-solid border-rose-200 bg-rose-50 p-6">
             <div className="font-semibold text-rose-900">Property not available</div>
             <div className="text-sm text-rose-800 mt-1">{error || "This property could not be loaded."}</div>
             <div className="mt-4">
@@ -2265,7 +2477,7 @@ export default function PublicPropertyDetailPage() {
     <main className="min-h-screen bg-white text-slate-900 header-offset">
       <div className="public-container py-8">
         {/* Property header card */}
-        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white border border-slate-100 shadow-[0_4px_24px_rgba(2,102,94,0.10)]">
+        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white border border-solid border-slate-100 shadow-[0_4px_24px_rgba(2,102,94,0.10)]">
           <div className="relative px-5 sm:px-8 pt-5 sm:pt-6 pb-6 sm:pb-7">
             {/* Subtle radial tint */}
             <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse 80% 60% at 100% 0%,rgba(2,180,245,0.05),transparent 65%)' }} aria-hidden />
@@ -2374,7 +2586,7 @@ export default function PublicPropertyDetailPage() {
                           onClick={() => setShowShareMenu(false)}
                         />
                         <div
-                          className="absolute right-0 top-full mt-2 w-56 max-w-none rounded-2xl border border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 z-50 overflow-hidden transform transition-all duration-200 origin-top-right"
+                          className="absolute right-0 top-full mt-2 w-56 max-w-none rounded-2xl border border-solid border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 z-50 overflow-hidden transform transition-all duration-200 origin-top-right"
                           style={{ maxWidth: "none" }}
                         >
                           <div className="p-3 grid gap-2">
@@ -2394,7 +2606,7 @@ export default function PublicPropertyDetailPage() {
                                 setTimeout(() => setCopyLinkSuccess(false), 2000);
                               });
                             }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-800 transition-colors duration-200 hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                            className="group w-full flex items-center gap-3 rounded-xl border border-solid border-slate-200/70 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-800 transition-colors duration-200 hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                           >
                             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/5">
                               <Copy className={`w-4 h-4 flex-shrink-0 transition-colors duration-200 ${copyLinkSuccess ? "text-[#02665e]" : "text-slate-600"}`} />
@@ -2477,40 +2689,67 @@ export default function PublicPropertyDetailPage() {
                 </div>
               </div>
               {/* Title + location */}
-              <div className="mb-5">
-                <p className="text-[10px] sm:text-xs font-bold tracking-[0.20em] uppercase mb-2" style={{ color: '#02665e' }}>
-                  Property
-                </p>
-                <h1 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight leading-[1.1] text-slate-900">
-                  {property.title}
-                </h1>
-                {location && (
-                  <div className="mt-2.5 flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-500 truncate">{location}</span>
-                  </div>
-                )}
-              </div>
-              {/* Verified by NoLSAF strip */}
-              <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3" style={{ background: 'rgba(2,102,94,0.05)', border: '1px solid rgba(2,102,94,0.12)' }}>
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full flex-shrink-0" style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 3px 8px rgba(16,185,129,0.30)' }}>
-                    <CheckCircle className="w-4 h-4 text-white" strokeWidth={2.5} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-800 leading-tight">Verified by NoLSAF</p>
-                    <p className="text-[11px] mt-0.5 text-slate-500 leading-relaxed">
-                      Physical site visit . location &amp; documentation review
+              <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+                <div className="min-w-0">
+                  <p className="text-[10px] sm:text-xs font-bold tracking-[0.20em] uppercase mb-2" style={{ color: '#02665e' }}>
+                    Property
+                  </p>
+                  <h1 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight leading-[1.1] text-slate-900 break-words">
+                    {property.title}
+                  </h1>
+                  {(() => {
+                    const avg = Number(reviewsData?.stats?.averageRating ?? 0);
+                    const count = Number(reviewsData?.stats?.totalReviews ?? 0);
+                    return (
+                      <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+                        {location && (
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                            <span className="font-medium text-slate-500 truncate">{location}</span>
+                          </span>
+                        )}
+                        {location && <span aria-hidden className="h-3.5 w-px bg-slate-200" />}
+                        {count > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-slate-600">
+                            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+                            <span className="font-semibold tabular-nums text-slate-900">{avg.toFixed(1)}</span>
+                            <span>({count} review{count === 1 ? "" : "s"})</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-medium text-[#02665e]">
+                            <Star className="h-3.5 w-3.5" aria-hidden /> New on NoLSAF
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Verification seal: fills the right side and replaces the old full-width strip */}
+                <div className="relative box-border flex w-full flex-none items-center gap-3.5 overflow-hidden rounded-xl border border-solid border-[#02665e]/15 bg-white px-4 py-3 shadow-[0_10px_28px_-18px_rgba(2,40,36,0.45)] sm:w-auto lg:min-w-[340px]">
+                  <span className="relative flex h-11 w-11 flex-none items-center justify-center rounded-full bg-[#02665e]/[0.08] ring-1 ring-inset ring-[#02665e]/15">
+                    <ShieldCheck className="h-5 w-5 text-[#02665e]" aria-hidden />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-white">
+                      <Check className="h-2.5 w-2.5 text-white" strokeWidth={3.5} aria-hidden />
+                    </span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 flex items-center justify-between gap-3 text-[13.5px] font-bold leading-tight text-slate-900">
+                      Verified by NoLSAF
+                      <Link href="/verification-policy" className="text-[11.5px] font-semibold text-[#02665e] no-underline hover:underline">
+                        How we verify
+                      </Link>
                     </p>
+                    <ul className="m-0 mt-1.5 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-[11.5px] text-slate-600">
+                      {["Site visited", "Location checked", "Documents reviewed"].map((item) => (
+                        <li key={item} className="inline-flex items-center gap-1 whitespace-nowrap">
+                          <Check className="h-3 w-3 text-emerald-600" strokeWidth={3} aria-hidden />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
-                <Link
-                  href="/verification-policy"
-                  className="flex-shrink-0 text-[11px] font-semibold whitespace-nowrap no-underline hover:underline"
-                  style={{ color: '#02665e' }}
-                >
-                  Learn more
-                </Link>
               </div>
             </div>
           </div>
@@ -2518,7 +2757,7 @@ export default function PublicPropertyDetailPage() {
         {/* Gallery */}
         <div className="mt-6">
           {hero ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-slate-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
               <button
                 type="button"
                 className={[
@@ -2593,7 +2832,7 @@ export default function PublicPropertyDetailPage() {
           ) : (
             <div>
               {/* Photo layout preview (until Cloudinary / approved photos are available) */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-slate-200">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
                 <button
                   type="button"
                   onClick={() => openAllPhotos()}
@@ -2609,7 +2848,7 @@ export default function PublicPropertyDetailPage() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-black/0 to-white/35" />
                   <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700">
-                    <div className="h-14 w-14 rounded-2xl bg-white/85 border border-slate-200 shadow-sm flex items-center justify-center">
+                    <div className="h-14 w-14 rounded-2xl bg-white/85 border border-solid border-slate-200 shadow-sm flex items-center justify-center">
                       <ImageIcon className="w-7 h-7 text-slate-500" aria-hidden />
                     </div>
                     <div className="mt-3 text-sm font-semibold">Photo preview</div>
@@ -2689,7 +2928,7 @@ export default function PublicPropertyDetailPage() {
               </div>
             </div>
             {/* Description */}
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -2707,7 +2946,7 @@ export default function PublicPropertyDetailPage() {
                     <button
                       type="button"
                       onClick={() => setAboutExpanded((v) => !v)}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
                       aria-label={aboutExpanded ? "Show less" : "Read more"}
                     >
                       {aboutExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -2717,7 +2956,7 @@ export default function PublicPropertyDetailPage() {
               </div>
 
               <div className="p-5 sm:p-6">
-                <div className="relative rounded-xl border border-slate-100 bg-white px-4 py-4">
+                <div className="relative rounded-xl border border-solid border-slate-100 bg-white px-4 py-4">
                   <p className="text-[15px] leading-7 text-slate-700 whitespace-pre-wrap">
                     {aboutExpanded ? about.text : about.collapsed}
                   </p>
@@ -2728,7 +2967,7 @@ export default function PublicPropertyDetailPage() {
               </div>
             </div>
             {/* Physical Verification - Our Competitive Advantage */}
-            <div className="overflow-hidden rounded-2xl border border-[#02665e]/15 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-2xl border border-solid border-[#02665e]/15 bg-white shadow-sm">
               <div className="relative bg-[#02665e]/5 px-5 py-5 sm:px-6">
                 <div className="flex justify-center">
                   <div className="flex min-w-0 max-w-2xl flex-col items-center gap-3 text-center">
@@ -2760,7 +2999,7 @@ export default function PublicPropertyDetailPage() {
                     <button
                       type="button"
                       onClick={() => setVerificationDetailsOpen((open) => !open)}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#02665e]/20 bg-white text-[#02665e] shadow-sm hover:bg-[#02665e]/5"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-solid border-[#02665e]/20 bg-white text-[#02665e] shadow-sm hover:bg-[#02665e]/5"
                       aria-label={verificationDetailsOpen ? "Hide verification details" : "Show verification details"}
                       aria-expanded={verificationDetailsOpen}
                       aria-controls="property-verification-details"
@@ -2777,9 +3016,9 @@ export default function PublicPropertyDetailPage() {
                     href={verificationRecord.verificationUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-4 rounded-2xl border border-[#02665e]/20 bg-[#02665e]/5 px-4 py-4 text-slate-950 no-underline transition hover:border-[#02665e]/30 hover:bg-[#02665e]/10"
+                    className="flex items-center gap-4 rounded-2xl border border-solid border-[#02665e]/20 bg-[#02665e]/5 px-4 py-4 text-slate-950 no-underline transition hover:border-[#02665e]/30 hover:bg-[#02665e]/10"
                   >
-                    <span className="inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-[#02665e]/20 bg-white text-[#02665e]">
+                    <span className="inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-solid border-[#02665e]/20 bg-white text-[#02665e]">
                       <QrCode className="h-5 w-5" aria-hidden />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -2811,7 +3050,7 @@ export default function PublicPropertyDetailPage() {
                     href={property.verificationVideoUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl border border-[#02665e]/20 bg-white px-4 py-2 text-sm font-semibold text-[#02665e] no-underline hover:bg-[#02665e]/5"
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl border border-solid border-[#02665e]/20 bg-white px-4 py-2 text-sm font-semibold text-[#02665e] no-underline hover:bg-[#02665e]/5"
                   >
                     <PlayCircle className="h-4 w-4" />
                     View verification media
@@ -2827,71 +3066,11 @@ export default function PublicPropertyDetailPage() {
                 ) : null}
               </div>
             </div>
-            {/* Payment Methods (mobile/tablet only; on large screens it sits in the right column) */}
-            <div className="lg:hidden rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                  <CreditCard className="w-6 h-6" aria-hidden />
-                </span>
-                <h2 className="text-2xl font-semibold text-slate-900">Payment Methods</h2>
-              </div>
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {servicesByCategory.paymentModes.slice(0, 6).map((m) => (
-                  <PaymentModePill key={m} mode={m} />
-                ))}
-                {servicesByCategory.freeCancellation ? (
-                  <PolicyCard tone="success" icon={<BadgeCheck className="w-4 h-4" aria-hidden />} label="Free cancellation" />
-                ) : null}
-                {servicesByCategory.groupStay ? (
-                  <PolicyCard tone="neutral" icon={<UsersRound className="w-4 h-4" aria-hidden />} label="Group stay" />
-                ) : null}
-              </div>
-            </div>
-          </div>
-          {/* Side / CTA */}
-          <aside className="lg:sticky lg:top-24 h-fit space-y-6">
-            {/* Payment Methods (large screens: right column, touches the right layout frame) */}
-            <div className="hidden lg:block rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                  <CreditCard className="w-6 h-6" aria-hidden />
-                </span>
-                <h2 className="text-2xl font-semibold text-slate-900">Payment Methods</h2>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3">
-                {servicesByCategory.paymentModes.slice(0, 6).map((m) => (
-                  <PaymentModePill key={m} mode={m} />
-                ))}
-                {servicesByCategory.freeCancellation ? (
-                  <PolicyCard tone="success" icon={<BadgeCheck className="w-4 h-4" aria-hidden />} label="Free cancellation" />
-                ) : null}
-                {servicesByCategory.groupStay ? (
-                  <PolicyCard tone="neutral" icon={<UsersRound className="w-4 h-4" aria-hidden />} label="Group stay" />
-                ) : null}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm text-slate-600">Starting from</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900">
-                <PriceDisplay
-                  amountTzs={finalBasePrice}
-                  noteClassName="text-xs font-normal text-slate-500 mt-0.5"
-                />
-              </div>
-              <div className="text-xs text-slate-500">per night</div>
-              <button
-                type="button"
-                onClick={() => { const params = new URLSearchParams({ property: property.slug }); if (selectedDates.checkIn) params.set('checkIn', selectedDates.checkIn); if (selectedDates.checkOut) params.set('checkOut', selectedDates.checkOut); router.push(`/public/booking/confirm?${params.toString()}`); }}
-                className="mt-4 w-full rounded-xl bg-[#02665e] text-white py-3 text-sm font-semibold hover:bg-[#014e47] transition-colors"
-              >
-                Request booking
-              </button>
-              <div className="mt-3 text-xs text-slate-600 flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 mt-0.5" />
-                <span className="italic">Secure your booking with NoLSAF-supported payment methods.</span>
-              </div>
+            {/* What's included and the live menu: moved out of the booking card so it stays focused */}
+            {(servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 || property.nrmsMenuUrl) ? (
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
               {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (
-                <div className="mt-5 rounded-2xl bg-slate-50/80 p-3 ring-1 ring-slate-200">
+                <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
@@ -2961,6 +3140,161 @@ export default function PublicPropertyDetailPage() {
                   <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
                 </Link>
               ) : null}
+              </div>
+            ) : null}
+            {/* Payment Methods (mobile/tablet only; on large screens it sits in the right column) */}
+            <div className="lg:hidden rounded-2xl border border-solid border-slate-200 bg-white p-5">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                  <CreditCard className="w-6 h-6" aria-hidden />
+                </span>
+                <h2 className="text-2xl font-semibold text-slate-900">Payment Methods</h2>
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {servicesByCategory.paymentModes.slice(0, 6).map((m) => (
+                  <PaymentModePill key={m} mode={m} />
+                ))}
+                {servicesByCategory.freeCancellation ? (
+                  <PolicyCard tone="success" icon={<BadgeCheck className="w-4 h-4" aria-hidden />} label="Free cancellation" />
+                ) : null}
+                {servicesByCategory.groupStay ? (
+                  <PolicyCard tone="neutral" icon={<UsersRound className="w-4 h-4" aria-hidden />} label="Group stay" />
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {/* Side / CTA */}
+          <aside className="lg:sticky lg:top-24 h-fit space-y-6">
+            {/* Booking card: price, dates, live availability and the next step, in reading order */}
+            {(() => {
+              const { checkIn: ci, checkOut: co } = selectedDates;
+              const hasDates = Boolean(ci && co);
+              const nights = hasDates
+                ? Math.max(0, Math.round((parseBookingDateOnly(co).getTime() - parseBookingDateOnly(ci).getTime()) / 86_400_000))
+                : 0;
+              const soldOut = hasDates && availabilityData && availabilityData.available === false;
+              return (
+                <div id="booking-card" className="box-border scroll-mt-24 rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[13px] text-slate-500">From</span>
+                    <span className="text-[24px] font-bold leading-none tracking-tight text-slate-900">
+                      <PriceDisplay amountTzs={finalBasePrice} noteClassName="text-xs font-normal text-slate-500 mt-0.5" />
+                    </span>
+                    <span className="text-[13px] text-slate-500">/ night</span>
+                  </div>
+
+                  <div className="mt-4">
+                    <PropertyAvailabilityChecker
+                      compact
+                      propertyId={property.id}
+                      onAvailability={(data) => setAvailabilityData(data)}
+                      onDatesChange={(checkIn, checkOut) => setSelectedDates({ checkIn, checkOut })}
+                      refreshSignal={availabilityRefreshTick}
+                      dates={selectedDates}
+                      openPickerSignal={datePickerSignal}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={Boolean(soldOut)}
+                    onClick={() => {
+                      if (!hasDates) {
+                        setDatePickerSignal((n) => n + 1);
+                        return;
+                      }
+                      const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co });
+                      router.push(`/public/booking/confirm?${params.toString()}`);
+                    }}
+                    className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] active:bg-[#013a35] disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {!hasDates ? "Check availability" : soldOut ? "Not available" : "Request booking"}
+                    {!soldOut && <ChevronRight className="h-4 w-4" aria-hidden />}
+                  </button>
+
+                  {hasDates && nights > 0 && finalBasePrice != null && (
+                    <div className="mt-4 space-y-1.5 border-0 border-t border-solid border-slate-100 pt-3 text-[13px]">
+                      <div className="flex items-center justify-between gap-3 text-slate-600">
+                        <span className="inline-flex items-baseline gap-1">
+                          <PriceDisplay amountTzs={finalBasePrice} showNote={false} /> × {nights} night{nights === 1 ? "" : "s"}
+                        </span>
+                        <span className="tabular-nums">
+                          <PriceDisplay amountTzs={finalBasePrice * nights} showNote={false} />
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 font-semibold text-slate-900">
+                        <span>Estimated total</span>
+                        <span className="tabular-nums">
+                          <PriceDisplay amountTzs={finalBasePrice * nights} showNote={false} />
+                        </span>
+                      </div>
+                      <p className="m-0 text-[11.5px] text-slate-500">Final price depends on the room you choose.</p>
+                    </div>
+                  )}
+
+                  <p className="m-0 mt-3 flex items-center justify-center gap-1.5 text-[12px] text-slate-500">
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                    Secure payment with NoLSAF-supported methods
+                  </p>
+
+                  {/* Phones and tablets: the booking card sits far down, so keep price and the next step one tap away */}
+                  {typeof document !== "undefined" &&
+                    createPortal(
+                      <div className="fixed inset-x-0 bottom-[calc(60px+env(safe-area-inset-bottom,0px))] z-40 border-0 border-t border-solid border-slate-200 bg-white/95 px-4 py-2.5 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.18)] backdrop-blur md:bottom-0 lg:hidden">
+                        <div className="mx-auto flex max-w-3xl items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 flex items-baseline gap-1 text-[15px] font-bold text-slate-900">
+                              <PriceDisplay amountTzs={finalBasePrice} showNote={false} />
+                              <span className="text-[12px] font-normal text-slate-500">/ night</span>
+                            </p>
+                            <p className="m-0 truncate text-[12px] text-slate-500">
+                              {hasDates
+                                ? `${parseBookingDateOnly(ci).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} to ${parseBookingDateOnly(co).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${nights} night${nights === 1 ? "" : "s"}`
+                                : "Add dates for live availability"}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={Boolean(soldOut)}
+                            onClick={() => {
+                              if (hasDates) {
+                                const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co });
+                                router.push(`/public/booking/confirm?${params.toString()}`);
+                                return;
+                              }
+                              document.getElementById("booking-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              window.setTimeout(() => setDatePickerSignal((n) => n + 1), 450);
+                            }}
+                            className="inline-flex h-11 flex-none items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] disabled:bg-slate-300"
+                          >
+                            {!hasDates ? "Check availability" : soldOut ? "Not available" : "Request booking"}
+                          </button>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                </div>
+              );
+            })()}
+            {/* Payment Methods (large screens: right column, touches the right layout frame) */}
+            <div className="hidden lg:block rounded-2xl border border-solid border-slate-200 bg-white p-5">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                  <CreditCard className="w-6 h-6" aria-hidden />
+                </span>
+                <h2 className="text-2xl font-semibold text-slate-900">Payment Methods</h2>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                {servicesByCategory.paymentModes.slice(0, 6).map((m) => (
+                  <PaymentModePill key={m} mode={m} />
+                ))}
+                {servicesByCategory.freeCancellation ? (
+                  <PolicyCard tone="success" icon={<BadgeCheck className="w-4 h-4" aria-hidden />} label="Free cancellation" />
+                ) : null}
+                {servicesByCategory.groupStay ? (
+                  <PolicyCard tone="neutral" icon={<UsersRound className="w-4 h-4" aria-hidden />} label="Group stay" />
+                ) : null}
+              </div>
             </div>
           </aside>
           {priceServicesOpen && photoPortalReady ? createPortal((
@@ -3053,34 +3387,10 @@ export default function PublicPropertyDetailPage() {
             </div>
           ), document.body) : null}
         </div>
-        {/* Availability Checker */}
-        <PropertyAvailabilityChecker
-          propertyId={property.id}
-          onAvailability={(data) => setAvailabilityData(data)}
-          onDatesChange={(checkIn, checkOut) => setSelectedDates({ checkIn, checkOut })}
-          refreshSignal={availabilityRefreshTick}
-          dates={selectedDates}
-        />
         {/* Building visualization (owner-declared) */}
         {property.roomsSpec && property.roomsSpec.length > 0 && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl flex-shrink-0 bg-[#02665e]/10 border border-[#02665e]/15">
-                  <Building2 className="w-[18px] h-[18px] text-[#02665e]" aria-hidden />
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#02665e]">Property Structure</p>
-                  <h2 className="text-sm font-bold text-slate-800 leading-tight">Building Layout</h2>
-                </div>
-              </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                Owner-declared
-              </span>
-            </div>
-            {/* Content */}
+          <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white shadow-sm overflow-hidden">
+            {/* Content (the component draws the section header with live totals) */}
             <div className="p-4 sm:p-5">
               {(() => {
                 const roomsSpec = Array.isArray(property.roomsSpec) ? property.roomsSpec : [];
@@ -3112,6 +3422,17 @@ export default function PublicPropertyDetailPage() {
                     buildingType={effectiveBuildingType}
                     totalFloors={effectiveTotalFloors}
                     showHeader={false}
+                    sectionEyebrow="Property structure"
+                    sectionTitle="Building layout"
+                    sectionBadge={
+                      <span
+                        className="inline-flex h-[30px] items-center gap-1.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-2.5 text-[12px] font-semibold text-emerald-700"
+                        title="Floors and rooms as declared by the property owner"
+                      >
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        Owner-declared
+                      </span>
+                    }
                     rooms={roomsSpec.map((r: any) => {
                       // floorDistribution may arrive as JSON string or object
                       let floorDist: Record<number, number> | undefined = undefined;
@@ -3154,7 +3475,7 @@ export default function PublicPropertyDetailPage() {
           />
         )}
         {/* Rooms (full-width on large screens; no horizontal scroll) */}
-        <div id="roomsSection" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <div id="roomsSection" className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
               <DoorClosed className="w-5 h-5" aria-hidden />
@@ -3171,7 +3492,7 @@ export default function PublicPropertyDetailPage() {
                     <motion.div
                       key={r.roomType + '-' + idx}
                       transition={{ duration: 0.42, delay: idx * 0.07, ease: [0.2, 0.8, 0.2, 1] }}
-                      className="group relative flex rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-300"
+                      className="group relative flex rounded-2xl border border-solid border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-300"
                     >
                       {/* Room index number */}
                       <div className="flex-shrink-0 w-10 flex items-start justify-center pt-5 select-none" aria-hidden>
@@ -3207,7 +3528,7 @@ export default function PublicPropertyDetailPage() {
                           </div>
                           {/* Description */}
                           {r.description ? (
-                            <div className="mt-3 rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5">
+                            <div className="mt-3 rounded-xl bg-slate-50 border border-solid border-slate-100 px-3.5 py-2.5">
                               <p className="text-sm text-slate-700 leading-relaxed">{capWords(r.description, 220)}</p>
                             </div>
                           ) : null}
@@ -3228,12 +3549,12 @@ export default function PublicPropertyDetailPage() {
                                   Bathroom amenities
                                 </div>
                                 {r.bathPrivate === 'yes' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-solid border-emerald-200">
                                     <Lock className="w-3 h-3" /> Private
                                   </span>
                                 )}
                                 {r.bathPrivate === 'no' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-solid border-blue-200">
                                     <Share2 className="w-3 h-3" /> Shared
                                   </span>
                                 )}
@@ -3248,11 +3569,11 @@ export default function PublicPropertyDetailPage() {
                             <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
                               <Bath className="w-3.5 h-3.5 text-slate-500" />
                               {r.bathPrivate === 'yes' ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-solid border-emerald-200">
                                   <Lock className="w-3 h-3" /> Private bathroom
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-solid border-blue-200">
                                   <Share2 className="w-3 h-3" /> Shared bathroom
                                 </span>
                               )}
@@ -3279,7 +3600,7 @@ export default function PublicPropertyDetailPage() {
                               noteClassName="text-xs font-normal text-slate-500 mt-0.5"
                             />
                             <div className="text-xs text-slate-500">per night</div>
-                            {r.discountLabel ? (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"><Tags className="w-2.5 h-2.5" aria-hidden />{r.discountLabel}</div>) : (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-400">No discount</div>)}
+                            {r.discountLabel ? (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-solid border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"><Tags className="w-2.5 h-2.5" aria-hidden />{r.discountLabel}</div>) : (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-50 border border-solid border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-400">No discount</div>)}
                           </div>
                           <div className="flex-shrink-0 flex flex-col items-center gap-1">
                             <button type="button" onClick={() => { const params = new URLSearchParams({ property: property.slug }); if (r.roomCode) { params.set('roomCode', r.roomCode); } else { const roomIndex = rows.findIndex((row) => row === r); if (roomIndex >= 0) params.set('roomIndex', String(roomIndex)); } router.push(`/public/booking/confirm?${params.toString()}`); }} className="inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-[#02665e] to-[#014e47] px-5 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:shadow-md hover:from-[#027a70] hover:to-[#02665e] active:scale-[0.97] md:w-full">Pay now</button>
@@ -3295,7 +3616,7 @@ export default function PublicPropertyDetailPage() {
           })()}
         </div>
         {/* Reviews (bottom section) */}
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
           <div className="flex items-center gap-2 mb-4">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
               <MessageSquare className="w-5 h-5" aria-hidden />
@@ -3303,7 +3624,7 @@ export default function PublicPropertyDetailPage() {
             <h2 className="text-lg font-semibold text-slate-900">Guest reviews</h2>
               </div>
           {reviewsError ? (
-            <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+            <div className="mt-4 rounded-lg border border-solid border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
               {reviewsError}
             </div>
           ) : reviewsLoading ? (
@@ -3395,7 +3716,7 @@ export default function PublicPropertyDetailPage() {
           </div>
           {/* Leave a review */}
           {!isOwner ? (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
             <div className="text-sm font-semibold text-slate-900">Leave a review</div>
             <div className="mt-1 text-xs text-slate-600">You can rate and comment. If you're not logged in, we'll ask you to log in first.</div>
             <div className="space-y-4">
@@ -3418,7 +3739,7 @@ export default function PublicPropertyDetailPage() {
                 value={reviewTitle}
                 onChange={(e) => setReviewTitle(e.target.value)}
                   placeholder="Give your review a title"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-colors"
+                  className="w-full rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-colors"
               />
               </div>
               <div>
@@ -3428,7 +3749,7 @@ export default function PublicPropertyDetailPage() {
                 onChange={(e) => setReviewComment(e.target.value)}
                   placeholder="Share details about your experience..."
                 rows={4}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] resize-y transition-colors"
+                  className="w-full rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] resize-y transition-colors"
               />
             </div>
               {/* Category Ratings */}
@@ -3480,8 +3801,8 @@ export default function PublicPropertyDetailPage() {
               {reviewSubmitMsg && (
                 <div className={`rounded-lg p-3 text-sm ${
                   reviewSubmitMsg.includes("Thanks") || reviewSubmitMsg.includes("submitted")
-                    ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
-                    : "bg-rose-50 border border-rose-200 text-rose-700"
+                    ? "bg-emerald-50 border border-solid border-emerald-200 text-emerald-700"
+                    : "bg-rose-50 border border-solid border-rose-200 text-rose-700"
                 }`}>
                   {reviewSubmitMsg}
                 </div>
@@ -3554,7 +3875,7 @@ export default function PublicPropertyDetailPage() {
           </div>
           </div>
           ) : (
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-slate-50 p-5">
               <div className="text-sm font-semibold text-slate-900">Leave a review</div>
               <div className="mt-2 text-xs text-slate-600">
                 As the property owner, you cannot leave reviews on your own property. However, you can still book this property like any other user.
@@ -3563,7 +3884,7 @@ export default function PublicPropertyDetailPage() {
           )}
         </div>
         {/* House Rules Section */}
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm nols-entrance overflow-hidden">
+        <div className="rounded-2xl border border-solid border-slate-100 bg-white shadow-sm nols-entrance overflow-hidden">
           {/* Header bar */}
           <div className="flex items-center gap-3 px-5 sm:px-6 py-4 bg-gradient-to-r from-[#02665e]/5 to-transparent border-b border-slate-100">
             <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
@@ -3703,7 +4024,7 @@ export default function PublicPropertyDetailPage() {
                 
 
                 return (
-                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
                     <div className="flex items-center gap-2 mb-4">
                       <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                         <MapPin className="w-5 h-5" aria-hidden />
@@ -3753,7 +4074,7 @@ export default function PublicPropertyDetailPage() {
 
                           key={idx} 
 
-                          className="group relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:border-[#02665e]/30 hover:shadow-lg hover:shadow-[#02665e]/5 hover:-translate-y-0.5"
+                          className="group relative overflow-hidden rounded-xl border border-solid border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:border-[#02665e]/30 hover:shadow-lg hover:shadow-[#02665e]/5 hover:-translate-y-0.5"
                         >
                           <div className="flex items-start gap-4">
                             {/* Icon - Enhanced with better styling */}
@@ -3773,12 +4094,12 @@ export default function PublicPropertyDetailPage() {
                               {/* Tags Row - Enhanced styling */}
                               <div className="flex flex-wrap items-center gap-2">
                                 {facility.type && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100/80 shadow-sm">
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-solid border-blue-100/80 shadow-sm">
                                     {facility.type}
                                   </span>
                                 )}
                                 {facility.ownership && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-sm">
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold border border-solid border-slate-200/80 shadow-sm">
                                     {facility.ownership}
                                   </span>
                                 )}
@@ -3821,7 +4142,7 @@ export default function PublicPropertyDetailPage() {
 
                                         key={mIdx} 
 
-                                        className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 text-xs font-medium border border-slate-200/60 shadow-sm transition-colors duration-200 group-hover:border-slate-300"
+                                        className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 text-xs font-medium border border-solid border-slate-200/60 shadow-sm transition-colors duration-200 group-hover:border-slate-300"
                                       >
                                         {mode}
                                       </span>
@@ -3847,7 +4168,7 @@ export default function PublicPropertyDetailPage() {
                         <button
                           type="button"
                           onClick={() => setShowAllNearbyServices(!showAllNearbyServices)}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-semibold text-sm transition-all duration-200 border border-slate-200 hover:border-slate-300"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-semibold text-sm transition-all duration-200 border border-solid border-slate-200 hover:border-slate-300"
                         >
                           {showAllNearbyServices ? (
                             <>
@@ -3868,7 +4189,7 @@ export default function PublicPropertyDetailPage() {
               })()}
               {/* Simple Nearby Places (string format) */}
               {nearbyFacilities.length > 0 && nearbyFacilities.some((f: any) => typeof f === 'string' || (!f.name && f)) && (
-                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <MapPin className="w-5 h-5" aria-hidden />
@@ -3899,7 +4220,7 @@ export default function PublicPropertyDetailPage() {
 
               {/* Nearby Facilities (from services) */}
               {servicesByCategory.nearby.length > 0 && (
-                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <MapPin className="w-5 h-5" aria-hidden />
@@ -3925,7 +4246,7 @@ export default function PublicPropertyDetailPage() {
               {/* Interactive Map - Right Column (first on mobile) */}
               <div className="space-y-4 order-1 lg:order-2">
                 {/* Location Header - Map Title */}
-                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <MapPin className="w-5 h-5" aria-hidden />
@@ -3935,7 +4256,7 @@ export default function PublicPropertyDetailPage() {
                   <div className="text-sm text-slate-600">{location || "-"}</div>
                 </div>
                 {/* Map */}
-                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <div className="rounded-xl border border-solid border-slate-200 bg-white overflow-hidden">
                   <PropertyMap 
 
                     latitude={property.latitude} 
@@ -3967,7 +4288,7 @@ export default function PublicPropertyDetailPage() {
               </div>
               <button
                 type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/12 text-white shadow-lg backdrop-blur-md hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-solid border-white/15 bg-white/12 text-white shadow-lg backdrop-blur-md hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 onClick={closeLightbox}
                 aria-label="Close photo gallery"
               >
@@ -3988,7 +4309,7 @@ export default function PublicPropertyDetailPage() {
                   </div>
                   <button
                     type="button"
-                    className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
+                    className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-solid border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
                     onClick={() => setActiveIdx((i) => (i <= 0 ? lightboxImages.length - 1 : i - 1))}
                     aria-label="Previous photo"
                   >
@@ -3996,7 +4317,7 @@ export default function PublicPropertyDetailPage() {
                   </button>
                   <button
                     type="button"
-                    className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
+                    className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-solid border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
                     onClick={() => setActiveIdx((i) => (i >= lightboxImages.length - 1 ? 0 : i + 1))}
                     aria-label="Next photo"
                   >
@@ -4058,7 +4379,7 @@ export default function PublicPropertyDetailPage() {
                 <button
                   type="button"
                   onClick={closeAllPhotos}
-                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:h-10 sm:w-10"
+                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:h-10 sm:w-10"
                   aria-label="Close"
                 >
                   <X className="w-4 h-4" />
@@ -4113,6 +4434,8 @@ export default function PublicPropertyDetailPage() {
           </div>
         </div>
       ), document.body) : null}
+      {/* Room for the phone booking bar so it never covers the last section */}
+      <div aria-hidden className="h-20 lg:hidden" />
     </main>
   );
 
@@ -4127,7 +4450,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
   const previewText = isLongComment ? comment.slice(0, MAX_PREVIEW_LENGTH) + "..." : comment;
   return (
     <>
-      <div className="group relative bg-white rounded-2xl border border-slate-200/60 hover:border-[#02665e]/40 hover:shadow-xl transition-all duration-300 overflow-hidden shadow-sm">
+      <div className="group relative bg-white rounded-2xl border border-solid border-slate-200/60 hover:border-[#02665e]/40 hover:shadow-xl transition-all duration-300 overflow-hidden shadow-sm">
         <div className="p-6">
           {/* Header */}
           <div className="flex items-start justify-between gap-3 mb-4">
@@ -4137,7 +4460,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
                   {review.user?.name || "Guest"}
                 </div>
                 {review.isVerified && (
-                  <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-1 text-[10px] font-bold text-emerald-700 flex-shrink-0 tracking-wide">
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 border border-solid border-emerald-200/60 px-2.5 py-1 text-[10px] font-bold text-emerald-700 flex-shrink-0 tracking-wide">
                     Verified
                   </span>
                 )}
@@ -4160,7 +4483,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
           {/* Comment */}
           {comment && (
             <div className="mb-4">
-              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/50 border border-slate-200/80 p-5 shadow-inner">
+              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/50 border border-solid border-slate-200/80 p-5 shadow-inner">
                 <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap block font-normal">
                   {isExpanded ? comment : previewText}
                 </p>
@@ -4174,7 +4497,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
                       setIsExpanded(true);
                     }
                   }}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-solid border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
                 >
                   <span>Show more</span>
                   <ChevronDown className="w-4 h-4" />
@@ -4183,7 +4506,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
               {isLongComment && isExpanded && (
                 <button
                   onClick={() => setIsExpanded(false)}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-solid border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
                 >
                   <span>Show less</span>
                   <ChevronUp className="w-4 h-4" />
@@ -4195,7 +4518,7 @@ function ReviewCard({ review }: { review: PropertyReview }) {
           {review.ownerResponse && (
             <div className="mt-5 pt-5 border-t border-slate-200/60">
               <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-[#02665e]/10 to-[#02665e]/5 border border-[#02665e]/20 flex items-center justify-center shadow-sm">
+                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-[#02665e]/10 to-[#02665e]/5 border border-solid border-[#02665e]/20 flex items-center justify-center shadow-sm">
                   <MessageSquare className="w-5 h-5 text-[#02665e]" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -4249,7 +4572,7 @@ function ReviewModal({ review, onClose }: { review: PropertyReview; onClose: () 
                 {review.user?.name || "Guest"}
               </div>
               {review.isVerified && (
-                <span className="inline-flex items-center rounded-full bg-white/20 border border-white/30 px-2.5 py-1 text-[11px] font-semibold flex-shrink-0">
+                <span className="inline-flex items-center rounded-full bg-white/20 border border-solid border-white/30 px-2.5 py-1 text-[11px] font-semibold flex-shrink-0">
                   Verified stay
                 </span>
               )}
@@ -4277,7 +4600,7 @@ function ReviewModal({ review, onClose }: { review: PropertyReview; onClose: () 
           {/* Comment */}
           {review.comment && (
             <div className="mb-6">
-              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/50 border border-slate-200/80 p-6 shadow-inner">
+              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/50 border border-solid border-slate-200/80 p-6 shadow-inner">
                 <p className="text-base text-slate-800 leading-relaxed whitespace-pre-wrap block font-normal">
                   {review.comment}
                 </p>

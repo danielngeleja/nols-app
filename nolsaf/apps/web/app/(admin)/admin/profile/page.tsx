@@ -449,6 +449,7 @@ export default function AdminProfile() {
                 setupUrl="/api/account/2fa/totp/setup"
                 verifyUrl="/api/account/2fa/totp/verify"
                 disableUrl="/api/account/2fa/disable"
+                regenerateCodesUrl="/api/account/2fa/codes/regenerate"
                 onStatusChangeAction={() => { void refreshProfile(); }}
                 embedded
               />

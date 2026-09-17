@@ -24,6 +24,22 @@ const migrationChecksumManifest = JSON.parse(
   readFileSync(join(repoRoot, "prisma", "migration-checksums.json"), "utf8"),
 );
 
+/**
+ * Checksum a migration the same way scripts/check-migration-integrity.mjs does.
+ *
+ * Git stores this SQL with LF, but a Windows worktree checked out with
+ * core.autocrlf=true exposes CRLF, and hashing those raw bytes yields a
+ * different digest for byte-identical content. Migration immutability has to be
+ * platform-independent, otherwise this guard rejects every unmodified migration
+ * on Windows with a message that reads like corruption.
+ */
+function canonicalChecksum(contents) {
+  const canonical = Buffer.isBuffer(contents) ? contents.toString("utf8") : String(contents);
+  return createHash("sha256")
+    .update(canonical.replace(/\r\n/g, "\n"))
+    .digest("hex");
+}
+
 const args = new Set(process.argv.slice(2));
 const statusOnly = args.has("--status-only");
 const cleanupFailedBaselineArtifacts = args.has(
@@ -164,7 +180,7 @@ if (!appliedNames.has(renamedBaseline)) {
   const localBaseline = readFileSync(
     join(migrationsPath, renamedBaseline, "migration.sql"),
   );
-  const localChecksum = createHash("sha256").update(localBaseline).digest("hex");
+  const localChecksum = canonicalChecksum(localBaseline);
   if (legacyRow.checksum !== localChecksum) {
     fail(
       `Cannot safely alias ${legacyBaseline} to ${renamedBaseline}: SQL checksums differ.`,
@@ -834,7 +850,7 @@ function assertLocalMigrationChecksum(migrationName) {
   if (!existsSync(migrationPath)) {
     fail(`Cannot recover ${migrationName}: local migration SQL is missing.`);
   }
-  const actual = createHash("sha256").update(readFileSync(migrationPath)).digest("hex");
+  const actual = canonicalChecksum(readFileSync(migrationPath));
   const expected = migrationChecksumManifest.migrations?.[migrationName];
   if (!expected || actual !== expected) {
     fail(`Cannot recover ${migrationName}: local migration checksum is not approved.`);

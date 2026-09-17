@@ -151,6 +151,17 @@ export const limitPublicTourBookingCreate = rateLimit({
   },
 });
 
+/** Footer newsletter signups. Each accepted request can send a confirmation email,
+ * so this also caps how much mail one client can make us send. */
+export const limitNewsletterSubscribe = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many signup attempts. Please wait a few minutes and try again." },
+  keyGenerator: (req) => `newsletter:${req.ip || req.socket.remoteAddress || "unknown"}`,
+});
+
 export const limitPublicCareerApply = rateLimit({
   windowMs: 15 * 60_000,
   limit: 5,
@@ -272,9 +283,13 @@ export const limitChatbotMessages = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many messages. Please wait a moment before sending another message." },
   keyGenerator: (req) => {
-    // Use session ID if available, otherwise fall back to IP
-    const sessionId = req.body?.sessionId || req.cookies?.chatbot_session_id;
-    if (sessionId) {
+    // Key on the httpOnly cookie we issued, never on req.body.sessionId. A
+    // body-supplied key is chosen by the caller, so sending a fresh id with
+    // every request would hand out a fresh bucket each time and the limit
+    // would do nothing at all. The cookie cannot be forged by script on
+    // another origin, and the server ignores the body value anyway.
+    const sessionId = req.cookies?.chatbot_session_id;
+    if (typeof sessionId === "string" && sessionId.length > 0) {
       return `chatbot:${sessionId}`;
     }
     // Ensure we always return a string
@@ -289,6 +304,40 @@ export const limitChatbotConversations = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please wait a moment and try again." },
+});
+
+/**
+ * Poll for agent replies. Separate from the history limiter because an open
+ * widget polls this on a timer, and a visitor with the site open in a couple of
+ * tabs would otherwise exhaust the 20/min history budget and stop receiving
+ * replies from a human who is actively typing to them.
+ */
+/**
+ * The @ mention picker searches as the visitor types (debounced client-side).
+ * Generous enough for a burst of typing, tight enough that it cannot be used to
+ * walk the property catalogue.
+ */
+export const limitChatbotMentions = rateLimit({
+  windowMs: 60_000,
+  limit: 45,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment and try again." },
+});
+
+export const limitChatbotUpdates = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment and try again." },
+  keyGenerator: (req) => {
+    const sessionId = req.cookies?.chatbot_session_id;
+    if (typeof sessionId === "string" && sessionId.length > 0) {
+      return `chatbot-updates:${sessionId}`;
+    }
+    return req.ip || req.socket.remoteAddress || "unknown";
+  },
 });
 
 // Rate limiter for chatbot language changes

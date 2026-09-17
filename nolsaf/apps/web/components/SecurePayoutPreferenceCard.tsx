@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { TZ_MOBILE_PREFIXES } from "@/lib/tzMobileNetworks";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -51,14 +52,8 @@ const payoutProviders = [
 
 type PayoutProviderValue = (typeof payoutProviders)[number]["value"];
 
-// TCRA National Numbering and Signaling Point Codes Plan, Version 1.16 (June 2026).
-// Prefixes are advisory because a subscriber may retain a number after porting.
-const tanzaniaMobilePrefixes: Partial<Record<PayoutProviderValue, readonly string[]>> = {
-  yas: ["65", "67", "70", "71", "77"],
-  airtel: ["66", "68", "69", "78"],
-  vodacom: ["72", "74", "75", "76", "79"],
-  halotel: ["61", "62", "63"],
-};
+// Shared TCRA prefix map (advisory: numbers can be ported), also used at checkout.
+const tanzaniaMobilePrefixes: Partial<Record<PayoutProviderValue, readonly string[]>> = TZ_MOBILE_PREFIXES;
 
 type WalletPrefixCheck = {
   kind: "match" | "mismatch";

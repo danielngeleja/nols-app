@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import { buildDisputeWorkbook, type DisputeReport } from "@/lib/nrmsDisputeWorkbook";
 
 type AccountOption = {
   propertyId: number;
@@ -77,7 +78,7 @@ type SupportSnapshot = {
 };
 
 type ExportForm = {
-  format: "PDF" | "CSV";
+  format: "PDF" | "XLSX";
   from: string;
   to: string;
   reason: string;
@@ -145,6 +146,8 @@ export default function SupportPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
 
   useEffect(() => {
     let active = true;
@@ -245,24 +248,35 @@ export default function SupportPage() {
     setError(null);
     setNotice(null);
     try {
-      const response = await apiClient.post(
-        `/api/admin/nrms/support/property/${propertyId}/dispute-export`,
-        {
-          format: form.format,
-          from: new Date(`${form.from}T00:00:00+03:00`).toISOString(),
-          to: new Date(`${form.to}T23:59:59.999+03:00`).toISOString(),
-          reason: form.reason.trim(),
-        },
-        { responseType: "blob" },
-      );
-      const url = URL.createObjectURL(response.data);
+      const body = {
+        format: form.format,
+        from: new Date(`${form.from}T00:00:00+03:00`).toISOString(),
+        to: new Date(`${form.to}T23:59:59.999+03:00`).toISOString(),
+        reason: form.reason.trim(),
+      };
+      const endpoint = `/api/admin/nrms/support/property/${propertyId}/dispute-export`;
+      let blob: Blob;
+      let fileName = `nrms-dispute-${propertyId}-${form.from}-${form.to}.${form.format.toLowerCase()}`;
+      if (form.format === "XLSX") {
+        // The API audits the export and returns redacted rows; the workbook is styled here with
+        // the same ExcelJS house style as the NRMS property report.
+        const response = await apiClient.post(endpoint, body);
+        const report = response.data?.report as DisputeReport | undefined;
+        if (!report) throw new Error("The export data could not be read");
+        blob = await buildDisputeWorkbook(report);
+        fileName = `${report.documentNumber}-${form.from}-${form.to}.xlsx`;
+      } else {
+        const response = await apiClient.post(endpoint, body, { responseType: "blob" });
+        blob = response.data;
+      }
+      const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `nrms-dispute-${propertyId}-${form.from}-${form.to}.${form.format.toLowerCase()}`;
+      anchor.download = fileName;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setExportHistory((previous) => [{ propertyId: snapshot.property.id, title: snapshot.property.title, format: form.format, from: form.from, to: form.to, at: new Date().toISOString() }, ...previous]);
-      setNotice(`${form.format} export generated. The action was audited and the owner was notified.`);
+      setNotice(`${form.format === "XLSX" ? "Excel workbook" : form.format} generated. The action was audited and the owner was notified.`);
     } catch (cause: any) {
       setError(await exportErrorMessage(cause));
     } finally {
@@ -311,7 +325,9 @@ export default function SupportPage() {
             <button
               type="button"
               onClick={() => setPickerOpen((v) => !v)}
-              disabled={loadingAccounts || exporting}
+              // Only disable after mount: the server HTML renders the picker enabled, so an initial
+              // `disabled` from loading state would not match during hydration.
+              disabled={hydrated && (loadingAccounts || exporting)}
               aria-expanded={pickerOpen}
               aria-haspopup="listbox"
               className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2.5 text-left shadow-sm transition hover:border-indigo-300 disabled:opacity-60"
@@ -414,7 +430,7 @@ export default function SupportPage() {
           {[
             { n: 1, icon: Building2, title: "Open a property", text: "Pick it above. Its snapshot loads right away." },
             { n: 2, icon: Activity, title: "Review the context", text: "Account standing, owner contact, rooms, shifts and night audits." },
-            { n: 3, icon: FileText, title: "Export evidence", text: "Choose an EAT period and reason to generate an audited PDF or CSV." },
+            { n: 3, icon: FileText, title: "Export evidence", text: "Choose an EAT period and reason to generate an audited PDF or Excel workbook." },
           ].map((s) => {
             const Icon = s.icon;
             return (
@@ -614,7 +630,7 @@ export default function SupportPage() {
                     <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                       {([
                         ["PDF", FileText, "PDF summary", "Readable summary of orders, reservations and PAYG statements"],
-                        ["CSV", FileSpreadsheet, "CSV detail", "Record rows for filtering and deeper investigation"],
+                        ["XLSX", FileSpreadsheet, "Excel workbook", "NRMS report workbook: cover, schedules with totals, basis sheet"],
                       ] as const).map(([value, Icon, title, text]) => {
                         const on = form.format === value;
                         return (
