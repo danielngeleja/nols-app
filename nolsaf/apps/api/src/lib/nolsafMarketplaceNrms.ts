@@ -280,31 +280,65 @@ export async function updateNoLsafBookingStatus(db: DbLike, bookingId: number, s
   return updated;
 }
 
+// One projection is a dozen round trips behind a property-wide `FOR UPDATE`
+// lock, so the default 5s interactive budget expires mid-sweep on a remote
+// database and the whole repair fails with P2028.
+export const MARKETPLACE_CONNECT_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
+// The repair runs inline on a polled read endpoint, so it heals a slice per
+// request instead of up to 200 serial locked transactions in one response.
+const MARKETPLACE_CONNECT_BATCH = 25;
+
+// Calendar pages issue several overlapping requests. Without this, each one
+// queues behind the others on the same property row lock and they all inflate
+// past their transaction budget for repairs a single sweep already did.
+const inFlight = new Map<number, Promise<number>>();
+
 /** One-time/self-healing connection for confirmed bookings created before this projection existed. */
 export async function connectExistingNoLsafBookings(db: DbLike, propertyId: number, start: Date, end: Date) {
-  const missing = await db.booking.findMany({
-    where: {
-      propertyId,
-      status: { in: ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"] },
-      OR: [
-        { nrmsReservation: null },
-        { nrmsReservation: { is: { guestProfileId: null } } },
-      ],
-      AND: [{ checkIn: { lt: end } }, { checkOut: { gt: start } }],
-    },
-    select: { id: true },
-    orderBy: { id: "asc" },
-    take: 200,
-  });
-  for (const booking of missing) {
-    if (typeof db.$transaction === "function") {
-      await db.$transaction(async (tx: DbLike) => {
-        await lockPropertyInventory(tx, propertyId);
-        await syncNoLsafBookingToNrms(tx, booking.id);
-      });
-    } else {
-      await syncNoLsafBookingToNrms(db, booking.id);
+  const running = inFlight.get(propertyId);
+  if (running) return running;
+
+  const sweep = (async () => {
+    const missing = await db.booking.findMany({
+      where: {
+        propertyId,
+        status: { in: ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"] },
+        OR: [
+          { nrmsReservation: null },
+          { nrmsReservation: { is: { guestProfileId: null } } },
+        ],
+        AND: [{ checkIn: { lt: end } }, { checkOut: { gt: start } }],
+      },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: MARKETPLACE_CONNECT_BATCH,
+    });
+    let connected = 0;
+    for (const booking of missing) {
+      // One bad booking must not abandon the rest of the slice, and none of
+      // them may fail the read that triggered the repair.
+      try {
+        if (typeof db.$transaction === "function") {
+          await db.$transaction(async (tx: DbLike) => {
+            await lockPropertyInventory(tx, propertyId);
+            await syncNoLsafBookingToNrms(tx, booking.id);
+          }, MARKETPLACE_CONNECT_TX_OPTIONS);
+        } else {
+          await syncNoLsafBookingToNrms(db, booking.id);
+        }
+        connected += 1;
+      } catch (err) {
+        console.error("[nolsafMarketplaceNrms] connect failed", { propertyId, bookingId: booking.id }, err);
+      }
     }
+    return connected;
+  })();
+
+  inFlight.set(propertyId, sweep);
+  try {
+    return await sweep;
+  } finally {
+    inFlight.delete(propertyId);
   }
-  return missing.length;
 }

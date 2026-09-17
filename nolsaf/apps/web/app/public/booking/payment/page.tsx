@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ChevronLeft,
+  Check,
   CheckCircle2,
   AlertCircle,
   ShieldCheck,
@@ -17,6 +18,7 @@ import {
   Building2,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import PremiumLoader from "@/components/PremiumLoader";
 import { tzNetworkForNumber, type TzMobileNetwork } from "@/lib/tzMobileNetworks";
 
 const PAYMENT_WAIT_SECONDS = 4 * 60;
@@ -736,52 +738,49 @@ export default function PaymentPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 px-4">
-        <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
-          {/* Spinner with concentric pulsing halos for visual energy */}
-          <div className="relative mx-auto w-24 h-24 mb-6">
-            <span className="absolute inset-0 rounded-full bg-blue-400/20 animate-ping" />
-            <span className="absolute inset-2 rounded-full bg-blue-400/25 animate-pulse" />
-            <span className="absolute inset-0 flex items-center justify-center">
-              <LogoSpinner size="lg" ariaLabel="Loading" />
-            </span>
-          </div>
-
-          {/* Title with sequential bouncing dots so the eye stays engaged */}
-          <div className="text-center mb-6">
-            <p className="text-slate-800 font-semibold text-lg inline-flex items-baseline justify-center gap-1.5">
-              <span>Loading payment details</span>
-              <span className="inline-flex items-baseline gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:300ms]" />
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-white via-[#02665e]/[0.04] to-white px-4">
+        <div className="w-full max-w-md animate-in fade-in zoom-in-95 duration-500">
+          {/* The shape of the real payment card, so nothing jumps when it arrives */}
+          <div className="box-border overflow-hidden rounded-2xl border border-solid border-[#02665e]/15 bg-white shadow-lg">
+            <div className="flex items-center gap-4 border-0 border-b border-solid border-slate-100 p-5">
+              <span className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                <span className="absolute inset-0 animate-ping rounded-2xl bg-[#02665e]/10" aria-hidden />
+                <span className="relative">
+                  <PremiumLoader size="sm" label="" ariaLabel="Loading payment details" />
+                </span>
               </span>
-            </p>
-            <p className="text-slate-500 text-sm mt-2">Securing your booking session</p>
-          </div>
-
-          {/* Shimmer skeleton previewing the payment card that's about to appear */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 space-y-3 overflow-hidden">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-slate-200 animate-pulse" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 rounded bg-slate-200 animate-pulse [animation-delay:100ms]" />
-                <div className="h-2.5 w-1/2 rounded bg-slate-200/70 animate-pulse [animation-delay:150ms]" />
+              <div className="min-w-0">
+                <p className="m-0 text-[17px] font-bold leading-tight text-slate-950">Preparing your payment</p>
+                <p className="m-0 mt-1 text-[13.5px] leading-5 text-slate-500">Securing your booking session</p>
               </div>
             </div>
-            <div className="border-t border-slate-100 my-1" />
-            <div className="h-3 w-3/4 rounded bg-slate-200 animate-pulse [animation-delay:200ms]" />
-            <div className="h-3 w-2/5 rounded bg-slate-200 animate-pulse [animation-delay:300ms]" />
-            <div className="h-11 w-full rounded-xl bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 animate-pulse [animation-delay:400ms] mt-4 bg-[length:200%_100%]" />
+
+            {/* Indeterminate rail: the same one pixel rail the live card uses */}
+            <div className="h-1 w-full overflow-hidden bg-slate-100" role="presentation">
+              <div className="h-full w-1/4 animate-shimmer rounded-full bg-[#02665e]/70" />
+            </div>
+
+            <div className="space-y-3 p-5">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 flex-shrink-0 animate-pulse rounded-xl bg-slate-200" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-slate-200 [animation-delay:100ms]" />
+                  <div className="h-2.5 w-1/2 animate-pulse rounded bg-slate-200/70 [animation-delay:150ms]" />
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="h-14 animate-pulse rounded-xl bg-slate-100 [animation-delay:200ms]" />
+                <div className="h-14 animate-pulse rounded-xl bg-slate-100 [animation-delay:250ms]" />
+                <div className="h-14 animate-pulse rounded-xl bg-slate-100 [animation-delay:300ms]" />
+              </div>
+              <div className="h-11 w-full animate-pulse rounded-xl bg-slate-200 [animation-delay:400ms]" />
+            </div>
           </div>
 
-          {/* Reassurance strip — subtle, professional */}
-          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-400">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
-            </svg>
-            <span>Encrypted connection</span>
-          </div>
+          <p className="m-0 mt-4 flex items-center justify-center gap-1.5 text-[12.5px] font-medium text-slate-500">
+            <ShieldCheck className="h-4 w-4 text-[#02665e]" aria-hidden />
+            Encrypted connection
+          </p>
         </div>
       </div>
     );
@@ -829,30 +828,67 @@ export default function PaymentPage() {
 
             {/* ── Success ── */}
             {paymentStatus === "success" && (
-              <div className="bg-white border-2 border-emerald-200 rounded-2xl p-6 lg:p-8 shadow-lg animate-in fade-in slide-in-from-top-4">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle2 className="w-10 h-10 text-green-500" />
+              <div className="box-border overflow-hidden rounded-2xl border border-solid border-[#02665e]/25 bg-white shadow-lg animate-in fade-in slide-in-from-top-4">
+                <div className="p-6 text-center lg:p-8">
+                  <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                    <CheckCircle2 className="h-9 w-9 text-[#02665e]" aria-hidden />
+                  </span>
+                  <h2 className="m-0 mt-4 text-[24px] font-bold leading-tight text-slate-950 lg:text-[28px]">
+                    Payment successful
+                  </h2>
+                  <p className="m-0 mx-auto mt-2 max-w-md text-[14.5px] leading-6 text-slate-600">
+                    Your booking is confirmed{invoice?.property?.title ? ` at ${invoice.property.title}` : ""}. Keep the
+                    booking code for check in.
+                  </p>
+
+                  {invoice?.booking?.bookingCode ? (
+                    <div className="mx-auto mt-5 box-border flex max-w-sm flex-col items-center rounded-xl border border-solid border-[#02665e]/25 bg-[#02665e]/5 px-5 py-4">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#02665e]">Booking code</span>
+                      <span className="mt-1 font-mono text-[22px] font-black tracking-[0.08em] text-slate-950">
+                        {invoice.booking.bookingCode}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-                <h2 className="text-center text-2xl lg:text-3xl font-bold text-green-900 mb-3">
-                  Payment Successful
-                </h2>
-                <p className="text-center text-green-700 font-medium">
-                  Your booking is confirmed. Your booking code is ready in your account.
-                </p>
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+
+                {/* What was paid, in the same panel as the waiting card */}
+                <div className="box-border grid divide-y divide-solid divide-slate-200 border-0 border-t border-solid border-slate-100 bg-slate-50/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                  <div className="px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Invoice</div>
+                    <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">
+                      {invoice?.invoiceNumber || `#${invoice?.id}`}
+                    </div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Amount paid</div>
+                    <div className="mt-1 text-[16px] font-bold tabular-nums text-[#02665e]">
+                      {invoice?.totalAmount.toLocaleString()} {invoice?.currency}
+                    </div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Stay</div>
+                    <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">
+                      {invoice?.booking?.nights
+                        ? `${invoice.booking.nights} ${invoice.booking.nights === 1 ? "night" : "nights"}`
+                        : "Confirmed"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 p-5 sm:grid-cols-2 lg:p-6">
                   <Link
                     href="/account/bookings"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#02665e] px-5 py-3 font-semibold text-white no-underline shadow-md transition hover:bg-[#014e47] hover:no-underline"
+                    className="box-border inline-flex items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 py-3 text-[14.5px] font-semibold text-white no-underline shadow-md transition hover:bg-[#014e47] hover:no-underline"
                   >
-                    <ReceiptText className="h-5 w-5" />
-                    My Bookings
+                    <ReceiptText className="h-5 w-5" aria-hidden />
+                    My bookings
                   </Link>
                   {invoice && (
                     <Link
                       href={`/account/bookings?receiptBookingId=${invoice.booking.id}`}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 font-semibold text-emerald-800 no-underline transition hover:bg-emerald-100 hover:no-underline"
+                      className="box-border inline-flex items-center justify-center gap-2 rounded-xl border border-solid border-[#02665e]/30 bg-white px-5 py-3 text-[14.5px] font-semibold text-[#02665e] no-underline transition hover:bg-[#02665e]/5 hover:no-underline"
                     >
-                      View Receipt
+                      View receipt
                     </Link>
                   )}
                 </div>
@@ -860,67 +896,152 @@ export default function PaymentPage() {
             )}
 
             {/* ── Pending ── */}
-            {paymentStatus === "pending" && (
-              <div className="bg-white border-2 border-blue-200 rounded-2xl p-6 lg:p-8 shadow-lg animate-in fade-in slide-in-from-top-4">
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-100">
-                      <LogoSpinner size="sm" ariaLabel="Processing" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-blue-950">
-                        {paymentChannel === "CARD" ? "Verifying Card Payment" : "Waiting for Payment"}
-                      </h2>
-                      <p className="mt-2 text-sm leading-6 text-blue-800">
-                        {paymentChannel === "MNO"
-                          ? "We sent a payment request to your phone. Keep this page open and approve the prompt on your mobile money account."
+            {paymentStatus === "pending" && (() => {
+              // Three steps, worded for the channel the guest actually used.
+              const steps =
+                paymentChannel === "MNO"
+                  ? ["Request sent to your phone", "Approve the prompt", "Booking confirmed"]
+                  : paymentChannel === "BANK"
+                  ? ["Bank checkout opened", "Bank confirming the OTP", "Booking confirmed"]
+                  : ["Card details submitted", "Your bank is verifying", "Booking confirmed"];
+              const elapsedPct = Math.max(
+                0,
+                Math.min(100, ((PAYMENT_WAIT_SECONDS - remainingSeconds) / PAYMENT_WAIT_SECONDS) * 100)
+              );
+              const running = remainingSeconds > 0;
+
+              return (
+              <div className="box-border overflow-hidden rounded-2xl border border-solid border-[#02665e]/20 bg-white shadow-lg animate-in fade-in slide-in-from-top-4">
+                {/* Header: what is happening, and how long is left */}
+                <div className="flex flex-col gap-4 border-0 border-b border-solid border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between lg:p-6">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <span className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                      <span className="absolute inset-0 animate-ping rounded-2xl bg-[#02665e]/10" aria-hidden />
+                      <span className="relative">
+                        <LogoSpinner size="sm" ariaLabel="Processing" />
+                      </span>
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-[20px] font-bold leading-tight text-slate-950 sm:text-[22px]">
+                        {paymentChannel === "CARD"
+                          ? "Verifying your card payment"
                           : paymentChannel === "BANK"
-                          ? "We are confirming the bank checkout using the OTP you generated. Keep this page open while we verify the payment."
-                          : "Please wait while we verify your card payment. Do not close this page."}
+                          ? "Confirming your bank payment"
+                          : "Waiting for your approval"}
+                      </h2>
+                      <p className="m-0 mt-1 text-[14px] leading-5 text-slate-600">
+                        {paymentChannel === "MNO"
+                          ? "We sent a payment request to your phone. Approve the prompt to confirm this booking."
+                          : paymentChannel === "BANK"
+                          ? "We are confirming the bank checkout using the OTP you generated."
+                          : "Your bank is checking the card. This usually takes a few seconds."}
                       </p>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wide text-blue-700">
-                      <Clock3 className="h-4 w-4" />
+
+                  <div className="flex-shrink-0 rounded-xl bg-slate-50 px-4 py-2.5 text-center">
+                    <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                      <Clock3 className="h-3.5 w-3.5" aria-hidden />
                       Time left
                     </div>
-                    <div className="mt-1 font-mono text-2xl font-black text-blue-950">
+                    <div className={`mt-0.5 font-mono text-[26px] font-black leading-none tabular-nums ${running ? "text-slate-950" : "text-amber-700"}`}>
                       {formatCountdown(remainingSeconds)}
                     </div>
                   </div>
                 </div>
-                <div className="mt-6 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-700 sm:grid-cols-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">Invoice</div>
-                    <div className="mt-1 font-semibold text-slate-900">{invoice?.invoiceNumber || `#${invoice?.id}`}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">Amount</div>
-                    <div className="mt-1 font-semibold text-slate-900">
-                      {invoice?.totalAmount.toLocaleString()} {invoice?.currency}
+
+                {/* How far through the waiting window we are */}
+                <div className="h-1 w-full bg-slate-100" role="presentation">
+                  <div
+                    className="h-full bg-[#02665e] transition-all duration-1000 ease-linear"
+                    style={{ width: `${elapsedPct}%` }}
+                  />
+                </div>
+
+                <div className="p-5 lg:p-6">
+                  {/* Where the payment has reached */}
+                  <ol className="m-0 grid list-none gap-2 p-0 sm:grid-cols-3">
+                    {steps.map((label, index) => {
+                      const done = index === 0;
+                      const active = index === 1;
+                      return (
+                        <li
+                          key={label}
+                          className={`box-border flex items-center gap-2.5 rounded-xl border border-solid px-3 py-2.5 ${
+                            active
+                              ? "border-[#02665e]/30 bg-[#02665e]/5"
+                              : done
+                              ? "border-slate-200 bg-white"
+                              : "border-slate-200 bg-slate-50"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                              done
+                                ? "bg-[#02665e] text-white"
+                                : active
+                                ? "bg-[#02665e]/15 text-[#02665e]"
+                                : "bg-slate-200 text-slate-500"
+                            }`}
+                          >
+                            {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : index + 1}
+                          </span>
+                          <span className={`min-w-0 text-[13px] font-semibold leading-tight ${active ? "text-[#02665e]" : done ? "text-slate-700" : "text-slate-500"}`}>
+                            {label}
+                          </span>
+                          {active ? (
+                            <span className="ml-auto flex-shrink-0">
+                              <span className="block h-2 w-2 animate-pulse rounded-full bg-[#02665e]" aria-hidden />
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ol>
+
+                  {/* What is being paid */}
+                  <div className="mt-4 box-border grid divide-y divide-solid divide-slate-200 rounded-xl border border-solid border-slate-200 bg-slate-50/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                    <div className="px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Invoice</div>
+                      <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">
+                        {invoice?.invoiceNumber || `#${invoice?.id}`}
+                      </div>
+                    </div>
+                    <div className="px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Amount</div>
+                      <div className="mt-1 text-[16px] font-bold tabular-nums text-slate-950">
+                        {invoice?.totalAmount.toLocaleString()} {invoice?.currency}
+                      </div>
+                    </div>
+                    <div className="px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                        {paymentChannel === "MNO" ? "Phone" : paymentChannel === "BANK" ? "Bank" : "Method"}
+                      </div>
+                      <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">
+                        {paymentChannel === "MNO"
+                          ? (phoneNumber || invoice?.booking.guestPhone || "-")
+                          : paymentChannel === "BANK"
+                          ? (BANK_PROVIDERS.find((b) => b.code === selectedBankCode)?.name || selectedBankCode || "-")
+                          : "Visa / Mastercard"}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">
-                      {paymentChannel === "MNO" ? "Phone" : paymentChannel === "BANK" ? "Bank" : "Method"}
-                    </div>
-                    <div className="mt-1 font-semibold text-slate-900">
-                      {paymentChannel === "MNO"
-                        ? (phoneNumber || invoice?.booking.guestPhone || "-")
-                        : paymentChannel === "BANK"
-                        ? (BANK_PROVIDERS.find((b) => b.code === selectedBankCode)?.name || selectedBankCode || "-")
-                        : "Visa / Mastercard"}
-                    </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-slate-500">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-600">
+                      <ShieldCheck className="h-4 w-4 text-[#02665e]" aria-hidden />
+                      Keep this page open until it finishes.
+                    </span>
+                    {paymentRef && (
+                      <span>
+                        Reference <span className="font-mono text-slate-700">{paymentRef}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
-                {paymentRef && (
-                  <p className="mt-4 text-xs text-slate-500">
-                    Payment reference: <span className="font-mono">{paymentRef}</span>
-                  </p>
-                )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── Timeout ── */}
             {paymentStatus === "timeout" && (

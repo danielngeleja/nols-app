@@ -55,7 +55,14 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     const propertyId = property.id as number;
     // Self-heal confirmed marketplace bookings created before the linked NRMS
     // operational projection was introduced. NEW/unpaid rows are never selected.
-    await connectExistingNoLsafBookings(prisma, propertyId, start, end);
+    // A repair is maintenance, not the feed: if it fails or times out the
+    // calendar still answers with whatever is already projected, and the next
+    // request retries.
+    try {
+      await connectExistingNoLsafBookings(prisma, propertyId, start, end);
+    } catch (err) {
+      console.error("[owner.nrms.calendar] marketplace self-heal failed", err);
+    }
     const [entries, roomTypes] = await Promise.all([
       getCalendarEntries(propertyId, start, end),
       prisma.roomType.findMany({
