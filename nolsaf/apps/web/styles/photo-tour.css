@@ -324,3 +324,33 @@
 .pt-tile:focus-visible .pt-tile-num {
   opacity: 1;
 }
+
+/* ---------------------------------------------------------------------------
+   Photo loading: a still skeleton block with a small spinner in the middle.
+   Translucent, so it reads on the light page and inside the dark viewer.
+   ------------------------------------------------------------------------ */
+.pv-skeleton {
+  background-color: rgba(148, 163, 184, 0.18);
+}
+
+.pv-spinner {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 2.5px solid rgba(2, 102, 94, 0.18);
+  border-top-color: #02665e;
+  animation: pv-spin 0.8s linear infinite;
+}
+
+@keyframes pv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-spinner {
+    animation-duration: 2.4s;
+  }
+}

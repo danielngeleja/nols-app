@@ -161,6 +161,14 @@ function PropertyGalleryImage({
   priority?: boolean;
   className?: string;
 }) {
+  // Every photo shows a shimmer until it arrives, fades in, and falls back quietly on failure
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+  }, [src]);
+
   if (/^data:image\//i.test(src)) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={src} alt={alt} className={`h-full w-full ${className}`} loading={priority ? "eager" : "lazy"} />;
@@ -173,15 +181,31 @@ function PropertyGalleryImage({
     src.startsWith("http://127.0.0.1");
 
   return (
-    <Image
-      src={imageSrc}
-      alt={alt}
-      fill
-      className={className}
-      sizes={sizes}
-      priority={priority}
-      unoptimized={bypassNextOptimizer}
-    />
+    <>
+      {!loaded && !failed ? (
+        <span aria-hidden className="pv-skeleton absolute inset-0 flex items-center justify-center">
+          <span className="pv-spinner" />
+        </span>
+      ) : null}
+      {failed ? (
+        <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-slate-100 text-slate-400">
+          <ImageIcon className="h-6 w-6" />
+        </span>
+      ) : null}
+      {!failed ? (
+        <Image
+          src={imageSrc}
+          alt={alt}
+          fill
+          className={`${className} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+          sizes={sizes}
+          priority={priority}
+          unoptimized={bypassNextOptimizer}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -2525,20 +2549,127 @@ export default function PublicPropertyDetailPage() {
     requestAnimationFrame(() => setLightboxOpen(true));
   };
   if (loading) {
+    // The page's own shape, in still blocks, so the content fills in without jumping
+    const Bone = ({ className = "" }: { className?: string }) => <span aria-hidden className={`block rounded-md bg-slate-100 ${className}`} />;
     return (
-      <main className="min-h-screen bg-white text-slate-900 header-offset">
+      <main className="min-h-screen bg-white text-slate-900 header-offset" aria-busy="true">
+        <span role="status" className="sr-only">Loading property</span>
         <div className="public-container py-8">
-          <div className="h-8 w-28 bg-slate-100 animate-pulse rounded" />
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <div className="aspect-[16/9] bg-slate-100 animate-pulse rounded-2xl" />
-              <div className="mt-4 h-6 w-2/3 bg-slate-100 animate-pulse rounded" />
-              <div className="mt-2 h-4 w-1/2 bg-slate-100 animate-pulse rounded" />
+          {/* Header card */}
+          <div className="rounded-2xl border border-solid border-slate-100 bg-white px-5 pb-6 pt-5 shadow-[0_4px_24px_rgba(2,102,94,0.08)] sm:rounded-3xl sm:px-8 sm:pb-7 sm:pt-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <Bone className="h-7 w-20 rounded-full" />
+              <div className="flex items-center gap-2">
+                <span aria-hidden className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/[0.06] px-3 py-1.5 text-[11.5px] font-semibold text-[#02665e]">
+                  <span className="pv-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                  Loading property
+                </span>
+                <Bone className="h-9 w-9 rounded-full" />
+                <Bone className="h-9 w-9 rounded-full" />
+              </div>
             </div>
-            <div className="rounded-2xl border border-solid border-slate-200 p-5">
-              <div className="h-6 w-1/2 bg-slate-100 animate-pulse rounded" />
-              <div className="mt-3 h-10 bg-slate-100 animate-pulse rounded-xl" />
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <Bone className="h-3 w-20" />
+                <Bone className="mt-4 h-9 w-3/4 max-w-[420px] rounded-lg" />
+                <div className="mt-4 flex items-center gap-3">
+                  <Bone className="h-4 w-48" />
+                  <Bone className="h-4 w-28" />
+                </div>
+              </div>
+              <div className="flex w-full max-w-[420px] items-center gap-3 rounded-2xl border border-solid border-slate-100 p-3.5 lg:w-[420px]">
+                <Bone className="h-11 w-11 flex-shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1">
+                  <Bone className="h-4 w-36" />
+                  <Bone className="mt-2 h-3 w-full" />
+                </div>
+              </div>
             </div>
+          </div>
+
+          {/* Gallery */}
+          <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="pv-skeleton relative flex aspect-[16/10] items-center justify-center rounded-2xl md:col-span-2 md:aspect-auto md:min-h-[420px]">
+              <span className="pv-spinner" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-1">
+              <div className="pv-skeleton aspect-[16/10] rounded-xl" />
+              <div className="pv-skeleton aspect-[16/10] rounded-xl" />
+            </div>
+          </div>
+
+          {/* Content and booking */}
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="space-y-6 lg:col-span-2">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-[#02665e]/15 sm:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2.5 bg-[#02665e]/[0.07] px-4 py-3">
+                    <Bone className="h-8 w-8 rounded-full bg-[#02665e]/15" />
+                    <div className="flex-1">
+                      <Bone className="h-4 w-10 bg-[#02665e]/15" />
+                      <Bone className="mt-1.5 h-3 w-16 bg-[#02665e]/10" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6">
+                <div className="flex items-center gap-3">
+                  <Bone className="h-10 w-10 rounded-xl" />
+                  <div>
+                    <Bone className="h-3 w-24" />
+                    <Bone className="mt-2 h-5 w-40" />
+                  </div>
+                </div>
+                <div className="mt-5 space-y-2.5">
+                  <Bone className="h-3.5 w-full" />
+                  <Bone className="h-3.5 w-[96%]" />
+                  <Bone className="h-3.5 w-[90%]" />
+                  <Bone className="h-3.5 w-[70%]" />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+                <div className="flex items-center gap-2">
+                  <Bone className="h-9 w-9 rounded-xl" />
+                  <Bone className="h-5 w-20" />
+                </div>
+                <div className="mt-5 space-y-3">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-4 rounded-2xl border border-solid border-slate-100 p-4 md:flex-row md:items-center">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                          <Bone className="h-8 w-8 rounded-full" />
+                          <Bone className="h-5 w-32" />
+                        </div>
+                        <Bone className="mt-4 h-11 w-full rounded-xl" />
+                        <Bone className="mt-3 h-3.5 w-[85%]" />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 md:w-48 md:flex-col md:items-stretch">
+                        <Bone className="h-6 w-28" />
+                        <Bone className="h-11 w-28 rounded-xl md:w-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Booking card */}
+            <aside className="hidden lg:block">
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-sm">
+                <Bone className="h-3 w-12" />
+                <Bone className="mt-2 h-8 w-40 rounded-lg" />
+                <Bone className="mt-1.5 h-3 w-20" />
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <Bone className="h-12 rounded-xl" />
+                  <Bone className="h-12 rounded-xl" />
+                </div>
+                <Bone className="mt-2 h-12 rounded-xl" />
+                <Bone className="mt-4 h-12 rounded-xl bg-[#02665e]/15" />
+                <Bone className="mx-auto mt-3 h-3 w-32" />
+              </div>
+            </aside>
           </div>
         </div>
       </main>
@@ -3222,16 +3353,25 @@ export default function PublicPropertyDetailPage() {
               {property.nrmsMenuUrl ? (
                 <Link
                   href={property.nrmsMenuUrl}
-                  className="mt-3 flex items-center gap-3 rounded-2xl bg-slate-50/80 p-3 no-underline ring-1 ring-slate-200 transition hover:bg-[#02665e]/5 hover:ring-[#02665e]/20"
+                  className="group mt-3 flex items-center gap-3 rounded-2xl p-3.5 no-underline shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                  style={{ border: "1.5px solid rgba(2, 102, 94, 0.45)", background: "linear-gradient(135deg, rgba(2,102,94,0.07), rgba(2,102,94,0.02))" }}
                 >
-                  <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
+                  <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-white shadow-sm">
                     <UtensilsCrossed className="h-5 w-5" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-bold text-slate-950">View live restaurant and bar menu</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">See today's dishes, drinks and prices.</span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[14.5px] font-bold text-slate-950">View live restaurant and bar menu</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#02665e] px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-white">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
+                        Live
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-600">See today&apos;s dishes, drinks and prices.</span>
                   </span>
-                  <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-solid border-[#02665e]/30 bg-white text-[#02665e] transition-all group-hover:border-[#02665e] group-hover:bg-[#02665e] group-hover:text-white">
+                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                  </span>
                 </Link>
               ) : null}
               </div>
