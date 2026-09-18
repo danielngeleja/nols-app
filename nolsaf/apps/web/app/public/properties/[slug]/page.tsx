@@ -1929,6 +1929,7 @@ export default function PublicPropertyDetailPage() {
   const [reviewsError, setReviewsError] = useState<string | null>(null);
   const [reviewsData, setReviewsData] = useState<ReviewsResponse | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(0);
+  const [reviewFormOpen, setReviewFormOpen] = useState(false);
   const [reviewTitle, setReviewTitle] = useState<string>("");
   const [reviewComment, setReviewComment] = useState<string>("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -2987,40 +2988,38 @@ export default function PublicPropertyDetailPage() {
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Facts */}
-            <div className="flex items-stretch rounded-xl bg-[#02665e] overflow-hidden divide-x divide-white/10 shadow-sm">
-              <div className="relative flex items-center gap-2.5 px-4 py-3 flex-1 min-w-0 overflow-hidden">
-                <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.13) 0px,rgba(255,255,255,0.13) 1.5px,transparent 1.5px,transparent 10px)" }} />
-                <Users className="w-4 h-4 text-white/80 shrink-0 relative" />
-                <div className="relative">
-                  <div className="text-sm font-bold text-white leading-none tabular-nums">{property.maxGuests ?? "-"}</div>
-                  <div className="text-[11px] text-white/60 mt-0.5">Guests</div>
+            {/* Facts: the original teal bar, refined */}
+            <div className="relative grid grid-cols-2 overflow-hidden rounded-xl bg-[#02665e] shadow-sm sm:grid-cols-4">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.08) 0px,rgba(255,255,255,0.08) 1.5px,transparent 1.5px,transparent 10px)" }}
+              />
+              {[
+                { Icon: Users, value: property.maxGuests ?? "-", label: "Guests" },
+                { Icon: BedDouble, value: property.totalBedrooms ?? "-", label: "Bedrooms" },
+                { Icon: Bath, value: property.totalBathrooms ?? "-", label: "Bathrooms" },
+                { Icon: ShieldCheck, value: "Verified", label: "by NoLSAF", verified: true },
+              ].map(({ Icon, value, label, verified }, i) => (
+                <div
+                  key={label}
+                  className={[
+                    "relative flex min-w-0 items-center gap-2.5 px-4 py-3",
+                    verified ? "bg-white/10" : "",
+                    i % 2 === 1 ? "border-0 border-l border-solid border-white/10" : "",
+                    i >= 2 ? "border-0 border-t border-solid border-white/10 sm:border-t-0" : "",
+                    i === 2 ? "sm:border-l" : "",
+                  ].join(" ")}
+                >
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
+                    <Icon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0 leading-none">
+                    <div className="truncate text-base font-bold tabular-nums text-white">{value}</div>
+                    <div className="mt-1 truncate text-[11.5px] text-white/75">{label}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="relative flex items-center gap-2.5 px-4 py-3 flex-1 min-w-0 overflow-hidden">
-                <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.13) 0px,rgba(255,255,255,0.13) 1.5px,transparent 1.5px,transparent 10px)" }} />
-                <BedDouble className="w-4 h-4 text-white/80 shrink-0 relative" />
-                <div className="relative">
-                  <div className="text-sm font-bold text-white leading-none tabular-nums">{property.totalBedrooms ?? "-"}</div>
-                  <div className="text-[11px] text-white/60 mt-0.5">Bedrooms</div>
-                </div>
-              </div>
-              <div className="relative flex items-center gap-2.5 px-4 py-3 flex-1 min-w-0 overflow-hidden">
-                <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.13) 0px,rgba(255,255,255,0.13) 1.5px,transparent 1.5px,transparent 10px)" }} />
-                <Bath className="w-4 h-4 text-white/80 shrink-0 relative" />
-                <div className="relative">
-                  <div className="text-sm font-bold text-white leading-none tabular-nums">{property.totalBathrooms ?? "-"}</div>
-                  <div className="text-[11px] text-white/60 mt-0.5">Bathrooms</div>
-                </div>
-              </div>
-              <div className="relative flex items-center gap-2.5 px-4 py-3 flex-1 min-w-0 overflow-hidden bg-white/10">
-                <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.13) 0px,rgba(255,255,255,0.13) 1.5px,transparent 1.5px,transparent 10px)" }} />
-                <ShieldCheck className="w-4 h-4 text-white/80 shrink-0 relative" />
-                <div className="relative">
-                  <div className="text-sm font-bold text-white leading-none">Verified</div>
-                  <div className="text-[11px] text-white/60 mt-0.5">listing</div>
-                </div>
-              </div>
+              ))}
             </div>
             {/* Description */}
             <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
@@ -3830,203 +3829,201 @@ export default function PublicPropertyDetailPage() {
             );
           })()}
         </div>
-        {/* Reviews (bottom section) */}
-        <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-              <MessageSquare className="w-5 h-5" aria-hidden />
-            </span>
-            <h2 className="text-lg font-semibold text-slate-900">Guest reviews</h2>
-              </div>
-          {reviewsError ? (
-            <div className="mt-4 rounded-lg border border-solid border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-              {reviewsError}
-            </div>
-          ) : reviewsLoading ? (
-            <div className="mt-4 text-sm text-slate-600">Loading reviews...</div>
-          ) : (
-            <>
-              <div className="flex items-center gap-3 mb-4">
-                {(() => {
-                  const avgRating = Number(reviewsData?.stats?.averageRating ?? 0);
-                  const totalReviews = reviewsData?.stats?.totalReviews ?? 0;
-                  const ratingPercent = (avgRating / 5) * 100;
-                  const getRatingLabel = (rating: number) => {
-                    if (rating >= 9) return "Wonderful";
-                    if (rating >= 8) return "Very good";
-                    if (rating >= 7) return "Good";
-                    if (rating >= 6) return "Pleasant";
-                    return "Fair";
-                  };
-                  return (
-                    <>
-                      <div className="inline-flex items-center justify-center rounded-lg bg-[#02665e] text-white px-3 py-1.5 min-w-[3rem]">
-                        <span className="text-lg font-bold">{avgRating > 0 ? avgRating.toFixed(1) : "0.0"}</span>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 text-sm text-slate-700">
-                          {avgRating > 0 && (
-                            <span className="font-medium">{getRatingLabel(avgRating)}</span>
-                          )}
-                          <span className="text-slate-500"> - </span>
-                          <span>{totalReviews} {totalReviews === 1 ? 'review' : 'reviews'}</span>
-                        </div>
-                        <div className="mt-2 h-2 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full bg-[#02665e] rounded-full transition-all duration-300 rating-bar`}
-                            data-rating-width={ratingPercent}
-                          ></div>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-          </div>
-              {/* Categories */}
-              <div className="mt-6">
-                <h3 className="text-sm font-semibold text-slate-900 mb-3">Categories:</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  {(() => {
-                    const categories = [
-                      { key: "customerCare", label: "Customer care" },
-                      { key: "security", label: "Security" },
-                      { key: "reality", label: "Reality" },
-                      { key: "comfort", label: "Comfort" },
-                    ];
-                    return categories.map(({ key, label }) => {
-                      const categoryRating = reviewsData?.stats?.categoryAverages?.[key] ?? 0;
-                      const ratingPercent = (categoryRating / 5) * 100;
-                      const barColor = categoryRating >= 8 ? "bg-emerald-500" : categoryRating >= 6 ? "bg-[#02665e]" : "bg-slate-400";
-                      return (
-                        <div key={key} className="flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-slate-700 mb-1.5">{label}</div>
-                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full ${barColor} rounded-full transition-all duration-300 rating-bar-width`}
-                                data-rating-width={ratingPercent}
-                              />
-                            </div>
-                          </div>
-                          <div className="text-sm font-semibold text-slate-900 min-w-[2.5rem] text-right">
-                            {categoryRating > 0 ? categoryRating.toFixed(1) : "0.0"}
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-              {!reviewsLoading && (reviewsData?.reviews?.length ?? 0) === 0 && (
-                <div className="mt-4 text-sm text-slate-600">
-                  No reviews yet. Be the first to leave a review.
-                </div>
-              )}
-            </>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
-            {(reviewsData?.reviews ?? []).slice(0, 20).map((r) => (
-              <ReviewCard key={r.id} review={r} />
-            ))}
-          </div>
-          {/* Leave a review */}
-          {!isOwner ? (
-          <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
-            <div className="text-sm font-semibold text-slate-900">Leave a review</div>
-            <div className="mt-1 text-xs text-slate-600">You can rate and comment. If you're not logged in, we'll ask you to log in first.</div>
-            <div className="space-y-4">
+        {/* Guest reviews: the verdict on the left, the voices on the right */}
+        <div className="mt-6 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                <MessageSquare className="h-5 w-5" aria-hidden />
+              </span>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Rating</label>
-                <div className="flex items-center gap-3">
-              <StarPicker value={reviewRating} onChange={setReviewRating} />
-                  {reviewRating > 0 && (
-                    <span className="text-sm text-slate-600">
-                      {reviewRating === 5 ? "Excellent" : reviewRating === 4 ? "Very good" : reviewRating === 3 ? "Good" : reviewRating === 2 ? "Fair" : "Poor"}
-                    </span>
-                  )}
-                </div>
-            </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Title <span className="text-slate-400 font-normal">(optional)</span>
-                </label>
-              <input
-                value={reviewTitle}
-                onChange={(e) => setReviewTitle(e.target.value)}
-                  placeholder="Give your review a title"
-                  className="w-full rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-colors"
-              />
+                <h2 className="m-0 text-lg font-semibold leading-tight text-slate-900">Guest reviews</h2>
+                <p className="m-0 mt-0.5 text-xs text-slate-500">What guests say after their stay</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Your review</label>
-              <textarea
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                  placeholder="Share details about your experience..."
-                rows={4}
-                  className="w-full rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] resize-y transition-colors"
-              />
             </div>
-              {/* Category Ratings */}
-              <div className="pt-2 border-t border-slate-200">
-                <label className="block text-sm font-semibold text-slate-900 mb-4">Rate by category</label>
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { key: "customerCare" as const, label: "Customer care" },
-                    { key: "security" as const, label: "Security" },
-                    { key: "reality" as const, label: "Reality" },
-                    { key: "comfort" as const, label: "Comfort" },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="space-y-2">
-                      <div className="text-xs font-medium text-slate-700">{label}</div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden relative">
-                          <div
-                            className="h-full bg-[#02665e] rounded-full transition-all duration-200 category-rating-bar"
-                            data-width={categoryRatings[key]}
-                          />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {[1, 2, 3, 4, 5].map((n) => (
-                            <button
-                              key={n}
-                              type="button"
-                              onClick={() => setCategoryRatings((prev) => ({ ...prev, [key]: n }))}
-                              className={`w-5 h-5 rounded border flex items-center justify-center text-xs transition-colors ${
-                                n <= categoryRatings[key]
-                                  ? "bg-amber-50 border-amber-300 text-amber-600"
-                                  : "bg-white border-slate-200 text-slate-300 hover:border-slate-300"
-                              }`}
-                              aria-label={`${n} star for ${label}`}
-                            >
-                              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
-                                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                              </svg>
-                            </button>
-                          ))}
-                        </div>
-                        <span className="text-xs font-semibold text-slate-700 min-w-[2rem] text-right">
-                          {categoryRatings[key] > 0 ? categoryRatings[key].toFixed(1) : "0.0"}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {reviewSubmitMsg && (
-                <div className={`rounded-lg p-3 text-sm ${
-                  reviewSubmitMsg.includes("Thanks") || reviewSubmitMsg.includes("submitted")
-                    ? "bg-emerald-50 border border-solid border-emerald-200 text-emerald-700"
-                    : "bg-rose-50 border border-solid border-rose-200 text-rose-700"
-                }`}>
-                  {reviewSubmitMsg}
-                </div>
-              )}
-              <div className="pt-2">
+            {!isOwner ? (
               <button
                 type="button"
-                  disabled={reviewSubmitting || !reviewRating}
-                onClick={async () => {
+                onClick={() => setReviewFormOpen((v) => !v)}
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47]"
+              >
+                {reviewFormOpen ? "Close form" : "Write a review"}
+              </button>
+            ) : null}
+          </div>
+
+          {reviewsError ? (
+            <div className="m-5 rounded-lg border border-solid border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{reviewsError}</div>
+          ) : reviewsLoading ? (
+            <div className="px-6 py-8 text-sm text-slate-500">Loading reviews...</div>
+          ) : (() => {
+            const list = reviewsData?.reviews ?? [];
+            const avg = Number(reviewsData?.stats?.averageRating ?? 0);
+            const total = Number(reviewsData?.stats?.totalReviews ?? list.length) || 0;
+            // The average is out of 5
+            const verdict = avg >= 4.5 ? "Wonderful" : avg >= 4 ? "Very good" : avg >= 3.5 ? "Good" : avg >= 3 ? "Pleasant" : avg > 0 ? "Fair" : "No ratings yet";
+            const dist = [5, 4, 3, 2, 1].map((star) => ({ star, count: list.filter((r) => Math.round(Number(r.rating) || 0) === star).length }));
+            const distMax = Math.max(1, ...dist.map((d) => d.count));
+            const categories = [
+              { key: "customerCare", label: "Customer care" },
+              { key: "security", label: "Security" },
+              { key: "reality", label: "As described" },
+              { key: "comfort", label: "Comfort" },
+            ].map((c) => ({ ...c, value: Number((reviewsData?.stats?.categoryAverages as any)?.[c.key] ?? 0) }));
+            return (
+              <div>
+                {/* The verdict: one band, three columns */}
+                <div className="grid grid-cols-1 border-0 border-b border-solid border-slate-100 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="flex items-center gap-4 px-5 py-5 sm:px-6">
+                    <span className="text-[48px] font-black leading-none tabular-nums text-slate-900">{avg > 0 ? avg.toFixed(1) : "0.0"}</span>
+                    <div>
+                      <StarRow value={Math.round(avg)} />
+                      <div className="mt-1 text-[14px] font-bold text-[#02665e]">{verdict}</div>
+                      <div className="text-xs text-slate-500">
+                        out of 5 · {total} {total === 1 ? "review" : "reviews"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-0 border-t border-solid border-slate-100 px-5 py-4 sm:px-6 md:border-l md:border-t-0">
+                    <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Rating breakdown</div>
+                    <div className="space-y-1">
+                      {dist.map((d) => (
+                        <div key={d.star} className="flex items-center gap-2 text-xs text-slate-600">
+                          <span className="w-6 tabular-nums">{d.star}★</span>
+                          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <span className="block h-full rounded-full bg-amber-400" style={{ width: `${(d.count / distMax) * 100}%` }} />
+                          </span>
+                          <span className="w-5 text-right tabular-nums text-slate-400">{d.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-0 border-t border-solid border-slate-100 px-5 py-4 sm:px-6 md:border-l md:border-t-0">
+                    <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">By category</div>
+                    {categories.some((c) => c.value > 0) ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        {categories.map((c) => (
+                          <div key={c.key}>
+                            <div className="mb-1 flex items-center justify-between text-xs">
+                              <span className="truncate font-medium text-slate-700">{c.label}</span>
+                              <span className="font-bold tabular-nums text-slate-900">{c.value > 0 ? c.value.toFixed(1) : "-"}</span>
+                            </div>
+                            <span className="block h-1.5 overflow-hidden rounded-full bg-slate-100">
+                              <span className="block h-full rounded-full bg-[#02665e]" style={{ width: `${Math.min(100, (c.value / 5) * 100)}%` }} />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="m-0 text-xs leading-relaxed text-slate-500">
+                        Category scores for customer care, security, accuracy and comfort appear as guests rate them.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {isOwner ? (
+                  <p className="m-0 border-0 border-b border-solid border-slate-100 bg-slate-50 px-5 py-2.5 text-xs text-slate-500 sm:px-6">
+                    As the owner, you cannot review your own property. You can still book it like any other guest.
+                  </p>
+                ) : null}
+
+                {/* The voices */}
+                <div className="min-w-0 p-5 sm:p-6">
+                  {reviewFormOpen && !isOwner ? (
+                    <div className="mb-5 rounded-2xl border border-solid border-[#02665e]/25 bg-[#02665e]/[0.03] p-4 sm:p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[15px] font-bold text-slate-900">Share your stay</div>
+                          <div className="mt-0.5 text-xs text-slate-500">If you are not logged in, we will ask you to log in first.</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <StarPicker value={reviewRating} onChange={setReviewRating} />
+                        {reviewRating > 0 ? (
+                          <span className="text-sm font-semibold text-[#02665e]">
+                            {reviewRating === 5 ? "Excellent" : reviewRating === 4 ? "Very good" : reviewRating === 3 ? "Good" : reviewRating === 2 ? "Fair" : "Poor"}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">Tap a star to rate</span>
+                        )}
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3">
+                        <input
+                          value={reviewTitle}
+                          onChange={(e) => setReviewTitle(e.target.value)}
+                          placeholder="Title (optional), e.g. Great location, friendly staff"
+                          aria-label="Review title"
+                          className="box-border h-11 w-full rounded-lg border border-solid border-slate-200 bg-white px-3 text-sm focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
+                        />
+                        <div>
+                          <textarea
+                            value={reviewComment}
+                            onChange={(e) => setReviewComment(e.target.value)}
+                            placeholder="What did you enjoy, and what could be better?"
+                            aria-label="Your review"
+                            rows={4}
+                            className="box-border w-full resize-y rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
+                            style={{ fontFamily: "inherit" }}
+                          />
+                          <div className="mt-1 text-right text-[11px] tabular-nums text-slate-400">{reviewComment.length} characters</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 border-0 border-t border-solid border-slate-200/70 pt-3">
+                        <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Rate by category, optional</div>
+                        <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                          {[
+                            { key: "customerCare" as const, label: "Customer care" },
+                            { key: "security" as const, label: "Security" },
+                            { key: "reality" as const, label: "As described" },
+                            { key: "comfort" as const, label: "Comfort" },
+                          ].map(({ key, label }) => (
+                            <div key={key} className="flex items-center justify-between gap-3">
+                              <span className="text-[13px] text-slate-700">{label}</span>
+                              <div className="flex items-center gap-0.5">
+                                {[1, 2, 3, 4, 5].map((n) => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => setCategoryRatings((prev) => ({ ...prev, [key]: n }))}
+                                    className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 transition-colors ${
+                                      n <= categoryRatings[key] ? "text-amber-500" : "text-slate-300 hover:text-slate-400"
+                                    }`}
+                                    aria-label={`${n} star for ${label}`}
+                                  >
+                                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="currentColor" aria-hidden>
+                                      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                                    </svg>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {reviewSubmitMsg ? (
+                        <div
+                          className={`mt-3 rounded-lg p-3 text-sm ${
+                            reviewSubmitMsg.includes("Thanks") || reviewSubmitMsg.includes("submitted")
+                              ? "border border-solid border-[#02665e]/25 bg-[#02665e]/5 text-[#02665e]"
+                              : "border border-solid border-rose-200 bg-rose-50 text-rose-700"
+                          }`}
+                        >
+                          {reviewSubmitMsg}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={reviewSubmitting || !reviewRating}
+                          onClick={async () => {
                   setReviewSubmitMsg(null);
                   if (!property?.id) return;
                   if (!reviewRating) {
@@ -4080,23 +4077,32 @@ export default function PublicPropertyDetailPage() {
                   } finally {
                     setReviewSubmitting(false);
                   }
-                }}
-                  className="w-full rounded-lg bg-[#02665e] text-white px-4 py-2.5 text-sm font-semibold hover:bg-[#014e47] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow"
-              >
-                {reviewSubmitting ? "Submitting..." : "Submit review"}
-                {reviewSubmitting ? "Submitting..." : "Submit review"}
-              </button>
-            </div>
-          </div>
-          </div>
-          ) : (
-            <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-slate-50 p-5">
-              <div className="text-sm font-semibold text-slate-900">Leave a review</div>
-              <div className="mt-2 text-xs text-slate-600">
-                As the property owner, you cannot leave reviews on your own property. However, you can still book this property like any other user.
+                          }}
+                          className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border-0 bg-[#02665e] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {reviewSubmitting ? "Submitting..." : "Submit review"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {list.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center">
+                      <MessageSquare className="h-7 w-7 text-slate-300" aria-hidden />
+                      <div className="mt-2 text-sm font-semibold text-slate-700">No reviews yet</div>
+                      <div className="mt-1 text-xs text-slate-500">Stayed here? Be the first to share how it went.</div>
+                    </div>
+                  ) : (
+                    <div className={`grid grid-cols-1 gap-3 ${list.length > 1 ? "lg:grid-cols-2" : ""}`}>
+                      {list.slice(0, 20).map((r) => (
+                        <ReviewCard key={r.id} review={r} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
         {/* House rules: four rules at a glance, then the host's own words */}
         <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm nols-entrance">
@@ -4133,67 +4139,13 @@ export default function PublicPropertyDetailPage() {
               }
               return null;
             };
-            const DayBar = ({ value }: { value?: string }) => {
-              const w = windowOf(value);
-              if (!w) return null;
-              return (
-                <div className="mt-2.5" aria-hidden>
-                  <div className="relative h-1.5 overflow-hidden rounded-full bg-slate-100">
-                    <span
-                      className="absolute inset-y-0 rounded-full bg-[#02665e]"
-                      style={{ left: `${(w.from / 1440) * 100}%`, width: `${Math.max(2, ((w.to - w.from) / 1440) * 100)}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-400">
-                    <span>00:00</span>
-                    <span>12:00</span>
-                    <span>24:00</span>
-                  </div>
-                </div>
-              );
-            };
+            const inWin = windowOf(houseRules.checkIn);
+            const outWin = windowOf(houseRules.checkOut);
+            const pct = (m: number) => `${(m / 1440) * 100}%`;
             const petsKnown = houseRules.pets !== undefined;
             const smokingKnown = houseRules.smoking !== undefined;
             const petsOk = houseRules.pets === true;
             const smokingOk = houseRules.smoking === false; // smoking === true means not allowed
-            const tiles = [
-              {
-                key: "in",
-                label: "Check-in",
-                Icon: LogIn,
-                value: houseRules.checkIn || "Not specified",
-                muted: !houseRules.checkIn,
-                extra: <DayBar value={houseRules.checkIn} />,
-                tone: "brand" as const,
-              },
-              {
-                key: "out",
-                label: "Check-out",
-                Icon: LogOut,
-                value: houseRules.checkOut || "Not specified",
-                muted: !houseRules.checkOut,
-                extra: <DayBar value={houseRules.checkOut} />,
-                tone: "brand" as const,
-              },
-              {
-                key: "pets",
-                label: "Pets",
-                Icon: PawPrint,
-                value: petsKnown ? (petsOk ? "Allowed" : "Not allowed") : "Ask the host",
-                muted: !petsKnown,
-                extra: houseRules.petsNote ? <p className="m-0 mt-1.5 text-xs leading-relaxed text-slate-500">{houseRules.petsNote}</p> : null,
-                tone: petsKnown ? (petsOk ? ("yes" as const) : ("no" as const)) : ("brand" as const),
-              },
-              {
-                key: "smoking",
-                label: "Smoking",
-                Icon: smokingOk ? Cigarette : CigaretteOff,
-                value: smokingKnown ? (smokingOk ? "Allowed" : "Not allowed") : "Ask the host",
-                muted: !smokingKnown,
-                extra: null,
-                tone: smokingKnown ? (smokingOk ? ("yes" as const) : ("no" as const)) : ("brand" as const),
-              },
-            ];
             const safety = [
               "Keep the property clean and tidy",
               "Return all keys and access cards at check-out",
@@ -4202,70 +4154,158 @@ export default function PublicPropertyDetailPage() {
               "Follow the safety signs posted on site",
               ...(Array.isArray(houseRules.safetyMeasures) ? houseRules.safetyMeasures.map(String) : []),
             ];
+            const Policy = ({
+              label,
+              known,
+              ok,
+              okText,
+              noText,
+              Icon,
+              note,
+            }: {
+              label: string;
+              known: boolean;
+              ok: boolean;
+              okText: string;
+              noText: string;
+              Icon: any;
+              note?: string;
+            }) => (
+              <div className="flex h-full flex-col px-5 py-4 sm:px-6">
+                <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
+                <div className="mt-2.5 flex items-center gap-3">
+                  <span
+                    className={[
+                      "inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full",
+                      !known ? "bg-slate-100 text-slate-400" : ok ? "bg-[#02665e] text-white" : "bg-rose-50 text-rose-600",
+                    ].join(" ")}
+                  >
+                    <Icon className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <div className={`text-[16px] font-bold leading-tight ${!known ? "text-slate-400" : ok ? "text-slate-900" : "text-rose-700"}`}>
+                      {!known ? "Ask the host" : ok ? "Allowed" : "Not allowed"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">{!known ? "Not stated for this property" : ok ? okText : noText}</div>
+                  </div>
+                </div>
+                {note ? <p className="m-0 mt-2.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs leading-relaxed text-slate-600">{note}</p> : null}
+              </div>
+            );
             return (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-                  {tiles.map(({ key, label, Icon, value, muted, extra, tone }, i) => (
-                    <div
-                      key={key}
-                      className={[
-                        "border-0 border-solid border-slate-100 px-5 py-4 sm:px-6",
-                        i > 0 ? "border-t sm:border-t-0" : "",
-                        i === 2 ? "sm:border-t lg:border-t-0" : "",
-                        i === 3 ? "sm:border-t lg:border-t-0" : "",
-                        i % 2 === 1 ? "sm:border-l" : "",
-                        i === 2 ? "lg:border-l" : "",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={[
-                            "inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full",
-                            tone === "no" ? "bg-rose-50 text-rose-600" : tone === "yes" ? "bg-[#02665e] text-white" : "bg-[#02665e]/10 text-[#02665e]",
-                          ].join(" ")}
-                        >
-                          <Icon className="h-[18px] w-[18px]" aria-hidden />
+                {/* Row one: the day, then the two yes or no rules */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="px-5 py-4 sm:px-6 md:col-span-2 lg:col-span-1">
+                    <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Arrival and departure</div>
+                    <div className="mt-2.5 grid grid-cols-2 gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-white">
+                          <LogIn className="h-[18px] w-[18px]" aria-hidden />
                         </span>
-                        <div className="min-w-0">
-                          <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
-                          <div
-                            className={[
-                              "mt-0.5 text-[15px] font-bold leading-tight tabular-nums",
-                              muted ? "text-slate-400" : tone === "no" ? "text-rose-700" : "text-slate-900",
-                            ].join(" ")}
-                          >
-                            {value}
+                        <div className="min-w-0 leading-tight">
+                          <div className="text-xs text-slate-500">Check-in</div>
+                          <div className={`text-[15px] font-bold tabular-nums ${houseRules.checkIn ? "text-slate-900" : "text-slate-400"}`}>
+                            {houseRules.checkIn || "Not specified"}
                           </div>
                         </div>
                       </div>
-                      {extra}
+                      <div className="flex items-center gap-2.5">
+                        <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate-800 text-white">
+                          <LogOut className="h-[18px] w-[18px]" aria-hidden />
+                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <div className="text-xs text-slate-500">Check-out</div>
+                          <div className={`text-[15px] font-bold tabular-nums ${houseRules.checkOut ? "text-slate-900" : "text-slate-400"}`}>
+                            {houseRules.checkOut || "Not specified"}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  ))}
+
+                    {inWin || outWin ? (
+                      <div className="mt-3.5" aria-hidden>
+                        <div className="relative h-2.5 rounded-full bg-slate-100">
+                          {outWin ? (
+                            <span className="absolute inset-y-0 rounded-full bg-slate-800" style={{ left: pct(outWin.from), width: pct(Math.max(15, outWin.to - outWin.from)) }} />
+                          ) : null}
+                          {inWin ? (
+                            <span className="absolute inset-y-0 rounded-full bg-[#02665e]" style={{ left: pct(inWin.from), width: pct(Math.max(15, inWin.to - inWin.from)) }} />
+                          ) : null}
+                          {[6, 12, 18].map((h) => (
+                            <span key={h} className="absolute top-full mt-0.5 h-1 w-px bg-slate-300" style={{ left: pct(h * 60) }} />
+                          ))}
+                        </div>
+                        <div className="relative mt-2 h-3 text-[10px] tabular-nums text-slate-400">
+                          {[0, 6, 12, 18, 24].map((h) => (
+                            <span
+                              key={h}
+                              className="absolute -translate-x-1/2"
+                              style={{ left: pct(h * 60), transform: h === 0 ? "none" : h === 24 ? "translateX(-100%)" : undefined }}
+                            >
+                              {String(h).padStart(2, "0")}:00
+                            </span>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex items-center gap-4 text-[11px] text-slate-500">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full bg-[#02665e]" /> Check-in window
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full bg-slate-800" /> Check-out window
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="border-0 border-t border-solid border-slate-100 md:border-t lg:border-l lg:border-t-0">
+                    <Policy
+                      label="Pets"
+                      known={petsKnown}
+                      ok={petsOk}
+                      okText="Pets are welcome to stay"
+                      noText="Pets cannot stay in the rooms"
+                      Icon={PawPrint}
+                      note={houseRules.petsNote}
+                    />
+                  </div>
+                  <div className="border-0 border-t border-solid border-slate-100 md:border-l lg:border-t-0">
+                    <Policy
+                      label="Smoking"
+                      known={smokingKnown}
+                      ok={smokingOk}
+                      okText="Smoking is permitted"
+                      noText="A smoke-free property"
+                      Icon={smokingOk ? Cigarette : CigaretteOff}
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 border-0 border-t border-solid border-slate-100 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-                  <div className="px-5 py-4 sm:px-6">
-                    <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
-                      <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-                      From the host
-                    </div>
-                    {houseRules.other ? (
+                {/* Row two: the host's own words when there are any, then the house basics */}
+                <div className="border-0 border-t border-solid border-slate-100">
+                  {houseRules.other ? (
+                    <div className="border-0 border-b border-solid border-slate-100 px-5 py-4 sm:px-6">
+                      <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
+                        <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                        From the host
+                      </div>
                       <blockquote className="m-0 whitespace-pre-line rounded-xl border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] px-4 py-3 text-sm leading-relaxed text-slate-700">
                         {houseRules.other}
                       </blockquote>
-                    ) : (
-                      <p className="m-0 text-sm text-slate-400">No extra rules from the host.</p>
-                    )}
-                  </div>
-                  <div className="border-0 border-t border-solid border-slate-100 px-5 py-4 sm:px-6 lg:border-l lg:border-t-0">
-                    <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
+                    </div>
+                  ) : null}
+                  <div className="px-5 py-4 sm:px-6">
+                    <div className="mb-2.5 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
                       <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                       Good to know
                     </div>
-                    <ul className="m-0 grid list-none grid-cols-1 gap-x-5 gap-y-1.5 p-0 sm:grid-cols-2">
+                    <ul className="m-0 grid list-none grid-cols-1 gap-x-6 gap-y-2 p-0 sm:grid-cols-2 lg:grid-cols-3">
                       {safety.map((item, idx) => (
                         <li key={idx} className="flex items-start gap-2 text-[13px] leading-snug text-slate-600">
-                          <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          <span className="mt-px inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+                            <Check className="h-2.5 w-2.5" aria-hidden />
+                          </span>
                           {item}
                         </li>
                       ))}
@@ -4836,98 +4876,77 @@ export default function PublicPropertyDetailPage() {
 function ReviewCard({ review }: { review: PropertyReview }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const MAX_PREVIEW_LENGTH = 200;
   const comment = review.comment || "";
-  const isLongComment = comment.length > MAX_PREVIEW_LENGTH;
-  const previewText = isLongComment ? comment.slice(0, MAX_PREVIEW_LENGTH) + "..." : comment;
+  const isLong = comment.length > 260;
+  const name = review.user?.name || "Guest";
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  const date = new Date(review.createdAt);
+  const dateLabel = isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   return (
     <>
-      <div className="group relative bg-white rounded-2xl border border-solid border-slate-200/60 hover:border-[#02665e]/40 hover:shadow-xl transition-all duration-300 overflow-hidden shadow-sm">
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2.5 mb-2.5">
-                <div className="text-lg font-bold text-slate-900 truncate">
-                  {review.user?.name || "Guest"}
-                </div>
-                {review.isVerified && (
-                  <span className="inline-flex items-center rounded-full bg-emerald-50 border border-solid border-emerald-200/60 px-2.5 py-1 text-[10px] font-bold text-emerald-700 flex-shrink-0 tracking-wide">
-                    Verified
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2.5 text-xs text-slate-500">
-                <div className="flex items-center">
-                  <StarRow value={review.rating} />
-                </div>
-                <span className="text-slate-300">-</span>
-                <span className="font-medium">{new Date(review.createdAt).toLocaleDateString()}</span>
-              </div>
+      <article className="flex flex-col rounded-2xl border border-solid border-slate-200 bg-white p-4 transition-shadow hover:shadow-md sm:p-5">
+        <header className="flex items-start gap-3">
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-[13px] font-bold text-white">
+            {initials || "G"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="truncate text-[14.5px] font-bold text-slate-900">{name}</span>
+              {review.isVerified ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#02665e]/10 px-2 py-px text-[10.5px] font-bold text-[#02665e]">
+                  <CheckCircle2 className="h-3 w-3" aria-hidden />
+                  Verified stay
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+              <StarRow value={review.rating} />
+              {dateLabel ? <span>{dateLabel}</span> : null}
             </div>
           </div>
-          {/* Title */}
-          {review.title && (
-            <div className="mb-4">
-              <h3 className="text-base font-bold text-slate-900 leading-tight">{review.title}</h3>
+        </header>
+
+        {review.title ? <h3 className="m-0 mt-3 text-[15px] font-bold leading-snug text-slate-900">{review.title}</h3> : null}
+
+        {comment ? (
+          <div className="mt-1.5">
+            <p
+              className="m-0 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-700"
+              style={isExpanded ? undefined : { display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+            >
+              {comment}
+            </p>
+            {isLong ? (
+              <button
+                type="button"
+                onClick={() => (comment.length > 900 ? setShowModal(true) : setIsExpanded((v) => !v))}
+                className="mt-1 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline"
+              >
+                {isExpanded ? "Show less" : "Read more"}
+                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {review.ownerResponse ? (
+          <div className="mt-3 rounded-xl border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] px-3 py-2.5">
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#02665e]">
+              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+              Reply from the host
             </div>
-          )}
-          {/* Comment */}
-          {comment && (
-            <div className="mb-4">
-              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/50 border border-solid border-slate-200/80 p-5 shadow-inner">
-                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap block font-normal">
-                  {isExpanded ? comment : previewText}
-                </p>
-              </div>
-              {isLongComment && !isExpanded && (
-                <button
-                  onClick={() => {
-                    if (comment.length > 500) {
-                      setShowModal(true);
-                    } else {
-                      setIsExpanded(true);
-                    }
-                  }}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-solid border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
-                >
-                  <span>Show more</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              )}
-              {isLongComment && isExpanded && (
-                <button
-                  onClick={() => setIsExpanded(false)}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-white border-2 border-solid border-slate-200 text-sm font-semibold text-[#02665e] hover:bg-slate-50 hover:border-[#02665e]/40 hover:shadow-md transition-all duration-200 inline-flex items-center gap-2 active:scale-[0.98]"
-                >
-                  <span>Show less</span>
-                  <ChevronUp className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
-          {/* Owner Response */}
-          {review.ownerResponse && (
-            <div className="mt-5 pt-5 border-t border-slate-200/60">
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-[#02665e]/10 to-[#02665e]/5 border border-solid border-[#02665e]/20 flex items-center justify-center shadow-sm">
-                  <MessageSquare className="w-5 h-5 text-[#02665e]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">Owner response</div>
-                  <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap line-clamp-3">
-                    {review.ownerResponse}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      {/* Expanded Modal for Very Long Reviews */}
-      {showModal && (
-        <ReviewModal review={review} onClose={() => setShowModal(false)} />
-      )}
+            <p className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700" style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {review.ownerResponse}
+            </p>
+          </div>
+        ) : null}
+      </article>
+      {showModal && <ReviewModal review={review} onClose={() => setShowModal(false)} />}
     </>
   );
 
