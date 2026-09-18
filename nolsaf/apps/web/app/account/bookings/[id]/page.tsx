@@ -308,10 +308,6 @@ export default function BookingDetailPage() {
                     {human(booking.property.type)}
                   </span>
                 ) : null}
-                <span className="inline-flex items-center gap-1.5">
-                  <Hash className="h-3.5 w-3.5 text-[#5ec8bb]" aria-hidden />
-                  Booking {booking.id}
-                </span>
               </div>
             </div>
             <div className="flex-shrink-0 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-4 py-2.5 text-right">
@@ -473,7 +469,7 @@ export default function BookingDetailPage() {
                 {n > 0 ? ` · about ${Math.round(amount / n).toLocaleString("en-US")} a night` : ""}
               </div>
             </div>
-            {invoice?.invoiceNumber || invoice?.receiptNumber || invoice?.status ? (
+            {invoice?.invoiceNumber || invoice?.receiptNumber ? (
               <dl className="m-0 border-0 border-t border-solid border-slate-100 px-5 py-3 text-[12.5px]">
                 {invoice?.invoiceNumber ? (
                   <div className="flex items-center justify-between gap-3 py-1">
@@ -485,12 +481,6 @@ export default function BookingDetailPage() {
                   <div className="flex items-center justify-between gap-3 py-1">
                     <dt className="inline-flex items-center gap-1.5 text-slate-500"><Receipt className="h-3.5 w-3.5" aria-hidden /> Receipt</dt>
                     <dd className="m-0 font-mono font-semibold text-[#02665e]">{invoice.receiptNumber}</dd>
-                  </div>
-                ) : null}
-                {invoice?.status ? (
-                  <div className="flex items-center justify-between gap-3 py-1">
-                    <dt className="text-slate-500">Invoice status</dt>
-                    <dd className="m-0 font-semibold text-slate-800">{human(invoice.status)}</dd>
                   </div>
                 ) : null}
               </dl>
