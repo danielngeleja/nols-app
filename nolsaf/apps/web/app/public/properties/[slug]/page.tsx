@@ -87,7 +87,15 @@ import {
   QrCode,
   Star,
   Check,
-
+  LayoutGrid,
+  Footprints,
+  Bike,
+  Navigation,
+  Stethoscope,
+  Pill,
+  Landmark,
+  PawPrint,
+  Cigarette,
 } from "lucide-react";
 
 import LogoSpinner from "@/components/LogoSpinner";
@@ -95,6 +103,8 @@ import LogoSpinner from "@/components/LogoSpinner";
 import DatePicker from "../../../../components/ui/DatePicker";
 
 import { PropertyVisualizationPreview } from "@/app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
+import "@/styles/photo-tour.css";
+import { parseFloorUses } from "@/app/(owner)/owner/properties/add/_components/floorUses";
 
 import { 
 
@@ -1924,6 +1934,34 @@ export default function PublicPropertyDetailPage() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSubmitMsg, setReviewSubmitMsg] = useState<string | null>(null);
   const [showAllNearbyServices, setShowAllNearbyServices] = useState(false);
+  // Room cards: which descriptions and amenity lists are opened
+  const [openRoomDesc, setOpenRoomDesc] = useState<Set<number>>(() => new Set());
+  const [openRoomAmen, setOpenRoomAmen] = useState<Set<number>>(() => new Set());
+  const toggleInSet = (set: Set<number>, key: number) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+  // Nearby panel: which category is shown, and whether the list has more below
+  const [nearbyKind, setNearbyKind] = useState<"all" | "medical" | "transport" | "public">("all");
+  const nearbyListRef = useRef<HTMLDivElement | null>(null);
+  const [nearbyHasMore, setNearbyHasMore] = useState(false);
+  const measureNearbyList = useCallback(() => {
+    const el = nearbyListRef.current;
+    if (!el) return;
+    setNearbyHasMore(el.scrollHeight - el.scrollTop - el.clientHeight > 6);
+  }, []);
+  useEffect(() => {
+    const el = nearbyListRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    measureNearbyList();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureNearbyList());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [nearbyKind, measureNearbyList]);
   const [categoryRatings, setCategoryRatings] = useState<{
     customerCare: number;
     security: number;
@@ -2409,18 +2447,75 @@ export default function PublicPropertyDetailPage() {
         if (lightboxOpen) setLightboxOpen(false);
         if (allPhotosOpen) closeAllPhotos();
       }
+      if (lightboxOpen && lightboxImages.length > 1) {
+        if (e.key === "ArrowRight") setActiveIdx((i) => (i >= lightboxImages.length - 1 ? 0 : i + 1));
+        if (e.key === "ArrowLeft") setActiveIdx((i) => (i <= 0 ? lightboxImages.length - 1 : i - 1));
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [allPhotosOpen, lightboxOpen]);
+  }, [allPhotosOpen, lightboxOpen, lightboxImages.length]);
+  // Keep the active thumbnail centred in the filmstrip
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    document.getElementById(`lb-thumb-${activeIdx}`)?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [activeIdx, lightboxOpen]);
   useEffect(() => {
     if (!roomAmenityHint) return;
     const t = window.setTimeout(() => setRoomAmenityHint(null), 1200);
     return () => window.clearTimeout(t);
   }, [roomAmenityHint]);
+  // Photo tour sections: room photos are matched to their room type through the
+  // owner's room groups; everything else belongs to the property itself.
+  const photoSections = useMemo(() => {
+    const indexOf = new Map<string, number>();
+    lightboxImages.forEach((u, i) => {
+      if (!indexOf.has(u)) indexOf.set(u, i);
+    });
+    const claimed = new Set<number>();
+    const rooms = new Map<string, number[]>();
+    const spec: any[] = Array.isArray((property as any)?.roomsSpec) ? (property as any).roomsSpec : [];
+    for (const r of spec) {
+      const imgs: unknown[] = Array.isArray(r?.roomImages) ? r.roomImages : [];
+      const label = `${String(r?.roomType || r?.name || "Room").trim() || "Room"} room`;
+      for (const u of imgs) {
+        const i = indexOf.get(String(u || ""));
+        if (i === undefined || claimed.has(i)) continue;
+        claimed.add(i);
+        rooms.set(label, [...(rooms.get(label) || []), i]);
+      }
+    }
+    const propertyIdx = lightboxImages.map((_, i) => i).filter((i) => !claimed.has(i));
+    return [
+      { key: "property", label: "The property", idxs: propertyIdx },
+      ...Array.from(rooms, ([label, idxs], n) => ({ key: `room-${n}`, label, idxs })),
+    ].filter((sec) => sec.idxs.length > 0);
+  }, [lightboxImages, property]);
+  const scrollToPhotoSection = (key: string) => {
+    setActiveTourKey(key);
+    document.getElementById(`photo-tour-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const [activeTourKey, setActiveTourKey] = useState<string>("property");
+  // Highlight the section being viewed in the index as the tour scrolls
+  useEffect(() => {
+    if (!allPhotosOpen) return;
+    const root = document.getElementById("photo-tour-scroll");
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        const id = visible[0]?.target.getAttribute("data-tour-key");
+        if (id) setActiveTourKey(id);
+      },
+      { root, rootMargin: "-15% 0px -70% 0px", threshold: 0 }
+    );
+    root.querySelectorAll("[data-tour-key]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [allPhotosOpen, photoSections]);
+
   const openFromGrid = (idx: number) => {
     // Close grid first, then open lightbox to keep UX clean.
     setAllPhotosShown(false);
@@ -3421,6 +3516,7 @@ export default function PublicPropertyDetailPage() {
                     title={property.title || "Property"}
                     buildingType={effectiveBuildingType}
                     totalFloors={effectiveTotalFloors}
+                    floorUses={parseFloorUses((property as any).services)}
                     showHeader={false}
                     sectionEyebrow="Property structure"
                     sectionTitle="Building layout"
@@ -3488,124 +3584,243 @@ export default function PublicPropertyDetailPage() {
             return (
               <div className="mt-5 space-y-4">
                 {rows.map((r, idx) => {
+                  const descOpen = openRoomDesc.has(idx);
+                  const amenOpen = openRoomAmen.has(idx);
+                  const bath = r.bathItems || [];
+                  const allAmenities = r.amenities.length + bath.length;
+                  const TOP = 5;
+                  const dims = getBedDimensions(r.bedsSummary);
+                  const iconOf = (label: string) => (BATHROOM_ICONS as any)[label] || (OTHER_AMENITIES_ICONS as any)[label] || Tags;
+                  // Policies arrive as short phrases ("Towels: White", "No smoking"); turn them into label and value
+                  const specOf = (text: string) => {
+                    const t = String(text || "").trim();
+                    if (t.includes(":")) {
+                      const [label, ...rest] = t.split(":");
+                      return { label: label!.trim(), value: rest.join(":").trim() };
+                    }
+                    if (/smok/i.test(t)) return { label: "Smoking", value: /\b(no|not|non)\b/i.test(t) ? "Not allowed" : "Allowed" };
+                    return { label: "Note", value: t };
+                  };
+                  const specs: Array<{ key: string; label: string; value: string; Icon: any }> = [];
+                  if (r.bedsSummary) specs.push({ key: "bed", label: "Bed", value: dims ? `${r.bedsSummary} · ${dims.replace(/^[^:]*:\s*/, "").replace(/^.*\((.*)\)$/, "$1")}` : r.bedsSummary, Icon: BedDouble });
+                  if (r.bathPrivate === "yes" || r.bathPrivate === "no") specs.push({ key: "bath", label: "Bathroom", value: r.bathPrivate === "yes" ? "Private" : "Shared", Icon: Bath });
+                  r.policies.slice(0, 2).forEach((pol, i) => {
+                    const sp = specOf(pol.text);
+                    specs.push({ key: `pol-${i}`, label: sp.label, value: sp.value, Icon: pol.Icon || Check });
+                  });
+                  const reserve = () => {
+                    const params = new URLSearchParams({ property: property.slug });
+                    if (r.roomCode) {
+                      params.set("roomCode", r.roomCode);
+                    } else {
+                      const roomIndex = rows.findIndex((row) => row === r);
+                      if (roomIndex >= 0) params.set("roomIndex", String(roomIndex));
+                    }
+                    router.push(`/public/booking/confirm?${params.toString()}`);
+                  };
                   return (
                     <motion.div
-                      key={r.roomType + '-' + idx}
+                      key={r.roomType + "-" + idx}
                       transition={{ duration: 0.42, delay: idx * 0.07, ease: [0.2, 0.8, 0.2, 1] }}
-                      className="group relative flex rounded-2xl border border-solid border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-300"
+                      className="flex flex-col overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md md:flex-row"
                     >
-                      {/* Room index number */}
-                      <div className="flex-shrink-0 w-10 flex items-start justify-center pt-5 select-none" aria-hidden>
-                        <span className="text-2xl font-black text-slate-200 tabular-nums leading-none">
-                          {String(idx + 1).padStart(2, '0')}
-                        </span>
-                      </div>
-                      {/* Main content */}
-                      <div className="flex-1 min-w-0 flex flex-col md:flex-row gap-0">
-                        {/* Info block */}
-                        <div className="flex-1 min-w-0 p-4 sm:p-5">
-                          {/* Room type + count */}
-                          <div className="flex items-center gap-2.5 flex-wrap">
-                            <span className="inline-flex items-center gap-1.5 text-base sm:text-lg font-bold text-slate-900">
-                              <DoorClosed className="w-4 h-4 text-slate-500 flex-shrink-0" aria-hidden />
-                              {r.roomType}
+                      {/* Details */}
+                      <div className="min-w-0 flex-1 p-4 sm:p-5">
+                        {/* Header */}
+                        <div className="flex items-center gap-3">
+                          <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-[13px] font-bold tabular-nums text-white">
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <h3 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{r.roomType}</h3>
+                            {typeof r.roomsCount === "number" && r.roomsCount > 0 ? (
+                              <div className="text-[12px] text-slate-500">
+                                {r.roomsCount} {r.roomsCount === 1 ? "room" : "rooms"} of this type
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Spec strip */}
+                        {specs.length ? (
+                          <div className="mt-3.5 grid grid-cols-2 overflow-hidden rounded-xl border border-solid border-slate-200 sm:grid-cols-4">
+                            {specs.map(({ key, label, value, Icon }, i) => (
+                              <div
+                                key={key}
+                                className={[
+                                  "flex min-w-0 items-center gap-2.5 px-3 py-2.5",
+                                  i % 2 === 1 ? "border-0 border-l border-solid border-slate-200" : "",
+                                  i >= 2 ? "border-0 border-t border-solid border-slate-200 sm:border-t-0" : "",
+                                  i === 2 ? "sm:border-l" : "",
+                                ].join(" ")}
+                              >
+                                <Icon className="h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                                <div className="min-w-0 leading-tight">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
+                                  <div className="truncate text-[13px] font-semibold text-slate-800" title={value}>{value}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {/* Description */}
+                        {r.description ? (
+                          <p className="m-0 mt-3.5 text-[13.5px] leading-relaxed text-slate-600">
+                            <span style={descOpen ? undefined : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {r.description}
                             </span>
-                            {typeof r.roomsCount === 'number' && r.roomsCount > 0 && (
-                              <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 bg-slate-50 text-slate-700 ring-slate-200/60">
-                                {r.roomsCount} {r.roomsCount === 1 ? 'room' : 'rooms'}
-                              </span>
+                            {String(r.description).length > 160 ? (
+                              <button
+                                type="button"
+                                onClick={() => setOpenRoomDesc((prev) => toggleInSet(prev, idx))}
+                                className="mt-0.5 cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline"
+                              >
+                                {descOpen ? "Show less" : "Read more"}
+                              </button>
+                            ) : null}
+                          </p>
+                        ) : null}
+
+                        {/* Amenities: the highlights in one line, everything on request */}
+                        {allAmenities ? (
+                          <div className="mt-3.5 border-0 border-t border-solid border-slate-100 pt-3">
+                            {!amenOpen ? (
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                {[...r.amenities, ...bath].slice(0, TOP).map((a) => {
+                                  const A = iconOf(a);
+                                  return (
+                                    <span key={a} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-700">
+                                      <A className="h-4 w-4 text-[#02665e]" aria-hidden />
+                                      {a}
+                                    </span>
+                                  );
+                                })}
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenRoomAmen((prev) => toggleInSet(prev, idx))}
+                                  className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-solid border-slate-200 bg-white px-3 py-1 text-[12px] font-semibold text-slate-800 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                >
+                                  All {allAmenities} amenities
+                                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                                </button>
+                              </div>
+                            ) : (
+                              <div>
+                                {(() => {
+                                  // Group by purpose so guests scan by need, not a flat list
+                                  // One muted tone per group: its line, icons and chip tint. Text stays neutral.
+                                  const tone = (hex: string) => {
+                                    const n = parseInt(hex.slice(1), 16);
+                                    const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+                                    return { accent: hex, soft: `rgba(${rgb}, 0.08)`, ring: `rgba(${rgb}, 0.22)`, line: `rgba(${rgb}, 0.45)` };
+                                  };
+                                  type Group = { title: string; Icon: any; items: string[]; t: ReturnType<typeof tone> };
+                                  const ROOM_GROUPS: Group[] = [
+                                    { title: "Tech & entertainment", Icon: Wifi, t: tone("#4f46e5"), items: ["Free Wi-Fi", "TV", "Flat Screen TV", "PS Station", "Phone"] },
+                                    { title: "Comfort & climate", Icon: Thermometer, t: tone("#d97706"), items: ["Air Conditioning", "Heating", "Blackout Curtains", "Bedside Lamps", "Couches"] },
+                                    { title: "Work & refreshments", Icon: Coffee, t: tone("#02665e"), items: ["Table", "Desk", "Chair", "Coffee Maker", "Mini Fridge"] },
+                                    { title: "Storage & care", Icon: Lock, t: tone("#7c3aed"), items: ["Wardrobe", "Clothes Rack", "Iron", "Mirror", "Safe"] },
+                                  ];
+                                  const BATH_GROUPS: Group[] = [
+                                    { title: "Bathroom fixtures", Icon: Bath, t: tone("#0284c7"), items: ["Shower", "Toilet", "Water Heater", "Mirror", "Bath Mat", "Trash Bin", "Toilet Brush"] },
+                                    { title: "Bathroom supplies", Icon: Waves, t: tone("#e11d48"), items: ["Free toiletries", "Toilet paper", "Towel", "Hairdryer", "Slippers", "Bathrobe"] },
+                                  ];
+                                  const OTHER_TONE = tone("#64748b");
+                                  const group = (list: string[], defs: typeof ROOM_GROUPS, otherTitle: string) => {
+                                    const used = new Set<string>();
+                                    const out = defs
+                                      .map((d) => {
+                                        const items = list.filter((x) => d.items.some((k) => k.toLowerCase() === x.toLowerCase()) && !used.has(x));
+                                        items.forEach((x) => used.add(x));
+                                        return { ...d, items };
+                                      })
+                                      .filter((g) => g.items.length);
+                                    const rest = list.filter((x) => !used.has(x));
+                                    if (rest.length) out.push({ title: otherTitle, Icon: Tags, items: rest, t: OTHER_TONE });
+                                    return out;
+                                  };
+                                  const groups = [...group(r.amenities, ROOM_GROUPS, "Other in the room"), ...group(bath, BATH_GROUPS, "Other in the bathroom")];
+                                  return (
+                                    <>
+                                      <div className="mb-2.5 flex items-center justify-between gap-3">
+                                        <span className="text-[12px] font-semibold text-slate-500">{allAmenities} amenities in this room</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setOpenRoomAmen((prev) => toggleInSet(prev, idx))}
+                                          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] hover:underline"
+                                        >
+                                          Show fewer
+                                          <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                                        </button>
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                                        {groups.map((g) => (
+                                          <div key={g.title} className="min-w-0 border-0 border-l-2 border-solid pl-3" style={{ borderColor: g.t.line }}>
+                                            <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-slate-800">
+                                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full" style={{ backgroundColor: g.t.soft, color: g.t.accent }}>
+                                                <g.Icon className="h-3 w-3" aria-hidden />
+                                              </span>
+                                              {g.title}
+                                              <span className="rounded-full px-1.5 py-px text-[10.5px] font-bold" style={{ backgroundColor: g.t.soft, color: g.t.accent }}>
+                                                {g.items.length}
+                                              </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {g.items.map((a) => {
+                                                const A = iconOf(a);
+                                                return (
+                                                  <span
+                                                    key={a}
+                                                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] text-slate-700"
+                                                    style={{ backgroundColor: g.t.soft, boxShadow: `inset 0 0 0 1px ${g.t.ring}` }}
+                                                  >
+                                                    <A className="h-3.5 w-3.5" style={{ color: g.t.accent }} aria-hidden />
+                                                    {a}
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </div>
                             )}
                           </div>
-                          {/* Bed type + dimensions */}
-                          <div className="mt-2 flex items-start gap-1.5">
-                            <BedDouble className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" aria-hidden />
-                            <div>
-                              <span className="text-sm text-slate-700">{r.bedsSummary}</span>
-                              {getBedDimensions(r.bedsSummary) && (
-                                <div className="text-xs text-slate-500 mt-0.5">{getBedDimensions(r.bedsSummary)}</div>
-                              )}
-                            </div>
-                          </div>
-                          {/* Description */}
-                          {r.description ? (
-                            <div className="mt-3 rounded-xl bg-slate-50 border border-solid border-slate-100 px-3.5 py-2.5">
-                              <p className="text-sm text-slate-700 leading-relaxed">{capWords(r.description, 220)}</p>
-                            </div>
-                          ) : null}
-                          {/* Room amenities */}
-                          {r.amenities.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {r.amenities.slice(0, 8).map((a) => (
-                                <RoomAmenityChip key={a} label={a} activeHint={roomAmenityHint} onTouchHint={(label) => setRoomAmenityHint(label)} />
-                              ))}
-                            </div>
-                          )}
-                          {/* Bathroom */}
-                          {(r.bathItems && r.bathItems.length > 0) ? (
-                            <div className="mt-4 pt-3 border-t border-slate-100">
-                              <div className="flex items-center gap-2 flex-wrap mb-2">
-                                <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-                                  <Bath className="w-3.5 h-3.5 text-slate-500" />
-                                  Bathroom amenities
-                                </div>
-                                {r.bathPrivate === 'yes' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-solid border-emerald-200">
-                                    <Lock className="w-3 h-3" /> Private
-                                  </span>
-                                )}
-                                {r.bathPrivate === 'no' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-solid border-blue-200">
-                                    <Share2 className="w-3 h-3" /> Shared
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {r.bathItems.map((item) => (
-                                  <RoomAmenityChip key={item} label={item} activeHint={roomAmenityHint} onTouchHint={(label) => setRoomAmenityHint(label)} />
-                                ))}
-                              </div>
-                            </div>
-                          ) : r.bathPrivate === 'yes' || r.bathPrivate === 'no' ? (
-                            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
-                              <Bath className="w-3.5 h-3.5 text-slate-500" />
-                              {r.bathPrivate === 'yes' ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-solid border-emerald-200">
-                                  <Lock className="w-3 h-3" /> Private bathroom
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-solid border-blue-200">
-                                  <Share2 className="w-3 h-3" /> Shared bathroom
-                                </span>
-                              )}
+                        ) : null}
+                      </div>
+
+                      {/* Price and action */}
+                      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3.5 md:w-56 md:flex-col md:items-stretch md:justify-center md:border-l md:border-t-0 md:px-5 md:py-5">
+                        <div className="min-w-0">
+                          <PriceDisplay
+                            amountTzs={r.pricePerNight}
+                            className="text-[22px] font-black leading-tight text-slate-900 tabular-nums"
+                            noteClassName="text-xs font-normal text-slate-500 mt-0.5"
+                          />
+                          <div className="text-xs text-slate-500">per night, per room</div>
+                          {r.discountLabel ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]">
+                              <Tags className="h-2.5 w-2.5" aria-hidden />
+                              {r.discountLabel}
                             </div>
                           ) : null}
-                          {/* Policies row */}
-                          {r.policies.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-                              {r.policies.slice(0, 4).map((pol, i) => (
-                                <div key={i} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                                  {pol.Icon && <pol.Icon className={`w-3.5 h-3.5 flex-shrink-0 ${pol.iconColor || 'text-slate-500'}`} aria-hidden />}
-                                  <span>{pol.text}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
-                        {/* CTA strip: row on mobile, col on desktop */}
-                        <div className="flex-shrink-0 w-full md:w-52 flex flex-row items-center gap-3 md:flex-col md:items-stretch md:justify-between md:border-l border-t md:border-t-0 border-slate-100 px-4 py-3 md:p-5">
-                          <div className="flex-1 min-w-0">
-                            <PriceDisplay
-                              amountTzs={r.pricePerNight}
-                              className="text-base md:text-xl font-black text-slate-900 tabular-nums leading-tight"
-                              noteClassName="text-xs font-normal text-slate-500 mt-0.5"
-                            />
-                            <div className="text-xs text-slate-500">per night</div>
-                            {r.discountLabel ? (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-solid border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"><Tags className="w-2.5 h-2.5" aria-hidden />{r.discountLabel}</div>) : (<div className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-50 border border-solid border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-400">No discount</div>)}
-                          </div>
-                          <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                            <button type="button" onClick={() => { const params = new URLSearchParams({ property: property.slug }); if (r.roomCode) { params.set('roomCode', r.roomCode); } else { const roomIndex = rows.findIndex((row) => row === r); if (roomIndex >= 0) params.set('roomIndex', String(roomIndex)); } router.push(`/public/booking/confirm?${params.toString()}`); }} className="inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-[#02665e] to-[#014e47] px-5 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:shadow-md hover:from-[#027a70] hover:to-[#02665e] active:scale-[0.97] md:w-full">Pay now</button>
-                            <span className="text-center text-[10px] text-slate-400">Secure checkout</span>
-                          </div>
+                        <div className="flex flex-shrink-0 flex-col items-center gap-1.5 md:mt-4">
+                          <button
+                            type="button"
+                            onClick={reserve}
+                            className="inline-flex h-11 cursor-pointer items-center justify-center rounded-xl border-0 bg-[#02665e] px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#014e47] active:scale-[0.98] md:w-full"
+                          >
+                            Pay now
+                          </button>
+                          <span className="inline-flex items-center gap-1 text-[10.5px] text-slate-400">
+                            <Lock className="h-2.5 w-2.5" aria-hidden />
+                            Secure checkout
+                          </span>
                         </div>
                       </div>
                     </motion.div>
@@ -3883,549 +4098,726 @@ export default function PublicPropertyDetailPage() {
             </div>
           )}
         </div>
-        {/* House Rules Section */}
-        <div className="rounded-2xl border border-solid border-slate-100 bg-white shadow-sm nols-entrance overflow-hidden">
-          {/* Header bar */}
-          <div className="flex items-center gap-3 px-5 sm:px-6 py-4 bg-gradient-to-r from-[#02665e]/5 to-transparent border-b border-slate-100">
-            <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-              <Home className="w-5 h-5" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 leading-tight">House Rules</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Review before you book</p>
+        {/* House rules: four rules at a glance, then the host's own words */}
+        <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm nols-entrance">
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                <Home className="h-5 w-5" aria-hidden />
+              </span>
+              <div>
+                <h2 className="m-0 text-lg font-semibold leading-tight text-slate-900">House rules</h2>
+                <p className="m-0 mt-0.5 text-xs text-slate-500">Read these before you book. They apply to every guest.</p>
+              </div>
             </div>
           </div>
-          {houseRules ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-0">
-              {/* Column 1: Check-in & Check-out */}
-              <div className="p-4 sm:p-6 border-r border-b md:border-b-0 border-slate-100">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#02665e]/10">
-                    <Clock className="w-3.5 h-3.5 text-[#02665e]" />
-                  </span>
-                  <h3 className="text-[11px] font-bold text-[#02665e] uppercase tracking-widest">Check-in & Check-out</h3>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-[#02665e] flex items-center justify-center shadow-sm">
-                      <LogIn className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none">Check-in</div>
-                      <div className="text-sm font-semibold text-slate-800 mt-0.5">
-                        {houseRules.checkIn ? houseRules.checkIn : <span className="text-slate-400 font-normal text-xs">Not specified</span>}
-                      </div>
-                    </div>
+
+          {houseRules ? (() => {
+            // "14:00 - 18:00" becomes a band on a 24 hour bar
+            const toMinutes = (t?: string) => {
+              const m = /(\d{1,2}):(\d{2})/.exec(t || "");
+              return m ? Math.min(1440, Number(m[1]) * 60 + Number(m[2])) : null;
+            };
+            const windowOf = (v?: string) => {
+              if (!v) return null;
+              const times = v.match(/\d{1,2}:\d{2}/g) || [];
+              if (times.length >= 2) {
+                const from = toMinutes(times[0]);
+                const to = toMinutes(times[1]);
+                if (from !== null && to !== null && to > from) return { from, to };
+              }
+              if (times.length === 1) {
+                const at = toMinutes(times[0]);
+                if (at === null) return null;
+                return /until/i.test(v) ? { from: Math.max(0, at - 60), to: at } : { from: at, to: Math.min(1440, at + 60) };
+              }
+              return null;
+            };
+            const DayBar = ({ value }: { value?: string }) => {
+              const w = windowOf(value);
+              if (!w) return null;
+              return (
+                <div className="mt-2.5" aria-hidden>
+                  <div className="relative h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <span
+                      className="absolute inset-y-0 rounded-full bg-[#02665e]"
+                      style={{ left: `${(w.from / 1440) * 100}%`, width: `${Math.max(2, ((w.to - w.from) / 1440) * 100)}%` }}
+                    />
                   </div>
-                  <div className="pl-[18px]">
-                    <div className="w-px h-4 border-l-2 border-dashed border-[#02665e]/20" />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-rose-500 flex items-center justify-center shadow-sm">
-                      <LogOut className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none">Check-out</div>
-                      <div className="text-sm font-semibold text-slate-800 mt-0.5">
-                        {houseRules.checkOut ? houseRules.checkOut : <span className="text-slate-400 font-normal text-xs">Not specified</span>}
-                      </div>
-                    </div>
+                  <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-400">
+                    <span>00:00</span>
+                    <span>12:00</span>
+                    <span>24:00</span>
                   </div>
                 </div>
-              </div>
-              {/* Column 2: Policies */}
-              <div className="p-4 sm:p-6 border-b md:border-b-0 md:border-r border-slate-100">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#02665e]/10">
-                    <Users className="w-3.5 h-3.5 text-[#02665e]" />
-                  </span>
-                  <h3 className="text-[11px] font-bold text-[#02665e] uppercase tracking-widest">Policies</h3>
-                </div>
-                <div className="space-y-3">
-                  {houseRules.pets !== undefined ? (
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full shadow-sm ${houseRules.pets ? 'bg-[#02665e]' : 'bg-rose-500'}`}>
-                        {houseRules.pets ? <CheckCircle2 className="w-4 h-4 text-white" /> : <X className="w-4 h-4 text-white" />}
-                      </span>
-                      <div>
-                        <div className="text-sm font-semibold text-slate-700">Pets {houseRules.pets ? 'Allowed' : 'Not Allowed'}</div>
-                        {houseRules.petsNote && <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">{houseRules.petsNote}</div>}
+              );
+            };
+            const petsKnown = houseRules.pets !== undefined;
+            const smokingKnown = houseRules.smoking !== undefined;
+            const petsOk = houseRules.pets === true;
+            const smokingOk = houseRules.smoking === false; // smoking === true means not allowed
+            const tiles = [
+              {
+                key: "in",
+                label: "Check-in",
+                Icon: LogIn,
+                value: houseRules.checkIn || "Not specified",
+                muted: !houseRules.checkIn,
+                extra: <DayBar value={houseRules.checkIn} />,
+                tone: "brand" as const,
+              },
+              {
+                key: "out",
+                label: "Check-out",
+                Icon: LogOut,
+                value: houseRules.checkOut || "Not specified",
+                muted: !houseRules.checkOut,
+                extra: <DayBar value={houseRules.checkOut} />,
+                tone: "brand" as const,
+              },
+              {
+                key: "pets",
+                label: "Pets",
+                Icon: PawPrint,
+                value: petsKnown ? (petsOk ? "Allowed" : "Not allowed") : "Ask the host",
+                muted: !petsKnown,
+                extra: houseRules.petsNote ? <p className="m-0 mt-1.5 text-xs leading-relaxed text-slate-500">{houseRules.petsNote}</p> : null,
+                tone: petsKnown ? (petsOk ? ("yes" as const) : ("no" as const)) : ("brand" as const),
+              },
+              {
+                key: "smoking",
+                label: "Smoking",
+                Icon: smokingOk ? Cigarette : CigaretteOff,
+                value: smokingKnown ? (smokingOk ? "Allowed" : "Not allowed") : "Ask the host",
+                muted: !smokingKnown,
+                extra: null,
+                tone: smokingKnown ? (smokingOk ? ("yes" as const) : ("no" as const)) : ("brand" as const),
+              },
+            ];
+            const safety = [
+              "Keep the property clean and tidy",
+              "Return all keys and access cards at check-out",
+              "Report any incident or damage straight away",
+              "Respect quiet hours and the neighbours",
+              "Follow the safety signs posted on site",
+              ...(Array.isArray(houseRules.safetyMeasures) ? houseRules.safetyMeasures.map(String) : []),
+            ];
+            return (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                  {tiles.map(({ key, label, Icon, value, muted, extra, tone }, i) => (
+                    <div
+                      key={key}
+                      className={[
+                        "border-0 border-solid border-slate-100 px-5 py-4 sm:px-6",
+                        i > 0 ? "border-t sm:border-t-0" : "",
+                        i === 2 ? "sm:border-t lg:border-t-0" : "",
+                        i === 3 ? "sm:border-t lg:border-t-0" : "",
+                        i % 2 === 1 ? "sm:border-l" : "",
+                        i === 2 ? "lg:border-l" : "",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={[
+                            "inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full",
+                            tone === "no" ? "bg-rose-50 text-rose-600" : tone === "yes" ? "bg-[#02665e] text-white" : "bg-[#02665e]/10 text-[#02665e]",
+                          ].join(" ")}
+                        >
+                          <Icon className="h-[18px] w-[18px]" aria-hidden />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
+                          <div
+                            className={[
+                              "mt-0.5 text-[15px] font-bold leading-tight tabular-nums",
+                              muted ? "text-slate-400" : tone === "no" ? "text-rose-700" : "text-slate-900",
+                            ].join(" ")}
+                          >
+                            {value}
+                          </div>
+                        </div>
                       </div>
+                      {extra}
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-slate-200">
-                        <X className="w-4 h-4 text-slate-400" />
-                      </span>
-                      <div className="text-sm text-slate-400">Pets policy not specified</div>
-                    </div>
-                  )}
-                  {houseRules.smoking !== undefined && (
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full shadow-sm mt-0.5 ${!houseRules.smoking ? 'bg-[#02665e]' : 'bg-rose-500'}`}>
-                        {houseRules.smoking ? <CigaretteOff className="w-4 h-4 text-white" /> : <CheckCircle2 className="w-4 h-4 text-white" />}
-                      </span>
-                      <div className="text-sm font-semibold text-slate-700">Smoking {houseRules.smoking ? 'Not Allowed' : 'Allowed'}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {/* Column 3: Safety Measures - spans 2 cols on small */}
-              <div className="col-span-2 md:col-span-1 p-4 sm:p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#02665e]/10">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#02665e]" />
-                  </span>
-                  <h3 className="text-[11px] font-bold text-[#02665e] uppercase tracking-widest">Safety Measures</h3>
-                </div>
-                <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-2">
-                  {[
-                    "Keep property clean and well-maintained",
-                    "Return all keys and access cards upon checkout",
-                    "Report any incidents or damages immediately",
-                    "Respect quiet hours and neighbors",
-                    "Follow all posted safety guidelines",
-                    ...(houseRules.safetyMeasures && Array.isArray(houseRules.safetyMeasures) ? houseRules.safetyMeasures : [])
-                  ].map((measure: string, idx: number) => (
-                    <li key={idx} className="flex items-start gap-2.5">
-                      <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] shadow-sm mt-0.5">
-                        <CheckCircle2 className="w-3 h-3 text-white" />
-                      </span>
-                      <span className="text-sm text-slate-600 leading-relaxed">{measure}</span>
-                    </li>
                   ))}
-                </ul>
-              </div>
-            </div>
-          ) : (
+                </div>
+
+                <div className="grid grid-cols-1 border-0 border-t border-solid border-slate-100 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                  <div className="px-5 py-4 sm:px-6">
+                    <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
+                      <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                      From the host
+                    </div>
+                    {houseRules.other ? (
+                      <blockquote className="m-0 whitespace-pre-line rounded-xl border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] px-4 py-3 text-sm leading-relaxed text-slate-700">
+                        {houseRules.other}
+                      </blockquote>
+                    ) : (
+                      <p className="m-0 text-sm text-slate-400">No extra rules from the host.</p>
+                    )}
+                  </div>
+                  <div className="border-0 border-t border-solid border-slate-100 px-5 py-4 sm:px-6 lg:border-l lg:border-t-0">
+                    <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#02665e]">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                      Good to know
+                    </div>
+                    <ul className="m-0 grid list-none grid-cols-1 gap-x-5 gap-y-1.5 p-0 sm:grid-cols-2">
+                      {safety.map((item, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-[13px] leading-snug text-slate-600">
+                          <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </>
+            );
+          })() : (
             <div className="px-6 py-10 text-center">
-              <div className="text-sm text-slate-400 italic">House rules will be available soon. The owner is setting up the rules for this property.</div>
+              <div className="text-sm text-slate-400">House rules will be available soon. The owner is setting up the rules for this property.</div>
             </div>
           )}
         </div>
-        {/* Location & Map - Two column layout */}
-        {property.latitude && property.longitude && (
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Nearby Services - Left Column (below map on mobile) */}
-            <div className="space-y-6 order-2 lg:order-1">
-                {/* Nearby Services - Detailed Cards */}
-              {(() => {
-                // Filter to only detailed facilities (with name)
-                const detailedFacilities = nearbyFacilities.filter((f: any) => typeof f !== 'string' && f.name);
-                
+        {/* Location and what is around it: one card, map left, nearby places right */}
+        {property.latitude && property.longitude && (() => {
+          const lat = Number(property.latitude);
+          const lng = Number(property.longitude);
+          const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+          const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
-                if (detailedFacilities.length === 0) return null;
-                
+          type Place = { name: string; type: string; ownership?: string; distanceKm: number | null; reachableBy: string[]; url?: string };
+          const places: Place[] = nearbyFacilities
+            .filter((f: any) => f && typeof f !== "string" && f.name)
+            .map((f: any) => ({
+              name: String(f.name),
+              type: String(f.type || "Place"),
+              ownership: f.ownership ? String(f.ownership) : undefined,
+              distanceKm: typeof f.distanceKm === "number" && Number.isFinite(f.distanceKm) ? f.distanceKm : null,
+              reachableBy: Array.isArray(f.reachableBy) ? f.reachableBy.map(String) : [],
+              url: typeof f.url === "string" && /^https?:\/\//i.test(f.url) ? f.url : undefined,
+            }))
+            .sort((x: Place, y: Place) => (x.distanceKm ?? 9999) - (y.distanceKm ?? 9999));
 
-                // Show 2 by default, all when expanded
-                const displayCount = showAllNearbyServices ? detailedFacilities.length : 2;
-                const facilitiesToShow = detailedFacilities.slice(0, displayCount);
-                const hasMore = detailedFacilities.length > 2;
-                
+          const kindOf = (t: string) => {
+            const v = t.toLowerCase();
+            if (/(hospital|clinic|polyclinic|pharmacy)/.test(v)) return "medical";
+            if (/(airport|bus|petrol|road|station)/.test(v) && !/police/.test(v)) return "transport";
+            return "public";
+          };
+          const iconFor = (t: string) => {
+            const v = t.toLowerCase();
+            if (v.includes("pharmacy")) return Pill;
+            if (v.includes("hospital")) return Hospital;
+            if (v.includes("clinic")) return Stethoscope;
+            if (v.includes("airport")) return Plane;
+            if (v.includes("petrol") || v.includes("fuel")) return Fuel;
+            if (v.includes("bus")) return Bus;
+            if (v.includes("road")) return Route;
+            if (v.includes("police")) return Shield;
+            if (v.includes("conference")) return Landmark;
+            if (v.includes("stadium")) return Building2;
+            return MapPin;
+          };
+          const modeIcon: Record<string, any> = { Walking: Footprints, Boda: Bike, "Public Transport": Bus, "Car/Taxi": Car };
+          // A rough travel time from the modes the host listed, so distance means something
+          const travel = (p: Place) => {
+            const d = p.distanceKm;
+            if (d === null || d <= 0) return null;
+            const has = (m: string) => p.reachableBy.includes(m);
+            if (has("Walking") && d <= 2.5) return `about ${Math.max(1, Math.round((d / 5) * 60))} min walk`;
+            if (has("Car/Taxi")) return `about ${Math.max(2, Math.round((d / 30) * 60))} min by car`;
+            if (has("Boda")) return `about ${Math.max(2, Math.round((d / 28) * 60))} min by boda`;
+            if (has("Public Transport")) return `about ${Math.max(3, Math.round((d / 18) * 60))} min by bus`;
+            if (has("Walking")) return `about ${Math.round((d / 5) * 60)} min walk`;
+            return null;
+          };
+          const extras: Array<{ Icon: any; text: string }> = [];
+          const seenExtra = new Set<string>();
+          const pushExtra = (raw: string) => {
+            const norm = normalizeNearby([raw]);
+            if (!norm || !norm.length) return;
+            const { Icon, title, detail } = norm[0];
+            const text = `${title}${detail ? `: ${detail}` : ""}`;
+            if (seenExtra.has(text.toLowerCase())) return;
+            seenExtra.add(text.toLowerCase());
+            extras.push({ Icon, text });
+          };
+          nearbyFacilities
+            .filter((f: any) => typeof f === "string" || (f && !f.name))
+            .forEach((f: any) => pushExtra(typeof f === "string" ? f : f?.label || String(f)));
+          servicesByCategory.nearby.forEach((item: string) => pushExtra(item));
 
-                return (
-                  <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                        <MapPin className="w-5 h-5" aria-hidden />
-                      </span>
-                      <h2 className="text-lg font-semibold text-slate-900">Nearby Services</h2>
-                    </div>
-                    
+          return (
+            <section className="mt-6 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+              {/* Header: where it is, and the two actions people take */}
+              <div className="flex flex-col gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                    <MapPin className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="m-0 text-lg font-semibold text-slate-900">Location and surroundings</h2>
+                    <p className="m-0 mt-0.5 truncate text-sm text-slate-500">{location || "Location on the map"}</p>
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-2">
+                  <a
+                    href={directionsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#02665e] px-3.5 text-[13px] font-semibold text-white no-underline shadow-sm transition-colors hover:bg-[#014e47]"
+                  >
+                    <Navigation className="h-4 w-4" aria-hidden />
+                    Directions
+                  </a>
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+                  >
+                    Open in Maps
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                </div>
+              </div>
 
-                    <div className="space-y-3">
-                      {facilitiesToShow.map((facility: any, idx: number) => {
-                      
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+                {/* Map */}
+                <div className="p-4">
+                  <div className="overflow-hidden rounded-xl border border-solid border-slate-200">
+                    <PropertyMap latitude={property.latitude} longitude={property.longitude} propertyTitle={property.title} />
+                  </div>
+                </div>
 
-                      // Get icon based on facility type
-                      const getFacilityIcon = (type: string) => {
-                        const t = (type || "").toLowerCase();
-                        if (t.includes("hospital") || t.includes("clinic") || t.includes("pharmacy") || t.includes("polyclinic")) {
-                          return { Icon: Hospital, color: "text-rose-600", bgColor: "bg-rose-50" };
-                        }
-                        if (t.includes("petrol") || t.includes("fuel") || t.includes("gas")) {
-                          return { Icon: Fuel, color: "text-orange-600", bgColor: "bg-orange-50" };
-                        }
-                        if (t.includes("airport")) {
-                          return { Icon: Plane, color: "text-blue-600", bgColor: "bg-blue-50" };
-                        }
-                        if (t.includes("bus") || t.includes("station")) {
-                          return { Icon: Bus, color: "text-amber-700", bgColor: "bg-amber-50" };
-                        }
-                        if (t.includes("road") || t.includes("main road")) {
-                          return { Icon: Route, color: "text-slate-700", bgColor: "bg-slate-50" };
-                        }
-                        if (t.includes("police")) {
-                          return { Icon: Shield, color: "text-indigo-600", bgColor: "bg-indigo-50" };
-                        }
-                        if (t.includes("conference") || t.includes("center") || t.includes("centre")) {
-                          return { Icon: MapPin, color: "text-emerald-600", bgColor: "bg-emerald-50" };
-                        }
-                        return { Icon: MapPin, color: "text-[#02665e]", bgColor: "bg-[#02665e]/10" };
-                      };
-                      
+                {/* What is nearby: category tiles filter a route that scrolls inside a
+                    panel as tall as the map; a chevron glides to the next stop */}
+                {(() => {
+                  const kinds = [
+                    { key: "all" as const, label: "All", Icon: Navigation, list: places },
+                    { key: "medical" as const, label: "Medical", Icon: Hospital, list: places.filter((p) => kindOf(p.type) === "medical") },
+                    { key: "transport" as const, label: "Transport", Icon: Plane, list: places.filter((p) => kindOf(p.type) === "transport") },
+                    { key: "public" as const, label: "Public places", Icon: Landmark, list: places.filter((p) => kindOf(p.type) === "public") },
+                  ].filter((k) => k.key === "all" || k.list.length > 0);
+                  const active = kinds.find((k) => k.key === nearbyKind) || kinds[0]!;
+                  const list = active.list;
+                  const far = Math.max(1, ...places.map((x) => x.distanceKm ?? 0));
+                  return (
+                    <div className="p-4 pt-0 lg:pl-0 lg:pt-4">
+                    <div className="relative flex flex-col overflow-hidden rounded-xl border border-solid border-white/10 bg-[#0a1110] p-4 text-white shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)] lg:h-[340px]" style={{ isolation: "isolate" }}>
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute -right-24 -top-24 -z-10 h-72 w-72 rounded-full"
+                        style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.55), rgba(2,102,94,0))" }}
+                      />
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06]"
+                        style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "18px 18px" }}
+                      />
 
-                      const facilityIcon = getFacilityIcon(facility.type || "");
-                      const Icon = facilityIcon.Icon;
-                      
+                      {/* Header */}
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#02665e] text-white">
+                            <Navigation className="h-4 w-4" aria-hidden />
+                          </span>
+                          <h3 className="m-0 text-[16px] font-bold text-white">What is nearby</h3>
+                        </div>
+                        {places.length ? (
+                          <span className="rounded-full border border-solid border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/75">
+                            {places.length} {places.length === 1 ? "place" : "places"} · nearest first
+                          </span>
+                        ) : null}
+                      </div>
 
-                      return (
-                        <div 
-
-                          key={idx} 
-
-                          className="group relative overflow-hidden rounded-xl border border-solid border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:border-[#02665e]/30 hover:shadow-lg hover:shadow-[#02665e]/5 hover:-translate-y-0.5"
-                        >
-                          <div className="flex items-start gap-4">
-                            {/* Icon - Enhanced with better styling */}
-                            <div className={`flex-shrink-0 w-12 h-12 rounded-xl ${facilityIcon.bgColor} flex items-center justify-center shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-md`}>
-                              <Icon className={`h-6 w-6 ${facilityIcon.color} transition-transform duration-300 group-hover:scale-110`} />
-                            </div>
-                            
-
-                            {/* Content */}
-                            <div className="flex-1 min-w-0 space-y-3">
-                              {/* Name */}
-                              {facility.name && (
-                                <div className="font-bold text-slate-900 text-base leading-snug tracking-tight">{facility.name}</div>
-                              )}
-                              
-
-                              {/* Tags Row - Enhanced styling */}
-                              <div className="flex flex-wrap items-center gap-2">
-                                {facility.type && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-solid border-blue-100/80 shadow-sm">
-                                    {facility.type}
+                      {places.length ? (
+                        <>
+                          {/* Category tiles: the quick facts, and the filter */}
+                          <div role="tablist" aria-label="Nearby categories" className="mb-3 grid flex-shrink-0 gap-2" style={{ gridTemplateColumns: `repeat(${kinds.length}, minmax(0, 1fr))` }}>
+                            {kinds.map((k) => {
+                              const on = k.key === active.key;
+                              const nearestKm = k.list.find((p) => p.distanceKm !== null)?.distanceKm ?? null;
+                              return (
+                                <button
+                                  key={k.key}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={on}
+                                  onClick={() => setNearbyKind(k.key)}
+                                  className={[
+                                    "min-w-0 cursor-pointer rounded-xl border border-solid px-2.5 py-2 text-left transition-colors",
+                                    on ? "border-[#02665e] bg-[#02665e]/35" : "border-white/10 bg-white/[0.05] hover:bg-white/[0.09]",
+                                  ].join(" ")}
+                                >
+                                  <span className={`flex items-center gap-1.5 truncate text-[10px] font-bold uppercase tracking-[0.08em] ${on ? "text-white" : "text-[#5ec8bb]"}`}>
+                                    <k.Icon className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                                    <span className="truncate">{k.label}</span>
                                   </span>
-                                )}
-                                {facility.ownership && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold border border-solid border-slate-200/80 shadow-sm">
-                                    {facility.ownership}
+                                  <span className="mt-1 flex items-baseline gap-1">
+                                    <span className="text-[18px] font-extrabold leading-none tabular-nums text-white">{nearestKm ?? "-"}</span>
+                                    {nearestKm !== null ? <span className="text-[10.5px] font-semibold text-white/55">km</span> : null}
                                   </span>
-                                )}
-                              </div>
-                              
+                                  <span className="mt-0.5 block truncate text-[10.5px] text-white/50">
+                                    {k.key === "all" ? "nearest of all" : `${k.list.length} ${k.list.length === 1 ? "place" : "places"}`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
 
-                              {/* Distance & Link Row - Better spacing and styling */}
-                              <div className="flex flex-wrap items-center gap-4 text-xs">
-                                {typeof facility.distanceKm === 'number' && (
-                                  <div className="inline-flex items-center gap-1.5 text-slate-700 font-semibold">
-                                    <MapPin className="h-4 w-4 text-rose-500 flex-shrink-0" />
-                                    <span>{facility.distanceKm} km</span>
-                                  </div>
-                                )}
-                                {facility.url && (
-                                  <a 
+                          {/* The route, scrolling inside the panel */}
+                          <div className="relative min-h-0 flex-1">
+                            <div
+                              ref={nearbyListRef}
+                              onScroll={measureNearbyList}
+                              className="h-full overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]"
+                            >
+                              <ol className="relative m-0 flex list-none flex-col gap-2 p-0">
+                                <span aria-hidden className="absolute bottom-6 left-[17px] top-6 border-0 border-l-2 border-dashed border-white/15" />
+                                {list.map((p, i) => {
+                                  const Icon = iconFor(p.type);
+                                  const eta = travel(p);
+                                  const pct = p.distanceKm !== null ? Math.max(6, Math.round((p.distanceKm / far) * 100)) : 0;
+                                  return (
+                                    <li key={`${p.name}-${i}`} className="relative flex items-center gap-3">
+                                      <span className={`relative z-[1] inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ring-4 ring-[#0a1110] ${i === 0 ? "bg-[#02665e] text-white" : "bg-[#132422] text-[#5ec8bb]"}`}>
+                                        <Icon className="h-4 w-4" aria-hidden />
+                                      </span>
+                                      <div className="min-w-0 flex-1 rounded-xl border border-solid border-white/[0.08] bg-white/[0.04] px-3 py-2 transition-colors hover:bg-white/[0.07]">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <div className="flex min-w-0 items-center gap-1.5">
+                                              <span className="truncate text-[13.5px] font-semibold leading-tight text-white" title={p.name}>{p.name}</span>
+                                              {p.url ? (
+                                                <a href={p.url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-white/45 hover:text-white" aria-label={`More about ${p.name}`}>
+                                                  <ExternalLink className="h-3 w-3" />
+                                                </a>
+                                              ) : null}
+                                            </div>
+                                            <div className="mt-0.5 truncate text-[11.5px] text-white/55">
+                                              {p.type}{p.ownership ? ` · ${p.ownership === "Public/Government" ? "Public" : p.ownership}` : ""}
+                                            </div>
+                                          </div>
+                                          <div className="flex-shrink-0 text-right leading-tight">
+                                            {p.distanceKm !== null ? (
+                                              <div className="text-[14.5px] font-bold tabular-nums text-white">
+                                                {p.distanceKm}<span className="ml-0.5 text-[10.5px] font-semibold text-white/55">km</span>
+                                              </div>
+                                            ) : null}
+                                            {eta ? <div className="mt-0.5 text-[10.5px] text-[#5ec8bb]">{eta}</div> : null}
+                                          </div>
+                                        </div>
+                                        <div className="mt-1.5 flex items-center gap-2.5">
+                                          {p.distanceKm !== null ? (
+                                            <span className="block h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10" aria-hidden>
+                                              <span className="block h-full rounded-full bg-gradient-to-r from-[#02665e] to-[#5ec8bb]" style={{ width: `${pct}%` }} />
+                                            </span>
+                                          ) : (
+                                            <span className="flex-1" />
+                                          )}
+                                          {p.reachableBy.length ? (
+                                            <span className="inline-flex flex-shrink-0 items-center gap-1">
+                                              {p.reachableBy.map((m) => {
+                                                const M = modeIcon[m];
+                                                return M ? (
+                                                  <span key={m} title={m} aria-label={m} className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.08] text-white/75">
+                                                    <M className="h-3 w-3" />
+                                                  </span>
+                                                ) : null;
+                                              })}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ol>
 
-                                    href={facility.url} 
-
-                                    target="_blank" 
-
-                                    rel="noopener noreferrer" 
-
-                                    className="inline-flex items-center gap-1.5 text-[#02665e] hover:text-[#014e47] font-semibold transition-all duration-200 hover:underline underline-offset-2"
-                                  >
-                                    <ExternalLink className="h-4 w-4 flex-shrink-0" />
-                                    <span>Link</span>
-                                  </a>
-                                )}
-                              </div>
-                              
-
-                              {/* Transportation - Enhanced with better visual separation */}
-                              {Array.isArray(facility.reachableBy) && facility.reachableBy.length > 0 && (
-                                <div className="pt-2.5 border-t border-slate-100/80">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-slate-500 font-semibold">Reachable by:</span>
-                                    {facility.reachableBy.map((mode: string, mIdx: number) => (
-                                      <span 
-
-                                        key={mIdx} 
-
-                                        className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 text-xs font-medium border border-solid border-slate-200/60 shadow-sm transition-colors duration-200 group-hover:border-slate-300"
-                                      >
-                                        {mode}
+                              {active.key === "all" && extras.length ? (
+                                <div className="mt-3 border-0 border-t border-solid border-white/10 pt-3">
+                                  <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/45">Also in the area</div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {extras.slice(0, 12).map(({ Icon, text }) => (
+                                      <span key={text} className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/80">
+                                        <Icon className="h-3.5 w-3.5 text-[#5ec8bb]" aria-hidden />
+                                        {text}
                                       </span>
                                     ))}
                                   </div>
                                 </div>
-                              )}
+                              ) : null}
+
+                              <p className="m-0 mt-3 flex items-center gap-1.5 pb-1 text-[11px] text-white/40">
+                                <MapPin className="h-3 w-3" aria-hidden />
+                                Distances are shared by the host. Travel times are rough estimates.
+                              </p>
                             </div>
-                          </div>
-                          
 
-                          {/* Subtle accent line on hover */}
-                          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#02665e]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                        </div>
-                      );
-                      })}
+                            {/* More below: a chevron that glides to the next stop */}
+                            {nearbyHasMore ? (
+                              <button
+                                type="button"
+                                onClick={() => nearbyListRef.current?.scrollBy({ top: 120, behavior: "smooth" })}
+                                aria-label="Show more nearby places"
+                                className="absolute bottom-1 right-2 z-[2] inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-solid border-white/25 bg-[#02665e] text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.9)] transition-transform hover:translate-y-0.5"
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="m-0 rounded-xl border border-solid border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-white/65">
+                          The host has not listed nearby places yet. Use Directions to explore the area.
+                        </p>
+                      )}
                     </div>
-                    
-
-                    {/* Show More/Less Button */}
-                    {hasMore && (
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => setShowAllNearbyServices(!showAllNearbyServices)}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 font-semibold text-sm transition-all duration-200 border border-solid border-slate-200 hover:border-slate-300"
-                        >
-                          {showAllNearbyServices ? (
-                            <>
-                              <span>Show less</span>
-                              <ChevronUp className="h-4 w-4" />
-                            </>
-                          ) : (
-                            <>
-                              <span>Show more</span>
-                              <ChevronDown className="h-4 w-4" />
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-              {/* Simple Nearby Places (string format) */}
-              {nearbyFacilities.length > 0 && nearbyFacilities.some((f: any) => typeof f === 'string' || (!f.name && f)) && (
-                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                      <MapPin className="w-5 h-5" aria-hidden />
-                    </span>
-                    <h2 className="text-lg font-semibold text-slate-900">Nearby Places</h2>
-                  </div>
-                  <div className="space-y-2">
-                    {nearbyFacilities
-                      .filter((f: any) => typeof f === 'string' || !f.name)
-                      .slice(0, 8)
-                      .map((facility: any, idx: number) => {
-                        const facilityStr = typeof facility === 'string' ? facility : (facility?.label || String(facility));
-                        const normalized = normalizeNearby([facilityStr]);
-                        if (!normalized || normalized.length === 0) return null;
-                        const item = normalized[0];
-                        const { Icon, colorClass, title, detail } = item;
-                        return (
-                          <div key={idx} className="flex items-center gap-2 text-sm text-slate-700">
-                            <Icon className={`w-4 h-4 ${colorClass} flex-shrink-0`} />
-                            <span>{title}{detail ? `: ${detail}` : ''}</span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-              
-
-              {/* Nearby Facilities (from services) */}
-              {servicesByCategory.nearby.length > 0 && (
-                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                      <MapPin className="w-5 h-5" aria-hidden />
-                    </span>
-                    <h2 className="text-lg font-semibold text-slate-900">Nearby Facilities</h2>
-                  </div>
-                  <div className="space-y-2">
-                    {servicesByCategory.nearby.slice(0, 6).map((item: string, idx: number) => {
-                      const normalized = normalizeNearby([item]);
-                      if (!normalized || normalized.length === 0) return null;
-                      const { Icon, colorClass, title, detail } = normalized[0];
-                      return (
-                        <div key={idx} className="flex items-center gap-2 text-sm text-slate-700">
-                          <Icon className={`w-4 h-4 ${colorClass} flex-shrink-0`} />
-                          <span>{title}{detail ? `: ${detail}` : ''}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  );
+                })()}
               </div>
-              {/* Interactive Map - Right Column (first on mobile) */}
-              <div className="space-y-4 order-1 lg:order-2">
-                {/* Location Header - Map Title */}
-                <div className="rounded-xl border border-solid border-slate-200 bg-white p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                      <MapPin className="w-5 h-5" aria-hidden />
-                    </span>
-                    <h2 className="text-lg font-semibold text-slate-900">Location</h2>
-                  </div>
-                  <div className="text-sm text-slate-600">{location || "-"}</div>
-                </div>
-                {/* Map */}
-                <div className="rounded-xl border border-solid border-slate-200 bg-white overflow-hidden">
-                  <PropertyMap 
-
-                    latitude={property.latitude} 
-
-                    longitude={property.longitude}
-                    propertyTitle={property.title}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+            </section>
+          );
+        })()}
         </div>
-      {/* Lightbox */}
+      {/* Lightbox: one photo, full screen, with a filmstrip */}
       {photoPortalReady && lightboxOpen && lightboxImages.length > 0 ? createPortal((
         <div
-          className="fixed inset-0 z-[2147483647] bg-slate-950/92 backdrop-blur-sm"
+          className="fixed inset-0 z-[2147483647] flex flex-col bg-[#0b0f12] text-white"
+          style={{ isolation: "isolate" }}
           role="dialog"
           aria-modal="true"
           aria-label="Photo gallery"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeLightbox();
-          }}
         >
-          <div className="absolute inset-x-0 top-0 z-[2147483647] px-4 py-4">
-            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-bold uppercase tracking-wide text-white">{property.title}</div>
-                <div className="mt-0.5 text-xs text-white/65">{activeIdx + 1} of {lightboxImages.length} photos</div>
+          {/* Top bar */}
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-sm font-bold text-white sm:text-[15px]">{property.title}</div>
+              <div className="mt-0.5 text-xs text-white/60">
+                <span className="font-semibold text-white/85">{activeIdx + 1} / {lightboxImages.length}</span>
+                {(() => {
+                  const sec = photoSections.find((x) => x.idxs.includes(activeIdx));
+                  return sec && photoSections.length > 1 ? <span> · {sec.label}</span> : null;
+                })()}
               </div>
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-2">
               <button
                 type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-solid border-white/15 bg-white/12 text-white shadow-lg backdrop-blur-md hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                onClick={() => {
+                  setLightboxOpen(false);
+                  openAllPhotos();
+                }}
+                className="hidden h-10 cursor-pointer items-center gap-2 rounded-full border-0 bg-white/10 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-white/20 sm:inline-flex"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                All photos
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 onClick={closeLightbox}
                 aria-label="Close photo gallery"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
-          <div className="absolute inset-0 flex items-center justify-center px-3 pb-4 pt-24 sm:p-6 sm:pt-24">
-            <div className="w-full max-w-6xl">
-              <div className="mx-auto w-full max-w-4xl">
-                <div className="relative h-[58vh] min-h-[300px] max-h-[620px] overflow-hidden rounded-2xl bg-slate-900 shadow-2xl ring-1 ring-white/10 sm:h-[64vh]">
-                  <div className="absolute inset-0 scale-110 opacity-35 blur-2xl">
-                    <PropertyGalleryImage src={lightboxImages[activeIdx]} alt="" sizes="100vw" className="object-cover" />
-                  </div>
-                  <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/5 to-black/25" />
-                  <div className="relative h-full w-full">
-                    <PropertyGalleryImage src={lightboxImages[activeIdx]} alt={`${property.title} photo ${activeIdx + 1}`} sizes="(min-width: 1024px) 900px, 100vw" className="object-contain" priority />
-                  </div>
-                  <button
-                    type="button"
-                    className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-solid border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
-                    onClick={() => setActiveIdx((i) => (i <= 0 ? lightboxImages.length - 1 : i - 1))}
-                    aria-label="Previous photo"
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-solid border-white/15 bg-black/35 text-white shadow-lg backdrop-blur-md hover:bg-black/55"
-                    onClick={() => setActiveIdx((i) => (i >= lightboxImages.length - 1 ? 0 : i + 1))}
-                    aria-label="Next photo"
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              {/* Counter under photo (centered, like your sample) */}
-              <div className="mt-3 text-center text-white/90 text-sm font-semibold">
-                {activeIdx + 1} / {lightboxImages.length}
-              </div>
-              {/* Thumbnails strip */}
-              <div className="mx-auto mt-4 flex w-full max-w-4xl gap-2 overflow-x-auto rounded-2xl bg-white/8 p-2 backdrop-blur-md sm:justify-center">
+
+          {/* Stage: the photo fills the height; empty space closes */}
+          <div
+            className="relative flex min-h-0 flex-1 items-center justify-center px-2 sm:px-20"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeLightbox();
+            }}
+          >
+            <div className="relative h-full w-full max-w-6xl">
+              <PropertyGalleryImage
+                src={lightboxImages[activeIdx]}
+                alt={`${property.title} photo ${activeIdx + 1}`}
+                sizes="(min-width: 1280px) 1150px, 100vw"
+                className="object-contain"
+                priority
+              />
+            </div>
+            {lightboxImages.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:left-5"
+                  onClick={() => setActiveIdx((i) => (i <= 0 ? lightboxImages.length - 1 : i - 1))}
+                  aria-label="Previous photo"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:right-5"
+                  onClick={() => setActiveIdx((i) => (i >= lightboxImages.length - 1 ? 0 : i + 1))}
+                  aria-label="Next photo"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          {/* Filmstrip */}
+          {lightboxImages.length > 1 ? (
+            <div className="px-4 pb-4 pt-3 sm:px-6">
+              <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {lightboxImages.map((src, i) => (
                   <button
                     key={`${src}-${i}`}
+                    id={`lb-thumb-${i}`}
                     type="button"
-                    className={[
-                      "relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-xl border bg-white/10 sm:h-20 sm:w-28",
-                      i === activeIdx ? "border-white ring-2 ring-white/35" : "border-white/15 opacity-75",
-                      "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                      "motion-safe:hover:scale-[1.03] motion-safe:active:scale-[0.97]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                    ].join(" ")}
                     onClick={() => setActiveIdx(i)}
                     aria-label={`View photo ${i + 1}`}
+                    aria-current={i === activeIdx ? "true" : undefined}
+                    className={[
+                      "relative h-14 w-20 flex-shrink-0 cursor-pointer overflow-hidden rounded-lg border-0 bg-white/5 p-0 transition-opacity sm:h-16 sm:w-24",
+                      i === activeIdx ? "opacity-100 ring-2 ring-white ring-offset-2 ring-offset-[#0b0f12]" : "opacity-45 hover:opacity-90",
+                    ].join(" ")}
                   >
-                    <PropertyGalleryImage src={src} alt={`thumb ${i + 1}`} sizes="120px" />
+                    <PropertyGalleryImage src={src} alt="" sizes="96px" />
                   </button>
                 ))}
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
       ), document.body) : null}
-      {/* All photos (masonry/grid) */}
+      {/* All photos: an editorial photo tour, the property first, then each room type */}
       {photoPortalReady && allPhotosOpen ? createPortal((
         <div
           className="fixed inset-0 z-[2147483647] bg-white"
+          style={{ isolation: "isolate" }}
           role="dialog"
           aria-modal="true"
           aria-label="All photos"
         >
           <div
             className={[
-              "relative h-dvh w-full overflow-hidden bg-white",
-              "flex flex-col",
-              "transition-all duration-200 ease-out motion-reduce:transition-none",
+              "relative flex h-dvh w-full flex-col overflow-hidden bg-white",
+              "transition-opacity duration-200 ease-out motion-reduce:transition-none",
               allPhotosShown ? "opacity-100" : "opacity-0",
             ].join(" ")}
           >
-            {/* Sticky top bar (always visible) */}
-            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white">
-              <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
+            {/* Header */}
+            <div className="border-0 border-b border-solid border-slate-200 bg-white">
+              <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
                 <div className="min-w-0 leading-tight">
-                  <div className="truncate text-base font-bold text-slate-950 sm:text-lg">All photos</div>
-                  <div className="mt-1 text-xs text-slate-500 sm:text-sm">{lightboxImages.length.toLocaleString()} photos</div>
+                  <div className="truncate text-base font-bold text-slate-950 sm:text-lg">{property.title}</div>
+                  <div className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+                    {lightboxImages.length.toLocaleString()} photos
+                    {photoSections.length > 1 ? ` · ${photoSections.length} sections` : ""}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={closeAllPhotos}
-                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:h-10 sm:w-10"
+                  className="inline-flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                   aria-label="Close"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-white">
-              <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6">
-                <div
-                  className={[
-                    "grid grid-cols-2 gap-2 sm:gap-3",
-                    "transition-transform duration-200 ease-out motion-reduce:transition-none",
-                    allPhotosShown ? "translate-y-0" : "translate-y-1",
-                  ].join(" ")}
-                >
-                  {lightboxImages.map((src, i) => {
-                    const isFeature = i % 3 === 0;
-                    return (
+
+            <div id="photo-tour-scroll" className="flex-1 overflow-y-auto bg-white">
+              {photoSections.length > 1 ? (
+                <nav className="pt-chips" aria-label="Photo sections">
+                  {photoSections.map((sec) => (
+                    <button
+                      key={sec.key}
+                      type="button"
+                      onClick={() => scrollToPhotoSection(sec.key)}
+                      className={`pt-chip${activeTourKey === sec.key ? " is-active" : ""}`}
+                    >
+                      {sec.label} · {sec.idxs.length}
+                    </button>
+                  ))}
+                </nav>
+              ) : null}
+
+              <div className="pt-layout">
+                {photoSections.length > 1 ? (
+                  <nav className="pt-index" aria-label="Photo sections">
+                    <p className="pt-index-title">Photo tour</p>
+                    {photoSections.map((sec) => (
                       <button
-                        key={`${src}-${i}`}
+                        key={sec.key}
                         type="button"
-                        onClick={() => openFromGrid(i)}
-                        className={[
-                          "group relative w-full",
-                          isFeature ? "col-span-2" : "",
-                          "overflow-hidden rounded-xl bg-slate-100",
-                          "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                          "motion-safe:active:scale-[0.99]",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                        ].join(" ")}
-                        aria-label={`Open photo ${i + 1}`}
+                        onClick={() => scrollToPhotoSection(sec.key)}
+                        className={`pt-index-item${activeTourKey === sec.key ? " is-active" : ""}`}
+                        aria-current={activeTourKey === sec.key ? "true" : undefined}
                       >
-                        <div className={["relative w-full bg-slate-100", isFeature ? "aspect-[16/10]" : "aspect-[4/3]"].join(" ")}>
-                          <PropertyGalleryImage
-                            src={src}
-                            alt={`${property.title} photo ${i + 1}`}
-                            sizes={isFeature ? "(min-width: 1024px) 896px, 100vw" : "(min-width: 1024px) 440px, 50vw"}
-                            className="object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/10" />
-                          <div className="absolute bottom-2 right-2 rounded-full bg-black/45 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-                            {i + 1} / {lightboxImages.length}
-                          </div>
-                        </div>
+                        <span className="pt-index-thumb">
+                          <PropertyGalleryImage src={lightboxImages[sec.idxs[0]]} alt="" sizes="56px" className="object-cover" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="pt-index-label">{sec.label}</span>
+                          <span className="pt-index-count">{sec.idxs.length} photos</span>
+                        </span>
                       </button>
+                    ))}
+                  </nav>
+                ) : null}
+
+                <div className={photoSections.length > 1 ? "" : "lg:col-span-2"}>
+                  {photoSections.map((sec) => {
+                    // Balanced blocks: trios alternate sides, then a pair or a single
+                    const blocks: Array<{ kind: "trio" | "pair" | "single"; idxs: number[]; flip: boolean }> = [];
+                    let at = 0;
+                    let trios = 0;
+                    while (sec.idxs.length - at >= 3) {
+                      blocks.push({ kind: "trio", idxs: sec.idxs.slice(at, at + 3), flip: trios % 2 === 1 });
+                      at += 3;
+                      trios += 1;
+                    }
+                    const left = sec.idxs.slice(at);
+                    if (left.length === 2) blocks.push({ kind: "pair", idxs: left, flip: false });
+                    if (left.length === 1) blocks.push({ kind: "single", idxs: left, flip: false });
+
+                    return (
+                      <section key={sec.key} id={`photo-tour-${sec.key}`} data-tour-key={sec.key} className="pt-section">
+                        <div className="pt-section-head">
+                          <h3 className="pt-section-title">{sec.label}</h3>
+                          <span className="pt-section-rule" aria-hidden />
+                          <span className="pt-section-count">{sec.idxs.length} photos</span>
+                        </div>
+                        {blocks.map((block, bi) => (
+                          <div
+                            key={`${sec.key}-${bi}`}
+                            className={`pt-block pt-${block.kind}${block.flip ? " is-flip" : ""}`}
+                          >
+                            {block.idxs.map((i, n) => {
+                              const big = block.kind === "trio" ? n === 0 : block.kind === "single";
+                              return (
+                                <button
+                                  key={`${sec.key}-${i}`}
+                                  type="button"
+                                  onClick={() => openFromGrid(i)}
+                                  className="pt-tile"
+                                  aria-label={`Open photo ${i + 1} of ${lightboxImages.length}`}
+                                >
+                                  <PropertyGalleryImage
+                                    src={lightboxImages[i]}
+                                    alt={`${property.title} photo ${i + 1}`}
+                                    sizes={big ? "(min-width: 1024px) 700px, 100vw" : "(min-width: 1024px) 340px, 50vw"}
+                                    className="object-cover"
+                                  />
+                                  <span className="pt-tile-num">{i + 1} / {lightboxImages.length}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </section>
                     );
                   })}
                 </div>

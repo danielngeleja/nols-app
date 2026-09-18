@@ -63,6 +63,7 @@ import PinHealthBadge from "./admin/PinHealthBadge";
 import NearbyServices from "./NearbyServices";
 import ServicesAndFacilities from "./ServicesAndFacilities";
 import { PropertyVisualizationPreview } from "../app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
+import { parseFloorUses } from "../app/(owner)/owner/properties/add/_components/floorUses";
 import { 
   getPropertyCommission, 
   calculatePriceWithCommission,
@@ -1666,6 +1667,7 @@ export default function PropertyPreview({
                   title={property.title || "Property"}
                   buildingType={effectiveBuildingType}
                   totalFloors={effectiveTotalFloors || ""}
+                  floorUses={parseFloorUses((property as any)?.services)}
                   showHeader={false}
                   rooms={rooms.map((room) => {
                     // Parse floorDistribution if it's a JSON string

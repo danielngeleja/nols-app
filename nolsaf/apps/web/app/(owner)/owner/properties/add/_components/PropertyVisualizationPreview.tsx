@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Building2, ChevronUp, ChevronDown, ChevronRight, BedDouble, Home, Layers, Grid3x3, MousePointerClick } from "lucide-react";
+import { floorUseLabel, type FloorUses } from "./floorUses";
 
 interface Room {
   roomType: string;
@@ -16,6 +17,8 @@ interface PropertyVisualizationPreviewProps {
   buildingType: string;
   totalFloors: number | "";
   rooms: Room[];
+  /** What floors hold besides rooms: { [floor]: ["restaurant", ...] } */
+  floorUses?: FloorUses;
   onFloorSelect?: (floor: number) => void;
   onRoomTypeClick?: (args: { roomType: string; floor: number; view: "structure" | "plan" }) => void;
   /** Visual style for the top header area */
@@ -26,6 +29,8 @@ interface PropertyVisualizationPreviewProps {
   sectionTitle?: string;
   sectionEyebrow?: string;
   sectionBadge?: React.ReactNode;
+  /** "dark" restyles the same layout for the listing builder's dark cards */
+  tone?: "light" | "dark";
 }
 
 function getOrdinal(n: number): string {
@@ -115,6 +120,7 @@ export function PropertyVisualizationPreview({
   buildingType,
   totalFloors,
   rooms,
+  floorUses,
   onFloorSelect,
   onRoomTypeClick,
   headerVariant = "compact",
@@ -122,6 +128,7 @@ export function PropertyVisualizationPreview({
   sectionTitle,
   sectionEyebrow,
   sectionBadge,
+  tone = "light",
 }: PropertyVisualizationPreviewProps) {
   const numFloors = typeof totalFloors === "number" && totalFloors > 0 ? totalFloors : 0;
   const [currentFloor, setCurrentFloor] = useState(0);
@@ -253,14 +260,20 @@ export function PropertyVisualizationPreview({
   const current = floorStats.get(currentFloor) || { rooms: 0, types: [] };
   // Draw every declared storey so the building is true to its height; floors
   // without rooms show as quiet, non-clickable rows.
-  const highestFloor = Math.max(numFloors, ...availableFloors);
+  const highestFloor = Math.max(numFloors - 1, ...availableFloors);
+  const usesOf = (f: number) => (floorUses?.[f] || []).map(floorUseLabel);
   const allFloors = highestFloor <= 60 ? Array.from({ length: highestFloor + 1 }, (_, i) => i) : availableFloors;
   // Top floor first; a run of empty floors folds into one quiet row ("5–8") so it never dominates.
   const floorsTopDown = (() => {
-    const out: Array<{ kind: "floor"; floor: number } | { kind: "empty"; from: number; to: number }> = [];
+    const out: Array<{ kind: "floor"; floor: number } | { kind: "use"; floor: number } | { kind: "empty"; from: number; to: number }> = [];
     for (const floor of [...allFloors].reverse()) {
       if (floorStats.has(floor)) {
         out.push({ kind: "floor", floor });
+        continue;
+      }
+      // A floor without rooms that the owner described stands on its own row
+      if (usesOf(floor).length) {
+        out.push({ kind: "use", floor });
         continue;
       }
       const last = out[out.length - 1];
@@ -274,7 +287,7 @@ export function PropertyVisualizationPreview({
   const floorLabel = (f: number) => (f === 0 ? "Ground floor" : `${getFloorName(f)} floor`);
 
   return (
-    <div className={showHeader ? "box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white" : ""}>
+    <div className={`${showHeader ? "box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white" : ""}${tone === "dark" ? " pvp-dark" : ""}`}>
       {showHeader ? (
         <div
           className={`flex items-center justify-between gap-4 px-5 py-4 ${headerVariant === "hero" ? "text-white" : "border-0 border-b border-solid border-slate-100"}`}
@@ -391,6 +404,18 @@ export function PropertyVisualizationPreview({
                 </div>
                 <ul className="m-0 mt-1 grid list-none gap-1 p-0">
                   {floorsTopDown.map((item) => {
+                    if (item.kind === "use") {
+                      return (
+                        <li key={`use-${item.floor}`}>
+                          <div className="box-border grid h-8 grid-cols-[40px_minmax(0,1fr)] items-center gap-2 rounded-md border border-solid border-slate-200 bg-slate-50 px-1.5">
+                            <span className="text-center font-mono text-[11.5px] font-bold text-slate-500">
+                              {item.floor === 0 ? "G" : item.floor}
+                            </span>
+                            <span className="truncate text-[12px] font-semibold text-slate-600">{usesOf(item.floor).join(", ")}</span>
+                          </div>
+                        </li>
+                      );
+                    }
                     if (item.kind === "empty") {
                       const name = (f: number) => (f === 0 ? "G" : String(f));
                       return (
@@ -490,6 +515,7 @@ export function PropertyVisualizationPreview({
                   <p className="m-0 mt-0.5 flex items-center gap-2 text-[12px] text-white/75">
                     <span className="truncate">
                       {current.rooms} {current.rooms === 1 ? "room" : "rooms"} · {current.types.length} {current.types.length === 1 ? "type" : "types"}
+                      {usesOf(currentFloor).length ? ` · ${usesOf(currentFloor).join(", ")}` : ""}
                     </span>
                     {totalRooms > 0 && (
                       <span className="flex-none rounded bg-white/15 px-1.5 py-px text-[11px] font-semibold text-white">

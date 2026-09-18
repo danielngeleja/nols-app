@@ -1,0 +1,326 @@
+/* ===========================================================================
+   Photo tour (public property page, "All photos").
+   An editorial layout: photos come in balanced blocks that never leave gaps.
+     trio   one large photo with two stacked beside it, alternating sides
+     pair   two side by side
+     single one wide panoramic frame
+   Plain CSS on purpose, so the layout does not depend on generated utilities.
+   ======================================================================== */
+
+.pt-layout {
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 16px 56px;
+  display: grid;
+  gap: 24px;
+}
+
+@media (min-width: 1024px) {
+  .pt-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 40px;
+    padding: 28px 24px 72px;
+  }
+}
+
+/* -------------------------------------------------------- side index (lg) */
+.pt-index {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .pt-index {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: sticky;
+    top: 24px;
+    align-self: start;
+  }
+}
+
+.pt-index-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.pt-index-item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pt-index-item:hover {
+  background: #f8fafc;
+}
+
+.pt-index-item.is-active {
+  border-color: rgba(2, 102, 94, 0.25);
+  background: rgba(2, 102, 94, 0.06);
+}
+
+.pt-index-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 42px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.pt-index-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.pt-index-item.is-active .pt-index-label {
+  color: #02665e;
+}
+
+.pt-index-count {
+  display: block;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+/* ------------------------------------------------ section chips (below lg) */
+.pt-chips {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  background: rgba(255, 255, 255, 0.97);
+  scrollbar-width: none;
+}
+
+.pt-chips::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .pt-chips {
+    display: none;
+  }
+}
+
+.pt-chip {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pt-chip.is-active {
+  border-color: #02665e;
+  background: #02665e;
+  color: #ffffff;
+}
+
+/* ----------------------------------------------------------------- sections */
+.pt-section {
+  scroll-margin-top: 64px;
+}
+
+@media (min-width: 1024px) {
+  .pt-section {
+    scroll-margin-top: 24px;
+  }
+}
+
+.pt-section + .pt-section {
+  margin-top: 44px;
+}
+
+.pt-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pt-section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+}
+
+.pt-section-count {
+  font-size: 13px;
+  white-space: nowrap;
+  color: #64748b;
+}
+
+.pt-section-rule {
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+/* ------------------------------------------------------------------- blocks */
+.pt-block {
+  display: grid;
+  gap: 8px;
+}
+
+.pt-block + .pt-block {
+  margin-top: 8px;
+}
+
+.pt-trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "a a b"
+    "a a c";
+  height: clamp(280px, 44vw, 540px);
+}
+
+.pt-trio.is-flip {
+  grid-template-areas:
+    "b a a"
+    "c a a";
+}
+
+.pt-trio > :nth-child(1) {
+  grid-area: a;
+}
+
+.pt-trio > :nth-child(2) {
+  grid-area: b;
+}
+
+.pt-trio > :nth-child(3) {
+  grid-area: c;
+}
+
+.pt-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pt-pair > .pt-tile {
+  height: auto;
+  aspect-ratio: 4 / 3;
+}
+
+.pt-single > .pt-tile {
+  height: auto;
+  aspect-ratio: 21 / 9;
+}
+
+@media (max-width: 639px) {
+  .pt-trio,
+  .pt-trio.is-flip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "a a"
+      "b c";
+    height: auto;
+  }
+
+  .pt-trio > .pt-tile {
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+
+  .pt-trio > .pt-tile:nth-child(1) {
+    aspect-ratio: 16 / 10;
+  }
+
+  .pt-single > .pt-tile {
+    aspect-ratio: 16 / 10;
+  }
+}
+
+/* -------------------------------------------------------------------- tiles */
+.pt-tile {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: #f1f5f9;
+  cursor: pointer;
+}
+
+.pt-tile img {
+  transition: transform 0.5s ease;
+}
+
+.pt-tile:hover img {
+  transform: scale(1.03);
+}
+
+.pt-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  transition: background-color 0.2s ease;
+}
+
+.pt-tile:hover::after {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.pt-tile:focus-visible {
+  outline: 2px solid #02665e;
+  outline-offset: 2px;
+}
+
+.pt-tile-num {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.pt-tile:hover .pt-tile-num,
+.pt-tile:focus-visible .pt-tile-num {
+  opacity: 1;
+}

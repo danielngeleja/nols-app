@@ -217,6 +217,12 @@ async function batchResolvePrimaryImages(ids: number[]): Promise<Map<number, str
       Prisma.sql`
         SELECT p.id,
           COALESCE(
+            -- The owner's chosen cover: photos[0], when it is a real web URL
+            CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+              ELSE NULL
+            END,
             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
               WHERE pi.propertyId = p.id
                 AND pi.status IN ('READY','PROCESSING')
@@ -568,6 +574,12 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                     COALESCE(
+                      -- The owner's chosen cover: photos[0], when it is a real web URL
+                      CASE
+                        WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                        ELSE NULL
+                      END,
                       (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                         WHERE pi.propertyId = p.id
                           AND pi.status IN ('READY','PROCESSING')
@@ -644,6 +656,12 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                           COALESCE(
+                            -- The owner's chosen cover: photos[0], when it is a real web URL
+                            CASE
+                              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                              ELSE NULL
+                            END,
                             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                               WHERE pi.propertyId = p.id
                                 AND pi.status IN ('READY','PROCESSING')
@@ -706,6 +724,12 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                           COALESCE(
+                            -- The owner's chosen cover: photos[0], when it is a real web URL
+                            CASE
+                              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                              ELSE NULL
+                            END,
                             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                               WHERE pi.propertyId = p.id
                                 AND pi.status IN ('READY','PROCESSING')
@@ -1105,6 +1129,12 @@ const homeSummary: RequestHandler = async (_req, res) => {
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                     COALESCE(
+                      -- The owner's chosen cover: photos[0], when it is a real web URL
+                      CASE
+                        WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                        ELSE NULL
+                      END,
                       (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                         WHERE pi.propertyId = p.id
                           AND pi.status IN ('READY','PROCESSING','PENDING')

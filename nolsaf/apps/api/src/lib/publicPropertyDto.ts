@@ -207,9 +207,31 @@ export function pickImages(opts: {
 
   const out: string[] = [];
 
+  // The owner's photos list carries their chosen order, cover first. When it
+  // holds real web URLs it decides the order; each photo still uses its
+  // processed thumbnail when an image row has one. Image rows are sorted by
+  // upload time, so leading with them ignored "Make cover".
+  const orderedPhotoUrls = Array.isArray(photos)
+    ? photos.map((p: any) => String(p || "").trim()).filter((u: string) => /^https?:\/\//i.test(u))
+    : [];
+  const rows = Array.isArray(images) ? images : [];
+  if (orderedPhotoUrls.length) {
+    const rowByUrl = new Map<string, Pick<PropertyImage, "url" | "thumbnailUrl" | "status">>();
+    for (const row of rows) {
+      const u = safeString(row.url);
+      if (u) rowByUrl.set(u, row);
+    }
+    for (const u of orderedPhotoUrls) {
+      const row = rowByUrl.get(u);
+      const thumb = row ? safeString(row.thumbnailUrl) : null;
+      const pub = toPublicImageUrl(thumb || u, thumb ? 900 : 1600);
+      if (pub) out.push(pub);
+    }
+  }
+
   // Prefer moderated/processed images when available; otherwise take whatever exists.
-  if (Array.isArray(images) && images.length) {
-    const urls = images
+  if (rows.length) {
+    const urls = rows
       .map((i) => toPublicImageUrl(safeString(i.thumbnailUrl) || safeString(i.url) || "", i.thumbnailUrl ? 900 : 1600))
       .filter((u): u is string => typeof u === "string");
     out.push(...urls);
