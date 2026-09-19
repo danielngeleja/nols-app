@@ -8,6 +8,11 @@ import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
+import {
+  customerBookingReference,
+  isCustomerBookingReference,
+  matchesCustomerBookingReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -109,6 +114,25 @@ function buildCustomerBookingWhere(user: { id: number }, legacyBookingIds: numbe
     or.push({ id: { in: legacyBookingIds } });
   }
   return { OR: or };
+}
+
+async function resolveCustomerBookingId(
+  value: string,
+  userId: number,
+  legacyBookingIds: number[],
+): Promise<number | null> {
+  const normalized = String(value || "").trim();
+  const numericId = Number(normalized);
+  if (/^\d+$/.test(normalized) && Number.isInteger(numericId) && numericId > 0) {
+    return numericId;
+  }
+  if (!isCustomerBookingReference(normalized)) return null;
+
+  const candidates = await prisma.booking.findMany({
+    where: buildCustomerBookingWhere({ id: userId }, legacyBookingIds),
+    select: { id: true },
+  });
+  return candidates.find(({ id }) => matchesCustomerBookingReference(normalized, id))?.id ?? null;
 }
 
 /**
@@ -297,6 +321,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
 
       return {
         id: booking.id,
+        bookingReference: customerBookingReference(booking.id),
         property,
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
@@ -379,18 +404,21 @@ router.get("/property-slugs", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id
+ * GET /api/customer/bookings/:reference
  * Get detailed booking information including full details
  */
 router.get("/:id", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-
     const userContact = await getUserContact(userId);
 
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {
@@ -446,6 +474,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 
     return res.json({
       ...booking,
+      bookingReference: customerBookingReference(booking.id),
       isValid,
       isPaid,
     });
@@ -456,18 +485,21 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id/pdf
+ * GET /api/customer/bookings/:reference/pdf
  * Generate and download PDF reservation form for a booking
  */
 router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-
     const userContact = await getUserContact(userId);
 
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {
@@ -538,20 +570,20 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id/receipt.html
+ * GET /api/customer/bookings/:reference/receipt.html
  * Returns the same HTML receipt the admin sees — rendered client-side to PDF via html2pdf.js.
  */
 router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-    if (!Number.isFinite(bookingId) || bookingId <= 0) {
-      return res.status(400).json({ error: "Invalid booking ID" });
-    }
-
     const userContact = await getUserContact(userId);
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {

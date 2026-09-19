@@ -12,6 +12,7 @@ const api = apiClient;
 
 type Booking = {
   id: number;
+  bookingReference: string;
   property: {
     id: number;
     title: string;
@@ -578,7 +579,7 @@ export default function MyBookingsPage() {
                         </button>
                       ) : null}
                       <Link
-                        href={`/account/bookings/${booking.id}`}
+                        href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}`}
                         className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#02665e] px-3.5 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
                       >
                         <Eye className="h-4 w-4" aria-hidden />

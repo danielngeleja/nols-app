@@ -33,6 +33,7 @@ const api = apiClient;
 
 type BookingDetail = {
   id: number;
+  bookingReference: string;
   status: string;
   checkIn: string;
   checkOut: string;
@@ -153,13 +154,19 @@ export default function BookingDetailPage() {
   useEffect(() => {
     if (!id) return;
     api
-      .get(`/api/customer/bookings/${id}`)
-      .then((r) => setBooking(r.data))
+      .get(`/api/customer/bookings/${encodeURIComponent(id)}`)
+      .then((r) => {
+        const next = r.data as BookingDetail;
+        setBooking(next);
+        if (/^\d+$/.test(id) && next.bookingReference) {
+          router.replace(`/account/bookings/${encodeURIComponent(next.bookingReference)}`);
+        }
+      })
       .catch((e) =>
         setError(e.response?.data?.error || "Failed to load booking.")
       )
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, router]);
 
   // Generate QR once booking loads
   useEffect(() => {
@@ -167,7 +174,7 @@ export default function BookingDetailPage() {
     const qrContent =
       booking.code?.code ||
       booking.bookingCode ||
-      `NOLS-BOOKING-${booking.id}`;
+      booking.bookingReference;
     (async () => {
       try {
         const QR = (await import("qrcode")) as any;
@@ -529,7 +536,7 @@ export default function BookingDetailPage() {
           <div className="space-y-2">
             {canCancel(booking) ? (
               <Link
-                href={`/account/cancellations?code=${code || booking.id}`}
+                href={`/account/cancellations?code=${encodeURIComponent(code || booking.bookingReference)}`}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-solid border-rose-200 bg-white text-sm font-semibold text-rose-600 no-underline transition-colors hover:bg-rose-50"
               >
                 <XCircle className="h-4 w-4" aria-hidden />

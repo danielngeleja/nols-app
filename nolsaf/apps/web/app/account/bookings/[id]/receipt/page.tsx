@@ -10,16 +10,16 @@ import LogoSpinner from "@/components/LogoSpinner";
 export default function BookingReceiptPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const bookingId = Number(idParam);
+  const bookingReference = String(idParam || "");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string>("");
-  const [filename, setFilename] = useState<string>(`Booking-Receipt-${bookingId}.pdf`);
+  const [filename, setFilename] = useState<string>(`Booking-Receipt-${bookingReference}.pdf`);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const backHref = useMemo(() => `/account/bookings/${bookingId}`, [bookingId]);
+  const backHref = useMemo(() => `/account/bookings/${encodeURIComponent(bookingReference)}`, [bookingReference]);
 
   const sanitizedReceiptHtml = useMemo(() => {
     return sanitizeTrustedHtml(receiptHtml);
@@ -29,13 +29,13 @@ export default function BookingReceiptPage() {
     setLoading(true);
     setErr(null);
     try {
-      const url = `/api/customer/bookings/${bookingId}/receipt.html`;
+      const url = `/api/customer/bookings/${encodeURIComponent(bookingReference)}/receipt.html`;
       const r = await fetch(url, { credentials: "include", cache: "no-store" });
       const html = await r.text();
       if (!r.ok) {
         throw new Error(`Failed to load receipt (${r.status})`);
       }
-      const fn = r.headers.get("x-nolsaf-filename") || `Booking-Receipt-${bookingId}.pdf`;
+      const fn = r.headers.get("x-nolsaf-filename") || `Booking-Receipt-${bookingReference}.pdf`;
       setFilename(fn);
       setReceiptHtml(html);
     } catch (e: any) {
@@ -44,16 +44,16 @@ export default function BookingReceiptPage() {
     } finally {
       setLoading(false);
     }
-  }, [bookingId]);
+  }, [bookingReference]);
 
   useEffect(() => {
-    if (!Number.isFinite(bookingId) || bookingId <= 0) {
-      setErr("Invalid booking ID");
+    if (!bookingReference) {
+      setErr("Invalid booking reference");
       setLoading(false);
       return;
     }
     load();
-  }, [bookingId, load]);
+  }, [bookingReference, load]);
 
   useEffect(() => {
     let revokedUrl: string | null = null;
@@ -95,7 +95,7 @@ export default function BookingReceiptPage() {
         try { URL.revokeObjectURL(revokedUrl); } catch {}
       }
     };
-  }, [sanitizedReceiptHtml, filename, bookingId]);
+  }, [sanitizedReceiptHtml, filename, bookingReference]);
 
   if (loading) {
     return (
