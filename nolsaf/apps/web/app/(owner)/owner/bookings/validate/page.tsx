@@ -6,6 +6,7 @@ import apiClient from "@/lib/apiClient";
 import { useRouter } from "next/navigation";
 
 const api = apiClient;
+const BOOKING_TIME_ZONE = "Africa/Dar_es_Salaam";
 
 type Preview = {
   bookingId: number;
@@ -453,14 +454,13 @@ export default function CheckinValidation() {
     };
   }, []);
 
-  const formatDateTime = (dateStr: string) => {
+  const formatStayDate = (dateStr: string) => {
     try {
-      return new Date(dateStr).toLocaleString(undefined, {
+      return new Date(dateStr).toLocaleDateString('en-GB', {
+        timeZone: BOOKING_TIME_ZONE,
         year: 'numeric',
         month: 'short',
         day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
       });
     } catch {
       return dateStr;
@@ -570,7 +570,7 @@ export default function CheckinValidation() {
                       </p>
                       {handoff.propertyName ? (
                         <p className="m-0 mt-1 text-xs text-slate-500">
-                          {handoff.propertyName}{handoff.checkIn ? ` | ${new Date(handoff.checkIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                          {handoff.propertyName}{handoff.checkIn ? ` | ${formatStayDate(handoff.checkIn)}` : ""}
                         </p>
                       ) : null}
                     </div>
@@ -789,12 +789,12 @@ export default function CheckinValidation() {
                     <div style={{margin:'0 1rem',height:'1px',background:'#f1f5f9'}} />
                     <div style={{padding:'0.75rem 1rem 1rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem',width:'100%',boxSizing:'border-box'}}>
                       <div style={{borderRadius:'0.75rem',background:'#f0fdf4',border:'1px solid #d1fae5',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#059669',marginBottom:'0.25rem'}}>Check-in</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#064e3b',lineHeight:1.3}}>{formatDateTime(preview.booking.checkIn)}</div>
+                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#059669',marginBottom:'0.25rem'}}>Check-in date</div>
+                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#064e3b',lineHeight:1.3}}>{formatStayDate(preview.booking.checkIn)}</div>
                       </div>
                       <div style={{borderRadius:'0.75rem',background:'#f0f9ff',border:'1px solid #bae6fd',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#0284c7',marginBottom:'0.25rem'}}>Check-out</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#0c4a6e',lineHeight:1.3}}>{formatDateTime(preview.booking.checkOut)}</div>
+                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#0284c7',marginBottom:'0.25rem'}}>Check-out date</div>
+                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#0c4a6e',lineHeight:1.3}}>{formatStayDate(preview.booking.checkOut)}</div>
                       </div>
                     </div>
                   </div>
