@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import {
@@ -34,6 +34,7 @@ const api = apiClient;
 
 type Ride = {
   id: number;
+  rideReference: string;
   status: string;
   vehicleType?: string;
   scheduledDate: string;
@@ -126,7 +127,8 @@ function pickExtendedBio(d: DriverBioInput): string {
 
 export default function RideDetailPage() {
   const params = useParams();
-  const rideId = Number((params as any)?.id ?? "");
+  const router = useRouter();
+  const rideId = String((params as any)?.id ?? "");
   const [ride, setRide] = useState<Ride | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,17 +138,23 @@ export default function RideDetailPage() {
 
   useEffect(() => {
     fetchAccountSession().then((res) => setCurrentUserId(res.data?.id || null)).catch(() => {});
-    if (!Number.isFinite(rideId) || rideId <= 0) {
+    if (!rideId) {
       setError("This ride link is invalid.");
       setLoading(false);
       return;
     }
 
-    api.get(`/api/transport-bookings/${rideId}`)
-      .then((res) => setRide(res.data))
+    api.get(`/api/transport-bookings/${encodeURIComponent(rideId)}`)
+      .then((res) => {
+        const next = res.data as Ride;
+        setRide(next);
+        if (/^\d+$/.test(rideId) && next.rideReference) {
+          router.replace(`/account/rides/${encodeURIComponent(next.rideReference)}`);
+        }
+      })
       .catch((err) => setError(err?.response?.data?.error || "Failed to load ride details"))
       .finally(() => setLoading(false));
-  }, [rideId]);
+  }, [rideId, router]);
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });

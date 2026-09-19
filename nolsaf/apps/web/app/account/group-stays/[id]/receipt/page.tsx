@@ -37,14 +37,14 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 export default function GroupStayReceiptPage() {
   const params = useParams();
   const router = useRouter();
-  const id = Number(params?.id);
+  const id = String(params?.id || "");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [barcodeDataUrl, setBarcodeDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!Number.isFinite(id)) return setError("Invalid booking.");
-    apiClient.get(`/api/customer/group-stays/${id}/deposit-receipt-data`)
+    if (!id) return setError("Invalid booking.");
+    apiClient.get(`/api/customer/group-stays/${encodeURIComponent(id)}/deposit-receipt-data`)
       .then((res) => setReceipt(res.data.receipt))
       .catch((err) => setError(err?.response?.data?.message || "Receipt could not be loaded."));
   }, [id]);

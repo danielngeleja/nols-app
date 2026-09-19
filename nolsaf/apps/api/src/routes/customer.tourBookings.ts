@@ -9,9 +9,29 @@ import { evaluateTourCancellation, packageIsNonRefundable } from "../lib/tourCan
 import { notifyAdmins } from "../lib/notifications.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { mapTourLifecycle } from "../lib/serviceLifecycle.js";
+import {
+  customerRecordReference,
+  isCustomerRecordReference,
+  matchesCustomerRecordReference,
+} from "../lib/customerBookingReference.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
+
+router.param("id", async (req, res, next, value) => {
+  const authedReq = req as AuthedRequest;
+  const requestedId = String(value || "").trim();
+  if (!isCustomerRecordReference(requestedId, "tour")) return next();
+
+  const candidates = await prisma.tourBooking.findMany({
+    where: { customerId: authedReq.user!.id },
+    select: { id: true },
+  });
+  const match = candidates.find(({ id }) => matchesCustomerRecordReference(requestedId, "tour", id));
+  if (!match) return res.status(404).json({ error: "Tour booking not found" });
+  req.params.id = String(match.id);
+  return next();
+});
 
 function toCustomerTimelineStatus(rawStatus: string | null | undefined, paymentStatus: string | null | undefined): string {
   const status = String(rawStatus || "").trim().toUpperCase();
@@ -479,6 +499,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
       const draftAccess = dashboardBucket === "DRAFT" ? draftPaymentAccessWindow(item.metadata, item.createdAt) : null;
       return {
         id: item.id,
+        tourReference: customerRecordReference("tour", item.id),
         bookingCode: item.bookingCode,
         bookingCodeSuffix: bookingCodeSuffix(item.bookingCode),
         title: item.title,
@@ -647,6 +668,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 
     return res.json({
       ...booking,
+      tourReference: customerRecordReference("tour", booking.id),
       metadata: md,
       bookingCodeSuffix: bookingCodeSuffix(booking.bookingCode),
       timelineStatus: toCustomerTimelineStatus(booking.status, booking.paymentStatus),

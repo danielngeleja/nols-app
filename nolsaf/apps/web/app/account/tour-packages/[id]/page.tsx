@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { ArrowLeft, Loader2, CalendarDays, Ticket, Receipt, CheckCircle2, Clock3, CreditCard, Plus, Minus, MapPin, Trash2, Users, Share2, Copy, Star } from "lucide-react";
@@ -35,6 +35,7 @@ function friendlyTimelineShareError(error: any): string {
 
 export default function TourPackageDetailsPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = String(params?.id || "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +70,9 @@ export default function TourPackageDetailsPage() {
         if (!alive) return;
         const nextItem = res.data || null;
         setItem(nextItem);
+        if (/^\d+$/.test(id) && nextItem?.tourReference) {
+          router.replace(`/account/tour-packages/${encodeURIComponent(nextItem.tourReference)}`);
+        }
         const invitePath = String(nextItem?.timelineShare?.invitePath || "").trim();
         const inviteUrl = String(nextItem?.timelineShare?.inviteUrl || "").trim();
         if (invitePath && typeof window !== "undefined") {
@@ -86,7 +90,7 @@ export default function TourPackageDetailsPage() {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => {
     let alive = true;

@@ -12,6 +12,7 @@ const api = apiClient;
 
 type GroupStay = {
   id: number;
+  groupStayReference: string;
   auction?: {
     isOpenForClaims?: boolean;
     recommendedPropertyCount?: number;
@@ -206,7 +207,8 @@ export default function MyGroupStaysPage() {
 
     try {
       await api.post(`/api/customer/group-stays/${bookingId}/auction-confirm`, { propertyId });
-      router.push(`/account/group-stays/${bookingId}/deposit`);
+      const reference = groupStays.find((stay) => stay.id === bookingId)?.groupStayReference || String(bookingId);
+      router.push(`/account/group-stays/${encodeURIComponent(reference)}/deposit`);
     } catch (err: any) {
       const msg = err?.response?.data?.error || "Failed to confirm offer";
       try {
@@ -1010,7 +1012,7 @@ export default function MyGroupStaysPage() {
                               </div>
                             </div>
                             <Link
-                              href={`/account/group-stays/${stay.id}/deposit`}
+                              href={`/account/group-stays/${encodeURIComponent(stay.groupStayReference)}/deposit`}
                               className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#02665e] to-emerald-600 px-4 py-2.5 text-sm font-bold text-white no-underline shadow-lg shadow-emerald-900/15 ring-4 ring-emerald-100 transition-all hover:-translate-y-0.5 hover:from-[#014e47] hover:to-emerald-700 hover:shadow-xl whitespace-nowrap self-start"
                             >
                               Pay here · {fmtMoney(depositAmount)}
@@ -1054,7 +1056,7 @@ export default function MyGroupStaysPage() {
                           <div className="mt-0.5 text-xs text-emerald-700">Your receipt remains available with this booking.</div>
                         </div>
                       </div>
-                      <Link href={`/account/group-stays/${stay.id}/receipt`} className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-bold text-[#02665e] no-underline shadow-sm hover:bg-emerald-50">
+                      <Link href={`/account/group-stays/${encodeURIComponent(stay.groupStayReference)}/receipt`} className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-bold text-[#02665e] no-underline shadow-sm hover:bg-emerald-50">
                         View receipt
                       </Link>
                     </div>

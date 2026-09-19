@@ -24,9 +24,29 @@ import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationP
 import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
+import {
+  customerRecordReference,
+  isCustomerRecordReference,
+  matchesCustomerRecordReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
+
+router.param("id", async (req, res, next, value) => {
+  const authedReq = req as AuthedRequest;
+  const requestedId = String(value || "").trim();
+  if (!isCustomerRecordReference(requestedId, "group-stay")) return next();
+
+  const candidates = await prisma.groupBooking.findMany({
+    where: { userId: authedReq.user!.id },
+    select: { id: true },
+  });
+  const match = candidates.find(({ id }) => matchesCustomerRecordReference(requestedId, "group-stay", id));
+  if (!match) return res.status(404).json({ error: "Group booking not found" });
+  req.params.id = String(match.id);
+  return next();
+});
 
 // ── Rate limiter for deposit payment initiation ─────────────────────────────
 const depositPaymentLimiter = makePaymentRateLimiter({
@@ -136,6 +156,7 @@ router.get("/", async (req, res) => {
       
       return {
         id: gb.id,
+        groupStayReference: customerRecordReference("group-stay", gb.id),
         auction: {
           isOpenForClaims: gb.isOpenForClaims,
           recommendedPropertyCount: coerceIdArray(gb.recommendedPropertyIds).length,

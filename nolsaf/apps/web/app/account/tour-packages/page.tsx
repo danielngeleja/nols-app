@@ -8,6 +8,7 @@ import TableRow from "@/components/TableRow";
 
 type TourBookingItem = {
   id: number;
+  tourReference: string;
   bookingCode: string;
   title: string;
   destination: string | null;
@@ -435,8 +436,8 @@ export default function AccountTourPackagesPage() {
                             const completionStatus = String(item.timelineCompletionStatus || "").toUpperCase();
                             const isTimeline = bucket === "ACTIVE_TIMELINE" || completionStatus === "COMPLETED_TIMELINE";
                             const href = isTimeline
-                              ? `/account/tour-packages/${encodeURIComponent(String(item.id))}/timeline`
-                              : `/account/tour-packages/${encodeURIComponent(String(item.id))}`;
+                              ? `/account/tour-packages/${encodeURIComponent(item.tourReference)}/timeline`
+                              : `/account/tour-packages/${encodeURIComponent(item.tourReference)}`;
                             const label = isTimeline ? "Open timeline" : "Open package";
                             return (
                           <Link

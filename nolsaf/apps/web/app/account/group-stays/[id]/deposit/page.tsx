@@ -119,7 +119,7 @@ function PageShell({ children, wide }: { children: React.ReactNode; wide?: boole
 export default function GroupStayDepositPage() {
   const params = useParams();
   const router = useRouter();
-  const id = Number(params?.id);
+  const id = String(params?.id || "");
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -158,7 +158,7 @@ export default function GroupStayDepositPage() {
 
   const fetchStatus = useCallback(async (): Promise<DepositStatus | null> => {
     try {
-      const res = await apiClient.get(`/api/customer/group-stays/${id}/deposit-status`);
+      const res = await apiClient.get(`/api/customer/group-stays/${encodeURIComponent(id)}/deposit-status`);
       return res.data as DepositStatus;
     } catch {
       return null;
@@ -179,7 +179,7 @@ export default function GroupStayDepositPage() {
   }, [fetchStatus]);
 
   useEffect(() => {
-    if (!Number.isFinite(id)) {
+    if (!id) {
       setLoadError("Invalid booking.");
       setLoading(false);
       return;
@@ -238,7 +238,7 @@ export default function GroupStayDepositPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await apiClient.post(`/api/customer/group-stays/${id}/deposit/initiate-mno`, {
+      await apiClient.post(`/api/customer/group-stays/${encodeURIComponent(id)}/deposit/initiate-mno`, {
         phoneNumber: phone,
         provider,
       });
@@ -255,7 +255,7 @@ export default function GroupStayDepositPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await apiClient.post(`/api/customer/group-stays/${id}/deposit/initiate-bank`, {
+      await apiClient.post(`/api/customer/group-stays/${encodeURIComponent(id)}/deposit/initiate-bank`, {
         bankCode,
         accountNumber: bankAccount.trim(),
         merchantMobileNumber: bankMobile.trim(),
@@ -275,7 +275,7 @@ export default function GroupStayDepositPage() {
     try {
       // client:"web" keeps the post-payment redirect on this page. Without it the
       // server assumes the native app and returns to nolsaf://.
-      const res = await apiClient.post(`/api/customer/group-stays/${id}/deposit/initiate-card`, { client: "web" });
+      const res = await apiClient.post(`/api/customer/group-stays/${encodeURIComponent(id)}/deposit/initiate-card`, { client: "web" });
       const checkoutUrl = res.data?.checkoutUrl;
       if (checkoutUrl) {
         window.location.href = checkoutUrl;
@@ -337,7 +337,7 @@ export default function GroupStayDepositPage() {
           </div>
           <div className="mt-5 flex flex-col gap-2">
             <Link
-              href={`/account/group-stays/${id}/receipt`}
+              href={`/account/group-stays/${encodeURIComponent(id)}/receipt`}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 no-underline hover:bg-slate-50"
             >
               <Eye className="h-4 w-4" /> View receipt

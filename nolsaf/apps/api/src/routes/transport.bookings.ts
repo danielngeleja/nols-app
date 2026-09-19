@@ -2,6 +2,11 @@ import { Router, type Request, type Response } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import {
+  customerRecordReference,
+  isCustomerRecordReference,
+  matchesCustomerRecordReference,
+} from "../lib/customerBookingReference.js";
 import { z } from "zod";
 import { sanitizeText } from "../lib/sanitize.js";
 import { limitTransportBooking } from "../middleware/rateLimit.js";
@@ -238,7 +243,16 @@ router.post("/", limitTransportBooking, async (req: Request, res: Response) => {
 router.get("/:id", requireAuth as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   try {
     const user = req.user!;
-    const bookingId = Number(req.params.id);
+    const requestedId = String(req.params.id || "").trim();
+    let bookingId = /^\d+$/.test(requestedId) ? Number(requestedId) : NaN;
+
+    if (isCustomerRecordReference(requestedId, "ride")) {
+      const candidates = await prisma.transportBooking.findMany({
+        where: { userId: user.id },
+        select: { id: true },
+      });
+      bookingId = candidates.find(({ id }) => matchesCustomerRecordReference(requestedId, "ride", id))?.id ?? NaN;
+    }
 
     if (!Number.isFinite(bookingId)) {
       res.status(400).json({ error: "Invalid booking ID" });
@@ -285,6 +299,7 @@ router.get("/:id", requireAuth as RequestHandler, (async (req: AuthedRequest, re
 
     res.json({
       id: booking.id,
+      rideReference: customerRecordReference("ride", booking.id),
       status: booking.status,
       vehicleType: booking.vehicleType,
       scheduledDate: booking.scheduledDate,

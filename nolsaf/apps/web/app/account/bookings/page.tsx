@@ -1,10 +1,10 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import {
   Calendar, Download, CheckCircle, XCircle, Eye,
   ArrowRight, BookOpen, MapPin, Clock, CreditCard,
-  Hash, BedDouble, DoorOpen, Printer, X, FileText,
+  Hash, BedDouble, DoorOpen,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -179,60 +179,6 @@ export default function MyBookingsPage() {
     const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
     return Math.round(diff / 86400000);
   };
-
-  // ── Receipt modal ──────────────────────────────────────────────────────────
-  // Fetch the server-generated receipt HTML (proxied + cookie-authed) and render it
-  // via the iframe's `srcdoc`. srcdoc iframes inherit the parent origin, so the styled
-  // markup renders fully AND we can read contentDocument for print/PDF. The template
-  // HTML-escapes all guest/property fields at the source, so no client sanitizing is
-  // needed and the styling is preserved.
-  const [receiptBookingId, setReceiptBookingId] = useState<number | null>(null);
-  const [receiptHtml, setReceiptHtml] = useState<string>("");
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [receiptError, setReceiptError] = useState(false);
-  const receiptIframeRef = useRef<HTMLIFrameElement | null>(null);
-
-  const openReceipt = useCallback(async (bookingId: number) => {
-    setReceiptBookingId(bookingId);
-    setReceiptHtml("");
-    setReceiptError(false);
-    setReceiptLoading(true);
-    try {
-      const r = await fetch(`/api/customer/bookings/${bookingId}/receipt.html`, {
-        credentials: "include",
-        cache: "no-store",
-        headers: { Accept: "text/html" },
-      });
-      const html = await r.text();
-      if (!r.ok || !/class=["']sheet["']/.test(html)) {
-        throw new Error(`Receipt not available (${r.status})`);
-      }
-      setReceiptHtml(html);
-    } catch {
-      setReceiptError(true);
-    } finally {
-      setReceiptLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const requestedReceiptId = Number(new URLSearchParams(window.location.search).get("receiptBookingId"));
-    if (Number.isFinite(requestedReceiptId) && requestedReceiptId > 0) {
-      openReceipt(requestedReceiptId);
-    }
-  }, [openReceipt]);
-
-  const closeReceipt = useCallback(() => {
-    setReceiptBookingId(null);
-    setReceiptHtml("");
-    setReceiptLoading(false);
-    setReceiptError(false);
-  }, []);
-
-  const printReceipt = useCallback(() => {
-    receiptIframeRef.current?.contentWindow?.focus();
-    receiptIframeRef.current?.contentWindow?.print();
-  }, []);
 
   const daysUntil = (dateString: string) => {
     const d = new Date(dateString);
@@ -567,16 +513,14 @@ export default function MyBookingsPage() {
                         </Link>
                       ) : null}
                       {booking.bookingCode ? (
-                        <button
-                          type="button"
-                          onClick={() => openReceipt(booking.id)}
+                        <Link
+                          href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}/receipt`}
                           title="Receipt"
                           aria-label="Open receipt"
-                          style={{ fontFamily: "inherit" }}
-                          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-600 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-600 no-underline transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
                         >
                           <Download className="h-4 w-4" aria-hidden />
-                        </button>
+                        </Link>
                       ) : null}
                       <Link
                         href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}`}
@@ -594,85 +538,6 @@ export default function MyBookingsPage() {
         </div>
       )}
 
-      {/* ── Receipt modal ── */}
-      {receiptBookingId !== null && (
-        <div
-          className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
-          onClick={closeReceipt}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Booking receipt"
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-black/5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div
-              className="flex items-center justify-between px-5 py-3.5 bg-white border-b border-slate-100 shrink-0"
-              style={{ borderTop: "3px solid #02665e" }}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex items-center justify-center w-9 h-9 rounded-xl shrink-0" style={{ background: "rgba(2,102,94,0.08)" }}>
-                  <FileText className="h-4 w-4" style={{ color: "#02665e" }} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 leading-tight">Booking Receipt</p>
-                  <p className="text-[11px] text-slate-400 leading-tight">NoLSAF · Proof of reservation</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={printReceipt}
-                  disabled={receiptLoading || receiptError}
-                  title="Print receipt"
-                  className="h-9 w-9 flex items-center justify-center rounded-lg text-white shadow-sm transition hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "#02665e" }}
-                >
-                  <Printer className="h-4 w-4" />
-                </button>
-                <div className="w-px h-5 bg-slate-200 mx-0.5" />
-                <button
-                  type="button"
-                  onClick={closeReceipt}
-                  title="Close"
-                  className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition shrink-0"
-                  aria-label="Close receipt"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Body — the iframe renders the fully-styled server receipt via srcdoc */}
-            <div className="relative flex-1 min-h-0 bg-white">
-              {receiptLoading && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white">
-                  <div className="w-8 h-8 border-2 border-slate-200 rounded-full animate-spin" style={{ borderTopColor: "#02665e" }} />
-                  <p className="text-sm text-slate-500">Loading receipt…</p>
-                </div>
-              )}
-              {receiptError ? (
-                <div className="flex flex-col items-center justify-center h-64 gap-2 text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
-                    <X className="h-5 w-5 text-red-400" />
-                  </div>
-                  <p className="text-sm font-semibold text-red-500">Receipt unavailable</p>
-                  <p className="text-xs text-slate-400">Please try again or contact support.</p>
-                </div>
-              ) : receiptHtml ? (
-                <iframe
-                  ref={receiptIframeRef}
-                  title="Booking receipt"
-                  srcDoc={receiptHtml}
-                  className="w-full h-[72vh] border-0 block bg-white"
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
