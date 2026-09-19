@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import {
-  MapPin,
   ArrowLeft,
   Phone,
   Navigation,
@@ -22,10 +21,11 @@ import {
   Bus,
   Train,
   Ship,
-  Hash,
   Building2,
   ExternalLink,
   Star,
+  BadgeCheck,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import TransportChat from "@/components/TransportChat";
@@ -81,14 +81,14 @@ type Ride = {
 function getStatusMeta(status: string) {
   const s = status.toLowerCase();
   if (s.includes("completed"))
-    return { label: "Completed", color: "#059669", bg: "rgba(5,150,105,0.12)", border: "rgba(5,150,105,0.25)", text: "text-emerald-700", badge: "bg-emerald-50 text-emerald-700 border border-emerald-200", icon: <CheckCircle className="h-4 w-4" /> };
+    return { label: "Completed", icon: <CheckCircle className="h-4 w-4" /> };
   if (s.includes("cancel"))
-    return { label: "Cancelled", color: "#dc2626", bg: "rgba(220,38,38,0.1)", border: "rgba(220,38,38,0.2)", text: "text-red-700", badge: "bg-red-50 text-red-700 border border-red-200", icon: <XCircle className="h-4 w-4" /> };
+    return { label: "Cancelled", icon: <XCircle className="h-4 w-4" /> };
   if (s.includes("in_progress") || s.includes("assigned"))
-    return { label: status.replace(/_/g, " "), color: "#0369a1", bg: "rgba(3,105,161,0.1)", border: "rgba(3,105,161,0.2)", text: "text-sky-700", badge: "bg-sky-50 text-sky-700 border border-sky-200", icon: <Loader2 className="h-4 w-4 animate-spin" /> };
+    return { label: status.replace(/_/g, " "), icon: <Loader2 className="h-4 w-4 animate-spin" /> };
   if (s.includes("pending"))
-    return { label: status.replace(/_/g, " "), color: "#d97706", bg: "rgba(217,119,6,0.1)", border: "rgba(217,119,6,0.2)", text: "text-amber-700", badge: "bg-amber-50 text-amber-700 border border-amber-200", icon: <Clock className="h-4 w-4" /> };
-  return { label: status.replace(/_/g, " "), color: "#64748b", bg: "rgba(100,116,139,0.1)", border: "rgba(100,116,139,0.18)", text: "text-slate-600", badge: "bg-slate-100 text-slate-600 border border-slate-200", icon: <Car className="h-4 w-4" /> };
+    return { label: status.replace(/_/g, " "), icon: <Clock className="h-4 w-4" /> };
+  return { label: status.replace(/_/g, " "), icon: <Car className="h-4 w-4" /> };
 }
 
 function arrivalIcon(type?: string) {
@@ -113,25 +113,15 @@ type DriverBioInput = {
 function pickExtendedBio(d: DriverBioInput): string {
   const first = (d.name ?? "").split(" ")[0] || "Your driver";
   if (d.isVipDriver)
-    return `Exclusively trained for executive and long-distance travel, ${first} is one of NoLSAF\u2019 Premium-certified specialists. Clients receive complete discretion, immaculate presentation, and an on-time arrival record that only genuine professionalism builds \u2014 expect nothing less than first-class, every single journey.`;
+    return `Exclusively trained for executive and long-distance travel, ${first} is one of NoLSAF\u2019s Premium-certified specialists. Clients receive complete discretion, immaculate presentation, and an on-time arrival record that only genuine professionalism builds. Expect first-class service on every journey.`;
   if (d.rating != null && d.rating >= 4.5)
-    return `With a near-perfect rating earned across hundreds of journeys, ${first} has built a reputation that only consistent excellence creates. Composed under any condition, communicative when it counts, and unfailingly punctual \u2014 ${first} is the standard every NoLSAF driver aspires to.`;
+    return `With a near-perfect rating earned across hundreds of journeys, ${first} has built a reputation that only consistent excellence creates. Composed under any condition, communicative when it counts, and unfailingly punctual, ${first} is the standard every NoLSAF driver aspires to.`;
   const area = d.operationArea || d.district;
   if (area)
-    return `Nobody reads ${area} the way ${first} does. Every route is mentally mapped before the journey begins \u2014 peak-hour shortcuts, alternate roads, and the local instinct to adapt on the spot. Passengers arrive relaxed, on time, and in the best possible hands.`;
+    return `Nobody reads ${area} the way ${first} does. Every route is mentally mapped before the journey begins: peak-hour shortcuts, alternate roads, and the local instinct to adapt on the spot. Passengers arrive relaxed, on time, and in the best possible hands.`;
   if (d.vehicleMake)
     return `Behind the wheel of a ${d.vehicleMake}, ${first} treats every trip as a VIP assignment. The vehicle is inspected before each journey, kept spotless inside and out, and driven with the steady care that tells a passenger they are exactly where they should be.`;
-  return `Background-checked, fully licensed, and trusted by hundreds of NoLSAF passengers across Tanzania. ${first} brings calm conviction to every route \u2014 from pickup to drop-off, reliability is not a policy here; it is simply how ${first} works, every single time.`;
-}
-
-function InfoRow({ label, value }: { label: string; value?: string | null }) {
-  if (!value) return null;
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">{label}</p>
-      <p className="text-sm font-bold text-slate-800 leading-snug">{value}</p>
-    </div>
-  );
+  return `Background-checked, fully licensed, and trusted by hundreds of NoLSAF passengers across Tanzania. ${first} brings calm conviction to every route. From pickup to drop-off, reliability is not a policy here; it is simply how ${first} works, every single time.`;
 }
 
 export default function RideDetailPage() {
@@ -146,12 +136,16 @@ export default function RideDetailPage() {
 
   useEffect(() => {
     fetchAccountSession().then((res) => setCurrentUserId(res.data?.id || null)).catch(() => {});
-    if (rideId) {
-      api.get(`/api/transport-bookings/${rideId}`)
-        .then((res) => setRide(res.data))
-        .catch((err) => setError(err?.response?.data?.error || "Failed to load ride details"))
-        .finally(() => setLoading(false));
+    if (!Number.isFinite(rideId) || rideId <= 0) {
+      setError("This ride link is invalid.");
+      setLoading(false);
+      return;
     }
+
+    api.get(`/api/transport-bookings/${rideId}`)
+      .then((res) => setRide(res.data))
+      .catch((err) => setError(err?.response?.data?.error || "Failed to load ride details"))
+      .finally(() => setLoading(false));
   }, [rideId]);
 
   const formatDate = (d: string) =>
@@ -163,21 +157,19 @@ export default function RideDetailPage() {
   /* --- Loading --- */
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-4xl space-y-6">
-        <div
-          className="relative overflow-hidden rounded-3xl p-8 sm:p-10 animate-pulse"
-          style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 52%, #0369a1 100%)" }}
-        >
-          <div className="flex flex-col items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-white/10" />
-            <div className="h-8 w-48 rounded-full bg-white/10" />
-            <div className="h-4 w-32 rounded-full bg-white/10" />
-          </div>
+      <div className="mx-auto w-full max-w-5xl space-y-4" aria-busy="true">
+        <span role="status" className="sr-only">Loading ride</span>
+        <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">
+          <div className="h-3 w-24 rounded bg-white/10" />
+          <div className="mt-4 h-7 w-64 rounded-lg bg-white/15" />
+          <div className="mt-3 h-3 w-48 rounded bg-white/10" />
         </div>
-        <div className="h-48 rounded-3xl bg-slate-100 animate-pulse" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 h-64 rounded-3xl bg-slate-100 animate-pulse" />
-          <div className="h-48 rounded-3xl bg-slate-100 animate-pulse" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="h-72 rounded-2xl border border-solid border-slate-200 bg-white" />
+          <div className="space-y-4">
+            <div className="h-60 rounded-2xl bg-[#0a1110]/90" />
+            <div className="h-32 rounded-2xl border border-solid border-slate-200 bg-white" />
+          </div>
         </div>
       </div>
     );
@@ -186,18 +178,18 @@ export default function RideDetailPage() {
   /* --- Error --- */
   if (error || !ride) {
     return (
-      <div className="mx-auto w-full max-w-4xl p-6">
-        <div className="relative overflow-hidden rounded-3xl border border-red-200 bg-red-50 p-10 text-center shadow-sm">
-          <AlertCircle className="w-14 h-14 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-red-900 mb-2">Something went wrong</h2>
-          <p className="text-red-700 mb-6 text-sm">{error || "Ride not found"}</p>
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="flex flex-col items-center rounded-2xl border border-solid border-rose-200 bg-white px-6 py-12 text-center">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+            <AlertCircle className="h-6 w-6" aria-hidden />
+          </span>
+          <h2 className="m-0 mt-3 text-[17px] font-bold text-slate-900">Ride not found</h2>
+          <p className="m-0 mt-1 text-sm text-slate-500">{error || "We could not load this ride."}</p>
           <Link
             href="/account/rides"
-            className="no-underline inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold text-white shadow-sm hover:shadow-md transition-all"
-            style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #0369a1 100%)" }}
+            className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white no-underline hover:bg-[#014e47]"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Rides
+            <ArrowLeft className="h-4 w-4" aria-hidden /> Back to my rides
           </Link>
         </div>
       </div>
@@ -205,215 +197,185 @@ export default function RideDetailPage() {
   }
 
   const meta = getStatusMeta(ride.status);
+  const statusText = /pending/i.test(ride.status) && !ride.driver ? "Finding your driver" : meta.label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  const human = (v?: string | null) => String(v || "").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  const destination = ride.property?.title || ride.toAddress || "your destination";
+  const arrivalWord =
+    ride.arrivalType === "FLIGHT" ? "Flight" : ride.arrivalType === "BUS" ? "Bus" : ride.arrivalType === "TRAIN" ? "Train" : ride.arrivalType === "FERRY" ? "Ferry" : "Transport";
+  const tripSpecs = [
+    { label: "Date", value: formatDate(ride.scheduledDate) },
+    { label: "Pickup", value: ride.pickupTime ? formatTime(ride.pickupTime) : null },
+    { label: "Drop-off", value: ride.dropoffTime ? formatTime(ride.dropoffTime) : null },
+    { label: "Vehicle", value: ride.vehicleType ? human(ride.vehicleType) : null },
+    { label: "Passengers", value: ride.numberOfPassengers ? String(ride.numberOfPassengers) : null },
+  ].filter((x) => x.value);
+  const arrivalSpecs = [
+    { label: "Arriving by", value: ride.arrivalType ? human(ride.arrivalType) : null },
+    { label: `${arrivalWord} number`, value: ride.arrivalNumber || null },
+    {
+      label: ride.arrivalType === "FLIGHT" ? "Airline" : ride.arrivalType === "BUS" ? "Bus company" : ride.arrivalType === "TRAIN" ? "Train operator" : ride.arrivalType === "FERRY" ? "Ferry operator" : "Company",
+      value: ride.transportCompany || null,
+    },
+    { label: "Arrival time", value: ride.arrivalTime ? formatTime(ride.arrivalTime) : null },
+    { label: "Meeting point", value: ride.pickupLocation || null },
+  ].filter((x) => x.value);
+  const paid = ride.paymentStatus === "PAID";
+
+  const SpecStrip = ({ items }: { items: Array<{ label: string; value: string | null }> }) => (
+    <div className="grid grid-cols-2 border-0 border-t border-solid border-slate-100 sm:grid-cols-3">
+      {items.map((sp, i) => (
+        <div
+          key={sp.label}
+          className={[
+            "min-w-0 px-5 py-3",
+            i % 2 === 1 ? "border-0 border-l border-solid border-slate-100 sm:border-l-0" : "",
+            i % 3 !== 0 ? "sm:border-0 sm:border-l sm:border-solid sm:border-slate-100" : "",
+            i >= 2 ? "border-0 border-t border-solid border-slate-100" : "",
+            i < 3 ? "sm:border-t-0" : "sm:border-t",
+          ].join(" ")}
+        >
+          <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">{sp.label}</div>
+          <div className="mt-0.5 truncate text-[13.5px] font-semibold text-slate-900" title={String(sp.value)}>{sp.value}</div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6">
-
-      {/* --- HERO HEADER --- */}
-      <div
-        className="relative overflow-hidden rounded-3xl shadow-[0_4px_32px_rgba(3,105,161,0.22)]"
-        style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 52%, #0369a1 100%)" }}
-      >
-        {/* Speed lines */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 opacity-[0.07]">
-            {[10, 25, 42, 60, 75, 90].map((top, i) => (
-              <div key={i} className="absolute h-px rounded-full"
-                style={{ top: `${top}%`, left: `${5 + i * 2}%`, right: `${5 + (5 - i) * 2}%`,
-                  background: "linear-gradient(90deg, transparent, white, transparent)" }} />
-            ))}
-          </div>
-          <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full opacity-20"
-            style={{ background: "radial-gradient(circle, #38bdf8 0%, transparent 70%)" }} />
-          <div className="absolute -left-8 bottom-0 h-40 w-40 rounded-full opacity-10"
-            style={{ background: "radial-gradient(circle, #818cf8 0%, transparent 70%)" }} />
-        </div>
-
-        <div className="relative px-6 py-8 sm:px-10 sm:py-10">
-          {/* Back button row */}
-          <div className="flex items-center gap-3 mb-6">
-            <Link
-              href="/account/rides"
-              className="no-underline inline-flex items-center justify-center h-9 w-9 rounded-xl transition-all hover:scale-105 active:scale-95"
-              style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.18)" }}
-            >
-              <ArrowLeft className="w-4 h-4 text-white" />
-            </Link>
-            <span className="text-sm font-medium text-white/60">Back to My Rides</span>
-          </div>
-
-          {/* Main hero content */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-            {/* Icon */}
-            <div className="relative flex-shrink-0">
-              <div className="absolute inset-0 rounded-2xl bg-cyan-400/25 blur-md scale-110" />
-              <div className="relative h-16 w-16 rounded-2xl flex items-center justify-center shadow-lg"
-                style={{ background: "linear-gradient(135deg, rgba(56,189,248,0.22) 0%, rgba(99,102,241,0.18) 100%)", border: "1px solid rgba(255,255,255,0.15)" }}>
-                <Car className="h-8 w-8 text-white drop-shadow-md" />
-              </div>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Ride Details</h1>
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold backdrop-blur-sm ${meta.badge}`}>
+    <div className="mx-auto w-full max-w-5xl space-y-4">
+      {/* --- Header band --- */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#0a1110] text-white shadow-[0_18px_40px_-26px_rgba(0,0,0,0.8)]" style={{ isolation: "isolate" }}>
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.6), rgba(2,102,94,0))" }} />
+        <div className="px-5 pb-5 pt-4 sm:px-6">
+          <Link href="/account/rides" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 no-underline transition-colors hover:text-white">
+            <ArrowLeft className="h-4 w-4" aria-hidden /> My rides
+          </Link>
+          <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="m-0 min-w-0 break-words text-[24px] font-bold leading-tight text-white sm:text-[28px]">Ride to {destination}</h1>
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-bold text-white ring-1 ring-inset ring-white/15">
                   {meta.icon}
-                  {meta.label}
+                  {statusText}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-3 mt-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/60">
-                  <Hash className="h-3.5 w-3.5" />
-                  Booking #{ride.id}
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/60">
-                  <Calendar className="h-3.5 w-3.5" />
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-white/60">
+                <span className="inline-flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-[#5ec8bb]" aria-hidden />
                   {formatDate(ride.scheduledDate)}
                 </span>
-                {ride.pickupTime && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/60">
-                    <Clock className="h-3.5 w-3.5" />
-                    {formatTime(ride.pickupTime)}
+                {ride.pickupTime ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-[#5ec8bb]" aria-hidden />
+                    Pickup {formatTime(ride.pickupTime)}
                   </span>
-                )}
+                ) : null}
+                <span className="text-white/40">Ride #{ride.id}</span>
               </div>
             </div>
+            {ride.vehicleType || ride.numberOfPassengers ? (
+              <div className="flex-shrink-0 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-4 py-2.5 text-right">
+                <div className="text-[16px] font-bold leading-none text-white">{ride.vehicleType ? human(ride.vehicleType) : "Ride"}</div>
+                {ride.numberOfPassengers ? (
+                  <div className="mt-1 text-[12px] text-white/60">
+                    {ride.numberOfPassengers} {ride.numberOfPassengers === 1 ? "passenger" : "passengers"}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
 
-      {/* --- BODY GRID --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* --- LEFT / MAIN --- */}
-        <div className="lg:col-span-2 space-y-5">
-
-          {/* Trip Info Card */}
-          <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-              style={{ background: "linear-gradient(180deg, #38bdf8 0%, #0369a1 100%)" }} />
-            <div className="pl-6 pr-6 pt-5 pb-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-7 w-7 rounded-xl flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, #1e3a5f, #0369a1)" }}>
-                  <Car className="h-3.5 w-3.5 text-white" />
+      {/* --- Body --- */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Left */}
+        <div className="min-w-0 space-y-4">
+          {/* Trip */}
+          <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+            <header className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 px-5 py-3.5">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+                <Navigation className="h-4 w-4" aria-hidden />
+              </span>
+              <h2 className="m-0 text-[15px] font-bold text-slate-900">Trip</h2>
+            </header>
+            <div className="px-5 py-5">
+              <div className="relative pl-7">
+                <span aria-hidden className="absolute bottom-4 left-[7px] top-4 w-px bg-slate-200" />
+                <div className="relative">
+                  <span aria-hidden className="absolute -left-7 top-1 h-3.5 w-3.5 rounded-full bg-[#02665e] ring-4 ring-[#02665e]/15" />
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Pickup</div>
+                  <div className="mt-0.5 text-[15px] font-bold text-slate-900">{ride.fromAddress || "Not specified"}</div>
+                  {ride.fromLatitude != null && ride.fromLongitude != null ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${ride.fromLatitude},${ride.fromLongitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#02665e] no-underline hover:underline"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden /> Open in maps
+                    </a>
+                  ) : null}
                 </div>
-                <h2 className="text-base font-bold text-slate-900">Trip Overview</h2>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <InfoRow label="Scheduled Date" value={formatDate(ride.scheduledDate)} />
-                {ride.pickupTime && <InfoRow label="Pickup Time" value={formatTime(ride.pickupTime)} />}
-                {ride.dropoffTime && <InfoRow label="Drop-off Time" value={formatTime(ride.dropoffTime)} />}
-                {ride.vehicleType && <InfoRow label="Vehicle Type" value={ride.vehicleType} />}
-                {ride.numberOfPassengers && <InfoRow label="Passengers" value={String(ride.numberOfPassengers)} />}
-              </div>
-            </div>
-          </div>
-
-          {/* Route Visualizer */}
-          <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-              style={{ background: "linear-gradient(180deg, #38bdf8 0%, #818cf8 100%)" }} />
-            <div className="pl-6 pr-6 pt-5 pb-5">
-              <div className="flex items-center gap-2 mb-5">
-                <div className="h-7 w-7 rounded-xl flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, #0369a1, #818cf8)" }}>
-                  <Navigation className="h-3.5 w-3.5 text-white" />
-                </div>
-                <h2 className="text-base font-bold text-slate-900">Route</h2>
-              </div>
-
-              <div className="flex items-stretch gap-3">
-                {/* Track */}
-                <div className="flex flex-col items-center gap-0 pt-3 pb-3 flex-shrink-0">
-                  <div className="h-3 w-3 rounded-full bg-sky-500 ring-2 ring-sky-200 shadow-sm" />
-                  <div className="flex-1 w-px border-l-2 border-dashed border-slate-200 my-1.5" />
-                  <div className="h-3 w-3 rounded-full bg-indigo-500 ring-2 ring-indigo-200 shadow-sm" />
-                </div>
-
-                {/* Labels */}
-                <div className="flex-1 flex flex-col gap-3">
-                  {/* From */}
-                  <div className="rounded-2xl bg-sky-50 border border-sky-100 px-4 py-3">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-sky-500 mb-1">
-                      <MapPin className="h-3 w-3" /> Pickup
-                    </div>
-                    <p className="text-sm font-bold text-slate-800">{ride.fromAddress || "Not specified"}</p>
-                    {ride.fromLatitude && ride.fromLongitude && (
-                      <a href={`https://www.google.com/maps?q=${ride.fromLatitude},${ride.fromLongitude}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 no-underline">
-                        <ExternalLink className="h-3 w-3" /> View on Map
-                      </a>
-                    )}
-                  </div>
-
-                  {/* To */}
-                  <div className="rounded-2xl bg-indigo-50 border border-indigo-100 px-4 py-3">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-500 mb-1">
-                      <Navigation className="h-3 w-3" /> Drop-off
-                    </div>
-                    <p className="text-sm font-bold text-slate-800">
-                      {ride.property?.title || ride.toAddress || "Not specified"}
-                    </p>
-                    {ride.toLatitude && ride.toLongitude && (
-                      <a href={`https://www.google.com/maps?q=${ride.toLatitude},${ride.toLongitude}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 no-underline">
-                        <ExternalLink className="h-3 w-3" /> View on Map
-                      </a>
-                    )}
-                  </div>
+                <div className="relative mt-5">
+                  <span aria-hidden className="absolute -left-7 top-1 h-3.5 w-3.5 rounded-full border-2 border-solid border-[#02665e] bg-white" />
+                  <div className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Drop-off</div>
+                  <div className="mt-0.5 text-[15px] font-bold text-slate-900">{ride.property?.title || ride.toAddress || "Not specified"}</div>
+                  {ride.toLatitude != null && ride.toLongitude != null ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${ride.toLatitude},${ride.toLongitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#02665e] no-underline hover:underline"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden /> Open in maps
+                    </a>
+                  ) : null}
                 </div>
               </div>
             </div>
-          </div>
+            {tripSpecs.length ? <SpecStrip items={tripSpecs} /> : null}
+          </section>
 
-          {/* Arrival Information */}
-          {(ride.arrivalType || ride.arrivalNumber || ride.pickupLocation) && (
-            <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-              <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-                style={{ background: "linear-gradient(180deg, #f59e0b 0%, #d97706 100%)" }} />
-              <div className="pl-6 pr-6 pt-5 pb-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="h-7 w-7 rounded-xl flex items-center justify-center text-white"
-                    style={{ background: "linear-gradient(135deg, #d97706, #f59e0b)" }}>
-                    {arrivalIcon(ride.arrivalType)}
-                  </div>
-                  <h2 className="text-base font-bold text-slate-900">Arrival Information</h2>
+          {/* Arrival */}
+          {arrivalSpecs.length ? (
+            <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+              <header className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 px-5 py-3.5">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e] [&>svg]:h-4 [&>svg]:w-4">
+                  {arrivalIcon(ride.arrivalType)}
+                </span>
+                <div>
+                  <h2 className="m-0 text-[15px] font-bold text-slate-900">Your arrival</h2>
+                  <p className="m-0 text-[12px] text-slate-500">The driver meets you based on these details.</p>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {ride.pickupLocation && <InfoRow label="Pickup Location" value={ride.pickupLocation} />}
-                  {ride.arrivalType && <InfoRow label="Arrival Type" value={ride.arrivalType} />}
-                  {ride.arrivalNumber && (
-                    <InfoRow
-                      label={ride.arrivalType === "FLIGHT" ? "Flight No." : ride.arrivalType === "BUS" ? "Bus No." : ride.arrivalType === "TRAIN" ? "Train No." : ride.arrivalType === "FERRY" ? "Ferry No." : "Transport No."}
-                      value={ride.arrivalNumber}
-                    />
-                  )}
-                  {ride.transportCompany && (
-                    <InfoRow
-                      label={ride.arrivalType === "FLIGHT" ? "Airline" : ride.arrivalType === "BUS" ? "Bus Company" : ride.arrivalType === "TRAIN" ? "Train Operator" : ride.arrivalType === "FERRY" ? "Ferry Operator" : "Company"}
-                      value={ride.transportCompany}
-                    />
-                  )}
-                  {ride.arrivalTime && <InfoRow label="Arrival Time" value={formatTime(ride.arrivalTime)} />}
-                </div>
-              </div>
-            </div>
-          )}
+              </header>
+              <SpecStrip items={arrivalSpecs} />
+            </section>
+          ) : null}
 
         </div>
 
-        {/* --- RIGHT / SIDEBAR --- */}
-        <div className="space-y-5">
+        {/* Right */}
+        <div className="min-w-0 space-y-4">
+          {!ride.driver ? (
+            <section className="relative overflow-hidden rounded-2xl bg-[#0a1110] p-5 text-white" style={{ isolation: "isolate" }}>
+              <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 -z-10 h-48 w-48 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.55), rgba(2,102,94,0))" }} />
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#02665e]">
+                <Car className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="mt-3 text-[16px] font-bold">Finding your driver</div>
+              <p className="m-0 mt-1 text-[13px] leading-relaxed text-white/65">
+                A NoLSAF driver will be assigned before your pickup. Their name, photo, vehicle and a way to reach them will appear here.
+              </p>
+            </section>
+          ) : null}
 
           {/* ===== Driver Physical ID Card ===== */}
           {ride.driver && (<>
             {/* Perspective wrapper — 3D flip card LANDSCAPE */}
             <div style={{ perspective: "1200px" }}>
               <div
-                className="h-[380px] sm:h-[300px]"
+                className="h-[360px] sm:h-[300px] motion-reduce:[transform:none!important]"
                 style={{
                   position: "relative",
                   transformStyle: "preserve-3d",
@@ -428,9 +390,9 @@ export default function RideDetailPage() {
                   className="rounded-[20px] overflow-hidden shadow-2xl cursor-default select-none"
                 >
                   {/* bg */}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0b1e35 0%, #0f2d4a 48%, #0c4a6e 100%)" }} />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0a1110 0%, #0f1c1b 55%, #0f3a35 100%)" }} />
                   {/* left photo strip — always visible */}
-                  <div className="absolute top-0 left-0 bottom-0 w-[110px] sm:w-[140px]" style={{ background: "linear-gradient(180deg, rgba(5,150,105,0.18) 0%, rgba(3,105,161,0.22) 100%)", borderRight: "1px solid rgba(5,150,105,0.18)" }} />
+                  <div className="absolute top-0 left-0 bottom-0 w-[110px] sm:w-[140px]" style={{ background: "linear-gradient(180deg, rgba(2,102,94,0.22) 0%, rgba(2,102,94,0.12) 100%)", borderRight: "1px solid rgba(5,150,105,0.18)" }} />
                   {/* decorative SVG */}
                   <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 500 300" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden>
                     {/* concentric arcs top-right */}
@@ -460,9 +422,9 @@ export default function RideDetailPage() {
                   {/* top sheen */}
                   <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
                   {/* left green accent line */}
-                  <div className="absolute top-0 left-0 bottom-0 w-[3px]" style={{ background: "linear-gradient(180deg, #10b981 0%, #0369a1 100%)" }} />
+                  <div className="absolute top-0 left-0 bottom-0 w-[3px]" style={{ background: "#02665e" }} />
                   {/* bottom green stripe */}
-                  <div className="absolute bottom-0 left-[110px] sm:left-[140px] right-0 h-[3px]" style={{ background: "linear-gradient(90deg, #059669, #0369a1)" }} />
+                  <div className="absolute bottom-0 left-[110px] sm:left-[140px] right-0 h-[3px]" style={{ background: "#02665e" }} />
 
                   {/* FRONT CONTENT — side-by-side on all sizes */}
                   <div className="relative flex flex-row h-full">
@@ -474,7 +436,7 @@ export default function RideDetailPage() {
                         style={{
                           border: "2.5px solid rgba(5,150,105,0.7)",
                           boxShadow: "0 0 0 4px rgba(5,150,105,0.13), 0 8px 28px rgba(0,0,0,0.5)",
-                          background: "linear-gradient(135deg, rgba(56,189,248,0.2), rgba(5,150,105,0.18))",
+                          background: "rgba(2,102,94,0.3)",
                         }}
                       >
                         {ride.driver.avatarUrl ? (
@@ -489,12 +451,10 @@ export default function RideDetailPage() {
                       {/* verified pill */}
                       <div
                         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-                        style={{ background: "#059669", border: "1.5px solid #0b1e35" }}
+                        style={{ background: "#02665e", border: "1.5px solid #0a1110" }}
                       >
-                        <svg viewBox="0 0 8 8" className="h-2 w-2 flex-shrink-0">
-                          <path d="M1.5 4L3.3 5.8L6.5 2.2" stroke="white" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                        </svg>
-                        <span className="text-[7px] font-black uppercase tracking-widest text-white">Verified</span>
+                        <BadgeCheck className="h-3 w-3 flex-shrink-0 text-white" aria-hidden />
+                        <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-white">Verified</span>
                       </div>
                     </div>
 
@@ -510,7 +470,8 @@ export default function RideDetailPage() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setCardFlipped(true)}
-                            className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
+                            type="button"
+                            className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-emerald-500/20"
                             style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}
                             aria-label="View driver profile"
                           >
@@ -543,8 +504,9 @@ export default function RideDetailPage() {
                         >
                           {ride.driver.name}
                         </p>
-                        <p className="text-[8px] font-black uppercase tracking-[0.25em] text-emerald-400 mt-0.5">
-                          {ride.driver.isVipDriver ? "✶ Premium Certified" : "NoLSAF Certified Driver"}
+                        <p className="mt-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">
+                          <BadgeCheck className="h-3 w-3" aria-hidden />
+                          {ride.driver.isVipDriver ? "Premium certified" : "NoLSAF certified driver"}
                         </p>
                         {ride.driver.rating != null && (
                           <div className="flex items-center gap-0.5 mt-0.5">
@@ -564,31 +526,31 @@ export default function RideDetailPage() {
                       {/* info grid */}
                       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                         <div>
-                          <p className="text-[7px] font-bold uppercase tracking-widest text-white/35">ID No.</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">ID No.</p>
                           <p className="text-[10px] font-black text-white tracking-wider mt-0.5">
                             NLS-{String(ride.driver.id).padStart(4,"0")}-{new Date(ride.createdAt).getFullYear()}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Plate No.</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Plate No.</p>
                           <p className="text-[10px] font-black text-white tracking-wider mt-0.5">
-                            {ride.driver.plateNumber || ride.driver.vehiclePlate || "—"}
+                            {ride.driver.plateNumber || ride.driver.vehiclePlate || "Not set"}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Vehicle</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Vehicle</p>
                           <p className="text-[10px] font-black text-white mt-0.5 truncate">
-                            {[ride.driver.vehicleMake, ride.driver.vehicleType].filter(Boolean).join(" · ") || ride.vehicleType || "—"}
+                            {[ride.driver.vehicleMake, ride.driver.vehicleType].filter(Boolean).join(" · ") || ride.vehicleType || "Not set"}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Region / District</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Region / District</p>
                           <p className="text-[10px] font-black text-white mt-0.5 truncate">
                             {ride.driver.operationArea || ride.driver.district || ride.driver.region || "Tanzania"}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[7px] font-bold uppercase tracking-widest text-white/35">Languages</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Languages</p>
                           <p className="text-[10px] font-black text-white mt-0.5">English · Kiswahili</p>
                         </div>
                         {/* barcode + active dot — shares last row with Languages */}
@@ -615,7 +577,7 @@ export default function RideDetailPage() {
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
                               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
                             </span>
-                            <span className="text-[7px] font-bold uppercase tracking-widest text-white/35">Active</span>
+                            <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Active</span>
                           </div>
                         </div>
                       </div>
@@ -631,9 +593,9 @@ export default function RideDetailPage() {
                   className="rounded-[20px] overflow-hidden shadow-2xl cursor-default select-none"
                 >
                   {/* bg */}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0b1e35 0%, #0f2d4a 55%, #0c4a6e 100%)" }} />
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0a1110 0%, #0f1c1b 55%, #0f3a35 100%)" }} />
                   {/* top stripe */}
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500" />
+                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-[#02665e]" />
                   <div className="absolute top-[3px] left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/18 to-transparent pointer-events-none" />
                   <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 500 230" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden>
                     <circle cx="460" cy="200" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
@@ -645,13 +607,14 @@ export default function RideDetailPage() {
                   <div className="relative flex flex-row h-full">
 
                     {/* LEFT — quote stripe */}
-                    <div className="w-[5px] flex-shrink-0" style={{ background: "linear-gradient(180deg, #10b981 0%, #0369a1 100%)" }} />
+                    <div className="w-[5px] flex-shrink-0" style={{ background: "#02665e" }} />
                     <div className="hidden sm:flex w-[110px] sm:w-[140px] flex-shrink-0 flex-col justify-center items-center gap-3 px-3 border-r border-white/8">
                       {/* big quote mark */}
                       <span className="font-black leading-none select-none" style={{ fontSize: "5rem", color: "rgba(16,185,129,0.18)", lineHeight: 1 }}>&ldquo;</span>
                       <div className="text-center">
-                        <p className="text-[7px] font-black uppercase tracking-[0.22em] text-emerald-400">About</p>
-                        <p className="text-[7px] font-black uppercase tracking-[0.22em] text-emerald-400">Driver</p>
+                        <ShieldCheck className="mx-auto mb-2 h-5 w-5 text-emerald-400" aria-hidden />
+                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">About</p>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">Driver</p>
                       </div>
                       {/* pulsing dot */}
                       <div className="inline-flex items-center gap-1">
@@ -668,7 +631,8 @@ export default function RideDetailPage() {
                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/50">NoLSAF · Driver Profile</p>
                         <button
                           onClick={() => setCardFlipped(false)}
-                          className="flex-shrink-0 ml-2 h-6 w-6 rounded-full flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
+                          type="button"
+                          className="ml-2 flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-emerald-500/20"
                           style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}
                           aria-label="Back to ID card"
                         >
@@ -726,105 +690,84 @@ export default function RideDetailPage() {
               {ride.driver.phone && (
                 <a
                   href={`tel:${ride.driver.phone}`}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold bg-slate-900 text-white border border-slate-700 hover:bg-slate-800 transition-colors no-underline"
+                  className="flex-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold bg-[#02665e] text-white hover:bg-[#014e47] transition-colors no-underline"
                 >
                   <Phone className="h-4 w-4" />
-                  Call Driver
+                  Call driver
                 </a>
               )}
               <button
                 onClick={() => setShowChat(!showChat)}
                 className={`${
                   ride.driver.phone ? "flex-1" : "w-full"
-                } inline-flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold transition-colors ${
+                } inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors ${
                   showChat
-                    ? "bg-sky-700 text-white border border-sky-700"
-                    : "bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100"
+                    ? "border-0 bg-[#0a1110] text-white"
+                    : "border border-solid border-slate-200 bg-white text-slate-800 hover:border-[#02665e]/40 hover:text-[#02665e]"
                 }`}
+                style={{ fontFamily: "inherit" }}
               >
                 <MessageCircle className="h-4 w-4" />
-                {showChat ? "Hide Chat" : "Chat with Driver"}
+                {showChat ? "Hide chat" : "Chat with driver"}
               </button>
             </div>
           </>)}
 
-          {/* Payment Card */}
-          <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-              style={{ background: "linear-gradient(180deg, #86efac 0%, #059669 100%)" }} />
-            <div className="pl-5 pr-5 pt-5 pb-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-7 w-7 rounded-xl flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, #059669, #10b981)" }}>
-                  <Banknote className="h-3.5 w-3.5 text-white" />
-                </div>
-                <h2 className="text-base font-bold text-slate-900">Payment</h2>
+          {/* Payment */}
+          <section className="rounded-2xl border border-solid border-slate-200 bg-white px-5 py-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                <Banknote className="h-4 w-4 text-[#02665e]" aria-hidden />
+                Payment
               </div>
-              <div className="space-y-3">
-                {ride.amount && (
-                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount</span>
-                    <span className="text-sm font-extrabold text-slate-900">
-                      {Number(ride.amount).toLocaleString()} {ride.currency || "TZS"}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
-                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</span>
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
-                    ride.paymentStatus === "PAID"
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-amber-50 text-amber-700 border border-amber-200"
-                  }`}>
-                    {ride.paymentStatus === "PAID"
-                      ? <><CheckCircle className="h-3 w-3" /> Paid</>
-                      : <><Clock className="h-3 w-3" /> {ride.paymentStatus || "Pending"}</>}
-                  </span>
-                </div>
-              </div>
+              <span
+                className={[
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-bold",
+                  paid ? "bg-[#02665e]/10 text-[#02665e]" : "bg-amber-50 text-amber-700",
+                ].join(" ")}
+              >
+                {paid ? <CheckCircle className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
+                {paid ? "Paid" : human(ride.paymentStatus) || "Pending"}
+              </span>
             </div>
-          </div>
+            {ride.amount != null ? (
+              <div className="mt-2 text-[24px] font-extrabold leading-tight tabular-nums text-slate-900">
+                <span className="mr-1 text-[13px] font-semibold text-slate-500">{ride.currency || "TZS"}</span>
+                {Number(ride.amount).toLocaleString("en-US")}
+              </div>
+            ) : null}
+          </section>
 
-          {/* Property Card */}
-          {ride.property && (
-            <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-              <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-                style={{ background: "linear-gradient(180deg, #c4b5fd 0%, #7c3aed 100%)" }} />
-              <div className="pl-5 pr-5 pt-5 pb-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="h-7 w-7 rounded-xl flex items-center justify-center"
-                    style={{ background: "linear-gradient(135deg, #7c3aed, #a78bfa)" }}>
-                    <Building2 className="h-3.5 w-3.5 text-white" />
-                  </div>
-                  <h2 className="text-base font-bold text-slate-900">Destination Property</h2>
-                </div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
-                  <p className="text-sm font-bold text-slate-800 leading-snug">{ride.property.title}</p>
-                  {(ride.property.district || ride.property.regionName) && (
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {[ride.property.district, ride.property.regionName].filter(Boolean).join(", ")}
-                    </p>
-                  )}
+          {/* Destination */}
+          {ride.property ? (
+            <section className="rounded-2xl border border-solid border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Destination</div>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+                  <Building2 className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] font-bold text-slate-900">{ride.property.title}</div>
+                  {ride.property.district || ride.property.regionName ? (
+                    <div className="truncate text-[12.5px] text-slate-500">{[ride.property.district, ride.property.regionName].filter(Boolean).map((p) => human(p)).join(", ")}</div>
+                  ) : null}
                 </div>
               </div>
-            </div>
-          )}
+            </section>
+          ) : null}
         </div>
       </div>
 
-      {/* --- CHAT --- */}
-      {showChat && ride.driver && currentUserId && (
-        <div className="relative overflow-hidden bg-white rounded-3xl border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-          <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-3xl"
-            style={{ background: "linear-gradient(180deg, #38bdf8 0%, #0369a1 100%)" }} />
-          <div className="pl-6 pr-6 pt-5 pb-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-7 w-7 rounded-xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #1e3a5f, #0369a1)" }}>
-                <MessageCircle className="h-3.5 w-3.5 text-white" />
-              </div>
-              <h2 className="text-base font-bold text-slate-900">Chat with {ride.driver.name}</h2>
-            </div>
+      {/* --- Chat --- */}
+      {showChat && ride.driver && currentUserId ? (
+        <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+          <header className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 px-5 py-3.5">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+              <MessageCircle className="h-4 w-4" aria-hidden />
+            </span>
+            <h2 className="m-0 text-[15px] font-bold text-slate-900">Chat with {ride.driver.name}</h2>
+          </header>
+          <div className="p-4">
             <TransportChat
               bookingId={ride.id}
               currentUserId={currentUserId}
@@ -834,8 +777,8 @@ export default function RideDetailPage() {
               className="h-[500px]"
             />
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
     </div>
   );
 }
