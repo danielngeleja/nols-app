@@ -2,8 +2,9 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
-import { generateBookingTicketPdf } from "../lib/pdfDocuments.js";
+import { generateCustomerBookingReceiptPdf } from "../lib/pdfDocuments.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
+import { makeQR } from "../lib/qr.js";
 import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
@@ -520,6 +521,16 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
             phone: true,
           },
         },
+        invoices: {
+          select: {
+            invoiceNumber: true,
+            receiptNumber: true,
+            paidAt: true,
+            receiptQrPng: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
     });
 
@@ -533,31 +544,39 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Booking code not available" });
     }
 
-    // Prepare booking details for PDF
-    const bookingDetails = {
-      bookingId: booking.id,
-      bookingCode: booking.code!.codeVisible,
-      guestName: booking.guestName || booking.user?.name || "Guest",
-      guestPhone: booking.guestPhone || booking.user?.phone || undefined,
-      propertyName: booking.property?.title || "Property",
-      propertyLocation: [booking.property?.regionName, booking.property?.district, booking.property?.city]
-        .filter(Boolean).join(", ") || null,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      rooms: booking.roomsQty ?? 1,
-      totalAmount: Number(booking.totalAmount || 0),
-      confirmedAt: (booking as any).confirmedAt ?? null,
-    };
-
-    const nights = Math.max(1, Math.ceil(
-      (new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) / 86400000
-    ));
     const codeVisible = booking.code!.codeVisible;
     const propertySlug = (booking.property?.title ?? "booking").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-    const filename = `Reservation-${codeVisible}-${propertySlug}.pdf`;
+    const filename = `Receipt-${codeVisible}-${propertySlug}.pdf`;
+    const invoice = booking.invoices[0] ?? null;
+    const generatedQr = invoice?.receiptQrPng
+      ? Buffer.from(invoice.receiptQrPng)
+      : (await makeQR(JSON.stringify({
+          type: "NOLSAF_BOOKING_RECEIPT",
+          bookingCode: codeVisible,
+          receiptNumber: invoice?.receiptNumber || codeVisible,
+          invoiceNumber: invoice?.invoiceNumber || null,
+        }))).png;
 
-    // Generate real binary PDF using pdfkit (no browser print dialog needed)
-    const pdfBuffer = await generateBookingTicketPdf({ ...bookingDetails, nights } as any);
+    const pdfBuffer = await generateCustomerBookingReceiptPdf({
+      receiptNumber: invoice?.receiptNumber || codeVisible,
+      invoiceNumber: invoice?.invoiceNumber || null,
+      bookingCode: codeVisible,
+      paidAt: invoice?.paidAt || (booking as any).confirmedAt || null,
+      guestName: booking.guestName || booking.user?.name || "Guest",
+      guestPhone: booking.guestPhone || booking.user?.phone || null,
+      propertyName: booking.property?.title || "Property",
+      propertyLocation: [booking.property?.city, booking.property?.district, booking.property?.regionName]
+        .filter(Boolean).join(", ") || null,
+      roomDescription: [
+        (booking as any).roomType || (booking.property as any)?.type,
+        booking.roomsQty ? `${booking.roomsQty} room${booking.roomsQty === 1 ? "" : "s"}` : null,
+      ].filter(Boolean).join(" | ") || null,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      totalAmount: Number(booking.totalAmount || 0),
+      currency: "TZS",
+      qrPng: generatedQr,
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -645,7 +664,7 @@ router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
     if (!html) return res.status(500).json({ error: "Failed to generate receipt" });
 
     const codeVisible = booking.code.codeVisible;
-    const safeFilename = `Booking Reservation - ${codeVisible}.pdf`.replace(/"/g, '\\"');
+    const safeFilename = `Booking Receipt - ${codeVisible}.pdf`.replace(/"/g, '\\"');
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
     res.setHeader("X-NoLSAF-Filename", safeFilename);
