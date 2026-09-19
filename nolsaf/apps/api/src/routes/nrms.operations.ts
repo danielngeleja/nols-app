@@ -1944,9 +1944,11 @@ const orderPointSchema = z.object({
 });
 
 router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res: Response) => {
-  // This response includes the current checked-in guest's name. Protect the
-  // read at the API boundary as well as hiding the page in navigation.
-  const access = await requireNrmsPropertyCapability(req, res, Number(req.params.propertyId), "property.settings.read");
+  // This response supports live restaurant/bar service as well as the owner's
+  // configuration screen. Property membership and outlet scope are enforced
+  // by the shared loader; requiring property.settings.read here locked every
+  // confirmed restaurant/bar attendant out of their assigned workspace.
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   const [points, propertyRow] = await Promise.all([
     // The PREVIEW point (public listing-page menu link) is system-managed

@@ -4,6 +4,7 @@
 // reservations, and run the stay lifecycle with payments and balances.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
@@ -479,15 +480,29 @@ function nightsBetween(checkIn: string, checkOut: string): number {
   return Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
 }
 
-function roomAssignmentReady(reservation: Reservation): boolean {
-  if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) return false;
-  if (reservation.bookingId != null) {
-    return ["PAID", "CUSTOMER_PAID"].includes(String(reservation.marketplaceBooking?.paymentStatus || "").toUpperCase());
+type RoomAssignmentRequirement =
+  | { ready: true; kind: "READY"; message: string }
+  | { ready: false; kind: "VALIDATE_CODE" | "RECORD_PAYMENT" | "STATUS"; message: string };
+
+function roomAssignmentRequirement(reservation: Reservation): RoomAssignmentRequirement {
+  if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
+    return { ready: false, kind: "STATUS", message: "The reservation must be confirmed before a room can be assigned." };
   }
-  if (reservation.agencySettlement) return reservation.agencySettlement.settled;
+  if (reservation.bookingId != null) {
+    return String(reservation.marketplaceBooking?.checkInCodeStatus || "").toUpperCase() === "USED"
+      ? { ready: true, kind: "READY", message: "The marketplace booking code has been validated." }
+      : { ready: false, kind: "VALIDATE_CODE", message: "Validate the guest's booking code before assigning the paid room category." };
+  }
+  if (reservation.agencySettlement) {
+    return reservation.agencySettlement.settled
+      ? { ready: true, kind: "READY", message: "The agency folio payment is settled." }
+      : { ready: false, kind: "RECORD_PAYMENT", message: "The agency payment must be recorded before assigning a room." };
+  }
   const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + Number(reservation.transferredToMaster ?? 0));
   const total = Number(reservation.totalAmount ?? 0) + Number(reservation.chargesTotal ?? 0);
-  return Number(reservation.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
+  return Number(reservation.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0)
+    ? { ready: true, kind: "READY", message: "The guest payment is recorded." }
+    : { ready: false, kind: "RECORD_PAYMENT", message: "Record the guest payment before assigning a room." };
 }
 
 function groupSelectionEligibility(reservation: Reservation): { eligible: boolean; reason: string } {
@@ -572,6 +587,7 @@ function SelectionCheckbox({ checked, onChange, label, disabled = false, title }
 }
 
 export default function NrmsReservationsPage() {
+  const router = useRouter();
   const { selectedPropertyId } = useNrms();
   const { accessRole } = useNrmsAccessRole();
   const isSalesExecutive = accessRole === "SALES_EXECUTIVE";
@@ -804,7 +820,7 @@ export default function NrmsReservationsPage() {
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-900">{guest}</p><p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{reservation.guestProfile?.phone ?? reservation.agentBooking?.leadGuest?.phone ?? "No phone recorded"}</p></div><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>{reservation.status.replace(/_/g, " ").toLowerCase()}</span></div>
               </button>
               <div className="grid grid-cols-2 gap-px bg-neutral-100"><div className="bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Stay</p><p className="mb-0 mt-1 text-xs font-bold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</p></div><div className="min-w-0 bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Room</p><div className="mt-1 min-w-0 overflow-hidden"><ReservationRoomIdentity allocations={activeAllocations} /></div><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{SOURCE_LABEL[reservation.source] ?? reservation.source}</p></div></div>
-              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && roomAssignmentReady(reservation) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign</button>}<button type="button" onClick={() => openReservation(reservation.id)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
+              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign room</button>}<button type="button" onClick={() => openReservation(reservation.id)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
             </article>;
           })}
           <div className="col-span-full"><TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} /></div>
@@ -952,7 +968,7 @@ export default function NrmsReservationsPage() {
                       </td>
                       <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {!isSalesExecutive && unassignedAllocation && roomAssignmentReady(reservation) && (
+                          {!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && (
                             <button
                               type="button"
                               onClick={() => setRoomAssignment(reservation)}
@@ -960,7 +976,7 @@ export default function NrmsReservationsPage() {
                               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
                             >
                               <DoorOpen className="h-3.5 w-3.5" />
-                              Assign
+                              Assign room
                             </button>
                           )}
                           <button
@@ -1010,6 +1026,16 @@ export default function NrmsReservationsPage() {
           propertyId={selectedPropertyId}
           reservation={roomAssignment}
           onClose={() => setRoomAssignment(null)}
+          onValidateCode={() => {
+            const reference = roomAssignment.marketplaceBooking?.reference;
+            if (!reference) return;
+            router.push(`/owner/bookings/validate?handoff=${encodeURIComponent(reference)}&return=${encodeURIComponent("/owner/nrms/reservations")}`);
+          }}
+          onRecordPayment={() => {
+            const reservationId = roomAssignment.id;
+            setRoomAssignment(null);
+            openReservation(reservationId);
+          }}
           onAssigned={async () => {
             setRoomAssignment(null);
             await load();
@@ -1024,14 +1050,19 @@ function AssignRoomModal({
   propertyId,
   reservation,
   onClose,
+  onValidateCode,
+  onRecordPayment,
   onAssigned,
 }: {
   propertyId: number;
   reservation: Reservation;
   onClose: () => void;
+  onValidateCode: () => void;
+  onRecordPayment: () => void;
   onAssigned: () => Promise<void>;
 }) {
   const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && item.roomUnitId == null) ?? null;
+  const requirement = roomAssignmentRequirement(reservation);
   const [units, setUnits] = useState<Array<{ id: number; code: string; floor?: number | null; housekeepingStatus?: string | null }>>([]);
   const [totalFloors, setTotalFloors] = useState<number | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<number | "">("");
@@ -1041,7 +1072,7 @@ function AssignRoomModal({
   const guestName = reservation.guestProfile?.fullName ?? reservation.marketplaceBooking?.guestName ?? "Guest";
 
   useEffect(() => {
-    if (!allocation) {
+    if (!allocation || !requirement.ready) {
       setLoading(false);
       return;
     }
@@ -1072,7 +1103,7 @@ function AssignRoomModal({
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [allocation, propertyId, reservation.checkIn, reservation.checkOut]);
+  }, [allocation, propertyId, requirement.ready, reservation.checkIn, reservation.checkOut]);
 
   const assign = async () => {
     if (!allocation || selectedUnitId === "") return;
@@ -1099,7 +1130,7 @@ function AssignRoomModal({
       icon={<DoorOpen className="h-5 w-5" />}
       onClose={onClose}
       wide
-      footer={
+      footer={requirement.ready ? (
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
           <button type="button" onClick={() => void assign()} disabled={busy || selectedUnitId === "" || loading} className="inline-flex min-w-32 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400">
@@ -1107,7 +1138,17 @@ function AssignRoomModal({
             {busy ? "Assigning..." : "Assign room"}
           </button>
         </div>
-      }
+      ) : (
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50">Cancel</button>
+          {requirement.kind === "VALIDATE_CODE" && (
+            <button type="button" onClick={onValidateCode} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><ShieldCheck className="h-4 w-4" />Validate booking code</button>
+          )}
+          {requirement.kind === "RECORD_PAYMENT" && (
+            <button type="button" onClick={onRecordPayment} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><CircleDollarSign className="h-4 w-4" />Record payment</button>
+          )}
+        </div>
+      )}
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-y border-neutral-100 py-3">
@@ -1115,18 +1156,31 @@ function AssignRoomModal({
             <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
             <p className="mb-0 mt-1 text-xs text-neutral-500">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)} · {nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10))} nights</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Payment settled</span>
+          <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${requirement.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+            {requirement.ready ? <ShieldCheck className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {requirement.ready ? (reservation.bookingId != null ? "Booking code validated" : "Payment recorded") : "Action required"}
+          </span>
         </div>
 
-        <NrmsRoomAssignmentPicker
-          roomTypeName={allocation?.roomTypeName ?? "Room type unavailable"}
-          units={units}
-          totalFloors={totalFloors}
-          selectedUnitId={selectedUnitId}
-          onSelect={setSelectedUnitId}
-          loading={loading}
-          disabled={busy || !allocation}
-        />
+        {requirement.ready ? (
+          <NrmsRoomAssignmentPicker
+            roomTypeName={allocation?.roomTypeName ?? "Room type unavailable"}
+            units={units}
+            totalFloors={totalFloors}
+            selectedUnitId={selectedUnitId}
+            onSelect={setSelectedUnitId}
+            loading={loading}
+            disabled={busy || !allocation}
+          />
+        ) : (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-200"><AlertTriangle className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-bold">Room assignment is not ready</p>
+              <p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{requirement.message}</p>
+            </div>
+          </div>
+        )}
 
         {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{error}</div>}
       </div>

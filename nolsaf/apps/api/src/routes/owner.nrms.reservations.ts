@@ -2866,15 +2866,20 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
     const financial = formatReservation(reservation) as any;
     const effectivePaid = Number(financial.effectivePaid ?? financial.amountPaid ?? 0);
     const total = Number(financial.totalAmount ?? 0) + Number(financial.chargesTotal ?? 0);
-    const paymentReady = reservation.source === "NOLSAF"
-      ? ["PAID", "CUSTOMER_PAID"].includes(String(financial.marketplaceBooking?.paymentStatus || "").toUpperCase())
+    const isMarketplaceReservation = reservation.bookingId != null;
+    const paymentReady = isMarketplaceReservation
+      ? String(financial.marketplaceBooking?.checkInCodeStatus || "").toUpperCase() === "USED"
       : financial.agencySettlement
         ? financial.agencySettlement.settled === true
         : Number(financial.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
     if (!paymentReady) {
       return res.status(409).json({
-        error: "A room can be assigned only after the reservation is confirmed and payment is settled",
-        code: "ROOM_ASSIGNMENT_PAYMENT_REQUIRED",
+        error: isMarketplaceReservation
+          ? "Validate the guest's booking code before assigning the paid room category"
+          : "Record the guest payment before assigning a room",
+        code: isMarketplaceReservation
+          ? "ROOM_ASSIGNMENT_CODE_VALIDATION_REQUIRED"
+          : "ROOM_ASSIGNMENT_PAYMENT_REQUIRED",
       });
     }
     const parsed = moveRoomSchema.safeParse(req.body);
