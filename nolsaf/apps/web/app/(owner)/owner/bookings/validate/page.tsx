@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, FileCheck2, X } from "lucide-react";
+import { ArrowLeft, Camera, FileCheck2, X } from "lucide-react";
 import Support from "@/components/Support";
 import apiClient from "@/lib/apiClient";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ const api = apiClient;
 
 type Preview = {
   bookingId: number;
+  bookingReference: string;
   property: { id: number; title: string; type: string };
   personal: { fullName: string; phone: string; nationality: string; sex: string; ageGroup: string };
   booking: {
@@ -60,36 +61,51 @@ export default function CheckinValidation() {
   const lockSecondsPart = lockSeconds % 60;
   const lockCountdown = isLocked ? `${lockMinutesPart}:${String(lockSecondsPart).padStart(2, "0")}` : null;
 
-  // The NRMS front desk sends a receptionist here because the code is the only
-  // way a marketplace stay can be checked in. `booking` says which arrival they
-  // left to validate, `return` is the NRMS screen to hand them back to once it
-  // is done, so the trip out of NRMS closes itself. Read from the URL directly
-  // rather than useSearchParams, which would force a Suspense boundary around
-  // this whole client page.
-  const [handoff, setHandoff] = useState<{ bookingId: number | null; guestName: string | null; returnTo: string | null }>({
-    bookingId: null,
+  // NRMS passes an opaque reference; the authenticated API resolves it to the
+  // arrival context so names survive refreshes without entering the URL.
+  const [handoff, setHandoff] = useState<{
+    reference: string | null;
+    guestName: string | null;
+    propertyName: string | null;
+    checkIn: string | null;
+    returnTo: string | null;
+  }>({
+    reference: null,
     guestName: null,
+    propertyName: null,
+    checkIn: null,
     returnTo: null,
   });
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const bookingId = Number(params.get("booking"));
+    const reference = String(params.get("handoff") || "").trim() || null;
     const returnTo = params.get("return");
-    let guestName: string | null = null;
-    try {
-      const stored = JSON.parse(window.sessionStorage.getItem("nolsaf:front-desk-handoff") || "null");
-      if (stored?.bookingId === bookingId && typeof stored?.guestName === "string") {
-        guestName = stored.guestName.trim().slice(0, 160) || null;
-      }
-    } catch {
-      guestName = null;
-    }
+    const safeReturnTo = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null;
     setHandoff({
-      bookingId: Number.isInteger(bookingId) && bookingId > 0 ? bookingId : null,
-      guestName,
-      // Only an in-app path, never an absolute URL an open redirect could ride.
-      returnTo: returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null,
+      reference,
+      guestName: null,
+      propertyName: null,
+      checkIn: null,
+      returnTo: safeReturnTo,
     });
+    if (!reference) return;
+
+    let active = true;
+    api.get<{ reference: string; guestName: string; propertyName: string; checkIn: string }>(
+      `/api/owner/bookings/handoff/${encodeURIComponent(reference)}`,
+    ).then(({ data }) => {
+      if (!active) return;
+      setHandoff({
+        reference: data.reference,
+        guestName: data.guestName,
+        propertyName: data.propertyName,
+        checkIn: data.checkIn,
+        returnTo: safeReturnTo,
+      });
+    }).catch(() => {
+      if (active) setResultMsg("The front desk arrival could not be loaded. Return to NRMS and open it again.");
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -241,7 +257,6 @@ export default function CheckinValidation() {
       window.dispatchEvent(new Event("nols:checkedin-changed"));
       // Back to whoever sent us here: the NRMS front desk when the arrival was
       // started there, otherwise the checked-in list as before.
-      window.sessionStorage.removeItem("nolsaf:front-desk-handoff");
       router.push(handoff.returnTo ?? '/owner/bookings/checked-in');
     } catch (err: any) {
       setResultMsg(err?.response?.data?.error ?? 'Could not confirm check-in');
@@ -545,22 +560,34 @@ export default function CheckinValidation() {
             <div className="p-4 space-y-4">
 
               {/* Front desk handoff: which arrival NRMS sent them here for. */}
-              {handoff.bookingId ? (
-                <div className="border-0 border-l-2 border-solid border-emerald-600 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-950">
-                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS front desk</p>
-                  <p className="m-0 mt-1 text-base font-bold">Check in {handoff.guestName || "guest"}</p>
-                  <p className="m-0 mt-1 text-xs leading-relaxed text-emerald-800">
+              {handoff.reference ? (
+                <div className="border-0 border-b border-solid border-slate-200 pb-4 text-slate-900">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS front desk arrival</p>
+                      <p className="m-0 mt-1 truncate text-lg font-bold tracking-tight">
+                        {handoff.guestName ? `Check in ${handoff.guestName}` : "Loading guest details..."}
+                      </p>
+                      {handoff.propertyName ? (
+                        <p className="m-0 mt-1 text-xs text-slate-500">
+                          {handoff.propertyName}{handoff.checkIn ? ` | ${new Date(handoff.checkIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                    {handoff.returnTo ? (
+                      <a href={handoff.returnTo} className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-slate-600 no-underline hover:text-emerald-700">
+                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+                        Front desk
+                      </a>
+                    ) : null}
+                  </div>
+                  <p className="m-0 mt-3 border-0 border-l-2 border-solid border-emerald-600 pl-3 text-xs leading-relaxed text-slate-600">
                     Ask the guest for their booking code, then enter it below to confirm check-in. You will return to the front desk when the code is accepted.
                   </p>
-                  {preview && preview.bookingId !== handoff.bookingId ? (
-                    <p className="m-0 mt-2 text-xs font-semibold text-amber-800">
+                  {preview && preview.bookingReference !== handoff.reference ? (
+                    <p className="m-0 mt-3 text-xs font-semibold text-amber-700">
                       This code belongs to {preview.personal.fullName}{handoff.guestName ? `, not ${handoff.guestName}` : ""}. Confirm that you have the correct guest before continuing.
                     </p>
-                  ) : null}
-                  {handoff.returnTo ? (
-                    <a href={handoff.returnTo} className="mt-2 inline-block text-xs font-bold text-emerald-800 underline">
-                      Back to front desk
-                    </a>
                   ) : null}
                 </div>
               ) : null}

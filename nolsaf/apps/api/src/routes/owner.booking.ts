@@ -15,6 +15,11 @@ import {
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import {
+  customerBookingReference,
+  isCustomerBookingReference,
+  matchesCustomerBookingReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(
@@ -38,6 +43,38 @@ const bookingUserSelect = {
   email: true,
   phone: true,
 } as const;
+
+router.get("/handoff/:reference", (async (req: AuthedRequest, res: Response) => {
+  const reference = String(req.params.reference || "").trim();
+  if (!isCustomerBookingReference(reference)) {
+    return res.status(400).json({ error: "Invalid check-in handoff" });
+  }
+
+  const candidates = await prisma.booking.findMany({
+    where: {
+      property: { ownerId: req.user!.id },
+      status: { notIn: ["CANCELED"] },
+      code: { isNot: null },
+      checkOut: { gte: new Date(Date.now() - 7 * 86400000) },
+    },
+    select: {
+      id: true,
+      guestName: true,
+      checkIn: true,
+      property: { select: { title: true } },
+      user: { select: { name: true, fullName: true } },
+    },
+  });
+  const booking = candidates.find((candidate) => matchesCustomerBookingReference(reference, candidate.id));
+  if (!booking) return res.status(404).json({ error: "Check-in handoff not found" });
+
+  return res.json({
+    reference: customerBookingReference(booking.id),
+    guestName: booking.guestName || booking.user?.fullName || booking.user?.name || "Guest",
+    propertyName: booking.property?.title || "Property",
+    checkIn: booking.checkIn,
+  });
+}) as RequestHandler);
 
 /** PREVIEW: validate code and return all details (no state change) */
 const validateBooking: RequestHandler = async (req, res) => {
@@ -136,6 +173,7 @@ const validateBooking: RequestHandler = async (req, res) => {
   // Map details with all booking information
   const details = {
     bookingId: booking.id,
+    bookingReference: customerBookingReference(booking.id),
     // Prefer visible code if present; fallback to legacy code fields.
     code: codeRecord?.codeVisible || codeRecord?.code || null,
     property: {

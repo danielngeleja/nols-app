@@ -40,7 +40,7 @@ type Reservation = {
   status: string;
   source: string;
   bookingId?: number | null;
-  marketplaceBooking?: { id: number; checkInCodeStatus?: string | null } | null;
+  marketplaceBooking?: { id: number; reference: string; checkInCodeStatus?: string | null } | null;
   checkIn: string;
   checkOut: string;
   currency: string;
@@ -148,9 +148,9 @@ function hasAssignedRoom(r: Reservation): boolean {
  * can only fail.
  */
 function marketplaceCheckInHref(r: Reservation): string | null {
-  const bookingId = r.marketplaceBooking?.id ?? r.bookingId ?? null;
-  if (!bookingId) return null;
-  return `/owner/bookings/validate?booking=${bookingId}&return=${encodeURIComponent("/owner/nrms")}`;
+  const handoffReference = r.marketplaceBooking?.reference ?? null;
+  if (!handoffReference) return null;
+  return `/owner/bookings/validate?handoff=${encodeURIComponent(handoffReference)}&return=${encodeURIComponent("/owner/nrms")}`;
 }
 
 /** Why a marketplace arrival may not be checkable in yet, for the row detail. */
@@ -1258,14 +1258,6 @@ function OperationRow({
         {actionHref ? (
           <Link
             href={actionHref}
-            onClick={() => {
-              const bookingId = reservation.marketplaceBooking?.id ?? reservation.bookingId ?? null;
-              if (!bookingId) return;
-              window.sessionStorage.setItem("nolsaf:front-desk-handoff", JSON.stringify({
-                bookingId,
-                guestName,
-              }));
-            }}
             className={`col-start-2 row-start-1 inline-flex min-h-9 w-[8.5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-lg px-2 text-xs font-bold no-underline transition hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-36 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
           >
             <span className="truncate">{actionLabel}</span>

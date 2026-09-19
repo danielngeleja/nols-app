@@ -24,6 +24,7 @@ import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } from "../lib/nrmsShifts.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 import {
   billingRoutesExtras,
   billingUsesMasterFolio,
@@ -317,6 +318,7 @@ function formatReservation(r: any) {
     marketplaceBooking: r.booking
       ? {
           id: r.booking.id,
+          reference: customerBookingReference(r.booking.id),
           status: r.booking.status,
           guestName: r.booking.guestName,
           guestPhone: r.booking.guestPhone,
