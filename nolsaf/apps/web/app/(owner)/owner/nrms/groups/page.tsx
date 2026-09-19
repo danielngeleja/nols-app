@@ -89,6 +89,13 @@ function fmtDate(v: string): string {
   return new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function reservationsShareCommonNight(reservations: GroupPickReservation[]): boolean {
+  if (reservations.length < 2) return true;
+  const latestArrival = Math.max(...reservations.map((reservation) => new Date(reservation.checkIn).getTime()));
+  const earliestDeparture = Math.min(...reservations.map((reservation) => new Date(reservation.checkOut).getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
 /** Earliest arrival and latest departure across the members, the party's window. */
 function groupWindow(group: ReservationGroup): string {
   const dates = group.members.flatMap((member) => [member.checkIn, member.checkOut]).filter(Boolean);
@@ -184,6 +191,21 @@ export default function NrmsGroupReservationsPage() {
         const picked = all.filter((reservation) => selectedIds.includes(reservation.id));
         if (picked.length !== selectedIds.length) {
           setPendingError("Some selected reservations are no longer available for grouping. Reopen the selection from Reservations.");
+          setPending(null);
+          return;
+        }
+        if (picked.some((reservation) => reservation.agentBooking)) {
+          setPendingError("Agency reservations stay in their agency group and rooming-list workflow.");
+          setPending(null);
+          return;
+        }
+        if (picked.some((reservation) => !["HELD", "CONFIRMED"].includes(reservation.status))) {
+          setPendingError("Only held or confirmed reservations can form a group before check-in.");
+          setPending(null);
+          return;
+        }
+        if (!reservationsShareCommonNight(picked)) {
+          setPendingError("The selected reservations do not share a common night and cannot form one travelling party.");
           setPending(null);
           return;
         }

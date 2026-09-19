@@ -220,8 +220,91 @@ function decimal(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatReservation(r: any) {
-  const marketplaceInvoice = r.booking?.invoices?.[0] ?? null;
+function groupMembersShareCommonNight(members: Array<{ checkIn: Date; checkOut: Date }>): boolean {
+  if (members.length < 2) return true;
+  const latestArrival = Math.max(...members.map((member) => member.checkIn.getTime()));
+  const earliestDeparture = Math.min(...members.map((member) => member.checkOut.getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
+function isAgencyManagedGroupMember(member: {
+  agentPropertyLinkId?: number | null;
+  materializedAgentBookingRequestId?: number | null;
+  agentBookingRequest?: { id: number } | null;
+}): boolean {
+  return member.agentPropertyLinkId != null
+    || member.materializedAgentBookingRequestId != null
+    || member.agentBookingRequest != null;
+}
+
+function marketplaceFinancialBreakdown(booking: any, invoice: any) {
+  const bookingTotal = decimal(booking?.totalAmount);
+  const invoiceTotal = decimal(invoice?.total);
+  const transportFare = Math.max(0, decimal(booking?.transportFare) ?? 0);
+  const accommodationGross = bookingTotal == null ? null : Math.max(0, bookingTotal - transportFare);
+  const storedPercent = decimal(invoice?.commissionPercent);
+  let commissionAmount = decimal(invoice?.commissionAmount);
+  let ownerPayout = decimal(invoice?.netPayable);
+  let status: "RECORDED" | "CALCULATED" | "UNAVAILABLE" = "RECORDED";
+
+  // The percentage captured on the invoice is the commercial rule of record.
+  // Recalculate its amounts from accommodation only so a legacy invoice total
+  // that included transport can never inflate the owner's room payout.
+  if (accommodationGross != null && storedPercent != null && storedPercent >= 0 && storedPercent <= 100) {
+    commissionAmount = Math.round(accommodationGross * (storedPercent / 100) * 100) / 100;
+    ownerPayout = Math.max(0, Math.round((accommodationGross - commissionAmount) * 100) / 100);
+    status = "CALCULATED";
+  } else if (accommodationGross != null && ownerPayout == null && commissionAmount != null) {
+    ownerPayout = Math.max(0, Math.round((accommodationGross - commissionAmount) * 100) / 100);
+    status = "CALCULATED";
+  } else if (accommodationGross != null && commissionAmount == null && ownerPayout != null) {
+    commissionAmount = Math.max(0, Math.round((accommodationGross - ownerPayout) * 100) / 100);
+    status = "CALCULATED";
+  } else if (accommodationGross != null && ownerPayout == null && commissionAmount == null) {
+    ownerPayout = accommodationGross;
+    status = "CALCULATED";
+  } else if (accommodationGross == null) {
+    status = "UNAVAILABLE";
+  }
+
+  const derivedPercent = accommodationGross != null && accommodationGross > 0 && commissionAmount != null
+    ? Math.round((commissionAmount / accommodationGross) * 10000) / 100
+    : null;
+
+  return {
+    customerPaidTotal: invoiceTotal ?? bookingTotal,
+    accommodationGross,
+    transportFare,
+    commissionPercent: storedPercent ?? derivedPercent,
+    commissionAmount,
+    ownerPayout,
+    financialStatus: status,
+    financialReviewReason: null,
+  };
+}
+
+async function loadOwnerDisbursement(invoiceId: number) {
+  const disbursement = await prisma.disbursement.findFirst({
+    where: { sourceType: "OWNER_INVOICE", sourceId: invoiceId },
+    orderBy: { createdAt: "desc" },
+    select: { status: true, amount: true, currency: true, bankName: true, operator: true, paidAt: true },
+  });
+  return disbursement
+    ? {
+        status: disbursement.status,
+        amount: decimal(disbursement.amount),
+        currency: disbursement.currency,
+        channel: disbursement.operator ?? disbursement.bankName,
+        paidAt: disbursement.paidAt,
+      }
+    : null;
+}
+
+function formatReservation(r: any, ownerDisbursement: any = null) {
+  const bookingInvoices = Array.isArray(r.booking?.invoices) ? r.booking.invoices : [];
+  const marketplaceInvoice = bookingInvoices.find((invoice: any) => !String(invoice.invoiceNumber ?? "").startsWith("OINV-")) ?? null;
+  const ownerInvoice = bookingInvoices.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-")) ?? null;
+  const marketplaceFinancials = r.booking ? marketplaceFinancialBreakdown(r.booking, marketplaceInvoice) : null;
   const transferredToMaster = Array.isArray(r.masterFolioItems)
     ? r.masterFolioItems.filter((item: any) => !item.voidedAt).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0)
     : 0;
@@ -329,8 +412,33 @@ function formatReservation(r: any) {
           ageGroup: r.booking.ageGroup,
           roomsQty: r.booking.roomsQty,
           totalAmount: decimal(r.booking.totalAmount),
+          customerPaidTotal: marketplaceFinancials?.customerPaidTotal ?? null,
+          accommodationGross: marketplaceFinancials?.accommodationGross ?? null,
+          transportFare: marketplaceFinancials?.transportFare ?? 0,
+          commissionPercent: marketplaceFinancials?.commissionPercent ?? null,
+          commissionAmount: marketplaceFinancials?.commissionAmount ?? null,
+          ownerPayout: marketplaceFinancials?.ownerPayout ?? null,
+          financialStatus: marketplaceFinancials?.financialStatus ?? "UNAVAILABLE",
+          financialReviewReason: marketplaceFinancials?.financialReviewReason ?? null,
           paymentStatus: marketplaceInvoice?.status ?? null,
           paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
+          invoiceIssuedAt: marketplaceInvoice?.issuedAt ?? null,
+          invoiceVerifiedAt: marketplaceInvoice?.verifiedAt ?? null,
+          invoiceApprovedAt: marketplaceInvoice?.approvedAt ?? null,
+          invoicePaidAt: marketplaceInvoice?.paidAt ?? null,
+          receiptNumber: marketplaceInvoice?.receiptNumber ?? null,
+          ownerInvoice: ownerInvoice
+            ? {
+                reference: ownerInvoice.invoiceNumber,
+                status: ownerInvoice.status,
+                amount: decimal(ownerInvoice.netPayable ?? ownerInvoice.total),
+                issuedAt: ownerInvoice.issuedAt,
+                verifiedAt: ownerInvoice.verifiedAt,
+                approvedAt: ownerInvoice.approvedAt,
+                paidAt: ownerInvoice.paidAt,
+              }
+            : null,
+          ownerDisbursement,
           /** The reference the guest holds and the payout reconciles against.
            * Views show this rather than the internal booking id. */
           invoiceNumber: marketplaceInvoice?.invoiceNumber ?? null,
@@ -506,6 +614,7 @@ const detailInclude = {
       ageGroup: true,
       roomsQty: true,
       totalAmount: true,
+      transportFare: true,
       user: { select: { email: true } },
       // The single-use arrival code is the only thing that can check a
       // marketplace stay in, so the front desk has to see its state before it
@@ -514,8 +623,8 @@ const detailInclude = {
       code: { select: { status: true } },
       invoices: {
         orderBy: { createdAt: "desc" as const },
-        take: 1,
-        select: { status: true, paymentMethod: true, invoiceNumber: true, createdAt: true },
+        take: 10,
+        select: { id: true, status: true, total: true, commissionPercent: true, commissionAmount: true, netPayable: true, paymentMethod: true, invoiceNumber: true, receiptNumber: true, issuedAt: true, verifiedAt: true, approvedAt: true, paidAt: true, createdAt: true },
       },
     },
   },
@@ -736,6 +845,29 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       prisma.reservation.groupBy({ by: ["status"], where: countWhere, _count: { _all: true } }),
     ]);
 
+    const ownerInvoiceIds = reservations.flatMap((reservation: any) => {
+      const invoiceId = reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id;
+      return Number.isInteger(invoiceId) ? [invoiceId] : [];
+    });
+    const disbursements = ownerInvoiceIds.length > 0
+      ? await prisma.disbursement.findMany({
+          where: { sourceType: "OWNER_INVOICE", sourceId: { in: ownerInvoiceIds } },
+          orderBy: { createdAt: "desc" },
+          select: { sourceId: true, status: true, amount: true, currency: true, bankName: true, operator: true, paidAt: true },
+        })
+      : [];
+    const disbursementByInvoice = new Map<number, any>();
+    for (const disbursement of disbursements) {
+      if (disbursementByInvoice.has(disbursement.sourceId)) continue;
+      disbursementByInvoice.set(disbursement.sourceId, {
+        status: disbursement.status,
+        amount: decimal(disbursement.amount),
+        currency: disbursement.currency,
+        channel: disbursement.operator ?? disbursement.bankName,
+        paidAt: disbursement.paidAt,
+      });
+    }
+
     res.json({
       total,
       limit,
@@ -743,7 +875,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       sortBy,
       sortOrder,
       statusCounts: Object.fromEntries(groupedStatuses.map((row) => [row.status, row._count._all])),
-      reservations: reservations.map(formatReservation),
+      reservations: reservations.map((reservation: any) => {
+        const invoiceId = reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id;
+        return formatReservation(reservation, invoiceId != null ? disbursementByInvoice.get(invoiceId) ?? null : null);
+      }),
     });
   } catch (err) {
     console.error("[owner.nrms.reservations] list failed", err);
@@ -987,11 +1122,22 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
       await lockPropertyInventory(tx, propertyId);
       const members = await tx.reservation.findMany({
         where: { id: { in: reservationIds }, propertyId, ownerId, bookingId: null },
-        select: { id: true, status: true, groupId: true },
+        select: {
+          id: true,
+          status: true,
+          groupId: true,
+          checkIn: true,
+          checkOut: true,
+          agentPropertyLinkId: true,
+          materializedAgentBookingRequestId: true,
+          agentBookingRequest: { select: { id: true } },
+        },
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
       if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
+      if (members.some(isAgencyManagedGroupMember)) throw new Error("NRMS_GROUP_MEMBER_AGENCY_MANAGED");
+      if (!groupMembersShareCommonNight(members)) throw new Error("NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP");
       const group = await tx.nrmsReservationGroup.create({
         data: {
           propertyId,
@@ -1019,6 +1165,8 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be grouped before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_AGENCY_MANAGED") return res.status(409).json({ error: "Agency reservations must remain in their agency group and rooming-list workflow", code: "GROUP_MEMBER_AGENCY_MANAGED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP") return res.status(409).json({ error: "Every reservation in a group must share at least one common night", code: "GROUP_MEMBER_DATES_DO_NOT_OVERLAP" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while the group was being created" });
     console.error("[owner.nrms.reservations] group create failed", err);
     res.status(500).json({ error: "Failed to create reservation group" });
@@ -1097,6 +1245,11 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
           id: true,
           status: true,
           groupId: true,
+          checkIn: true,
+          checkOut: true,
+          agentPropertyLinkId: true,
+          materializedAgentBookingRequestId: true,
+          agentBookingRequest: { select: { id: true } },
           currency: true,
           totalAmount: true,
           externalRef: true,
@@ -1111,6 +1264,12 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
       if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
+      if (members.some(isAgencyManagedGroupMember)) throw new Error("NRMS_GROUP_MEMBER_AGENCY_MANAGED");
+      const existingMembers = await tx.reservation.findMany({
+        where: { groupId: group.id },
+        select: { checkIn: true, checkOut: true },
+      });
+      if (!groupMembersShareCommonNight([...existingMembers, ...members])) throw new Error("NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP");
       if (agencyBilling) {
         const conflict = members.map((member: any) => masterFolioJoinConflict(member, masterFolio)).find(Boolean);
         if (conflict === "CURRENCY_MISMATCH") throw new Error("NRMS_GROUP_MEMBER_CURRENCY_MISMATCH");
@@ -1155,6 +1314,8 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be added before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_AGENCY_MANAGED") return res.status(409).json({ error: "Agency reservations must remain in their agency group and rooming-list workflow", code: "GROUP_MEMBER_AGENCY_MANAGED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP") return res.status(409).json({ error: "Every reservation in a group must share at least one common night", code: "GROUP_MEMBER_DATES_DO_NOT_OVERLAP" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while it was being added" });
     if (err instanceof Error && err.message === "NRMS_GROUP_AGENCY_BILLING_MANAGER_REQUIRED") return res.status(403).json({ error: "Only the property owner or manager can add an existing stay to an agency-billed group", code: "AGENCY_BILLING_MANAGER_REQUIRED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_CURRENCY_MISMATCH") return res.status(409).json({ error: "Every reservation added to an agency bill must use the same currency as the master folio", code: "MASTER_FOLIO_CURRENCY_MISMATCH" });
@@ -1886,7 +2047,11 @@ router.get("/:id", (async (req: AuthedRequest, res: Response) => {
   try {
     const readable = await loadReadableReservation(req, res, Number(req.params.id));
     if (!readable) return;
-    const reservation = formatReservation(readable.reservation);
+    const ownerInvoiceId = readable.reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id ?? null;
+    const ownerDisbursement = ownerInvoiceId != null
+      ? await loadOwnerDisbursement(ownerInvoiceId)
+      : null;
+    const reservation = formatReservation(readable.reservation, ownerDisbursement);
     res.json({
       reservation: readable.access.role === "SALES_EXECUTIVE"
         ? { ...reservation, payments: [], charges: [], outletOrders: [], events: [] }
@@ -3117,7 +3282,9 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     // through NoLSAF. Anything the desk posted here is the property's own
     // incidental revenue and prints exactly as it does for any other stay.
     const marketplace = (reservation as any).booking ?? null;
-    const marketplaceInvoiceRow = marketplace?.invoices?.[0] ?? null;
+    const marketplaceInvoiceRow = marketplace?.invoices?.find(
+      (invoice: any) => !String(invoice.invoiceNumber ?? "").startsWith("OINV-"),
+    ) ?? null;
     const marketplaceRoomTotal = marketplace ? decimal(marketplace.totalAmount) ?? 0 : 0;
     const marketplacePayments = marketplace && marketplaceRoomTotal > 0
       ? [{

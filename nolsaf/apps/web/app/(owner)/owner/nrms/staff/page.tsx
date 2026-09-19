@@ -380,7 +380,7 @@ export default function NrmsStaffPage() {
     { key: "DISABLED", label: "Revoked", hint: "Property access removed", count: staff.filter((item) => item.status === "DISABLED").length, icon: PauseCircle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50" },
   ];
 
-  return <div className="mx-auto w-full min-w-0 max-w-5xl space-y-3 px-1 pb-8 sm:px-0">
+  return <div className="mx-auto w-full min-w-0 max-w-[1440px] space-y-4 px-1 pb-8 sm:px-0">
     <section className="min-w-0 overflow-hidden rounded-2xl bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[linear-gradient(135deg,#ffffff_0%,#f2faf7_100%)] px-4 py-3 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -388,32 +388,32 @@ export default function NrmsStaffPage() {
             <UsersRound className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h1 className="m-0 text-sm font-bold tracking-tight text-neutral-950">Staff and roles</h1>
-            <p className="mb-0 mt-0.5 truncate text-[11px] text-neutral-500">Invite by email, they confirm, access activates.</p>
+            <h1 className="m-0 text-base font-bold tracking-tight text-neutral-950">Staff and roles</h1>
+            <p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">Invite by email, they confirm, access activates.</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50/70 px-2.5 py-1 ring-1 ring-emerald-100">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
-          <span className="text-[11px] font-bold text-emerald-800">{activeCount} active</span>
-          <span className="text-[11px] font-medium text-emerald-700/60">of {staff.length}</span>
+          <span className="text-xs font-bold text-emerald-800">{activeCount} active</span>
+          <span className="text-xs font-medium text-emerald-700/60">of {staff.length}</span>
         </div>
       </div>
 
       <form onSubmit={(event) => { event.preventDefault(); void assign(); }} className="grid min-w-0 grid-cols-1 gap-2.5 px-4 py-3.5 sm:grid-cols-12 sm:px-5 sm:items-end sm:gap-3">
-        <label className={`min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500 ${needsOutlet ? "sm:col-span-4" : "sm:col-span-6"}`}>
+        <label className={`min-w-0 text-xs font-bold uppercase tracking-wide text-neutral-500 ${needsOutlet ? "sm:col-span-4" : "sm:col-span-6"}`}>
           Account email
           <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="staff@example.com" autoComplete="email" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
         </label>
-        <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:col-span-3">
+        <label className="min-w-0 text-xs font-bold uppercase tracking-wide text-neutral-500 sm:col-span-3">
           Staff role
           <select value={role} onChange={(event) => { setRole(event.target.value); setOutletId(""); }} disabled={assignableRoles.length === 0} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:text-neutral-400">{assignableRoles.length === 0 ? <option value="">No role available</option> : assignableRoles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
         </label>
-        {needsOutlet && <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:col-span-3">
+        {needsOutlet && <label className="min-w-0 text-xs font-bold uppercase tracking-wide text-neutral-500 sm:col-span-3">
           Assigned outlet
           <select value={outletId} onChange={(event) => setOutletId(event.target.value ? Number(event.target.value) : "")} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10"><option value="">Select outlet</option>{eligibleOutlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select>
         </label>}
-        <button type="submit" disabled={busy || !email.trim() || !role || assignableRoles.length === 0 || (needsOutlet && !outletId)} className={`box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none ${needsOutlet ? "sm:col-span-2" : "sm:col-span-3"}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}{busy ? "Assigning..." : "Assign access"}</button>
-        <p className="m-0 text-[10px] leading-relaxed text-neutral-400 sm:col-span-12">The staff member must already have a NoLSAF account with this email. Access activates only after they confirm the invitation.</p>
+        <button type="submit" disabled={busy || !email.trim() || !role || assignableRoles.length === 0 || (needsOutlet && !outletId)} className={`box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none ${needsOutlet ? "sm:col-span-2" : "sm:col-span-3"}`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}{busy ? "Assigning..." : "Assign access"}</button>
+        <p className="m-0 text-xs leading-relaxed text-neutral-500 sm:col-span-12">The staff member must already have a NoLSAF account with this email. Access activates only after they confirm the invitation.</p>
       </form>
     </section>
 
@@ -429,7 +429,7 @@ export default function NrmsStaffPage() {
           <UserPlus className="mt-px h-4 w-4 shrink-0 text-sky-700" />
           <div className="min-w-0">
             <p className="m-0 text-xs font-bold text-sky-900">No NoLSAF account uses this email yet</p>
-            <p className="mb-0 mt-0.5 text-[11px] leading-relaxed text-sky-800">
+            <p className="mb-0 mt-0.5 text-xs leading-relaxed text-sky-800">
               <span className="font-semibold break-all">{needsAccountFor}</span> needs a free NoLSAF account before you can
               assign a role. It is an ordinary traveller account, the same one guests use. Send them this link, then assign
               the role once they have registered.
@@ -451,7 +451,7 @@ export default function NrmsStaffPage() {
                 setCopiedLink(false);
               }
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-[11px] font-bold text-sky-800 transition hover:bg-sky-100"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-xs font-bold text-sky-800 transition hover:bg-sky-100"
           >
             {copiedLink ? <ShieldCheck className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             {copiedLink ? "Link copied" : "Copy sign-up link"}
@@ -460,7 +460,7 @@ export default function NrmsStaffPage() {
             href={`https://wa.me/?text=${encodeURIComponent(shareMessage)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-[11px] font-bold text-sky-800 no-underline transition hover:bg-sky-100"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-xs font-bold text-sky-800 no-underline transition hover:bg-sky-100"
           >
             <MessageCircle className="h-3.5 w-3.5" />
             WhatsApp
@@ -470,7 +470,7 @@ export default function NrmsStaffPage() {
               strangers through the platform. */}
           <a
             href={`mailto:${encodeURIComponent(needsAccountFor)}?subject=${encodeURIComponent(shareSubject)}&body=${encodeURIComponent(shareMessage)}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-[11px] font-bold text-sky-800 no-underline transition hover:bg-sky-100"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 text-xs font-bold text-sky-800 no-underline transition hover:bg-sky-100"
           >
             <Mail className="h-3.5 w-3.5" />
             Email
@@ -478,7 +478,7 @@ export default function NrmsStaffPage() {
           <button
             type="button"
             onClick={() => { setNeedsAccountFor(null); setCopiedLink(false); }}
-            className="inline-flex h-8 items-center rounded-lg border-0 bg-transparent px-2 text-[11px] font-semibold text-sky-700 transition hover:text-sky-900"
+            className="inline-flex h-8 items-center rounded-lg border-0 bg-transparent px-2 text-xs font-semibold text-sky-700 transition hover:text-sky-900"
           >
             Dismiss
           </button>
@@ -487,7 +487,7 @@ export default function NrmsStaffPage() {
         {/* Kept visible so the owner can see where they are sending people, and
             so the link is still usable where the clipboard is blocked. Decoded
             for reading; the buttons above share the encoded form. */}
-        <p className="m-0 mt-2.5 select-all break-all rounded-lg bg-white/70 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-sky-800 ring-1 ring-sky-200">
+        <p className="m-0 mt-2.5 select-all break-all rounded-lg bg-white/70 px-2.5 py-1.5 font-mono text-xs leading-relaxed text-sky-800 ring-1 ring-sky-200">
           {readableLink}
         </p>
       </div>
@@ -498,11 +498,11 @@ export default function NrmsStaffPage() {
         already knows. It records no attestation: "someone confirmed this list
         on a date" would need a column that does not exist yet. */}
     {review && (review.expiredInvites > 0 || review.dormant > 0) && (
-      <div className="flex flex-wrap items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900 ring-1 ring-amber-200">
+      <div className="flex flex-wrap items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
         <ClipboardCheck className="mt-px h-4 w-4 shrink-0 text-amber-700" />
         <div className="min-w-0">
           <p className="m-0 font-bold">This team list needs a look</p>
-          <p className="mb-0 mt-0.5 leading-relaxed text-amber-800">
+          <p className="mb-0 mt-1 text-xs leading-relaxed text-amber-800">
             {[
               review.expiredInvites > 0
                 ? `${review.expiredInvites} invitation${review.expiredInvites === 1 ? "" : "s"} expired after ${review.inviteValidDays} days and must be resent`
@@ -521,11 +521,11 @@ export default function NrmsStaffPage() {
       {/* Names the columns below. Hidden on mobile, where each row collapses
           into one block and headings would label nothing. */}
       {visibleStaff.length > 0 && view === "list" && (
-        <div className="hidden gap-x-4 bg-neutral-50/60 px-5 py-1.5 shadow-[inset_0_-1px_0_0_#eef2f6] sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_7rem_9.5rem]">
-          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Staff member</span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Role and scope</span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Status</span>
-          <span className="text-right text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Action</span>
+        <div className="hidden gap-x-5 bg-neutral-50/60 px-5 py-2.5 shadow-[inset_0_-1px_0_0_#eef2f6] sm:grid sm:grid-cols-[minmax(0,1fr)_11rem_8rem_10.5rem]">
+          <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">Staff member</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">Role and scope</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">Status</span>
+          <span className="text-right text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">Action</span>
         </div>
       )}
       {/* A list, not a stack of divs. Preflight is off, so the UA indent and
@@ -540,47 +540,47 @@ export default function NrmsStaffPage() {
           const managerLockedOut = membership.role === "MANAGER" && !canRevokeManager;
           const action = membership.status === "ACTIVE" && !managerLockedOut ? (
             <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => { setReplaceEmail(""); setReplaceReason(REVOKE_REASONS[0]); setReplaceTarget(membership); }} disabled={replacing || revokingId !== null} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={() => { setReplaceEmail(""); setReplaceReason(REVOKE_REASONS[0]); setReplaceTarget(membership); }} disabled={replacing || revokingId !== null} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50">
                 <Repeat className="h-3.5 w-3.5" />Replace
               </button>
-              <button type="button" onClick={() => openRevoke(membership)} disabled={revokingId !== null || replacing} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 text-[10px] font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={() => openRevoke(membership)} disabled={revokingId !== null || replacing} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
                 {revokingId === membership.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}Revoke
               </button>
             </div>
           ) : membership.status === "PENDING" && !managerLockedOut ? (
-            <button type="button" onClick={() => void resendInvitation(membership)} disabled={resendingId !== null || !membership.user.email} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2.5 text-[10px] font-bold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={() => void resendInvitation(membership)} disabled={resendingId !== null || !membership.user.email} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 text-xs font-bold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50">
               {resendingId === membership.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}Resend
             </button>
           ) : managerLockedOut ? (
-            <span className="whitespace-nowrap text-[10px] font-semibold text-neutral-400">Owner controlled</span>
+            <span className="whitespace-nowrap text-xs font-semibold text-neutral-400">Owner controlled</span>
           ) : null;
           return (
             // Two columns, not four. The old fixed 8.5rem/7.5rem tracks left the
             // person stranded at one edge and the controls at the other on a
             // wide screen; status and the action now travel together as one
             // right-hand cluster.
-            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-4 gap-y-2.5 px-4 py-3 transition hover:bg-neutral-50/70 ${view === "cards" ? "rounded-xl border border-neutral-200 bg-white shadow-sm" : `sm:grid-cols-[minmax(0,1fr)_10rem_7rem_9.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}`}>
+            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-5 gap-y-2.5 px-4 py-3.5 transition hover:bg-neutral-50/70 ${view === "cards" ? "rounded-xl border border-neutral-200 bg-white shadow-sm" : `sm:grid-cols-[minmax(0,1fr)_11rem_8rem_10.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}`}>
               <div className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${status.avatar}`} aria-hidden="true">{initialsOf(displayName)}</span>
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold ${status.avatar}`} aria-hidden="true">{initialsOf(displayName)}</span>
                 <div className="min-w-0">
-                  <p className="m-0 truncate text-[13px] font-bold text-neutral-900">{displayName}</p>
-                  <p className="mb-0 mt-0.5 truncate text-[11px] text-neutral-500">{membership.user.email || membership.user.phone || `User #${membership.user.id}`}</p>
+                  <p className="m-0 truncate text-sm font-bold text-neutral-900">{displayName}</p>
+                  <p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{membership.user.email || membership.user.phone || `User #${membership.user.id}`}</p>
                   {/* Role rides with the person on narrow screens, where a
                       separate column would only wrap into an orphan line. */}
-                  <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-neutral-500 sm:hidden">
+                  <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-500 sm:hidden">
                     <span className="font-semibold text-neutral-700">{roleLabel(membership.role)}</span>
                     <span className="text-neutral-300">·</span>
                     <span>{membership.outlet?.name ?? "All property"}</span>
                   </p>
                   {/* Only shown when it changes what the owner should do. */}
                   {membership.invitationExpired ? (
-                    <p className="mb-0 mt-0.5 text-[10px] text-red-600">Emailed link no longer works</p>
+                    <p className="mb-0 mt-0.5 text-xs text-red-600">Emailed link no longer works</p>
                   ) : membership.dormant ? (
-                    <p className="mb-0 mt-0.5 text-[10px] text-amber-700">
+                    <p className="mb-0 mt-0.5 text-xs text-amber-700">
                       Nothing recorded {lastActive ? `since ${lastActive}` : "yet"}
                     </p>
                   ) : membership.status === "ACTIVE" && lastActive ? (
-                    <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Last active {lastActive}</p>
+                    <p className="mb-0 mt-0.5 text-xs text-neutral-500">Last active {lastActive}</p>
                   ) : null}
                 </div>
               </div>
@@ -588,12 +588,12 @@ export default function NrmsStaffPage() {
               {/* Left aligned inside its own column: right aligning made every
                   role label start at a different x down the list. */}
               <div className={`${view === "cards" ? "col-span-2 block border-t border-neutral-100 pt-2" : "hidden sm:block"} min-w-0`}>
-                <p className="m-0 truncate text-[11px] font-semibold text-neutral-700">{roleLabel(membership.role)}</p>
-                <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">{membership.outlet?.name ?? "All property"}</p>
+                <p className="m-0 truncate text-sm font-semibold text-neutral-700">{roleLabel(membership.role)}</p>
+                <p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{membership.outlet?.name ?? "All property"}</p>
               </div>
 
               <div className="min-w-0">
-                <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${status.chip}`}>
+                <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${status.chip}`}>
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} aria-hidden="true" />
                   <span className="truncate">{status.label}</span>
                 </span>
@@ -610,8 +610,8 @@ export default function NrmsStaffPage() {
           <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-50 text-neutral-300 ring-1 ring-neutral-200">
             <UsersRound className="h-5 w-5" />
           </span>
-          <p className="m-0 text-xs font-semibold text-neutral-600">No one is assigned yet</p>
-          <p className="mx-auto mb-0 mt-1 max-w-xs text-[11px] leading-relaxed text-neutral-400">
+          <p className="m-0 text-sm font-semibold text-neutral-700">No one is assigned yet</p>
+          <p className="mx-auto mb-0 mt-1 max-w-sm text-xs leading-relaxed text-neutral-500">
             Invite a teammate with the form above. They keep their own NoLSAF sign in, and access starts only once they confirm.
           </p>
         </div>

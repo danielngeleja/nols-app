@@ -7,7 +7,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowRight, ArrowUpDown, BadgeCheck, BedDouble, Building2, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpDown, BadgeCheck, BedDouble, Building2, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Filter, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 import { useNrms } from "../_components/NrmsProvider";
@@ -119,6 +119,7 @@ type Reservation = {
   guestProfile: { id: number; fullName: string; phone: string | null; email: string | null; nationality: string | null } | null;
   marketplaceBooking: {
     id: number;
+    reference: string;
     status: string;
     guestName: string | null;
     guestPhone: string | null;
@@ -128,8 +129,37 @@ type Reservation = {
     ageGroup: string | null;
     roomsQty: number;
     totalAmount: number | null;
+    customerPaidTotal: number | null;
+    accommodationGross: number | null;
+    transportFare: number;
+    commissionPercent: number | null;
+    commissionAmount: number | null;
+    ownerPayout: number | null;
+    financialStatus: "RECORDED" | "CALCULATED" | "UNAVAILABLE";
+    financialReviewReason: string | null;
     paymentStatus: string | null;
     paymentMethod: string | null;
+    invoiceIssuedAt: string | null;
+    invoiceVerifiedAt: string | null;
+    invoiceApprovedAt: string | null;
+    invoicePaidAt: string | null;
+    receiptNumber: string | null;
+    ownerInvoice: {
+      reference: string | null;
+      status: string;
+      amount: number | null;
+      issuedAt: string | null;
+      verifiedAt: string | null;
+      approvedAt: string | null;
+      paidAt: string | null;
+    } | null;
+    ownerDisbursement: {
+      status: string;
+      amount: number | null;
+      currency: string;
+      channel: string | null;
+      paidAt: string | null;
+    } | null;
     /** The reference the guest holds, shown instead of the internal id. */
     invoiceNumber: string | null;
     checkInCodeStatus: string | null;
@@ -323,6 +353,68 @@ function ReservationRoomIdentity({ allocations }: { allocations: Allocation[] })
   </div>;
 }
 
+function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
+  const marketplace = reservation.marketplaceBooking;
+  if (!marketplace) return null;
+  const customerPaymentStatus = (marketplace.paymentStatus ?? "PENDING").toUpperCase();
+  const customerPaymentLabel = ["PAID", "CUSTOMER_PAID"].includes(customerPaymentStatus)
+    ? "received"
+    : customerPaymentStatus.replace(/_/g, " ").toLowerCase();
+  const hasAccommodationCommission = (marketplace.commissionPercent ?? 0) > 0 || (marketplace.commissionAmount ?? 0) > 0;
+  const ownerDisbursement = marketplace.ownerDisbursement;
+  const ownerDisbursed = ownerDisbursement?.status?.toUpperCase() === "PAID";
+  const ownerInvoiceStatus = marketplace.ownerInvoice?.status?.toUpperCase() ?? null;
+  const ownerClaimRank: Record<string, number> = { DRAFT: 0, REQUESTED: 1, VERIFIED: 2, APPROVED: 3, PROCESSING: 3, PAID: 3 };
+  const ownerWorkflowRank = ownerDisbursed ? 4 : ownerClaimRank[ownerInvoiceStatus ?? ""] ?? 0;
+  const ownerWorkflowStages = ["Requested", "Verified", "Approved", "Disbursed"];
+  const ownerDisbursementLabel = ownerDisbursed
+    ? "Disbursed"
+    : ownerDisbursement?.status?.replace(/_/g, " ").toLowerCase()
+      ?? (["PAID", "PROCESSING"].includes(ownerInvoiceStatus ?? "")
+        ? "Awaiting disbursement"
+        : ownerInvoiceStatus?.replace(/_/g, " ").toLowerCase())
+      ?? "Not requested";
+
+  return <section className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
+    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-4 shadow-[inset_3px_0_0_0_#059669]">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-inset ring-emerald-200"><ShieldCheck className="h-4.5 w-4.5" /></span>
+        <div className="min-w-0"><p className="m-0 text-sm font-bold text-neutral-950">Marketplace settlement</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">NoLSAF holds the booking payment; NRMS manages the room and property incidentals.</p></div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2"><span className="font-mono text-[11px] text-neutral-500">{marketplace.invoiceNumber ?? marketplace.reference}</span><span className={`rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.06em] ${customerPaymentStatus === "PAID" || customerPaymentStatus === "CUSTOMER_PAID" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>Guest payment {customerPaymentLabel}</span></div>
+    </header>
+
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-600">Owner payout workflow</p><span className="text-[10px] font-bold capitalize text-neutral-700">{ownerDisbursementLabel}</span></div>
+    <div className="grid grid-cols-4 gap-px border-b border-neutral-200 bg-neutral-200" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
+      {ownerWorkflowStages.map((stage, index) => {
+        const reached = ownerWorkflowRank >= index + 1;
+        return <div key={stage} className={`flex min-w-0 items-center gap-2 px-3 py-2.5 ${reached ? "bg-emerald-50 text-emerald-800" : "bg-neutral-50 text-neutral-400"}`}><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${reached ? "border-emerald-500 bg-emerald-600 text-white" : "border-neutral-300 bg-white"}`}>{reached ? <Check className="h-3 w-3" /> : index + 1}</span><span className="truncate text-[10px] font-bold uppercase tracking-[0.05em]">{stage}</span></div>;
+      })}
+    </div>
+
+    <div className="grid gap-px border-b border-neutral-300 bg-neutral-300 lg:grid-cols-2">
+      <section className="min-w-0 bg-white">
+        <header className="border-b border-neutral-200 bg-neutral-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">NoLSAF marketplace</p></header>
+        <div className="border-b border-neutral-200 px-4 py-4"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Customer paid</p><p className="mb-0 mt-1.5 text-xl font-bold tabular-nums text-neutral-950">{money(marketplace.customerPaidTotal, reservation.currency)}</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-500">Accommodation{marketplace.transportFare > 0 ? " and transport" : ""} collected through NoLSAF</p></div>
+        <div className="grid grid-cols-2 gap-px bg-neutral-200">
+          <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Accommodation</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.accommodationGross, reservation.currency)}</p></div>
+          {hasAccommodationCommission && <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">NoLSAF commission{marketplace.commissionPercent != null ? ` · ${marketplace.commissionPercent}%` : ""}</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.commissionAmount, reservation.currency)}</p></div>}
+          {marketplace.transportFare > 0 && <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Transport collected</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.transportFare, reservation.currency)}</p></div>}
+        </div>
+      </section>
+      <section className="min-w-0 bg-white">
+        <header className="border-b border-emerald-200 bg-emerald-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-800">Property settlement</p></header>
+        <div className="border-b border-emerald-200 bg-emerald-50/35 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700">Accommodation payout</p><span className={`rounded-md border px-2 py-1 text-[9px] font-bold uppercase tracking-[0.05em] ${ownerDisbursed ? "border-emerald-300 bg-white text-emerald-700" : ownerDisbursement ? "border-blue-200 bg-blue-50 text-blue-700" : "border-neutral-300 bg-white text-neutral-500"}`}>{ownerDisbursementLabel}</span></div><p className="mb-0 mt-1.5 text-xl font-bold tabular-nums text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">{ownerDisbursed ? `Paid to the property${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : "Accommodation after NoLSAF commission"}</p></div>
+        <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">NRMS incidentals</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(reservation.chargesTotal ?? 0, reservation.currency)}</p></div>
+      </section>
+    </div>
+
+    <footer className="border-t border-neutral-100 px-4 py-3 text-[11px] leading-5 text-neutral-500">
+      <span>{marketplace.receiptNumber ? `Receipt ${marketplace.receiptNumber} · ` : ""}Property payout = accommodation - NoLSAF commission.</span>
+    </footer>
+  </section>;
+}
+
 function paymentMethodSummary(payments: Payment[] | undefined): { label: string; title: string } {
   const methods = [...new Set((payments ?? []).filter((payment) => !payment.voidedAt).map((payment) => PAYMENT_METHOD_LABEL[payment.method] ?? payment.method.replace(/_/g, " ").toLowerCase()))];
   if (methods.length === 0) return { label: "Not recorded", title: "No payment method recorded" };
@@ -401,10 +493,27 @@ function roomAssignmentReady(reservation: Reservation): boolean {
 function groupSelectionEligibility(reservation: Reservation): { eligible: boolean; reason: string } {
   if (reservation.group) return { eligible: false, reason: `Already belongs to ${reservation.group.name}` };
   if (reservation.bookingId != null) return { eligible: false, reason: "NoLSAF marketplace bookings cannot be moved into NRMS groups" };
+  if (reservation.agentBooking) return { eligible: false, reason: "Agency reservations are managed through their agency group and rooming list" };
   if (!["HELD", "CONFIRMED"].includes(reservation.status)) {
     return { eligible: false, reason: "Only held or confirmed reservations can be grouped before check-in" };
   }
   return { eligible: true, reason: "Select for a group reservation" };
+}
+
+function reservationsShareCommonNight(reservations: Reservation[]): boolean {
+  if (reservations.length < 2) return true;
+  const latestArrival = Math.max(...reservations.map((reservation) => new Date(reservation.checkIn).getTime()));
+  const earliestDeparture = Math.min(...reservations.map((reservation) => new Date(reservation.checkOut).getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
+function groupSelectionEligibilityForCohort(reservation: Reservation, selected: Reservation[]): { eligible: boolean; reason: string } {
+  const base = groupSelectionEligibility(reservation);
+  if (!base.eligible || selected.some((item) => item.id === reservation.id) || selected.length === 0) return base;
+  if (!reservationsShareCommonNight([...selected, reservation])) {
+    return { eligible: false, reason: "This stay does not share a common night with the selected party" };
+  }
+  return base;
 }
 
 function StayProgress({ reservation }: { reservation: Reservation }) {
@@ -484,6 +593,10 @@ export default function NrmsReservationsPage() {
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const [roomAssignment, setRoomAssignment] = useState<Reservation | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const selectedReservations = useMemo(
+    () => reservations.filter((reservation) => selectedIds.includes(reservation.id)),
+    [reservations, selectedIds],
+  );
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -622,7 +735,9 @@ export default function NrmsReservationsPage() {
             <div className="min-w-0">
               <p className="m-0 text-sm font-bold text-emerald-950">{selectedIds.length} selected</p>
               <p className="m-0 mt-0.5 text-xs text-emerald-800">
-                {selectedIds.length < 2 ? "Select at least two held or confirmed stays before check-in." : "Only eligible pre-arrival stays will be carried to Group reservations."}
+                {selectedIds.length < 2
+                  ? "Select another direct pre-arrival stay that overlaps this guest's dates."
+                  : `Common stay ${fmtDate(new Date(Math.max(...selectedReservations.map((reservation) => new Date(reservation.checkIn).getTime()))).toISOString())} to ${fmtDate(new Date(Math.min(...selectedReservations.map((reservation) => new Date(reservation.checkOut).getTime()))).toISOString())} · Each folio remains separate.`}
               </p>
             </div>
           </div>
@@ -648,11 +763,21 @@ export default function NrmsReservationsPage() {
         placeholder="Search guest name or phone"
         view={view}
         onViewChange={changeView}
-        filter={statusFilter}
-        onClearFilter={() => { setStatusFilter(""); setPage(1); }}
-        toolbar={<div className="flex items-center gap-2">
-          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs text-neutral-700" aria-label="Filter by reservation status"><option value="">All statuses</option>{Object.keys(STATUS_CLS).map((status) => <option key={status} value={status}>{status.replace(/_/g, " ").toLowerCase()}</option>)}</select>
-          <select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs text-neutral-700" aria-label="Filter by reservation source"><option value="">All sources</option>{SOURCES.map((source) => <option key={source} value={source}>{SOURCE_LABEL[source] ?? source}</option>)}</select>
+        toolbar={<div className="relative">
+          <Filter className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="h-10 appearance-none rounded-lg border border-neutral-200 bg-white pl-8 pr-8 text-xs font-semibold text-neutral-700 shadow-sm shadow-neutral-100/70 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" aria-label="Filter by reservation status"><option value="">All statuses</option>{Object.keys(STATUS_CLS).map((status) => <option key={status} value={status}>{status.replace(/_/g, " ").toLowerCase()}</option>)}</select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+        </div>}
+        secondaryToolbar={<div className="flex min-w-0 items-center gap-3">
+          <div className="hidden shrink-0 items-center gap-2 border-r border-neutral-200 pr-3 sm:flex"><Globe2 className="h-3.5 w-3.5 text-neutral-400" /><span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-500">Booking source</span></div>
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="group" aria-label="Filter reservations by booking source">
+            <button type="button" onClick={() => { setSourceFilter(""); setPage(1); }} aria-pressed={!sourceFilter} className={`shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[10px] font-bold transition ${!sourceFilter ? "border-neutral-900 bg-neutral-900 text-white" : "border-transparent text-neutral-500 hover:border-neutral-200 hover:bg-neutral-50"}`}>All</button>
+            {SOURCES.map((source) => {
+              const style = SOURCE_STYLE[source] ?? DEFAULT_SOURCE_STYLE;
+              const active = sourceFilter === source;
+              return <button key={source} type="button" onClick={() => { setSourceFilter(active ? "" : source); setPage(1); }} aria-pressed={active} className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[10px] font-bold transition ${active ? style.badge : "border-transparent text-neutral-500 hover:border-neutral-200 hover:bg-neutral-50"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{SOURCE_LABEL[source] ?? source}</button>;
+            })}
+          </div>
         </div>}
       >
       {loading ? (
@@ -686,39 +811,11 @@ export default function NrmsReservationsPage() {
         </div>
       ) : (
         <div className="overflow-hidden border-t border-neutral-100 bg-white">
-          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white px-4 py-3" aria-label="Reservation source color legend">
-            <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Source colours</span>
-            {SOURCES.map((source) => {
-              const style = SOURCE_STYLE[source] ?? DEFAULT_SOURCE_STYLE;
-              const active = sourceFilter === source;
-              return (
-                <button
-                  key={source}
-                  type="button"
-                  onClick={() => {
-                    setSourceFilter(active ? "" : source);
-                    setPage(1);
-                  }}
-                  aria-pressed={active}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${style.badge} ${active ? "ring-2 ring-neutral-900/15 ring-offset-1" : "opacity-80 hover:opacity-100"}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-                  {SOURCE_LABEL[source] ?? source}
-                </button>
-              );
-            })}
-          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1600px] border-collapse text-left text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
-                  {!isSalesExecutive && <th className="w-11 px-3 py-3 text-center">
-                    <SelectionCheckbox
-                      label="Select all ungrouped reservations on this page"
-                      checked={reservations.some((reservation) => groupSelectionEligibility(reservation).eligible) && reservations.filter((reservation) => groupSelectionEligibility(reservation).eligible).every((reservation) => selectedIds.includes(reservation.id))}
-                      onChange={(checked) => setSelectedIds(checked ? reservations.filter((reservation) => groupSelectionEligibility(reservation).eligible).map((reservation) => reservation.id) : [])}
-                    />
-                  </th>}
+                  {!isSalesExecutive && <th className="w-11 px-3 py-3 text-center"><Users className="mx-auto h-3.5 w-3.5 text-neutral-400" aria-label="Build a reservation group" /></th>}
                   <SortableHeader label="Guest" field="guest" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Phone" field="phone" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Nationality" field="nationality" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
@@ -743,21 +840,48 @@ export default function NrmsReservationsPage() {
                   const paymentMethod = reservationPaymentMethod(reservation);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   const isMarketplace = reservation.bookingId != null;
-                  const groupEligibility = groupSelectionEligibility(reservation);
+                  const groupEligibility = groupSelectionEligibilityForCohort(reservation, selectedReservations);
                   const agencySettlement = reservation.agencySettlement;
                   const agencyBillDue = Boolean(agencySettlement && !agencySettlement.settled);
+                  const ownerDisbursement = reservation.marketplaceBooking?.ownerDisbursement ?? null;
+                  const ownerDisbursementStatus = ownerDisbursement?.status?.toUpperCase() ?? null;
+                  const ownerDisbursed = ownerDisbursementStatus === "PAID";
+                  const ownerInvoiceStatus = reservation.marketplaceBooking?.ownerInvoice?.status?.toUpperCase() ?? null;
+                  const ownerDisbursementLabel = ownerDisbursed
+                    ? "Disbursed"
+                    : ownerDisbursementStatus
+                      ? ownerDisbursementStatus.replace(/_/g, " ").toLowerCase()
+                      : ["PAID", "PROCESSING"].includes(ownerInvoiceStatus ?? "")
+                        ? "Awaiting disbursement"
+                        : ownerInvoiceStatus
+                          ? ownerInvoiceStatus.replace(/_/g, " ").toLowerCase()
+                        : "Not requested";
                   // The API resolves which ledger holds the money for this
                   // stay. The local sum is only a fallback for an older payload.
                   const countsTransferSeparately = agencySettlement?.settled && agencySettlement.source !== "AGENT_BOOKING";
                   const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + (countsTransferSeparately ? Number(reservation.transferredToMaster ?? 0) : 0));
                   return (
-                    <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
+                    <tr
+                      key={reservation.id}
+                      tabIndex={0}
+                      aria-label={`Open reservation for ${reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "guest"}`}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest("button, a, input, select, textarea, label, [role='button']")) return;
+                        openReservation(reservation.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                        event.preventDefault();
+                        openReservation(reservation.id);
+                      }}
+                      className={`cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600 ${sourceStyle.row}`}
+                    >
                       {!isSalesExecutive && <td className="px-3 py-3.5 text-center">
                         {groupEligibility.eligible ? <SelectionCheckbox
                           label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
                           checked={selectedIds.includes(reservation.id)}
                           title={groupEligibility.reason}
-                          onChange={(checked) => setSelectedIds((current) => checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
+                          onChange={(checked) => setSelectedIds((current) => checked ? [...new Set([...current, reservation.id])] : current.filter((id) => id !== reservation.id))}
                         /> : <span className="inline-block h-8 w-8" title={groupEligibility.reason} aria-label={groupEligibility.reason} />}
                       </td>}
                       {/* Two lines, never more. A long name and a long agency
@@ -790,8 +914,13 @@ export default function NrmsReservationsPage() {
                       <td className="px-4 py-3.5 text-center text-neutral-600">
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
                       </td>
-                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
-                        {reservation.supersededByRooms ? <span className="text-neutral-400">On the room stays</span> : isMarketplace ? "NoLSAF managed" : (
+                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${isMarketplace || effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
+                        {reservation.supersededByRooms ? <span className="text-neutral-400">On the room stays</span> : isMarketplace ? (
+                          <>
+                            <span className="block">{money(reservation.marketplaceBooking?.ownerPayout ?? null, reservation.currency)}</span>
+                            <span className={`mt-0.5 block text-[9px] font-bold uppercase tracking-wide ${ownerDisbursed ? "text-emerald-700" : "text-neutral-500"}`}>{ownerDisbursed ? "Disbursed to property" : "Owner entitlement"}</span>
+                          </>
+                        ) : (
                           <>
                             <span className="block">{money(effectivePaid, reservation.currency)}</span>
                             {agencySettlement && (
@@ -804,17 +933,17 @@ export default function NrmsReservationsPage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-center">
                         <span
-                          title={paymentMethod.title}
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
+                          title={isMarketplace ? `${ownerDisbursementLabel}${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : paymentMethod.title}
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${isMarketplace ? ownerDisbursed ? "bg-emerald-50 text-emerald-700" : ownerDisbursement ? "bg-blue-50 text-blue-700" : "bg-neutral-100 text-neutral-500" : paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
                         >
-                          {reservation.supersededByRooms ? "Split into rooms" : isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
+                          {reservation.supersededByRooms ? "Split into rooms" : isMarketplace ? ownerDisbursementLabel : paymentMethod.label}
                         </span>
                       </td>
                       <td
                         title={agencySettlement ? `${agencySettlement.masterFolioReference} · ${agencySettlement.settled ? "settled" : "payment outstanding"}` : undefined}
                         className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 || agencyBillDue ? "text-amber-700" : "text-emerald-700"}`}
                       >
-                        {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
+                        {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "No guest balance" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
@@ -1988,99 +2117,70 @@ function ReservationDetailModal({
         <SalesReservationSummary reservation={r} />
       ) : (
         <div className="space-y-3 text-sm">
-          <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-3">
+          <section className="flex min-w-0 flex-wrap items-stretch justify-between overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
                 {/* An agency stay is billed to the agency, so the drawer leads
                     with the agency and keeps the traveller underneath. */}
                 <div className="truncate font-bold text-neutral-900">{r.agentBooking?.agencyName ?? r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest"}</div>
-                <div className="mt-0.5 text-[11px] text-neutral-500">
+                <div className="mt-1 text-xs text-neutral-500">
                   {r.agentBooking ? <>{r.guestProfile?.fullName ?? r.agentBooking.leadGuest?.fullName ?? "Travellers on the manifest"} · </> : null}
                   {fmtDate(r.checkIn)} to {fmtDate(r.checkOut)} · {SOURCE_LABEL[r.source] ?? r.source} · {r.adults} adult{r.adults === 1 ? "" : "s"}
                 </div>
               </div>
               {r.allocations && r.allocations.length > 0 && (
-                <div className="border-l border-neutral-200 pl-5">
-                  <div className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">Room</div>
-                  <div className="mt-0.5 text-xs font-semibold text-neutral-700">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
+                <div className="border-l border-neutral-200 px-5 py-3.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Room</div>
+                  <div className="mt-1 text-[13px] font-semibold text-neutral-800">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 border-l border-neutral-200 bg-neutral-50 px-3.5 py-3">
               {canPrintInvoice && (
                 <button
                   type="button"
                   onClick={() => window.open(`/api/owner/nrms/reservations/${r.id}/invoice.pdf`, "_blank", "noopener")}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-600 hover:bg-neutral-50"
+                  className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
                 >
                   <Printer className="h-3.5 w-3.5" />
                   Print invoice
                 </button>
               )}
-              <span className={`text-[11px] font-medium rounded-full px-2.5 py-1 ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>
+              <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>
                 {r.status.replace(/_/g, " ").toLowerCase()}
               </span>
             </div>
           </section>
 
-          {isMarketplace && (
-            <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <p className="m-0 text-xs font-bold">NoLSAF marketplace</p>
-                    <p className="m-0 font-mono text-[10px] tracking-tight text-emerald-700">{r.marketplaceBooking?.invoiceNumber ?? `#${r.marketplaceBooking?.id ?? r.bookingId}`}</p>
-                  </div>
-                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Rate and payment stay with NoLSAF. Room and extras are yours.</p>
-                  {/* Values speak for themselves, so the labels are dropped and
-                      anything missing simply does not print. */}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-emerald-900">
-                    {[
-                      r.guestProfile?.phone,
-                      r.guestProfile?.email,
-                      r.guestProfile?.nationality,
-                      r.marketplaceBooking?.sex,
-                      r.marketplaceBooking?.ageGroup,
-                    ].filter(Boolean).map((fact, index) => (
-                      <span key={String(fact)} className="flex items-center gap-2">
-                        {index > 0 && <span className="text-emerald-300" aria-hidden="true">·</span>}
-                        {String(fact)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
+          {isMarketplace && <MarketplaceSettlement reservation={r} />}
 
-          <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          {!isMarketplace && <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Booking value" : "Room"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(isMarketplace ? r.marketplaceBooking?.totalAmount ?? null : r.totalAmount, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Room</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.totalAmount, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment record" : "Folio extras"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.paymentStatus?.replace(/_/g, " ").toLowerCase() ?? "NoLSAF managed") : money(r.chargesTotal ?? 0, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Folio extras</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.chargesTotal ?? 0, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "NRMS folio" : "Outlet paid"}</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? money(r.chargesTotal ?? 0, r.currency) : money(settledAtOutletTotal, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Outlet paid</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{money(settledAtOutletTotal, r.currency)}</p>
               {unclassifiedOutletPayments.length > 0 && <p className="mb-0 mt-0.5 text-[9px] font-semibold text-amber-700">Payment method missing</p>}
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Rooms booked" : "Total spend"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.roomsQty ?? 1) : money(totalGuestSpend, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total spend</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(totalGuestSpend, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment method" : "Total collected"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{isMarketplace ? (PAYMENT_METHOD_LABEL[r.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF managed") : money(totalCollected, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total collected</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(totalCollected, r.currency)}</p>
             </div>
             <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 && !isMarketplace ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Commercial owner" : "Amount due"}</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-900" : "text-emerald-900"}`}>{isMarketplace ? "NoLSAF" : r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Amount due</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
             </div>
-          </section>
+          </section>}
 
           {(canPostCharges || (r.charges && r.charges.length > 0) || outletPaidOrders.length > 0) && (
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
@@ -2234,24 +2334,24 @@ function ReservationDetailModal({
           )}
 
           {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white px-4 py-3.5">
+            <section className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700">
                     <WalletCards className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="m-0 text-xs font-bold text-neutral-950">Record guest payment</p>
-                    <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Post money already received directly to this guest folio.</p>
+                    <p className="m-0 text-[13px] font-bold text-neutral-950">Record guest payment</p>
+                    <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">Post money already received directly to this guest folio.</p>
                   </div>
                 </div>
-                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800">
+                <span className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-[11px] font-bold text-emerald-800">
                   Outstanding&nbsp; {money(r.balance, r.currency)}
                 </span>
               </header>
               {paymentLocked ? (
-                <div className="m-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
+                <div className="m-4 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
                   This folio is fully paid. Additional payment entry is locked.
                 </div>
               ) : (
@@ -2259,21 +2359,21 @@ function ReservationDetailModal({
                   <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
                     <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 sm:col-span-2 xl:col-span-5">
                       <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-600">{r.currency}</span></span>
-                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
+                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
                     </label>
                     <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 xl:col-span-3">
                       Payment method
                       <span className="mt-1.5 block">
-                        <select className="box-border !h-11 w-full min-w-0 rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
+                        <select className="box-border !h-11 w-full min-w-0 rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
                           <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
                         </select>
                       </span>
                     </label>
-                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
+                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
                       {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Confirm received payment</>}
                     </button>
                   </div>
-                  <div className="mt-3 flex items-start gap-2 rounded-xl bg-neutral-50 px-3 py-2.5 text-[10px] leading-4 text-neutral-500">
+                  <div className="mt-3 flex items-start gap-2 border-t border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[11px] leading-4 text-neutral-600">
                     <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                     <span>The amount cannot exceed {money(r.balance, r.currency)}. Confirm the actual payment method before recording.</span>
                   </div>

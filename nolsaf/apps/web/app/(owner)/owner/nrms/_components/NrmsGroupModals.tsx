@@ -18,7 +18,10 @@ import { tallyRoomLabels } from "@/lib/roomLabels";
 export type GroupPickReservation = {
   id: number;
   status: string;
+  checkIn: string;
+  checkOut: string;
   guestProfile: { fullName: string } | null;
+  agentBooking?: { requestId: number } | null;
   allocations?: Array<{ roomUnitCode: string | null; roomTypeName: string | null }> | null;
 };
 
