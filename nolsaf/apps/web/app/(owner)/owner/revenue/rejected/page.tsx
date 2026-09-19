@@ -13,6 +13,7 @@ const api = apiClient;
 
 type Invoice = {
   id: number;
+  invoiceReference?: string | null;
   invoiceNumber: string;
   status: string;
   issuedAt: string;
@@ -303,7 +304,9 @@ export default function Rejected() {
                   })();
                   const invoiceNumber = String((invoice as any)?.invoiceNumber ?? "");
                   const isOwnerSubmittedInvoice = invoiceNumber.startsWith("OINV-");
-                  const viewHref = isOwnerSubmittedInvoice ? `/owner/invoices/${invoice.id}` : `/owner/revenue/invoices/${invoice.id}`;
+                  const viewHref = isOwnerSubmittedInvoice && invoice.invoiceReference
+                    ? `/owner/invoices/${encodeURIComponent(invoice.invoiceReference)}`
+                    : `/owner/revenue/invoices/${invoice.id}`;
                   return (
                     <TableRow key={invoice.id} className="group hover:bg-red-50/30 transition-colors duration-150">
                       <td className="px-5 sm:px-6 py-3.5">

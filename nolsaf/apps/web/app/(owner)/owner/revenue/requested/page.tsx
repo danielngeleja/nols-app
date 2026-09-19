@@ -13,6 +13,8 @@ const api = apiClient;
 
 type Invoice = {
   id: number;
+  invoiceReference?: string | null;
+  bookingReference?: string | null;
   invoiceNumber: string;
   status: string;
   issuedAt: string;
@@ -347,7 +349,9 @@ export default function Requested() {
                   })();
                   const invoiceNumber = String((invoice as any)?.invoiceNumber ?? "");
                   const isOwnerSubmittedInvoice = invoiceNumber.startsWith("OINV-");
-                  const viewHref = isOwnerSubmittedInvoice ? `/owner/invoices/${invoice.id}` : `/owner/revenue/invoices/${invoice.id}`;
+                  const viewHref = isOwnerSubmittedInvoice && invoice.invoiceReference
+                    ? `/owner/invoices/${encodeURIComponent(invoice.invoiceReference)}`
+                    : `/owner/revenue/invoices/${invoice.id}`;
                   return (
                     <TableRow key={invoice.id} className="group hover:bg-amber-50/40 transition-colors duration-150">
                       <td className="overflow-hidden px-4 py-3.5">
@@ -378,9 +382,9 @@ export default function Requested() {
                             <FileText className="h-3.5 w-3.5" aria-hidden />
                             <span className="hidden sm:inline">View</span>
                           </Link>
-                          {invoice.bookingId && (
+                          {invoice.bookingReference && (
                             <Link
-                              href={`/owner/bookings/checked-in/${invoice.bookingId}`}
+                              href={`/owner/bookings/checked-in/${encodeURIComponent(invoice.bookingReference)}`}
                               className="no-underline inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 transition-all duration-150 active:scale-95"
                             >
                               <ArrowRight className="h-3.5 w-3.5" aria-hidden />

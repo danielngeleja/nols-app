@@ -12,6 +12,7 @@ const api = apiClient;
 
 type Invoice = {
   id: number;
+  invoiceReference?: string | null;
   invoiceNumber: string;
   status: string;
   issuedAt: string;
@@ -751,8 +752,8 @@ export default function OwnerRevenuePage() {
                   })();
                   const invoiceNumber = String((invoice as any)?.invoiceNumber ?? "");
                   const isOwnerSubmittedInvoice = invoiceNumber.startsWith("OINV-");
-                  const viewHref = isOwnerSubmittedInvoice
-                    ? `/owner/invoices/${invoice.id}`
+                  const viewHref = isOwnerSubmittedInvoice && invoice.invoiceReference
+                    ? `/owner/invoices/${encodeURIComponent(invoice.invoiceReference)}`
                     : (invoice.status === "PAID" ? `/owner/revenue/receipts/${invoice.id}` : `/owner/revenue/invoices/${invoice.id}`);
                   const viewLabel = invoice.status === "PAID" ? "Receipt" : "View";
                   return (

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Clock, CheckCircle, Calendar, User, Phone,
   DollarSign, FileText, Building2, Lock, MapPin, Hash,
@@ -15,10 +15,11 @@ const api = apiClient;
 export default function BookingDetail() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
+  const router = useRouter();
   const [b, setB] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [invMeta, setInvMeta] = useState<{
-    exists: boolean; invoiceId: number | null; status?: string | null;
+    exists: boolean; invoiceId: number | null; invoiceReference?: string | null; status?: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -30,9 +31,13 @@ export default function BookingDetail() {
       .then(([br, ir]) => {
         if (!mounted) return;
         setB(br.data);
+        if (/^\d+$/.test(String(idParam)) && br.data?.bookingReference) {
+          router.replace(`/owner/bookings/checked-in/${encodeURIComponent(br.data.bookingReference)}`);
+        }
         setInvMeta({
           exists: Boolean(ir.data?.exists),
           invoiceId: ir.data?.invoiceId ? Number(ir.data.invoiceId) : null,
+          invoiceReference: ir.data?.invoiceReference ?? null,
           status: ir.data?.status ?? null,
         });
         setLoading(false);
@@ -44,7 +49,7 @@ export default function BookingDetail() {
       });
 
     return () => { mounted = false; };
-  }, [idParam]);
+  }, [idParam, router]);
 
   /* ── Loading skeleton ── */
   if (loading) {
@@ -142,7 +147,7 @@ export default function BookingDetail() {
                     : <Clock className="h-6 w-6 text-white" />}
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-0.5">Booking #{b.id}</p>
+                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-0.5">Guest stay</p>
                   <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                     {isCheckedIn ? "Checked In" : "Awaiting Check-in"}
                   </h1>
@@ -236,9 +241,9 @@ export default function BookingDetail() {
                     <Lock className="h-3.5 w-3.5" />
                     Invoice Generated
                   </button>
-                  {invMeta.invoiceId && (
+                  {invMeta.invoiceReference && (
                     <Link
-                      href={`/owner/invoices/${invMeta.invoiceId}`}
+                      href={`/owner/invoices/${encodeURIComponent(invMeta.invoiceReference)}`}
                       className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#02665e] text-white hover:bg-[#034e47] transition-colors duration-150 font-semibold text-[13px] shadow-sm no-underline"
                     >
                       <FileText className="h-3.5 w-3.5" />

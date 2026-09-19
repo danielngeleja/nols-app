@@ -9,6 +9,7 @@ const api = apiClient;
 
 type CheckedInBooking = {
   id: number;
+  bookingReference: string;
   status: string;
   guestName?: string | null;
   customerName?: string | null;
@@ -310,7 +311,7 @@ export default function CheckedIn() {
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" aria-hidden />
                             <Link
-                              href={`/owner/bookings/checked-in/${b.id}`}
+                              href={`/owner/bookings/checked-in/${encodeURIComponent(b.bookingReference)}`}
                               className="font-semibold text-slate-900 font-mono no-underline hover:underline underline-offset-2"
                               aria-label="Open checked-in booking details"
                               title="Open details"

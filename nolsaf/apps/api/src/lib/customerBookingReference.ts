@@ -1,15 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { publicLinkSecrets, publicLinkSigningSecret } from "./publicLinkSecrets.js";
 
-export type CustomerRecordKind = "booking" | "ride" | "tour" | "group-stay";
+export type CustomerRecordKind = "booking" | "ride" | "tour" | "group-stay" | "owner-invoice";
 
 const PREFIX_BY_KIND: Record<CustomerRecordKind, string> = {
   booking: "bk",
   ride: "rd",
   tour: "tr",
   "group-stay": "gs",
+  "owner-invoice": "iv",
 };
-const REFERENCE_PATTERN = /^(bk|rd|tr|gs)_[A-Za-z0-9_-]{22}$/;
+const REFERENCE_PATTERN = /^(bk|rd|tr|gs|iv)_[A-Za-z0-9_-]{22}$/;
 const LEGACY_REFERENCE_PATTERN = /^BKG-([A-F0-9]{4})-([A-F0-9]{4})-([A-F0-9]{4})$/i;
 
 function digest(kind: CustomerRecordKind, recordId: number, secret: string): Buffer {
@@ -57,4 +58,16 @@ export function customerBookingReference(bookingId: number): string {
 
 export function matchesCustomerBookingReference(reference: string, bookingId: number): boolean {
   return matchesCustomerRecordReference(reference, "booking", bookingId);
+}
+
+export function ownerInvoiceReference(invoiceId: number): string {
+  return customerRecordReference("owner-invoice", invoiceId);
+}
+
+export function isOwnerInvoiceReference(value: string): boolean {
+  return isCustomerRecordReference(value, "owner-invoice");
+}
+
+export function matchesOwnerInvoiceReference(reference: string, invoiceId: number): boolean {
+  return matchesCustomerRecordReference(reference, "owner-invoice", invoiceId);
 }

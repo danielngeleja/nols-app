@@ -28,8 +28,8 @@ export default function NewInvoice() {
   useEffect(() => {
     if (!bookingReference) return;
     api.get(`/api/owner/invoices/for-booking/${encodeURIComponent(bookingReference)}`).then((r) => {
-      if (r.data?.exists && r.data?.invoiceId) {
-        router.replace(`/owner/invoices/${r.data.invoiceId}`);
+      if (r.data?.exists && r.data?.invoiceReference) {
+        router.replace(`/owner/invoices/${encodeURIComponent(r.data.invoiceReference)}`);
       }
     }).catch(() => {});
   }, [bookingReference, router]);
@@ -39,16 +39,16 @@ export default function NewInvoice() {
     setErr(null);
     try {
       // Idempotent: API returns ok + invoiceId whether created or already existed.
-      const r = await api.post<{ ok: boolean; invoiceId: number | string; existed?: boolean }>(`/api/owner/invoices/from-booking`, { bookingReference });
-      const invoiceId = (r.data as any)?.invoiceId;
-      if (!invoiceId) throw new Error("No invoiceId returned");
-      router.push(`/owner/invoices/${invoiceId}`);
+      const r = await api.post<{ ok: boolean; invoiceReference: string; existed?: boolean }>(`/api/owner/invoices/from-booking`, { bookingReference });
+      const invoiceReference = r.data?.invoiceReference;
+      if (!invoiceReference) throw new Error("No invoice reference returned");
+      router.push(`/owner/invoices/${encodeURIComponent(invoiceReference)}`);
     } catch (e: any) {
       const status = e?.response?.status ?? null;
-      const invoiceId = e?.response?.data?.invoiceId ?? null;
+      const invoiceReference = e?.response?.data?.invoiceReference ?? null;
       const msg = e?.response?.data?.error || e?.message || "Could not create invoice";
       // Back-compat: older API returned 409 with invoiceId.
-      if (status === 409 && invoiceId) { router.push(`/owner/invoices/${invoiceId}`); return; }
+      if (status === 409 && invoiceReference) { router.push(`/owner/invoices/${encodeURIComponent(invoiceReference)}`); return; }
       setErr(String(msg));
     }
     finally {

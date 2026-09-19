@@ -387,6 +387,7 @@ const getCheckedInBookings: RequestHandler = async (req, res) => {
       const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(gross, cp);
       return {
       id: b.id,
+      bookingReference: customerBookingReference(b.id),
       property: b.property,
       code: b.code,
       codeVisible: b.code?.codeVisible ?? null,
@@ -449,6 +450,7 @@ const getForCheckoutBookings: RequestHandler = async (req, res) => {
       const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(gross, cp);
       return {
       id: b.id,
+      bookingReference: customerBookingReference(b.id),
       property: b.property,
       code: b.code,
       codeVisible: b.code?.codeVisible ?? null,
@@ -794,6 +796,7 @@ const getRecentBookings: RequestHandler = async (req, res) => {
   // Map to include relevant fields for the UI
   const mapped = bookings.map((b: any) => ({
     id: b.id,
+    bookingReference: customerBookingReference(b.id),
     property: b.property,
     code: b.code,
     codeVisible: b.code?.codeVisible ?? null,

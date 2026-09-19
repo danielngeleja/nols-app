@@ -7,6 +7,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { addDays, eachDay, fmtKey, GroupBy, startOfDayTZ } from "../lib/reporting";
 import { withCache, makeKey } from "../lib/cache";
 import { getEffectiveCommissionPercent, extractOwnerPayoutFromAccommodationGross } from "../lib/accommodationPayout.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 import { signOwnerReportPrintHandoff } from "../lib/ownerReportPrintHandoff.js";
 
 // If you have generated Prisma types, replace these any aliases.
@@ -429,6 +430,7 @@ const bookingsHandler: RequestHandler = async (req, res, next) => {
           const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(accommodationGross, commissionPercent);
           return {
             id: b.id,
+            bookingReference: customerBookingReference(b.id),
             property: b.property?.title ?? `#${b.propertyId}`,
             propertyId: b.propertyId,
             checkIn: b.checkIn,
@@ -517,6 +519,7 @@ const bookingsHandler: RequestHandler = async (req, res, next) => {
           stacked,
           table: bs.map((b: any) => ({
             id: b.id,
+            bookingReference: customerBookingReference(b.id),
             property: b.property?.title ?? `#${b.propertyId}`,
             propertyId: b.propertyId,
             checkIn: b.checkIn,
