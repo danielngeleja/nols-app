@@ -25,6 +25,7 @@ import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } 
 import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { connectExistingNoLsafBookings } from "../lib/nolsafMarketplaceNrms.js";
 import {
   billingRoutesExtras,
   billingUsesMasterFolio,
@@ -664,6 +665,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const property = access.property;
 
     const { status, source, from, to, q } = req.query;
+    const repairStart = from ? new Date(String(from)) : new Date(Date.now() - 366 * 86_400_000);
+    const repairEnd = to ? new Date(String(to)) : new Date(Date.now() + 730 * 86_400_000);
+    await connectExistingNoLsafBookings(prisma, property.id as number, repairStart, repairEnd);
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const requestedSort = String(req.query.sortBy ?? "checkIn");

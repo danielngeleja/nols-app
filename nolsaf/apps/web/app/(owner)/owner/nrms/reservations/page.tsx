@@ -7,7 +7,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 import { useNrms } from "../_components/NrmsProvider";
@@ -363,6 +363,7 @@ export default function NrmsReservationsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults>({});
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
+  const [roomAssignment, setRoomAssignment] = useState<Reservation | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
@@ -589,7 +590,9 @@ export default function NrmsReservationsPage() {
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {reservations.map((reservation) => {
-                  const rooms = tallyRoomLabels((reservation.allocations ?? []).map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName));
+                  const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
+                  const unassignedAllocation = activeAllocations.find((allocation) => allocation.roomUnitId == null) ?? null;
+                  const rooms = tallyRoomLabels(activeAllocations.map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName));
                   const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
@@ -638,7 +641,9 @@ export default function NrmsReservationsPage() {
                         </span>
                       </td>
                       <td className="max-w-44 px-4 py-3.5">
-                        <span className="block truncate font-medium text-neutral-700" title={rooms || "Unassigned"}>{rooms || "Unassigned"}</span>
+                        <span className={`block truncate font-medium ${unassignedAllocation ? "text-amber-700" : "text-neutral-700"}`} title={unassignedAllocation ? `${rooms} · unit unassigned` : rooms || "Unassigned"}>
+                          {unassignedAllocation && rooms ? `${rooms} · unit unassigned` : rooms || "Unassigned"}
+                        </span>
                       </td>
                       <td className="px-4 py-3.5 text-center text-neutral-600">
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
@@ -675,13 +680,25 @@ export default function NrmsReservationsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openReservation(reservation.id)}
-                          className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                        >
-                          View
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {!isSalesExecutive && unassignedAllocation && ["HELD", "CONFIRMED", "CHECKED_IN"].includes(reservation.status) && (
+                            <button
+                              type="button"
+                              onClick={() => setRoomAssignment(reservation)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
+                            >
+                              <DoorOpen className="h-3.5 w-3.5" />
+                              Assign room
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openReservation(reservation.id)}
+                            className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                          >
+                            View
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -715,7 +732,131 @@ export default function NrmsReservationsPage() {
           onChanged={load}
         />
       )}
+      {roomAssignment && selectedPropertyId && (
+        <AssignRoomModal
+          propertyId={selectedPropertyId}
+          reservation={roomAssignment}
+          onClose={() => setRoomAssignment(null)}
+          onAssigned={async () => {
+            setRoomAssignment(null);
+            await load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function AssignRoomModal({
+  propertyId,
+  reservation,
+  onClose,
+  onAssigned,
+}: {
+  propertyId: number;
+  reservation: Reservation;
+  onClose: () => void;
+  onAssigned: () => Promise<void>;
+}) {
+  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && item.roomUnitId == null) ?? null;
+  const [units, setUnits] = useState<Array<{ id: number; code: string }>>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | "">("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const guestName = reservation.guestProfile?.fullName ?? reservation.marketplaceBooking?.guestName ?? "Guest";
+
+  useEffect(() => {
+    if (!allocation) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}`),
+      apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
+        params: { roomTypeId: allocation.roomTypeId, checkIn: reservation.checkIn, checkOut: reservation.checkOut },
+      }),
+    ])
+      .then(([roomsResponse, availabilityResponse]) => {
+        if (cancelled) return;
+        const roomType = (roomsResponse.data?.roomTypes ?? []).find((item: RoomType) => item.id === allocation.roomTypeId) as RoomType | undefined;
+        const availableIds = new Set<number>(
+          (availabilityResponse.data?.units ?? [])
+            .filter((item: any) => item.available)
+            .map((item: any) => Number(item.id)),
+        );
+        setUnits((roomType?.units ?? []).filter((unit) => unit.status === "ACTIVE" && availableIds.has(unit.id)));
+      })
+      .catch((requestError: any) => {
+        if (!cancelled) setError(requestError?.response?.data?.error || "Could not load available room numbers");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [allocation, propertyId, reservation.checkIn, reservation.checkOut]);
+
+  const assign = async () => {
+    if (!allocation || selectedUnitId === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiClient.post(`/api/owner/nrms/reservations/${reservation.id}/move-room`, {
+        allocationId: allocation.id,
+        roomUnitId: Number(selectedUnitId),
+        reason: "Assigned from the NRMS reservations register",
+      });
+      await onAssigned();
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "The room could not be assigned");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalFrame
+      title={`Assign room to ${guestName}`}
+      subtitle="Choose a room number from the category already paid for."
+      icon={<DoorOpen className="h-5 w-5" />}
+      onClose={onClose}
+      small
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={() => void assign()} disabled={busy || selectedUnitId === ""} className="inline-flex min-w-32 items-center justify-center gap-2 rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {busy ? "Assigning..." : "Assign room"}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="border-l-2 border-emerald-600 pl-3">
+          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Paid room category</p>
+          <p className="mb-0 mt-1 text-base font-bold text-neutral-950">{allocation?.roomTypeName ?? "Room type unavailable"}</p>
+          <p className="mb-0 mt-1 text-xs text-neutral-500">The category is locked. Only its available room numbers are listed below.</p>
+        </div>
+
+        {error && <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{error}</div>}
+
+        <label className="block text-sm font-semibold text-neutral-800">
+          Room number
+          <select
+            value={selectedUnitId}
+            onChange={(event) => setSelectedUnitId(event.target.value ? Number(event.target.value) : "")}
+            disabled={loading || busy || !allocation}
+            className={`${inputCls} mt-1.5`}
+          >
+            <option value="">{loading ? "Checking availability..." : units.length ? "Select room number" : "No rooms available in this category"}</option>
+            {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
+          </select>
+        </label>
+      </div>
+    </ModalFrame>
   );
 }
 
