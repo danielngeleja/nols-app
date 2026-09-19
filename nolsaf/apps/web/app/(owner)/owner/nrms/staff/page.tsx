@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, ClipboardCheck, Copy, Loader2, Mail, MessageCircle, Repeat, ShieldCheck, UserPlus, UserX, UsersRound } from "lucide-react";
+import { AlertTriangle, BadgeCheck, ClipboardCheck, Clock3, Copy, Loader2, Mail, MessageCircle, PauseCircle, Repeat, ShieldAlert, ShieldCheck, UserPlus, UserX, UsersRound } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
 
 type Outlet = { id: number; name: string; type: string };
 type Membership = {
@@ -121,6 +122,9 @@ export default function NrmsStaffPage() {
    *  something this page should infer by comparing role strings. */
   const [canRevokeManager, setCanRevokeManager] = useState(false);
   const [review, setReview] = useState<StaffReview | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [view, setView] = useState<"cards" | "list">("list");
   /** Replacing is one intent: bring the new person in, then stand the old
    *  one down. Kept as a single flow so the two never drift apart. */
   const [replaceTarget, setReplaceTarget] = useState<Membership | null>(null);
@@ -362,6 +366,19 @@ export default function NrmsStaffPage() {
   if (loading) return <div className="flex min-h-72 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading staff…</div>;
 
   const activeCount = staff.filter((m) => m.status === "ACTIVE").length;
+  const memberStage = (membership: Membership) => membership.invitationExpired || membership.dormant ? "REVIEW" : membership.status;
+  const visibleStaff = staff.filter((membership) => {
+    const term = query.trim().toLowerCase();
+    const name = membership.user.fullName || membership.user.name || "";
+    return (!statusFilter || memberStage(membership) === statusFilter)
+      && (!term || [name, membership.user.email, membership.user.phone, roleLabel(membership.role), membership.outlet?.name].some((value) => String(value || "").toLowerCase().includes(term)));
+  });
+  const staffStages = [
+    { key: "PENDING", label: "Invited", hint: "Waiting for access confirmation", count: staff.filter((item) => item.status === "PENDING" && !item.invitationExpired).length, icon: Clock3, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "ACTIVE", label: "Active", hint: "Property access enabled", count: staff.filter((item) => item.status === "ACTIVE" && !item.dormant).length, icon: BadgeCheck, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "REVIEW", label: "Needs review", hint: "Expired invitation or dormant access", count: staff.filter((item) => item.invitationExpired || item.dormant).length, icon: ShieldAlert, text: "text-orange-700", bar: "bg-orange-400", soft: "bg-orange-50" },
+    { key: "DISABLED", label: "Revoked", hint: "Property access removed", count: staff.filter((item) => item.status === "DISABLED").length, icon: PauseCircle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50" },
+  ];
 
   return <div className="mx-auto w-full min-w-0 max-w-5xl space-y-3 px-1 pb-8 sm:px-0">
     <section className="min-w-0 overflow-hidden rounded-2xl bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
@@ -499,14 +516,11 @@ export default function NrmsStaffPage() {
       </div>
     )}
 
-    <section className="min-w-0 overflow-hidden rounded-2xl bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-5">
-        <h3 className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Property team</h3>
-        <span className="text-[11px] font-semibold text-neutral-400">{staff.length} {staff.length === 1 ? "assignment" : "assignments"}</span>
-      </div>
+    <NrmsLifecycleRail stages={staffStages} selected={statusFilter} onSelect={setStatusFilter} />
+    <NrmsDirectoryShell title={statusFilter ? `${staffStages.find((stage) => stage.key === statusFilter)?.label ?? statusFilter} staff` : "Property team"} count={visibleStaff.length} query={query} onQueryChange={setQuery} placeholder="Search name, email, role or outlet" view={view} onViewChange={setView} filter={statusFilter} onClearFilter={() => setStatusFilter("")}>
       {/* Names the columns below. Hidden on mobile, where each row collapses
           into one block and headings would label nothing. */}
-      {staff.length > 0 && (
+      {visibleStaff.length > 0 && view === "list" && (
         <div className="hidden gap-x-4 bg-neutral-50/60 px-5 py-1.5 shadow-[inset_0_-1px_0_0_#eef2f6] sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_7rem_9.5rem]">
           <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Staff member</span>
           <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Role and scope</span>
@@ -516,8 +530,8 @@ export default function NrmsStaffPage() {
       )}
       {/* A list, not a stack of divs. Preflight is off, so the UA indent and
           bullets have to be cleared explicitly. */}
-      <ul className="m-0 list-none p-0">
-        {staff.map((membership, index) => {
+      <ul className={`m-0 list-none p-0 ${view === "cards" ? "grid grid-cols-1 gap-3 border-t border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3" : ""}`}>
+        {visibleStaff.map((membership, index) => {
           const displayName = membership.user.fullName || membership.user.name || "Staff member";
           const baseStatus = STATUS_PRESENTATION[membership.status] ?? { label: membership.status, ...FALLBACK_STATUS };
           // An expired invitation outranks "Pending": it is the actionable truth.
@@ -545,7 +559,7 @@ export default function NrmsStaffPage() {
             // person stranded at one edge and the controls at the other on a
             // wide screen; status and the action now travel together as one
             // right-hand cluster.
-            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-4 gap-y-2.5 px-4 py-3 transition hover:bg-neutral-50/70 sm:grid-cols-[minmax(0,1fr)_10rem_7rem_9.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}>
+            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-4 gap-y-2.5 px-4 py-3 transition hover:bg-neutral-50/70 ${view === "cards" ? "rounded-xl border border-neutral-200 bg-white shadow-sm" : `sm:grid-cols-[minmax(0,1fr)_10rem_7rem_9.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}`}>
               <div className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
                 <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${status.avatar}`} aria-hidden="true">{initialsOf(displayName)}</span>
                 <div className="min-w-0">
@@ -573,7 +587,7 @@ export default function NrmsStaffPage() {
 
               {/* Left aligned inside its own column: right aligning made every
                   role label start at a different x down the list. */}
-              <div className="hidden min-w-0 sm:block">
+              <div className={`${view === "cards" ? "col-span-2 block border-t border-neutral-100 pt-2" : "hidden sm:block"} min-w-0`}>
                 <p className="m-0 truncate text-[11px] font-semibold text-neutral-700">{roleLabel(membership.role)}</p>
                 <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">{membership.outlet?.name ?? "All property"}</p>
               </div>
@@ -591,7 +605,7 @@ export default function NrmsStaffPage() {
           );
         })}
       </ul>
-      {staff.length === 0 && (
+      {visibleStaff.length === 0 && (
         <div className="px-4 py-12 text-center sm:px-5">
           <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-neutral-50 text-neutral-300 ring-1 ring-neutral-200">
             <UsersRound className="h-5 w-5" />
@@ -602,7 +616,7 @@ export default function NrmsStaffPage() {
           </p>
         </div>
       )}
-    </section>
+    </NrmsDirectoryShell>
 
     {replaceTarget && <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <button type="button" aria-label="Cancel replacement" className="absolute inset-0 border-0 bg-neutral-950/45 backdrop-blur-sm" onClick={() => { if (!replacing) setReplaceTarget(null); }} />

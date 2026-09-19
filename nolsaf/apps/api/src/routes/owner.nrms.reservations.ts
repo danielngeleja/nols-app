@@ -22,7 +22,7 @@ import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 import { resolveAnalyticsMasterFolioStayDate, summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } from "../lib/nrmsShifts.js";
-import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
+import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
 import { connectExistingNoLsafBookings } from "../lib/nolsafMarketplaceNrms.js";
@@ -357,6 +357,7 @@ function formatReservation(r: any) {
           roomTypeName: a.roomType?.name,
           roomUnitId: a.roomUnitId,
           roomUnitCode: a.roomUnit?.code ?? null,
+          roomUnitFloor: a.roomUnit?.floor ?? null,
           startDate: a.startDate,
           endDate: a.endDate,
           status: a.status,
@@ -519,7 +520,7 @@ const detailInclude = {
     },
   },
   group: { select: reservationGroupSelect },
-  allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } } },
+  allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true, floor: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
   masterFolioItems: { orderBy: { createdAt: "asc" as const } },
   charges: {
@@ -692,12 +693,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     // database, because the approval, the invoice and the payment events all
     // hang off it, but it is kept out of the working list unless somebody asks
     // for cancelled reservations on purpose.
-    if (String(status || "").toUpperCase() !== "CANCELLED") {
-      where.NOT = [
-        ...(Array.isArray(where.NOT) ? where.NOT : []),
-        { AND: [{ status: "CANCELLED" }, { agentBookingRequest: { masterFolio: { blockId: { not: null } } } }] },
-      ];
-    }
+    where.NOT = [
+      ...(Array.isArray(where.NOT) ? where.NOT : []),
+      { AND: [{ status: "CANCELLED" }, { agentBookingRequest: { masterFolio: { blockId: { not: null } } } }] },
+    ];
     if (from) where.checkOut = { gt: new Date(String(from)) };
     if (to) where.checkIn = { lt: new Date(String(to)) };
     if (q) {
@@ -707,7 +706,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       };
     }
 
-    const [total, reservations] = await Promise.all([
+    const countWhere = { ...where };
+    delete countWhere.status;
+    const [total, reservations, groupedStatuses] = await Promise.all([
       prisma.reservation.count({ where }),
       prisma.reservation.findMany({
         where,
@@ -718,7 +719,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           group: { select: reservationGroupSelect },
           allocations: {
             where: { status: "ACTIVE" },
-            include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } },
+            include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true, floor: true } } },
           },
           payments: { orderBy: { createdAt: "asc" } },
           masterFolioItems: { orderBy: { createdAt: "asc" } },
@@ -732,9 +733,18 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         take: limit,
         skip: offset,
       }),
+      prisma.reservation.groupBy({ by: ["status"], where: countWhere, _count: { _all: true } }),
     ]);
 
-    res.json({ total, limit, offset, sortBy, sortOrder, reservations: reservations.map(formatReservation) });
+    res.json({
+      total,
+      limit,
+      offset,
+      sortBy,
+      sortOrder,
+      statusCounts: Object.fromEntries(groupedStatuses.map((row) => [row.status, row._count._all])),
+      reservations: reservations.map(formatReservation),
+    });
   } catch (err) {
     console.error("[owner.nrms.reservations] list failed", err);
     res.status(500).json({ error: "Failed to load reservations" });
@@ -981,7 +991,7 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
-      if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
       const group = await tx.nrmsReservationGroup.create({
         data: {
           propertyId,
@@ -1008,7 +1018,7 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
-    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be grouped before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while the group was being created" });
     console.error("[owner.nrms.reservations] group create failed", err);
     res.status(500).json({ error: "Failed to create reservation group" });
@@ -1100,7 +1110,7 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
-      if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
       if (agencyBilling) {
         const conflict = members.map((member: any) => masterFolioJoinConflict(member, masterFolio)).find(Boolean);
         if (conflict === "CURRENCY_MISMATCH") throw new Error("NRMS_GROUP_MEMBER_CURRENCY_MISMATCH");
@@ -1144,7 +1154,7 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
-    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be added before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while it was being added" });
     if (err instanceof Error && err.message === "NRMS_GROUP_AGENCY_BILLING_MANAGER_REQUIRED") return res.status(403).json({ error: "Only the property owner or manager can add an existing stay to an agency-billed group", code: "AGENCY_BILLING_MANAGER_REQUIRED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_CURRENCY_MISMATCH") return res.status(409).json({ error: "Every reservation added to an agency bill must use the same currency as the master folio", code: "MASTER_FOLIO_CURRENCY_MISMATCH" });
@@ -1436,7 +1446,14 @@ router.get("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response) 
     if (!loaded) return;
     const { group } = loaded;
 
-    const members = group.reservations.filter((member: any) => ASSIGNABLE_STATUSES.includes(member.status));
+    const agencyBilled = billingUsesMasterFolio(group.block?.billingMode);
+    const members = group.reservations.filter((member: any) => ASSIGNABLE_STATUSES.includes(member.status) && roomAssignmentPaymentReady({
+      totalAmount: member.totalAmount,
+      chargesTotal: (member.charges ?? []).reduce((sum: number, charge: any) => sum + Number(charge.amount ?? 0), 0),
+      amountPaid: (member.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0),
+      agencyBilled,
+      masterFolioStatus: group.block?.masterFolio?.status,
+    }));
     const roomTypeIds = Array.from(new Set(members.flatMap((member: any) => (member.allocations ?? []).map((allocation: any) => allocation.roomTypeId))));
     const units = roomTypeIds.length
       ? await prisma.roomUnit.findMany({
@@ -2678,8 +2695,22 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
     // room number and would sit on the front desk as permanently unassigned.
     const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "OPERATIONS" });
     if (!reservation) return;
-    if (!["CONFIRMED", "CHECKED_IN", "HELD"].includes(reservation.status)) {
+    if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot move rooms on a ${reservation.status.toLowerCase()} reservation` });
+    }
+    const financial = formatReservation(reservation) as any;
+    const effectivePaid = Number(financial.effectivePaid ?? financial.amountPaid ?? 0);
+    const total = Number(financial.totalAmount ?? 0) + Number(financial.chargesTotal ?? 0);
+    const paymentReady = reservation.source === "NOLSAF"
+      ? ["PAID", "CUSTOMER_PAID"].includes(String(financial.marketplaceBooking?.paymentStatus || "").toUpperCase())
+      : financial.agencySettlement
+        ? financial.agencySettlement.settled === true
+        : Number(financial.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
+    if (!paymentReady) {
+      return res.status(409).json({
+        error: "A room can be assigned only after the reservation is confirmed and payment is settled",
+        code: "ROOM_ASSIGNMENT_PAYMENT_REQUIRED",
+      });
     }
     const parsed = moveRoomSchema.safeParse(req.body);
     if (!parsed.success) {

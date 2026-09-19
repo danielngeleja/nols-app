@@ -231,7 +231,7 @@ export default function NrmsGroupReservationsPage() {
             <div className="min-w-0">
               <h1 className="m-0 text-xl font-bold tracking-tight text-neutral-950">Group reservations</h1>
               <p className="mb-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500 sm:text-sm">
-                Manage room blocks and travelling parties while each reservation keeps its own room, folio, payments and audit trail.
+                Build travelling parties only from ungrouped Held or Confirmed NRMS reservations before check-in. Every member keeps their own room, folio, payment and audit trail.
               </p>
             </div>
           </div>
@@ -256,7 +256,7 @@ export default function NrmsGroupReservationsPage() {
         <nav aria-label="Group reservation views" className="flex gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-3 py-3 sm:px-5">
           {([
             ["BLOCKS", "Blocks", blocks.filter((block) => block.roomsHeld > 0).length],
-            ["GROUPS", "Groups in house", groups.length],
+            ["GROUPS", "Reservation groups", groups.length],
           ] as const).map(([value, label, count]) => {
             const active = tab === value;
             return (

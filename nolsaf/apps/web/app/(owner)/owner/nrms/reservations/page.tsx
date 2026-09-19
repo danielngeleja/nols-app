@@ -7,13 +7,15 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpDown, BadgeCheck, BedDouble, Building2, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 import { useNrms } from "../_components/NrmsProvider";
 import { useNrmsAccessRole } from "../_components/NrmsAccessRole";
 import ModalFrame from "../_components/NrmsModalFrame";
 import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
+import NrmsRoomAssignmentPicker from "../_components/NrmsRoomAssignmentPicker";
 
 type Allocation = {
   id: number;
@@ -21,6 +23,7 @@ type Allocation = {
   roomTypeName?: string;
   roomUnitId: number | null;
   roomUnitCode: string | null;
+  roomUnitFloor?: number | null;
   status: string;
 };
 
@@ -167,7 +170,7 @@ type RoomType = {
   name: string;
   baseRate: number | null;
   currency: string;
-  units: Array<{ id: number; code: string; status: string }>;
+  units: Array<{ id: number; code: string; floor?: number | null; status: string; housekeepingStatus?: string | null }>;
 };
 type CreateDefaults = { checkIn?: string; roomTypeId?: number; roomUnitId?: number };
 type SortField = "guest" | "phone" | "nationality" | "checkIn" | "source" | "adults" | "amountPaid" | "balance" | "status";
@@ -283,6 +286,43 @@ function money(v: number | null, currency: string): string {
   return v == null ? "-" : `${currency} ${v.toLocaleString()}`;
 }
 
+function allocationRoomLabel(allocation: Allocation): string | undefined {
+  if (!allocation.roomUnitCode) return allocation.roomTypeName;
+  if (allocation.roomUnitFloor == null) return allocation.roomUnitCode;
+  return `${allocation.roomUnitCode} · ${allocation.roomUnitFloor === 0 ? "Floor G" : `Floor ${allocation.roomUnitFloor}`}`;
+}
+
+function ReservationRoomIdentity({ allocations }: { allocations: Allocation[] }) {
+  const active = allocations.filter((allocation) => allocation.status === "ACTIVE");
+  const assigned = active.filter((allocation) => allocation.roomUnitCode);
+  const unassigned = active.filter((allocation) => !allocation.roomUnitCode);
+  const roomNames = tallyRoomLabels(assigned.map((allocation) => allocation.roomUnitCode), "");
+  const categoryNames = tallyRoomLabels(unassigned.map((allocation) => allocation.roomTypeName), "Room");
+  const floors = [...new Set(assigned.flatMap((allocation) => allocation.roomUnitFloor == null ? [] : [allocation.roomUnitFloor]))].sort((a, b) => a - b);
+  const floorText = floors.length === 1
+    ? floors[0] === 0 ? "Ground" : `Floor ${floors[0]}`
+    : floors.length > 1
+      ? `${floors.length} floors`
+      : null;
+  const title = tallyRoomLabels(active.map(allocationRoomLabel), "Unassigned");
+
+  if (assigned.length === 0) {
+    return <div className="grid w-full min-w-[13rem] max-w-[15rem] grid-cols-[28px_minmax(0,1fr)_1px_74px] items-center gap-2 whitespace-nowrap" title={`${categoryNames} · unit unassigned`}>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"><DoorOpen className="h-3.5 w-3.5" /></span>
+      <span className="min-w-0 truncate text-xs font-bold text-amber-800">{categoryNames}</span>
+      <span className="h-4 w-px bg-amber-200" aria-hidden="true" />
+      <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-amber-700">Pending</span>
+    </div>;
+  }
+
+  return <div className="grid w-full min-w-[13rem] max-w-[15rem] grid-cols-[28px_minmax(0,1fr)_1px_74px] items-center gap-2 whitespace-nowrap" title={title}>
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100"><BedDouble className="h-3.5 w-3.5" /></span>
+    <span className="min-w-0 truncate text-xs font-bold text-neutral-900">{roomNames}</span>
+    <span className="h-4 w-px bg-neutral-200" aria-hidden="true" />
+    {floorText ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500"><Building2 className="h-3 w-3 shrink-0 text-emerald-700" />{floorText}</span> : <span className={`text-[10px] font-medium ${unassigned.length > 0 ? "text-amber-700" : "text-neutral-300"}`}>{unassigned.length > 0 ? "+ pending" : "No floor"}</span>}
+  </div>;
+}
+
 function paymentMethodSummary(payments: Payment[] | undefined): { label: string; title: string } {
   const methods = [...new Set((payments ?? []).filter((payment) => !payment.voidedAt).map((payment) => PAYMENT_METHOD_LABEL[payment.method] ?? payment.method.replace(/_/g, " ").toLowerCase()))];
   if (methods.length === 0) return { label: "Not recorded", title: "No payment method recorded" };
@@ -347,6 +387,81 @@ function nightsBetween(checkIn: string, checkOut: string): number {
   return Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
 }
 
+function roomAssignmentReady(reservation: Reservation): boolean {
+  if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) return false;
+  if (reservation.bookingId != null) {
+    return ["PAID", "CUSTOMER_PAID"].includes(String(reservation.marketplaceBooking?.paymentStatus || "").toUpperCase());
+  }
+  if (reservation.agencySettlement) return reservation.agencySettlement.settled;
+  const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + Number(reservation.transferredToMaster ?? 0));
+  const total = Number(reservation.totalAmount ?? 0) + Number(reservation.chargesTotal ?? 0);
+  return Number(reservation.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
+}
+
+function groupSelectionEligibility(reservation: Reservation): { eligible: boolean; reason: string } {
+  if (reservation.group) return { eligible: false, reason: `Already belongs to ${reservation.group.name}` };
+  if (reservation.bookingId != null) return { eligible: false, reason: "NoLSAF marketplace bookings cannot be moved into NRMS groups" };
+  if (!["HELD", "CONFIRMED"].includes(reservation.status)) {
+    return { eligible: false, reason: "Only held or confirmed reservations can be grouped before check-in" };
+  }
+  return { eligible: true, reason: "Select for a group reservation" };
+}
+
+function StayProgress({ reservation }: { reservation: Reservation }) {
+  const checkIn = reservation.checkIn.slice(0, 10);
+  const checkOut = reservation.checkOut.slice(0, 10);
+  const today = localDateKey();
+  const nights = nightsBetween(checkIn, checkOut);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const elapsed = Math.max(0, Math.floor((new Date(`${today}T00:00:00`).getTime() - new Date(`${checkIn}T00:00:00`).getTime()) / dayMs));
+  const overdueDays = Math.max(0, Math.floor((new Date(`${today}T00:00:00`).getTime() - new Date(`${checkOut}T00:00:00`).getTime()) / dayMs));
+  const closed = ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(reservation.status);
+  const overdue = reservation.status === "CHECKED_IN" && today > checkOut;
+  const completed = reservation.status === "CHECKED_OUT";
+  const inHouse = reservation.status === "CHECKED_IN";
+  const filled = completed || overdue ? 5 : inHouse ? Math.min(5, Math.max(1, Math.ceil(((elapsed + 1) / Math.max(nights, 1)) * 5))) : 0;
+  const fillClass = overdue ? "bg-red-500" : completed || inHouse ? "bg-emerald-500" : "bg-neutral-300";
+  const label = overdue
+    ? `${overdueDays} ${overdueDays === 1 ? "day" : "days"} overdue`
+    : completed
+      ? "Completed"
+      : inHouse
+        ? `Night ${Math.min(elapsed + 1, nights)} of ${nights}`
+        : closed
+          ? "Stay closed"
+          : today >= checkIn
+            ? "Arrival due"
+            : "Not started";
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1.5" title={label}>
+      <span className="inline-flex items-end gap-[3px]" aria-hidden="true">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span key={index} className={`w-[3px] rounded-sm ${index < filled ? fillClass : "bg-neutral-200"}`} style={{ height: `${6 + index * 2.5}px` }} />
+        ))}
+      </span>
+      <span className={`whitespace-nowrap text-[10px] font-semibold ${overdue ? "text-red-600" : inHouse || completed ? "text-emerald-700" : "text-neutral-400"}`}>{label}</span>
+    </span>
+  );
+}
+
+function SelectionCheckbox({ checked, onChange, label, disabled = false, title }: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <label className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition focus-within:ring-2 focus-within:ring-emerald-500/20 ${checked ? "bg-emerald-50" : "bg-transparent"} ${disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-white hover:shadow-sm"}`} title={title}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="sr-only" aria-label={label} />
+      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-solid shadow-sm transition ${checked ? "border-emerald-700 bg-emerald-700 text-white ring-2 ring-emerald-100" : "border-neutral-300 bg-white text-transparent hover:border-emerald-400"}`} aria-hidden="true">
+        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    </label>
+  );
+}
+
 export default function NrmsReservationsPage() {
   const { selectedPropertyId } = useNrms();
   const { accessRole } = useNrmsAccessRole();
@@ -358,6 +473,10 @@ export default function NrmsReservationsPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [view, setView] = useState<"cards" | "list">("list");
   const [sortBy, setSortBy] = useState<SortField>("checkIn");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [showCreate, setShowCreate] = useState(false);
@@ -376,6 +495,7 @@ export default function NrmsReservationsPage() {
           params: {
             ...(statusFilter ? { status: statusFilter } : {}),
             ...(sourceFilter ? { source: sourceFilter } : {}),
+            ...(debouncedQuery ? { q: debouncedQuery } : {}),
             limit: PAGE_SIZE,
             offset: (page - 1) * PAGE_SIZE,
             sortBy,
@@ -385,17 +505,32 @@ export default function NrmsReservationsPage() {
       ]);
       setReservations(reservationResponse.data?.reservations ?? []);
       setTotalReservations(Number(reservationResponse.data?.total ?? 0));
-      setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id)));
+      setStatusCounts(reservationResponse.data?.statusCounts ?? {});
+      setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id && groupSelectionEligibility(reservation).eligible)));
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load reservations");
     } finally {
       setLoading(false);
     }
-  }, [page, selectedPropertyId, sortBy, sortOrder, sourceFilter, statusFilter]);
+  }, [debouncedQuery, page, selectedPropertyId, sortBy, sortOrder, sourceFilter, statusFilter]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { setDebouncedQuery(query.trim()); setPage(1); }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    try { setView(window.localStorage.getItem("nrms.reservations.view") === "cards" ? "cards" : "list"); } catch {}
+  }, []);
+
+  const changeView = (next: "cards" | "list") => {
+    setView(next);
+    try { window.localStorage.setItem("nrms.reservations.view", next); } catch {}
+  };
 
 
   useEffect(() => {
@@ -457,40 +592,17 @@ export default function NrmsReservationsPage() {
     return <p className="text-sm text-neutral-500 py-10 text-center">Add a property first to manage reservations.</p>;
   }
 
+  const reservationStages = [
+    { key: "HELD", label: "Held", hint: "Awaiting confirmation or payment", count: statusCounts.HELD ?? 0, icon: Clock3, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "CONFIRMED", label: "Confirmed", hint: "Arrival is secured", count: statusCounts.CONFIRMED ?? 0, icon: BadgeCheck, text: "text-blue-700", bar: "bg-blue-500", soft: "bg-blue-50" },
+    { key: "CHECKED_IN", label: "Checked in", hint: "Guest is currently in house", count: statusCounts.CHECKED_IN ?? 0, icon: DoorOpen, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "CHECKED_OUT", label: "Checked out", hint: "Stay has been completed", count: statusCounts.CHECKED_OUT ?? 0, icon: LogOut, text: "text-neutral-600", bar: "bg-neutral-400", soft: "bg-neutral-100" },
+  ];
+  const activeStageLabel = reservationStages.find((stage) => stage.key === statusFilter)?.label;
+
   return (
-    <div className="pb-10">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {Object.keys(STATUS_CLS).map((s) => (
-              <option key={s} value={s}>
-                {s.replace(/_/g, " ").toLowerCase()}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sourceFilter}
-            onChange={(e) => {
-              setSourceFilter(e.target.value);
-              setPage(1);
-            }}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
-            aria-label="Filter by reservation source"
-          >
-            <option value="">All sources</option>
-            {SOURCES.map((source) => <option key={source} value={source}>{SOURCE_LABEL[source] ?? source}</option>)}
-          </select>
-        </div>
-        {!isSalesExecutive && <button
+    <div className="space-y-5 pb-10">
+      {!isSalesExecutive && <div className="flex justify-end"><button
           type="button"
           onClick={() => {
             setCreateDefaults({});
@@ -499,8 +611,9 @@ export default function NrmsReservationsPage() {
           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-3 py-2"
         >
           <Plus className="w-4 h-4" /> New reservation
-        </button>}
-      </div>
+        </button></div>}
+
+      <NrmsLifecycleRail stages={reservationStages} selected={statusFilter} onSelect={(next) => { setStatusFilter(next); setPage(1); }} />
 
       {!isSalesExecutive && selectedIds.length > 0 && (
         <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3">
@@ -509,7 +622,7 @@ export default function NrmsReservationsPage() {
             <div className="min-w-0">
               <p className="m-0 text-sm font-bold text-emerald-950">{selectedIds.length} selected</p>
               <p className="m-0 mt-0.5 text-xs text-emerald-800">
-                {selectedIds.length < 2 ? "Select at least two stays to work them as one party." : "Carry them over to Group reservations to create a group or add to an existing one."}
+                {selectedIds.length < 2 ? "Select at least two held or confirmed stays before check-in." : "Only eligible pre-arrival stays will be carried to Group reservations."}
               </p>
             </div>
           </div>
@@ -526,6 +639,22 @@ export default function NrmsReservationsPage() {
         </section>
       )}
 
+      <NrmsDirectoryShell
+        title={activeStageLabel ? `${activeStageLabel} reservations` : "All reservations"}
+        count={totalReservations}
+        loading={loading}
+        query={query}
+        onQueryChange={setQuery}
+        placeholder="Search guest name or phone"
+        view={view}
+        onViewChange={changeView}
+        filter={statusFilter}
+        onClearFilter={() => { setStatusFilter(""); setPage(1); }}
+        toolbar={<div className="flex items-center gap-2">
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs text-neutral-700" aria-label="Filter by reservation status"><option value="">All statuses</option>{Object.keys(STATUS_CLS).map((status) => <option key={status} value={status}>{status.replace(/_/g, " ").toLowerCase()}</option>)}</select>
+          <select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }} className="h-9 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs text-neutral-700" aria-label="Filter by reservation source"><option value="">All sources</option>{SOURCES.map((source) => <option key={source} value={source}>{SOURCE_LABEL[source] ?? source}</option>)}</select>
+        </div>}
+      >
       {loading ? (
         <div className="flex justify-center py-16 text-neutral-400">
           <Loader2 className="w-6 h-6 animate-spin" />
@@ -533,12 +662,30 @@ export default function NrmsReservationsPage() {
       ) : error ? (
         <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       ) : reservations.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white py-14 text-center">
+        <div className="border-t border-neutral-100 py-14 text-center">
           <p className="text-sm font-semibold text-neutral-700">No reservations found</p>
           <p className="mt-1 text-xs text-neutral-400">{isSalesExecutive ? "No reservations match the current filters." : "Record a walk-in, phone or external reservation to begin."}</p>
         </div>
+      ) : view === "cards" ? (
+        <div className="grid grid-cols-1 gap-3 border-t border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
+          {reservations.map((reservation) => {
+            const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
+            const unassignedAllocation = activeAllocations.find((allocation) => allocation.roomUnitId == null) ?? null;
+            const guest = reservation.guestProfile?.fullName ?? reservation.agentBooking?.leadGuest?.fullName ?? "Guest";
+            const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
+            const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
+            return <article key={reservation.id} className="overflow-hidden rounded-xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+              <button type="button" onClick={() => openReservation(reservation.id)} className={`block w-full border-0 px-4 py-3 text-left ${sourceStyle.row}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-900">{guest}</p><p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{reservation.guestProfile?.phone ?? reservation.agentBooking?.leadGuest?.phone ?? "No phone recorded"}</p></div><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>{reservation.status.replace(/_/g, " ").toLowerCase()}</span></div>
+              </button>
+              <div className="grid grid-cols-2 gap-px bg-neutral-100"><div className="bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Stay</p><p className="mb-0 mt-1 text-xs font-bold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</p></div><div className="min-w-0 bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Room</p><div className="mt-1 min-w-0 overflow-hidden"><ReservationRoomIdentity allocations={activeAllocations} /></div><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{SOURCE_LABEL[reservation.source] ?? reservation.source}</p></div></div>
+              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && roomAssignmentReady(reservation) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign</button>}<button type="button" onClick={() => openReservation(reservation.id)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
+            </article>;
+          })}
+          <div className="col-span-full"><TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} /></div>
+        </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.4)]">
+        <div className="overflow-hidden border-t border-neutral-100 bg-white">
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white px-4 py-3" aria-label="Reservation source color legend">
             <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Source colours</span>
             {SOURCES.map((source) => {
@@ -562,22 +709,21 @@ export default function NrmsReservationsPage() {
             })}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1500px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1600px] border-collapse text-left text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
                   {!isSalesExecutive && <th className="w-11 px-3 py-3 text-center">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all ungrouped reservations on this page"
-                      checked={reservations.some((reservation) => !reservation.group && reservation.bookingId == null) && reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).every((reservation) => selectedIds.includes(reservation.id))}
-                      onChange={(event) => setSelectedIds(event.target.checked ? reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).map((reservation) => reservation.id) : [])}
-                      className="h-4 w-4 accent-emerald-700"
+                    <SelectionCheckbox
+                      label="Select all ungrouped reservations on this page"
+                      checked={reservations.some((reservation) => groupSelectionEligibility(reservation).eligible) && reservations.filter((reservation) => groupSelectionEligibility(reservation).eligible).every((reservation) => selectedIds.includes(reservation.id))}
+                      onChange={(checked) => setSelectedIds(checked ? reservations.filter((reservation) => groupSelectionEligibility(reservation).eligible).map((reservation) => reservation.id) : [])}
                     />
                   </th>}
                   <SortableHeader label="Guest" field="guest" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Phone" field="phone" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Nationality" field="nationality" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Stay" field="checkIn" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
+                  <th className="px-4 py-3">Stay progress</th>
                   <SortableHeader label="Source" field="source" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <th className="px-4 py-3">Room</th>
                   <SortableHeader label="Guests" field="adults" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} align="center" />
@@ -592,12 +738,12 @@ export default function NrmsReservationsPage() {
                 {reservations.map((reservation) => {
                   const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
                   const unassignedAllocation = activeAllocations.find((allocation) => allocation.roomUnitId == null) ?? null;
-                  const rooms = tallyRoomLabels(activeAllocations.map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName));
                   const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   const isMarketplace = reservation.bookingId != null;
+                  const groupEligibility = groupSelectionEligibility(reservation);
                   const agencySettlement = reservation.agencySettlement;
                   const agencyBillDue = Boolean(agencySettlement && !agencySettlement.settled);
                   // The API resolves which ledger holds the money for this
@@ -607,15 +753,12 @@ export default function NrmsReservationsPage() {
                   return (
                     <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
                       {!isSalesExecutive && <td className="px-3 py-3.5 text-center">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
+                        {groupEligibility.eligible ? <SelectionCheckbox
+                          label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
                           checked={selectedIds.includes(reservation.id)}
-                          disabled={Boolean(reservation.group) || isMarketplace}
-                          title={reservation.group ? `Already in ${reservation.group.name}` : isMarketplace ? "NoLSAF bookings cannot be added to NRMS groups" : "Select for a group"}
-                          onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
-                          className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
-                        />
+                          title={groupEligibility.reason}
+                          onChange={(checked) => setSelectedIds((current) => checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
+                        /> : <span className="inline-block h-8 w-8" title={groupEligibility.reason} aria-label={groupEligibility.reason} />}
                       </td>}
                       {/* Two lines, never more. A long name and a long agency
                           each used to wrap, dragging every row taller. */}
@@ -634,16 +777,15 @@ export default function NrmsReservationsPage() {
                         <div className="font-semibold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</div>
                         <div className="mt-0.5 text-xs text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</div>
                       </td>
+                      <td className="whitespace-nowrap px-4 py-3.5"><StayProgress reservation={reservation} /></td>
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex whitespace-nowrap items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyle.badge}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
                           {SOURCE_LABEL[reservation.source] ?? reservation.source}
                         </span>
                       </td>
-                      <td className="max-w-44 px-4 py-3.5">
-                        <span className={`block truncate font-medium ${unassignedAllocation ? "text-amber-700" : "text-neutral-700"}`} title={unassignedAllocation ? `${rooms} · unit unassigned` : rooms || "Unassigned"}>
-                          {unassignedAllocation && rooms ? `${rooms} · unit unassigned` : rooms || "Unassigned"}
-                        </span>
+                      <td className="w-60 px-4 py-3.5">
+                        <ReservationRoomIdentity allocations={activeAllocations} />
                       </td>
                       <td className="px-4 py-3.5 text-center text-neutral-600">
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
@@ -675,26 +817,27 @@ export default function NrmsReservationsPage() {
                         {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
                           {reservation.status.replace(/_/g, " ").toLowerCase()}
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {!isSalesExecutive && unassignedAllocation && ["HELD", "CONFIRMED", "CHECKED_IN"].includes(reservation.status) && (
+                          {!isSalesExecutive && unassignedAllocation && roomAssignmentReady(reservation) && (
                             <button
                               type="button"
                               onClick={() => setRoomAssignment(reservation)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
+                              title="Assign a room number from the paid room category"
+                              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
                             >
                               <DoorOpen className="h-3.5 w-3.5" />
-                              Assign room
+                              Assign
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => openReservation(reservation.id)}
-                            className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                            className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                           >
                             View
                           </button>
@@ -709,6 +852,7 @@ export default function NrmsReservationsPage() {
           <TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} />
         </div>
       )}
+      </NrmsDirectoryShell>
 
       {!isSalesExecutive && showCreate && (
         <CreateReservationModal
@@ -759,7 +903,8 @@ function AssignRoomModal({
   onAssigned: () => Promise<void>;
 }) {
   const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && item.roomUnitId == null) ?? null;
-  const [units, setUnits] = useState<Array<{ id: number; code: string }>>([]);
+  const [units, setUnits] = useState<Array<{ id: number; code: string; floor?: number | null; housekeepingStatus?: string | null }>>([]);
+  const [totalFloors, setTotalFloors] = useState<number | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<number | "">("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -782,6 +927,7 @@ function AssignRoomModal({
     ])
       .then(([roomsResponse, availabilityResponse]) => {
         if (cancelled) return;
+        setTotalFloors(roomsResponse.data?.property?.totalFloors ?? null);
         const roomType = (roomsResponse.data?.roomTypes ?? []).find((item: RoomType) => item.id === allocation.roomTypeId) as RoomType | undefined;
         const availableIds = new Set<number>(
           (availabilityResponse.data?.units ?? [])
@@ -819,15 +965,15 @@ function AssignRoomModal({
 
   return (
     <ModalFrame
-      title={`Assign room to ${guestName}`}
-      subtitle="Choose a room number from the category already paid for."
+      title="Assign a room"
+      subtitle={guestName}
       icon={<DoorOpen className="h-5 w-5" />}
       onClose={onClose}
-      small
+      wide
       footer={
         <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={() => void assign()} disabled={busy || selectedUnitId === ""} className="inline-flex min-w-32 items-center justify-center gap-2 rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={onClose} disabled={busy} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={() => void assign()} disabled={busy || selectedUnitId === "" || loading} className="inline-flex min-w-32 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             {busy ? "Assigning..." : "Assign room"}
           </button>
@@ -835,26 +981,25 @@ function AssignRoomModal({
       }
     >
       <div className="space-y-4">
-        <div className="border-l-2 border-emerald-600 pl-3">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Paid room category</p>
-          <p className="mb-0 mt-1 text-base font-bold text-neutral-950">{allocation?.roomTypeName ?? "Room type unavailable"}</p>
-          <p className="mb-0 mt-1 text-xs text-neutral-500">The category is locked. Only its available room numbers are listed below.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-neutral-100 py-3">
+          <div className="min-w-0">
+            <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
+            <p className="mb-0 mt-1 text-xs text-neutral-500">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)} · {nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10))} nights</p>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Payment settled</span>
         </div>
 
-        {error && <div className="border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{error}</div>}
+        <NrmsRoomAssignmentPicker
+          roomTypeName={allocation?.roomTypeName ?? "Room type unavailable"}
+          units={units}
+          totalFloors={totalFloors}
+          selectedUnitId={selectedUnitId}
+          onSelect={setSelectedUnitId}
+          loading={loading}
+          disabled={busy || !allocation}
+        />
 
-        <label className="block text-sm font-semibold text-neutral-800">
-          Room number
-          <select
-            value={selectedUnitId}
-            onChange={(event) => setSelectedUnitId(event.target.value ? Number(event.target.value) : "")}
-            disabled={loading || busy || !allocation}
-            className={`${inputCls} mt-1.5`}
-          >
-            <option value="">{loading ? "Checking availability..." : units.length ? "Select room number" : "No rooms available in this category"}</option>
-            {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
-          </select>
-        </label>
+        {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{error}</div>}
       </div>
     </ModalFrame>
   );
@@ -1538,7 +1683,7 @@ function CreateReservationModal({
 
 function SalesReservationSummary({ reservation: r }: { reservation: Reservation }) {
   const guestName = r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest";
-  const rooms = tallyRoomLabels((r.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE").map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName), "Unassigned");
+  const rooms = tallyRoomLabels((r.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE").map(allocationRoomLabel), "Unassigned");
   const partySize = r.bookingId != null ? `${r.marketplaceBooking?.roomsQty ?? 1} room(s)` : `${r.adults + r.children} guest(s)`;
   return <div className="space-y-4 text-sm">
     <section className="flex flex-wrap items-start justify-between gap-3 border border-neutral-200 bg-neutral-50 px-4 py-3">

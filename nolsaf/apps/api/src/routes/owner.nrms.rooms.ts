@@ -217,6 +217,7 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     const property = await loadOwnedProperty(res, access.ownerId, Number(req.params.propertyId), {
       id: true,
       title: true,
+      totalFloors: true,
       nrmsActivatedAt: true,
     });
     if (!property) return;
@@ -268,14 +269,14 @@ router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Respons
 
     const units = await prisma.roomUnit.findMany({
       where: { propertyId: property.id as number, roomTypeId, status: "ACTIVE" },
-      select: { id: true, code: true },
+      select: { id: true, code: true, floor: true },
       orderBy: { code: "asc" },
     });
 
     const results = await Promise.all(
       units.map(async (unit) => {
         const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut);
-        return { id: unit.id, code: unit.code, available: conflicts.length === 0 };
+        return { id: unit.id, code: unit.code, floor: unit.floor, available: conflicts.length === 0 };
       }),
     );
 

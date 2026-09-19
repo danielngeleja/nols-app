@@ -33,6 +33,7 @@ import { useNrmsAccessRole } from "./_components/NrmsAccessRole";
 import SalesHome from "./_components/SalesHome";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 import NrmsCheckoutPolicyNotice from "./_components/NrmsCheckoutPolicyNotice";
+import NrmsRoomAssignmentPicker from "./_components/NrmsRoomAssignmentPicker";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type Reservation = {
@@ -68,6 +69,7 @@ type Reservation = {
     roomTypeName?: string;
     roomUnitId: number | null;
     roomUnitCode: string | null;
+    roomUnitFloor?: number | null;
     status: string;
   }>;
   payments?: Array<{
@@ -103,7 +105,7 @@ type RoomTotals = {
 type RoomTypeOption = {
   id: number;
   name: string;
-  units: Array<{ id: number; code: string; status: string }>;
+  units: Array<{ id: number; code: string; floor?: number | null; status: string; housekeepingStatus?: string | null }>;
 };
 
 type AttentionItem = {
@@ -132,7 +134,9 @@ function sameDay(a: Date, b: Date): boolean {
 
 function roomsLabel(r: Reservation): string {
   const active = (r.allocations ?? []).filter((a) => a.status === "ACTIVE");
-  return tallyRoomLabels(active.map((a) => a.roomUnitCode ?? a.roomTypeName), "Room not assigned");
+  return tallyRoomLabels(active.map((a) => a.roomUnitCode
+    ? `${a.roomUnitCode}${a.roomUnitFloor == null ? "" : ` · ${a.roomUnitFloor === 0 ? "Floor G" : `Floor ${a.roomUnitFloor}`}`}`
+    : a.roomTypeName), "Room not assigned");
 }
 
 function hasAssignedRoom(r: Reservation): boolean {
@@ -228,6 +232,7 @@ function NrmsFrontDeskPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [roomTotals, setRoomTotals] = useState<RoomTotals | null>(null);
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
+  const [propertyTotalFloors, setPropertyTotalFloors] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reservation: Reservation; action: "check-in" | "check-out" } | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
@@ -261,6 +266,7 @@ function NrmsFrontDeskPage() {
       setReservations([...merged.values()]);
       setRoomTotals(roomsResponse.data?.totals ?? null);
       setRoomTypes(roomsResponse.data?.roomTypes ?? []);
+      setPropertyTotalFloors(roomsResponse.data?.property?.totalFloors ?? null);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load front desk");
     } finally {
@@ -518,9 +524,11 @@ function NrmsFrontDeskPage() {
 
       {pendingAction && (
         <StayActionModal
+          propertyId={selectedPropertyId}
           reservation={pendingAction.reservation}
           action={pendingAction.action}
           roomTypes={roomTypes}
+          totalFloors={propertyTotalFloors}
           busy={busyId === pendingAction.reservation.id}
           error={error}
           roomNotReady={roomNotReady}
@@ -545,9 +553,11 @@ function NrmsFrontDeskPage() {
 }
 
 function StayActionModal({
+  propertyId,
   reservation,
   action,
   roomTypes,
+  totalFloors,
   busy,
   error,
   roomNotReady,
@@ -557,9 +567,11 @@ function StayActionModal({
   onConfirm,
   onAssignRoom,
 }: {
+  propertyId: number;
   reservation: Reservation;
   action: "check-in" | "check-out";
   roomTypes: RoomTypeOption[];
+  totalFloors: number | null;
   busy: boolean;
   error: string | null;
   roomNotReady: string | null;
@@ -572,6 +584,9 @@ function StayActionModal({
   const [acknowledged, setAcknowledged] = useState(false);
   const [verifiedChargeIds, setVerifiedChargeIds] = useState<number[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | "">("");
+  const [availableRoomIds, setAvailableRoomIds] = useState<Set<number> | null>(null);
+  const [roomAvailabilityLoading, setRoomAvailabilityLoading] = useState(false);
+  const [roomAvailabilityError, setRoomAvailabilityError] = useState<string | null>(null);
   const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
   const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
   const isCheckIn = action === "check-in";
@@ -601,9 +616,9 @@ function StayActionModal({
   const checkoutBlocked = folioUnsettled || hasOpenOutletOrders || chargesUnverified;
   const noRoomAssigned = !hasAssignedRoom(reservation);
   const unassignedAllocation = (reservation.allocations ?? []).find((allocation) => allocation.status === "ACTIVE" && allocation.roomUnitId == null);
-  const eligibleRooms = unassignedAllocation
-    ? roomTypes.find((roomType) => roomType.id === unassignedAllocation.roomTypeId)?.units.filter((unit) => unit.status === "ACTIVE") ?? []
-    : [];
+  const categoryRooms = unassignedAllocation ? roomTypes.find((roomType) => roomType.id === unassignedAllocation.roomTypeId)?.units.filter((unit) => unit.status === "ACTIVE") ?? [] : [];
+  const eligibleRooms = categoryRooms.filter((unit) => availableRoomIds?.has(unit.id));
+  const assignmentPaymentReady = Math.abs(balance) <= 0.005 && (total <= 0.005 || paid > 0);
   const actionLabel = isCheckIn ? "Confirm check-in" : "Confirm check-out";
   const earlyDeparture = !isCheckIn && reservation.checkOut.slice(0, 10) > localDateKey();
   const departureDeclarationReady = isCheckIn || !earlyDeparture || (roomVacantConfirmed && earlyDepartureReason.trim().length >= 2);
@@ -616,6 +631,28 @@ function StayActionModal({
       setAcknowledged(false);
     }
   };
+
+  useEffect(() => {
+    if (!isCheckIn || !unassignedAllocation || !assignmentPaymentReady) {
+      setAvailableRoomIds(null);
+      setRoomAvailabilityError(null);
+      return;
+    }
+    let cancelled = false;
+    setRoomAvailabilityLoading(true);
+    setRoomAvailabilityError(null);
+    apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
+      params: { roomTypeId: unassignedAllocation.roomTypeId, checkIn: reservation.checkIn, checkOut: reservation.checkOut },
+    }).then((response) => {
+      if (cancelled) return;
+      setAvailableRoomIds(new Set<number>((response.data?.units ?? []).filter((unit: any) => unit.available).map((unit: any) => Number(unit.id))));
+    }).catch((cause: any) => {
+      if (!cancelled) setRoomAvailabilityError(cause?.response?.data?.error || "Could not check live room availability");
+    }).finally(() => {
+      if (!cancelled) setRoomAvailabilityLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [assignmentPaymentReady, isCheckIn, propertyId, reservation.checkIn, reservation.checkOut, unassignedAllocation]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -771,28 +808,20 @@ function StayActionModal({
             </section>
           )}
 
-          {isCheckIn && noRoomAssigned && (
-            <div className="rounded-2xl border border-red-200 bg-red-50/60 p-4">
+          {isCheckIn && noRoomAssigned && assignmentPaymentReady && (
+            <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
+                <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                 <div>
-                  <p className="m-0 text-sm font-bold text-red-900">Assign a room before check-in</p>
-                  <p className="mb-0 mt-1 text-xs leading-5 text-red-700">
-                    Select an active {unassignedAllocation?.roomTypeName ?? "room"} unit. Availability is verified when you assign it.
+                  <p className="m-0 text-sm font-bold text-neutral-900">Assign a room before check-in</p>
+                  <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">
+                    The guest keeps the paid room category; the front desk selects only the physical room number.
                   </p>
                 </div>
               </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={selectedRoomId}
-                  onChange={(event) => setSelectedRoomId(event.target.value ? Number(event.target.value) : "")}
-                  disabled={busy || eligibleRooms.length === 0}
-                  aria-label="Select room to assign"
-                  className="min-h-11 min-w-0 flex-1 rounded-xl border border-red-200 bg-white px-3 text-sm font-semibold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 disabled:bg-neutral-100 disabled:text-neutral-400"
-                >
-                  <option value="">{eligibleRooms.length > 0 ? "Select an available room" : "No active rooms configured"}</option>
-                  {eligibleRooms.map((unit) => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
-                </select>
+              <NrmsRoomAssignmentPicker roomTypeName={unassignedAllocation?.roomTypeName ?? "Room type unavailable"} units={eligibleRooms} totalFloors={totalFloors} selectedUnitId={selectedRoomId} onSelect={setSelectedRoomId} loading={roomAvailabilityLoading} disabled={busy} />
+              {roomAvailabilityError && <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{roomAvailabilityError}</p>}
+              <div className="flex justify-end">
                 <button
                   type="button"
                   onClick={() => void handleAssignRoom()}
@@ -803,6 +832,13 @@ function StayActionModal({
                   {busy ? "Assigning..." : "Assign room"}
                 </button>
               </div>
+            </div>
+          )}
+
+          {isCheckIn && noRoomAssigned && !assignmentPaymentReady && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div><p className="m-0 text-xs font-bold">Room assignment is waiting for payment</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">Settle and record the guest account first. Room numbers are assigned only to paid, confirmed arrivals.</p></div>
             </div>
           )}
 

@@ -9,9 +9,10 @@
 // here.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import apiClient from "@/lib/apiClient";
-import { ArrowLeft, BadgeCheck, Ban, Building2, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Handshake, Loader2, Mail, MapPin, Phone, Plus, Search, ShieldAlert, ShieldCheck, Tag, User, UserPlus, Wallet, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Ban, Building2, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Handshake, Loader2, Mail, MapPin, PauseCircle, Phone, Plus, Search, ShieldAlert, ShieldCheck, Tag, User, UserPlus, Wallet, X, XCircle } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
 
 type Agency = { id: number; reference?: string; legalName: string; tradingName: string | null; verificationStatus: string; status: string; contactEmail?: string | null; activationPending?: boolean };
 type AgencyDetail = Agency & {
@@ -118,6 +119,9 @@ export default function NrmsAgentsPage() {
   const [rateFor, setRateFor] = useState<AgentLink | null>(null);
   const [detailFor, setDetailFor] = useState<number | null>(null);
   const [billingBlock, setBillingBlock] = useState<NrmsBillingBlock | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [view, setView] = useState<"cards" | "list">("cards");
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -140,6 +144,17 @@ export default function NrmsAgentsPage() {
   const pendingCount = useMemo(() => links.filter((l) => ["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(l.status)).length, [links]);
   const capReached = seatsUsed >= maxAgents && maxAgents > 0;
   const seatsLeft = Math.max(0, maxAgents - seatsUsed);
+  const agentStage = (status: string) => ["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(status) ? "PENDING" : ["REJECTED", "TERMINATED"].includes(status) ? "ENDED" : status;
+  const visibleLinks = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return links.filter((link) => (!statusFilter || agentStage(link.status) === statusFilter) && (!term || [link.agency?.legalName, link.agency?.tradingName, link.agency?.reference, link.agency?.contactEmail].some((value) => String(value || "").toLowerCase().includes(term))));
+  }, [links, query, statusFilter]);
+  const agentStages = [
+    { key: "PENDING", label: "Onboarding", hint: "Invitation or approval pending", count: links.filter((link) => agentStage(link.status) === "PENDING").length, icon: Clock, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "ACTIVE", label: "Active", hint: "Approved to sell room inventory", count: links.filter((link) => link.status === "ACTIVE").length, icon: BadgeCheck, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "SUSPENDED", label: "Suspended", hint: "Booking access paused", count: links.filter((link) => link.status === "SUSPENDED").length, icon: PauseCircle, text: "text-orange-700", bar: "bg-orange-400", soft: "bg-orange-50" },
+    { key: "ENDED", label: "Ended", hint: "Rejected or terminated relationship", count: links.filter((link) => agentStage(link.status) === "ENDED").length, icon: XCircle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50" },
+  ];
   const act = useCallback(async (linkId: number, path: string, verb: "post" | "patch" | "put", body?: any, okMsg?: string) => {
     setBusyId(linkId); setError(null); setNotice(null);
     try {
@@ -230,16 +245,18 @@ export default function NrmsAgentsPage() {
       {notice && <div className="rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">{notice}</div>}
       {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
 
+      <NrmsLifecycleRail stages={agentStages} selected={statusFilter} onSelect={setStatusFilter} />
+      <NrmsDirectoryShell title={statusFilter ? `${agentStages.find((stage) => stage.key === statusFilter)?.label ?? statusFilter} agents` : "All travel agents"} count={visibleLinks.length} loading={loading} query={query} onQueryChange={setQuery} placeholder="Search agency, code or email" view={view} onViewChange={setView} filter={statusFilter} onClearFilter={() => setStatusFilter("")}>
       {loading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agents…</div>
-      ) : links.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
+        <div className="flex items-center justify-center gap-2 border-t border-neutral-100 p-12 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agents…</div>
+      ) : visibleLinks.length === 0 ? (
+        <div className="border-t border-neutral-100 p-12 text-center">
           <p className="m-0 text-sm font-semibold text-neutral-700">No travel agents yet</p>
-          <p className="m-0 mt-1 text-[13px] text-neutral-500">Add an agency to let it book your rooms at agreed rates.</p>
+          <p className="m-0 mt-1 text-[13px] text-neutral-500">{query || statusFilter ? "Try another status or search." : "Add an agency to let it book your rooms at agreed rates."}</p>
         </div>
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-3 p-0">
-          {links.map((link) => {
+        <ul className={`m-0 list-none border-t border-neutral-100 p-3 sm:p-4 ${view === "cards" ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : "flex flex-col gap-3"}`}>
+          {visibleLinks.map((link) => {
             const verify = link.agency ? (VERIFY[link.agency.verificationStatus] ?? { cls: "text-neutral-500", label: link.agency.verificationStatus }) : null;
             const busy = busyId === link.id;
             const notVerified = link.agency?.verificationStatus !== "VERIFIED";
@@ -348,6 +365,7 @@ export default function NrmsAgentsPage() {
           })}
         </ul>
       )}
+      </NrmsDirectoryShell>
 
       {billingBlock && <NrmsBillingBlockModal block={billingBlock} title="Agent activation paused" subtitle="The partnership was not activated" reassurance="Your active agents, existing reservations, check-ins and daily hotel operations are unaffected. Only this new agent activation is paused." onClose={() => setBillingBlock(null)} />}
       {showAdd && <AddAgentPanel propertyId={selectedPropertyId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); setNotice("Agent invited. The agency must accept the relationship before activation."); void load(); }} onInvited={(delivered) => { setShowAdd(false); setNotice(delivered ? "Invitation sent. The agency accepts the hotel relationship, then NoLSAF verification enables activation." : "The agency was created, but email delivery failed. Use Resend on the pending agent row."); void load(); }} onError={setError} />}
