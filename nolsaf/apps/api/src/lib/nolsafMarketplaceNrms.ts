@@ -95,17 +95,20 @@ async function resolveGuestProfile(db: DbLike, booking: any) {
   });
 }
 
-async function resolveRoom(db: DbLike, propertyId: number, roomCode: string | null) {
-  if (!roomCode) return { roomTypeId: null as number | null, roomUnitId: null as number | null };
+function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null): string | null {
+  const code = String(roomCode ?? "").trim();
+  if (!/^\d+$/.test(code)) return code || null;
 
-  const unit = await db.roomUnit.findFirst({
-    where: { propertyId, code: roomCode },
-    select: { id: true, roomTypeId: true },
-  });
-  if (unit) return { roomTypeId: unit.roomTypeId, roomUnitId: unit.id };
+  const spec = roomsSpec && typeof roomsSpec === "object" ? roomsSpec as any : null;
+  const rooms = Array.isArray(spec) ? spec : Array.isArray(spec?.rooms) ? spec.rooms : [];
+  const room = rooms[Number(code)];
+  if (!room || typeof room !== "object") return code;
+  return String(room.roomType ?? room.type ?? room.name ?? room.label ?? room.code ?? room.roomCode ?? code).trim() || code;
+}
 
-  const roomTypeId = await resolveRoomTypeIdForCode(db, propertyId, roomCode);
-  return { roomTypeId, roomUnitId: null as number | null };
+async function resolveMarketplaceRoomType(db: DbLike, propertyId: number, roomsSpec: unknown, roomCode: string | null) {
+  const resolvedCode = roomTypeCodeFromSpec(roomsSpec, roomCode);
+  return resolveRoomTypeIdForCode(db, propertyId, resolvedCode);
 }
 
 /**
@@ -117,7 +120,7 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     include: {
-      property: { select: { ownerId: true, nrmsActivatedAt: true } },
+      property: { select: { ownerId: true, nrmsActivatedAt: true, roomsSpec: true } },
       user: { select: { name: true, fullName: true, email: true, phone: true, nationality: true } },
       nrmsReservation: {
         select: {
@@ -198,8 +201,13 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
     return reservation;
   }
 
-  const room = await resolveRoom(db, booking.propertyId, booking.roomCode ?? null);
-  if (!room.roomTypeId) return reservation;
+  const roomTypeId = await resolveMarketplaceRoomType(
+    db,
+    booking.propertyId,
+    booking.property.roomsSpec,
+    booking.roomCode ?? null,
+  );
+  if (!roomTypeId) return reservation;
 
   const desiredCount = Math.max(1, Number(booking.roomsQty ?? 1));
   const active = await db.reservationRoomAllocation.findMany({
@@ -211,7 +219,7 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
       || new Date(allocation.endDate).getTime() !== new Date(booking.checkOut).getTime(),
   );
   const roomChanged = active.some((allocation: any) =>
-    allocation.roomTypeId !== room.roomTypeId || (room.roomUnitId != null && allocation.roomUnitId !== room.roomUnitId),
+    allocation.roomTypeId !== roomTypeId,
   );
   if (datesChanged || roomChanged || active.length !== desiredCount) {
     if (active.length) {
@@ -223,14 +231,14 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
     // Marketplace bookings do not choose an NRMS rate plan, so the meal plan
     // comes from the property default. Snapshotted onto the allocation so the
     // breakfast list can answer for these stays like any other.
-    const plan = await resolveAllocationMealPlan(db, { propertyId: reservation.propertyId, roomTypeId: room.roomTypeId });
+    const plan = await resolveAllocationMealPlan(db, { propertyId: reservation.propertyId, roomTypeId });
     await db.reservationRoomAllocation.createMany({
-      data: Array.from({ length: desiredCount }, (_, index) => ({
+      data: Array.from({ length: desiredCount }, () => ({
         reservationId: reservation.id,
-        roomTypeId: room.roomTypeId,
-        // A specific physical room can represent only one allocation. Any
-        // additional quantity stays type-level until staff assigns units.
-        roomUnitId: index === 0 ? room.roomUnitId : null,
+        roomTypeId,
+        // The marketplace sells a room category, never a physical room.
+        // Front desk assigns a unit from this same category at arrival.
+        roomUnitId: null,
         startDate: booking.checkIn,
         endDate: booking.checkOut,
         status: "ACTIVE",
@@ -307,6 +315,12 @@ export async function connectExistingNoLsafBookings(db: DbLike, propertyId: numb
         OR: [
           { nrmsReservation: null },
           { nrmsReservation: { is: { guestProfileId: null } } },
+          {
+            AND: [
+              { roomCode: { not: null } },
+              { nrmsReservation: { is: { allocations: { none: { status: "ACTIVE" } } } } },
+            ],
+          },
         ],
         AND: [{ checkIn: { lt: end } }, { checkOut: { gt: start } }],
       },

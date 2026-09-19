@@ -10,7 +10,7 @@ const api = apiClient;
 
 export default function NewInvoice() {
   const sp = useSearchParams();
-  const bookingId = Number(sp?.get("bookingId") ?? "");
+  const bookingReference = String(sp?.get("booking") ?? sp?.get("bookingId") ?? "").trim();
   const router = useRouter();
   const [preview, setPreview] = useState<any>(null);
   const [creating, setCreating] = useState(false);
@@ -20,26 +20,26 @@ export default function NewInvoice() {
   const [agreeDisbursement, setAgreeDisbursement] = useState(false);
 
   useEffect(() => {
-    if (!bookingId) return;
-    api.get(`/api/owner/bookings/${bookingId}`).then(r => setPreview(r.data));
-  }, [bookingId]);
+    if (!bookingReference) return;
+    api.get(`/api/owner/bookings/${encodeURIComponent(bookingReference)}`).then(r => setPreview(r.data));
+  }, [bookingReference]);
 
   // Guard: if invoice already exists, redirect and prevent duplicates even via direct URL.
   useEffect(() => {
-    if (!bookingId) return;
-    api.get(`/api/owner/invoices/for-booking/${bookingId}`).then((r) => {
+    if (!bookingReference) return;
+    api.get(`/api/owner/invoices/for-booking/${encodeURIComponent(bookingReference)}`).then((r) => {
       if (r.data?.exists && r.data?.invoiceId) {
         router.replace(`/owner/invoices/${r.data.invoiceId}`);
       }
     }).catch(() => {});
-  }, [bookingId, router]);
+  }, [bookingReference, router]);
 
   const doCreate = async () => {
     setCreating(true);
     setErr(null);
     try {
       // Idempotent: API returns ok + invoiceId whether created or already existed.
-      const r = await api.post<{ ok: boolean; invoiceId: number | string; existed?: boolean }>(`/api/owner/invoices/from-booking`, { bookingId });
+      const r = await api.post<{ ok: boolean; invoiceId: number | string; existed?: boolean }>(`/api/owner/invoices/from-booking`, { bookingReference });
       const invoiceId = (r.data as any)?.invoiceId;
       if (!invoiceId) throw new Error("No invoiceId returned");
       router.push(`/owner/invoices/${invoiceId}`);
@@ -75,7 +75,7 @@ export default function NewInvoice() {
     return Number.isFinite(value) ? value : 0;
   }, [preview?.ownerBaseAmount, preview?.totalAmount, preview?.transportFare]);
 
-  if (!bookingId) {
+  if (!bookingReference) {
     return (
       <div className="w-full">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -146,7 +146,7 @@ export default function NewInvoice() {
                     <div className="min-w-0">
                       <div className="text-xs font-bold tracking-wide text-slate-600 uppercase">Invoice preview</div>
                       <div className="mt-1 text-lg font-semibold text-slate-900 truncate">
-                        {preview.property?.title ?? `Booking #${bookingId}`} | Accommodation Invoice
+                        {preview.property?.title ?? "Guest booking"} | Accommodation Invoice
                       </div>
                       {preview.property?.address ? (
                         <div className="text-sm text-slate-600 truncate">{preview.property.address}</div>

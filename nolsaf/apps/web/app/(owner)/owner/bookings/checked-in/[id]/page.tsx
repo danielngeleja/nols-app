@@ -248,7 +248,7 @@ export default function BookingDetail() {
                 </>
               ) : (
                 <Link
-                  href={`/owner/invoices/new?bookingId=${b.id}`}
+                  href={`/owner/invoices/new?booking=${encodeURIComponent(b.bookingReference)}`}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#02665e] text-white font-semibold text-[13px] shadow-sm hover:bg-[#034e47] transition-colors duration-150 no-underline"
                 >
                   <FileText className="h-3.5 w-3.5" />

@@ -2691,6 +2691,12 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
       select: { id: true, roomTypeId: true, code: true },
     });
     if (!unit) return res.status(400).json({ error: "Target room is not an active room of this property" });
+    if (reservation.source === "NOLSAF" && unit.roomTypeId !== allocation.roomTypeId) {
+      return res.status(409).json({
+        error: "Choose a room number from the room type paid for by the guest",
+        code: "ROOM_TYPE_MISMATCH",
+      });
+    }
 
     const result = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);

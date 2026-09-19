@@ -584,8 +584,16 @@ router.get("/checked-out", getCheckedOutBookings);
 // GET /owner/bookings/:id — checked-in booking details (with code + property)
 const getBooking: RequestHandler = async (req, res) => {
   const r = req as AuthedRequest;
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return (res as Response).status(400).json({ error: "booking id required" });
+  const identifier = String(req.params.id || "").trim();
+  let id = Number(identifier);
+  if (!Number.isFinite(id) && isCustomerBookingReference(identifier)) {
+    const candidates = await prisma.booking.findMany({
+      where: { property: { ownerId: r.user!.id } },
+      select: { id: true },
+    });
+    id = candidates.find((candidate) => matchesCustomerBookingReference(identifier, candidate.id))?.id ?? NaN;
+  }
+  if (!Number.isFinite(id)) return (res as Response).status(400).json({ error: "booking reference required" });
   const b = await prisma.booking.findFirst({
     where: { id, property: { ownerId: r.user!.id } },
     include: {
@@ -603,6 +611,7 @@ const getBooking: RequestHandler = async (req, res) => {
 
   (res as Response).json({
     ...(b as any),
+    bookingReference: customerBookingReference(b.id),
     transportFare: (b as any).transportFare ?? null,
     ownerBaseAmount,
   });
