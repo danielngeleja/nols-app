@@ -36,7 +36,7 @@ function dbFor(value: any) {
     },
     reservationRoomAllocation: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn().mockResolvedValue({ count: 1 }), updateMany: vi.fn() },
     roomUnit: { findFirst: vi.fn().mockResolvedValue({ id: 15, roomTypeId: 5 }) },
-    roomType: { findFirst: vi.fn() },
+    roomType: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     // Allocations now snapshot the meal plan they were sold on, resolved
     // through the property default when the booking names no plan.
     nrmsRatePlan: { findFirst: vi.fn().mockResolvedValue({ id: 21, mealPlan: "BREAKFAST" }) },
@@ -112,6 +112,39 @@ describe("NoLSAF marketplace to NRMS connection", () => {
     expect(db.roomUnit.findFirst).toHaveBeenCalledWith({
       where: { propertyId: 7, code: "Suite" },
       select: { roomTypeId: true },
+    });
+    expect(db.reservationRoomAllocation.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ roomTypeId: 5, roomUnitId: null })],
+    });
+  });
+
+  it("repairs a legacy booking with no room code when its published category is unambiguous", async () => {
+    const db = dbFor(booking({ roomCode: null }));
+    const { syncNoLsafBookingToNrms } = await import("./nolsafMarketplaceNrms.js");
+
+    await syncNoLsafBookingToNrms(db, 42);
+
+    expect(db.roomUnit.findFirst).toHaveBeenCalledWith({
+      where: { propertyId: 7, code: "Suite" },
+      select: { roomTypeId: true },
+    });
+    expect(db.reservationRoomAllocation.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ roomTypeId: 5, roomUnitId: null })],
+    });
+  });
+
+  it("uses the only active NRMS category when a legacy property has no room specification", async () => {
+    const db = dbFor(booking({ roomCode: null, property: { ownerId: 9, nrmsActivatedAt: new Date("2026-08-01T00:00:00.000Z"), roomsSpec: [] } }));
+    db.roomType.findMany.mockResolvedValue([{ id: 5 }]);
+    const { syncNoLsafBookingToNrms } = await import("./nolsafMarketplaceNrms.js");
+
+    await syncNoLsafBookingToNrms(db, 42);
+
+    expect(db.roomType.findMany).toHaveBeenCalledWith({
+      where: { propertyId: 7, status: "ACTIVE" },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: 2,
     });
     expect(db.reservationRoomAllocation.createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({ roomTypeId: 5, roomUnitId: null })],

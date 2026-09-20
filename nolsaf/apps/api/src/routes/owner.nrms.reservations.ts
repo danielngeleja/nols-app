@@ -1582,7 +1582,13 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
               include: groupMemberInclude,
             });
             if (!member) return { changed: false, blockers: [{ code: "MEMBER_NOT_FOUND", message: "Reservation is no longer in this group." }] };
-            const inspection = inspectGroupMember(member, action, { ...parsed.data, businessDate });
+            const inspection = inspectGroupMember(member, action, {
+              ...parsed.data,
+              // Arrival eligibility follows the property's calendar date.
+              // The accounting business day may intentionally remain open
+              // after midnight and must not make today's arrivals look early.
+              businessDate: action === "CHECK_IN" ? shiftDayKey(new Date()) : businessDate,
+            });
             if (!inspection.eligible) return { changed: false, blockers: inspection.blockers };
             if (action === "CHECK_IN") {
               const changed = await tx.reservation.updateMany({
@@ -2641,8 +2647,9 @@ function transition(
       await prisma.$transaction(async (tx: any) => {
         await lockPropertyInventory(tx, reservation.propertyId);
         if (opts?.requireArrivalStarted) {
-          const businessDate = await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
-          const conflict = nrmsCheckInDateConflict(new Date(reservation.checkIn), businessDate);
+          await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
+          const calendarDate = shiftDayKey(new Date());
+          const conflict = nrmsCheckInDateConflict(new Date(reservation.checkIn), calendarDate);
           if (conflict) throw new Error(`NRMS_CHECKIN_BEFORE_ARRIVAL:${conflict.arrivalDate}:${conflict.businessDate}`);
         }
         if (opts?.requireAssignedRooms) {

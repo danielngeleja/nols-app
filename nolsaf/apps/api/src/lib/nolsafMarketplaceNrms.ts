@@ -97,10 +97,20 @@ async function resolveGuestProfile(db: DbLike, booking: any) {
 
 export function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null): string | null {
   const code = String(roomCode ?? "").trim();
-  if (!/^\d+$/.test(code)) return code || null;
-
   const spec = roomsSpec && typeof roomsSpec === "object" ? roomsSpec as any : null;
   const rooms = Array.isArray(spec) ? spec : Array.isArray(spec?.rooms) ? spec.rooms : [];
+  if (!code) {
+    // Some legacy marketplace rows predate stable room codes. Recovery is
+    // deterministic when every published option belongs to one NRMS category;
+    // variants such as "Single 1 Queen" and "Single 1 King" still map to the
+    // same physical room type and therefore do not require staff to guess.
+    const categoryNames = [...new Set<string>(rooms
+      .map((room: any) => String(room?.roomType ?? room?.type ?? room?.name ?? room?.label ?? "").trim())
+      .filter(Boolean))];
+    return categoryNames.length === 1 ? categoryNames[0] : null;
+  }
+  if (!/^\d+$/.test(code)) return code;
+
   const room = rooms[Number(code)];
   if (!room || typeof room !== "object") return code;
   return String(room.roomType ?? room.type ?? room.name ?? room.label ?? room.code ?? room.roomCode ?? code).trim() || code;
@@ -108,7 +118,18 @@ export function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null
 
 async function resolveMarketplaceRoomType(db: DbLike, propertyId: number, roomsSpec: unknown, roomCode: string | null) {
   const resolvedCode = roomTypeCodeFromSpec(roomsSpec, roomCode);
-  return resolveRoomTypeIdForCode(db, propertyId, resolvedCode);
+  if (resolvedCode) return resolveRoomTypeIdForCode(db, propertyId, resolvedCode);
+
+  // A property with exactly one active NRMS category is equally unambiguous
+  // even when its old roomsSpec is empty. Never apply this fallback when two
+  // categories exist: that would silently change what the guest bought.
+  const activeTypes = await db.roomType.findMany({
+    where: { propertyId, status: "ACTIVE" },
+    select: { id: true },
+    orderBy: { id: "asc" },
+    take: 2,
+  });
+  return activeTypes.length === 1 ? activeTypes[0].id : null;
 }
 
 /**

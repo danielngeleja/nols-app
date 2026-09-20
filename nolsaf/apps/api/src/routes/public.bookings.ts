@@ -17,7 +17,7 @@ import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlo
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
-import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
+import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
 
 /**
  * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
@@ -502,6 +502,20 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       return res.status(400).json({
         error: "Property is not available for booking",
         reason: `Property status is ${property.status}`,
+        requestId,
+      });
+    }
+
+    const publishedRoomOptions = roomsSpecEntries(property.roomsSpec);
+    if (!data.roomCode && publishedRoomOptions.length === 1) {
+      // Older property records may have no persisted code, but one published
+      // option is unambiguous. Persist its stable identity on the booking so
+      // payment, NRMS projection and arrival all refer to the same category.
+      data.roomCode = effectiveRoomSelectionCode(publishedRoomOptions[0]);
+    } else if (!data.roomCode && publishedRoomOptions.length > 1) {
+      return res.status(400).json({
+        error: "Choose a room category before booking",
+        code: "ROOM_CATEGORY_REQUIRED",
         requestId,
       });
     }
@@ -1607,4 +1621,3 @@ router.get("/:id", async (req: Request, res: Response) => {
 });
 
 export default router;
-
