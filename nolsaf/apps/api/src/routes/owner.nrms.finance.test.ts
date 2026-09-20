@@ -86,6 +86,31 @@ describe("NRMS finance access boundaries", () => {
     expect(mocks.shiftUpdate).not.toHaveBeenCalled();
   });
 
+  it("does not let a manager sign off a shift without a physical cash count", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+    });
+    const update = vi.fn();
+    const tx = {
+      nrmsCashierShift: {
+        findFirst: vi.fn().mockResolvedValue({ id: 8, propertyId: 91, status: "CLOSED", declaredCash: null, variance: null }),
+        update,
+      },
+    };
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
+
+    const response = await request(app)
+      .post("/api/owner/nrms/finance/property/91/shifts/8/sign-off")
+      .send({});
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("SHIFT_PHYSICAL_COUNT_REQUIRED");
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("takes the property lock before reading the Night Audit control snapshot", async () => {
     mocks.loadNrmsPropertyAccess.mockResolvedValue({
       role: "MANAGER",

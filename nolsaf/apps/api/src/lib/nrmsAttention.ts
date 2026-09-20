@@ -32,7 +32,16 @@ export type NrmsAttentionSnapshot = {
   agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
   rateProposals: { pending: number; total: number };
   channels: { connections: number; alerts: number; issues: number; total: number; byProvider: Array<{ provider: string; total: number }> };
-  finance: { unclassifiedTenders: number; overdueBusinessDays: number; total: number };
+  finance: {
+    unclassifiedTenders: number;
+    overdueBusinessDays: number;
+    unreconciledShifts: number;
+    total: number;
+    unclassifiedBusinessDate: string | null;
+    overdueBusinessDate: string | null;
+    unreconciledBusinessDate: string | null;
+    targetBusinessDate: string | null;
+  };
   payments: { actionRequired: number; total: number };
 };
 
@@ -48,7 +57,16 @@ const zeroSnapshot = (): NrmsAttentionSnapshot => ({
   agents: { partnershipRequests: 0, acceptedInvites: 0, bookingRequests: 0, guestManifests: 0, total: 0 },
   rateProposals: { pending: 0, total: 0 },
   channels: { connections: 0, alerts: 0, issues: 0, total: 0, byProvider: [] },
-  finance: { unclassifiedTenders: 0, overdueBusinessDays: 0, total: 0 },
+  finance: {
+    unclassifiedTenders: 0,
+    overdueBusinessDays: 0,
+    unreconciledShifts: 0,
+    total: 0,
+    unclassifiedBusinessDate: null,
+    overdueBusinessDate: null,
+    unreconciledBusinessDate: null,
+    targetBusinessDate: null,
+  },
   payments: { actionRequired: 0, total: 0 },
 });
 
@@ -177,10 +195,35 @@ export async function buildNrmsAttentionSnapshot(
 
   const financePromise = sectionAllowed(role, ["OWNER", "MANAGER", "FRONT_DESK"])
     ? Promise.all([
-        db.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null } }),
-        db.nrmsBusinessDay.count({ where: { propertyId, status: { in: ["OPEN", "CLOSING"] }, businessDate: { lt: today } } }),
+        db.nrmsOutletOrder.aggregate({
+          where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { not: null } },
+          _count: { _all: true },
+          _min: { settledAt: true },
+        }),
+        db.nrmsBusinessDay.aggregate({
+          where: { propertyId, status: { in: ["OPEN", "CLOSING"] }, businessDate: { lt: today } },
+          _count: { _all: true },
+          _min: { businessDate: true },
+        }),
+        db.nrmsCashierShift.aggregate({
+          where: {
+            propertyId,
+            status: "CLOSED",
+            businessDate: { lte: today },
+            // A sealed day cannot be rewritten. Keep the badge actionable by
+            // targeting only shifts that can still be reconciled before audit.
+            businessDay: { status: { in: ["OPEN", "CLOSING"] } },
+            OR: [{ declaredCash: null }, { variance: null }, { ownerSignedOffAt: null }],
+          },
+          _count: { _all: true },
+          _min: { businessDate: true },
+        }),
       ])
-    : Promise.resolve([0, 0]);
+    : Promise.resolve([
+        { _count: { _all: 0 }, _min: { settledAt: null } },
+        { _count: { _all: 0 }, _min: { businessDate: null } },
+        { _count: { _all: 0 }, _min: { businessDate: null } },
+      ]);
 
   const paymentsPromise = role === "OWNER"
     ? db.property.findFirst({
@@ -263,9 +306,26 @@ export async function buildNrmsAttentionSnapshot(
     }))
     .filter((row) => row.provider && row.total > 0);
 
-  result.finance.unclassifiedTenders = Number(financeRows[0]);
-  result.finance.overdueBusinessDays = Number(financeRows[1]);
-  result.finance.total = result.finance.unclassifiedTenders + result.finance.overdueBusinessDays;
+  const [unclassifiedFinance, overdueFinance, unreconciledFinance] = financeRows as any[];
+  result.finance.unclassifiedTenders = Number(unclassifiedFinance?._count?._all ?? 0);
+  result.finance.overdueBusinessDays = Number(overdueFinance?._count?._all ?? 0);
+  result.finance.unreconciledShifts = Number(unreconciledFinance?._count?._all ?? 0);
+  result.finance.unclassifiedBusinessDate = unclassifiedFinance?._min?.settledAt
+    ? shiftDayKey(new Date(unclassifiedFinance._min.settledAt))
+    : null;
+  result.finance.overdueBusinessDate = overdueFinance?._min?.businessDate
+    ? new Date(overdueFinance._min.businessDate).toISOString().slice(0, 10)
+    : null;
+  result.finance.unreconciledBusinessDate = unreconciledFinance?._min?.businessDate
+    ? new Date(unreconciledFinance._min.businessDate).toISOString().slice(0, 10)
+    : null;
+  // Night Audit is a chronological close queue. An overdue OPEN day must be
+  // handled before a later tender correction, then a fresh snapshot advances
+  // this target to the next unresolved date.
+  result.finance.targetBusinessDate = [result.finance.overdueBusinessDate, result.finance.unclassifiedBusinessDate]
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  result.finance.total = result.finance.unclassifiedTenders + result.finance.overdueBusinessDays + result.finance.unreconciledShifts;
 
   const merchant = (paymentProperty as any)?.merchantLinks?.[0]?.merchant;
   const applicationStatus = merchant?.applications?.[0]?.status ?? null;
@@ -281,7 +341,7 @@ export async function getNrmsAttentionSnapshot(
   access: NrmsAttentionAccess,
   options: { fresh?: boolean } = {},
 ): Promise<NrmsAttentionSnapshot> {
-  const cacheKey = `nrms:attention:v1:${propertyId}:${access.role}:${access.outletId ?? "all"}`;
+  const cacheKey = `nrms:attention:v3:${propertyId}:${access.role}:${access.outletId ?? "all"}`;
   const local = memoryCache.get(cacheKey);
   if (!options.fresh && local && local.expiresAt > Date.now()) return local.value;
 
