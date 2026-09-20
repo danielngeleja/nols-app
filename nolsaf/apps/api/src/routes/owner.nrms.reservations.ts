@@ -3209,7 +3209,7 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
           data: { paymentId, ...(reason ? { reason } : {}) },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
@@ -3265,7 +3265,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
           data: { chargeId: charge.id, category: data.category, amount: data.amount },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.status(201).json({ reservation: formatReservation(updated) });
@@ -3315,7 +3315,7 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
           data: { chargeId, ...(reason ? { reason } : {}) },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
