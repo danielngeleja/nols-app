@@ -999,12 +999,15 @@ function groupMemberSummary(member: any) {
 }
 
 function formatGroup(group: any) {
+  const currentStatus = Array.isArray(group.reservations)
+    ? deriveGroupStatus(group.reservations.map((member: any) => member.status))
+    : group.status;
   return {
     id: group.id,
     reference: group.reference,
     name: group.name,
     notes: group.notes,
-    status: group.status,
+    status: currentStatus,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     billingMode: group.block?.billingMode ?? "INDIVIDUAL",
@@ -1031,9 +1034,18 @@ function inspectGroupMember(
 ) {
   const blockers: GroupBlocker[] = [];
   const requiredChargeIds: number[] = [];
+  const complete = action === "CHECK_IN"
+    ? ["CHECKED_IN", "CHECKED_OUT"].includes(member.status)
+    : member.status === "CHECKED_OUT";
+  if (complete) return { eligible: false, complete: true, blockers, requiredChargeIds };
   if (action === "CHECK_IN") {
     if (member.status !== "CONFIRMED") {
-      blockers.push({ code: "INVALID_TRANSITION", message: "Only confirmed reservations can be checked in." });
+      return {
+        eligible: false,
+        complete: false,
+        blockers: [{ code: "INVALID_TRANSITION", message: "Only confirmed reservations can be checked in." }],
+        requiredChargeIds,
+      };
     }
     const dateConflict = nrmsCheckInDateConflict(new Date(member.checkIn), options.businessDate ?? shiftDayKey(new Date()));
     if (dateConflict) blockers.push({ code: dateConflict.code, message: dateConflict.message });
@@ -1053,7 +1065,12 @@ function inspectGroupMember(
     }
   } else {
     if (member.status !== "CHECKED_IN") {
-      blockers.push({ code: "INVALID_TRANSITION", message: "Only checked-in stays can be checked out." });
+      return {
+        eligible: false,
+        complete: false,
+        blockers: [{ code: "INVALID_TRANSITION", message: "Only checked-in stays can be checked out." }],
+        requiredChargeIds,
+      };
     }
     const openOrders = (member.outletOrders ?? []).filter((order: any) => ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status));
     if (openOrders.length) blockers.push({ code: "OPEN_OUTLET_ORDERS", message: `${openOrders.length} restaurant or bar order(s) remain open.` });
@@ -1081,7 +1098,7 @@ function inspectGroupMember(
       blockers.push({ code: "CHARGES_NOT_VERIFIED", message: `Verify ${requiredChargeIds.length} active extra charge(s).` });
     }
   }
-  return { eligible: blockers.length === 0, blockers, requiredChargeIds };
+  return { eligible: blockers.length === 0, complete: false, blockers, requiredChargeIds };
 }
 
 async function loadAccessibleGroup(
@@ -1509,9 +1526,19 @@ router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Respons
       : null;
     if (masterBlocker) {
       const blocker = masterCheckoutFailure(masterBlocker.code, masterBlocker.balance);
-      members = members.map((member: any) => ({ ...member, eligible: false, blockers: [...member.blockers, blocker] }));
+      members = members.map((member: any) => member.complete || member.reservation.status !== "CHECKED_IN"
+        ? member
+        : { ...member, eligible: false, blockers: [...member.blockers, blocker] });
     }
-    res.json({ group: formatGroup(group), action, eligibleCount: members.filter((member: any) => member.eligible).length, blockedCount: members.filter((member: any) => !member.eligible).length, masterFolioBlocker: masterBlocker, members });
+    res.json({
+      group: formatGroup(group),
+      action,
+      eligibleCount: members.filter((member: any) => member.eligible).length,
+      completedCount: members.filter((member: any) => member.complete).length,
+      blockedCount: members.filter((member: any) => !member.eligible && !member.complete).length,
+      masterFolioBlocker: masterBlocker,
+      members,
+    });
   } catch (err) {
     console.error("[owner.nrms.reservations] group preview failed", err);
     res.status(500).json({ error: "Failed to review the group action" });
@@ -1559,29 +1586,30 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
       const { group } = loaded;
       const ownerId = loaded.access.ownerId;
       const results: any[] = [];
-      if (action === "CHECK_OUT") {
-        const masterBlocker = await getMasterCheckoutBlocker(prisma, group.id, { groupBatch: true });
-        if (masterBlocker) {
-          const blocker = masterCheckoutFailure(masterBlocker.code, masterBlocker.balance);
-          const blockedResults = group.reservations.map((member: any) => ({
-            reservationId: member.id,
-            guestName: member.guestProfile?.fullName ?? "Guest",
-            changed: false,
-            blockers: [blocker],
-          }));
-          return res.json({ action, groupId: group.id, groupStatus: group.status, changedCount: 0, blockedCount: blockedResults.length, masterFolioBlocker: masterBlocker, results: blockedResults });
-        }
-      }
+      const masterBlocker = action === "CHECK_OUT"
+        ? await getMasterCheckoutBlocker(prisma, group.id, { groupBatch: true })
+        : null;
       for (const existing of group.reservations) {
+        const alreadyComplete = action === "CHECK_IN"
+          ? ["CHECKED_IN", "CHECKED_OUT"].includes(existing.status)
+          : existing.status === "CHECKED_OUT";
+        if (alreadyComplete) {
+          results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", changed: false, complete: true, blockers: [] });
+          continue;
+        }
         try {
           const outcome = await prisma.$transaction(async (tx: any) => {
             await lockPropertyInventory(tx, group.propertyId);
-            const businessDate = await assertNrmsBusinessDayWritable(tx, group.propertyId);
             const member = await tx.reservation.findFirst({
               where: { id: existing.id, groupId: group.id, propertyId: group.propertyId, ownerId, bookingId: null },
               include: groupMemberInclude,
             });
             if (!member) return { changed: false, blockers: [{ code: "MEMBER_NOT_FOUND", message: "Reservation is no longer in this group." }] };
+            const nowComplete = action === "CHECK_IN"
+              ? ["CHECKED_IN", "CHECKED_OUT"].includes(member.status)
+              : member.status === "CHECKED_OUT";
+            if (nowComplete) return { changed: false, complete: true, blockers: [] };
+            const businessDate = await assertNrmsBusinessDayWritable(tx, group.propertyId);
             const inspection = inspectGroupMember(member, action, {
               ...parsed.data,
               // Arrival eligibility follows the property's calendar date.
@@ -1590,6 +1618,9 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
               businessDate: action === "CHECK_IN" ? shiftDayKey(new Date()) : businessDate,
             });
             if (!inspection.eligible) return { changed: false, blockers: inspection.blockers };
+            if (masterBlocker && action === "CHECK_OUT") {
+              return { changed: false, blockers: [masterCheckoutFailure(masterBlocker.code, masterBlocker.balance)] };
+            }
             if (action === "CHECK_IN") {
               const changed = await tx.reservation.updateMany({
                 where: { id: member.id, ownerId, groupId: group.id, status: "CONFIRMED" },
@@ -1616,7 +1647,16 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
         }
       }
       const status = await refreshGroupStatus(prisma, group.id);
-      res.json({ action, groupId: group.id, groupStatus: status, changedCount: results.filter((result) => result.changed).length, blockedCount: results.filter((result) => !result.changed).length, results });
+      res.json({
+        action,
+        groupId: group.id,
+        groupStatus: status,
+        changedCount: results.filter((result) => result.changed).length,
+        completedCount: results.filter((result) => result.complete).length,
+        blockedCount: results.filter((result) => !result.changed && !result.complete).length,
+        masterFolioBlocker: masterBlocker,
+        results,
+      });
     } catch (err) {
       console.error(`[owner.nrms.reservations] group ${action.toLowerCase()} failed`, err);
       res.status(500).json({ error: `Failed to run group ${action === "CHECK_IN" ? "check-in" : "checkout"}` });
@@ -2565,7 +2605,7 @@ function transition(
       const reservation = await prisma.reservation.findFirst({
         where: { id: reservationId, ownerId },
         select: {
-          id: true, propertyId: true, status: true, bookingId: true,
+          id: true, propertyId: true, groupId: true, status: true, bookingId: true,
           agentPropertyLinkId: true, checkIn: true,
           allocations: { where: { status: "ACTIVE" }, select: { status: true, roomUnitId: true } },
         },
@@ -2703,6 +2743,7 @@ function transition(
           data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: Object.keys(eventData).length ? eventData : undefined },
         });
         if (eventType === "CHECKED_IN") await queueNrmsCheckInWelcome(tx, reservation.id);
+        if (reservation.groupId != null) await refreshGroupStatus(tx, reservation.groupId);
       }, EXTENDED_TX_OPTIONS);
 
       const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
@@ -2794,12 +2835,14 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     const billing = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
       const businessDate = await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
-      return finalizeNrmsCheckout(tx, reservation, ownerId, verification.data.verifiedChargeIds, {
+      const result = await finalizeNrmsCheckout(tx, reservation, ownerId, verification.data.verifiedChargeIds, {
         businessDate,
         actorId: ownerId,
         roomVacantConfirmed: verification.data.roomVacantConfirmed,
         earlyDepartureReason: verification.data.earlyDepartureReason,
       });
+      if (reservation.groupId != null) await refreshGroupStatus(tx, reservation.groupId);
+      return result;
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated), billing });

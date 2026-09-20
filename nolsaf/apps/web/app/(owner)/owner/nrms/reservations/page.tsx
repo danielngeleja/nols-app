@@ -2101,7 +2101,8 @@ function ReservationDetailModal({
     .reduce((sum, order) => sum + (order.total ?? 0), 0);
   const folioTotal = (r?.totalAmount ?? 0) + (r?.chargesTotal ?? 0);
   const totalGuestSpend = folioTotal + settledAtOutletTotal;
-  const totalCollected = (r?.amountPaid ?? 0) + settledAtOutletTotal;
+  const guestCollected = (r?.amountPaid ?? 0) + settledAtOutletTotal;
+  const agencyFolioAmount = Math.max(0, r?.transferredToMaster ?? 0);
   const folioBalanceBlocked = r?.status === "CHECKED_IN" && (r.balance == null || Math.abs(r.balance) > 0.005);
   const folioAmountDue = r?.status === "CHECKED_IN" && r.balance != null && r.balance > 0.005 ? r.balance : 0;
   const folioCredit = r?.status === "CHECKED_IN" && r.balance != null && r.balance < -0.005 ? Math.abs(r.balance) : 0;
@@ -2218,7 +2219,7 @@ function ReservationDetailModal({
 
           {isMarketplace && <MarketplaceSettlement reservation={r} />}
 
-          {!isMarketplace && <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          {!isMarketplace && <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-4">
             <div className="min-w-0 bg-white px-3 py-3">
               <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Room</p>
               <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.totalAmount, r.currency)}</p>
@@ -2237,12 +2238,17 @@ function ReservationDetailModal({
               <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(totalGuestSpend, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total collected</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(totalCollected, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Guest collected</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(guestCollected, r.currency)}</p>
             </div>
+            {agencyFolioAmount > 0 && <div className={`min-w-0 px-3 py-3 ${r.agencySettlement?.settled ? "bg-blue-50" : "bg-amber-50"}`}>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>Agency folio</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(agencyFolioAmount, r.currency)}</p>
+              <p className={`mb-0 mt-0.5 text-[9px] font-semibold ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>{r.agencySettlement?.settled ? "Agency settled" : "Agency payment pending"}</p>
+            </div>}
             <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 && !isMarketplace ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Amount due</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Guest amount due</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : agencyFolioAmount > 0 ? "Guest folio settled" : "Paid in full"}</p>
             </div>
           </section>}
 
