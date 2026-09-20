@@ -22,6 +22,7 @@ import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 import { resolveAnalyticsMasterFolioStayDate, summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } from "../lib/nrmsShifts.js";
+import { moveRoomAllocation } from "../lib/nrmsMoveRoom.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
@@ -2524,8 +2525,20 @@ function transition(
   return (async (req: AuthedRequest, res: Response) => {
     try {
       const ownerId = req.user!.id;
-      const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
-      if (!reservation) return;
+      const reservationId = Number(req.params.id);
+      if (!Number.isInteger(reservationId) || reservationId <= 0) return res.status(400).json({ error: "Invalid reservation id" });
+      // Check lifecycle gates before loading the full financial/detail graph.
+      // A blocked arrival needs only its status and active room allocations.
+      const reservation = await prisma.reservation.findFirst({
+        where: { id: reservationId, ownerId },
+        select: {
+          id: true, propertyId: true, status: true, bookingId: true,
+          agentPropertyLinkId: true, checkIn: true,
+          allocations: { where: { status: "ACTIVE" }, select: { status: true, roomUnitId: true } },
+        },
+      });
+      if (!reservation) return res.status(404).json({ error: "Reservation not found" });
+      if (reservation.bookingId != null) return res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
       if (!allowedFrom.includes(reservation.status)) {
         return res.status(409).json({
           error: `Cannot ${eventType.toLowerCase().replace(/_/g, " ")} a ${reservation.status.toLowerCase()} reservation`,
@@ -2903,41 +2916,11 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
       });
     }
 
-    const result = await prisma.$transaction(async (tx: any) => {
-      await lockPropertyInventory(tx, reservation.propertyId);
-      const conflicts = await findUnitConflicts(roomUnitId, allocation.startDate, allocation.endDate, {
-        excludeReservationId: reservation.id,
-        db: tx,
-      });
-      if (conflicts.length > 0) return { conflict: { roomUnitId, conflicts } };
+    const result = await prisma.$transaction((tx: any) => moveRoomAllocation(tx, {
+      reservation, unit, allocationId, roomUnitId, ownerId, reason,
+    }), EXTENDED_TX_OPTIONS);
 
-      await tx.reservationRoomAllocation.update({ where: { id: allocation.id }, data: { status: "RELEASED" } });
-      const next = await tx.reservationRoomAllocation.create({
-        data: {
-          reservationId: reservation.id,
-          roomTypeId: unit.roomTypeId,
-          roomUnitId: unit.id,
-          startDate: allocation.startDate,
-          endDate: allocation.endDate,
-        },
-      });
-      await tx.reservationEvent.create({
-        data: {
-          reservationId: reservation.id,
-          type: "ROOM_MOVED",
-          actorId: ownerId,
-          data: {
-            fromAllocationId: allocation.id,
-            fromRoomUnitId: allocation.roomUnitId,
-            toRoomUnitId: unit.id,
-            toRoomCode: unit.code,
-            ...(reason ? { reason: sanitizeText(reason) } : {}),
-          },
-        },
-      });
-      return { allocationId: next.id };
-    }, EXTENDED_TX_OPTIONS);
-
+    if ("stale" in result) return res.status(409).json({ error: "This room allocation has changed. Reload the reservation before assigning again.", code: "ROOM_ALLOCATION_CHANGED" });
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({ error: "The target room is not available for these dates", code: "ROOM_CONFLICT", conflict: result.conflict });
     }

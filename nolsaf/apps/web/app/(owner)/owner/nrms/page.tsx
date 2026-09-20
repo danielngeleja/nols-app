@@ -33,6 +33,7 @@ import { useNrmsAccessRole } from "./_components/NrmsAccessRole";
 import SalesHome from "./_components/SalesHome";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
 import NrmsCheckoutPolicyNotice from "./_components/NrmsCheckoutPolicyNotice";
+import { roomReadiness, roomAssignmentRequirement } from "@/lib/nrmsRoomReadiness";
 import NrmsRoomAssignmentPicker from "./_components/NrmsRoomAssignmentPicker";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
@@ -51,6 +52,9 @@ type Reservation = {
   chargesTotal?: number | null;
   openOutletOrderCount?: number;
   amountPaid?: number | null;
+  effectivePaid?: number;
+  transferredToMaster?: number;
+  agencySettlement?: { settled: boolean } | null;
   checkedInAt?: string | null;
   earlyCheckInApproved?: boolean;
   earlyCheckInResolution?: {
@@ -140,7 +144,7 @@ function roomsLabel(r: Reservation): string {
 }
 
 function hasAssignedRoom(r: Reservation): boolean {
-  return (r.allocations ?? []).some((allocation) => allocation.status === "ACTIVE" && Boolean(allocation.roomUnitCode));
+  return roomReadiness(r).ready;
 }
 
 /**
@@ -311,7 +315,7 @@ function NrmsFrontDeskPage() {
     return [...active.values()].flatMap<AttentionItem>((reservation) => {
       const guest = reservation.guestProfile?.fullName ?? "Guest";
       const issues: AttentionItem["issues"] = [];
-      if (!hasAssignedRoom(reservation)) issues.push({ code: "ROOM", label: "Room assignment required" });
+      if (!hasAssignedRoom(reservation)) issues.push({ code: "ROOM", label: roomReadiness(reservation).missingAllocation ? "Room allocation missing" : `Room assignment required (${roomReadiness(reservation).assigned}/${roomReadiness(reservation).total})` });
       if (reservation.status === "CHECKED_IN" && reservation.checkIn.slice(0, 10) > localDateKey(today) && !reservation.earlyCheckInApproved) {
         issues.push({ code: "EARLY_CHECKIN", label: `Checked in before ${shortDate(reservation.checkIn)} arrival` });
       }
@@ -615,10 +619,11 @@ function StayActionModal({
   const chargesUnverified = !isCheckIn && activeCharges.some((charge) => !verifiedChargeIds.includes(charge.id));
   const checkoutBlocked = folioUnsettled || hasOpenOutletOrders || chargesUnverified;
   const noRoomAssigned = !hasAssignedRoom(reservation);
-  const unassignedAllocation = (reservation.allocations ?? []).find((allocation) => allocation.status === "ACTIVE" && allocation.roomUnitId == null);
+  const unassignedAllocation = (reservation.allocations ?? []).find((allocation) => allocation.status === "ACTIVE" && (allocation.roomUnitId == null || !allocation.roomUnitCode));
   const categoryRooms = unassignedAllocation ? roomTypes.find((roomType) => roomType.id === unassignedAllocation.roomTypeId)?.units.filter((unit) => unit.status === "ACTIVE") ?? [] : [];
   const eligibleRooms = categoryRooms.filter((unit) => availableRoomIds?.has(unit.id));
-  const assignmentPaymentReady = Math.abs(balance) <= 0.005 && (total <= 0.005 || paid > 0);
+  const assignmentRequirement = roomAssignmentRequirement(reservation);
+  const assignmentPaymentReady = assignmentRequirement.ready;
   const actionLabel = isCheckIn ? "Confirm check-in" : "Confirm check-out";
   const earlyDeparture = !isCheckIn && reservation.checkOut.slice(0, 10) > localDateKey();
   const departureDeclarationReady = isCheckIn || !earlyDeparture || (roomVacantConfirmed && earlyDepartureReason.trim().length >= 2);
@@ -808,7 +813,7 @@ function StayActionModal({
             </section>
           )}
 
-          {isCheckIn && noRoomAssigned && assignmentPaymentReady && (
+          {isCheckIn && noRoomAssigned && unassignedAllocation && assignmentPaymentReady && (
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
@@ -838,9 +843,11 @@ function StayActionModal({
           {isCheckIn && noRoomAssigned && !assignmentPaymentReady && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <div><p className="m-0 text-xs font-bold">Room assignment is waiting for payment</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">Settle and record the guest account first. Room numbers are assigned only to paid, confirmed arrivals.</p></div>
+              <div><p className="m-0 text-xs font-bold">Room assignment is waiting for payment</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{assignmentRequirement.message}</p></div>
             </div>
           )}
+
+          {isCheckIn && noRoomAssigned && (!unassignedAllocation || !assignmentPaymentReady) && <button type="button" onClick={() => onOpenDestination(`/owner/nrms/reservations?reservationId=${reservation.id}`)} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold">{unassignedAllocation ? "Review payment and assignment" : "Review missing room allocation"}</button>}
 
           {(checkoutBlocked || (noRoomAssigned && !isCheckIn)) && (
             <div className={`rounded-xl border px-4 py-3 text-xs leading-5 ${checkoutBlocked ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>

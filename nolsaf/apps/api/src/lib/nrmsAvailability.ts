@@ -575,7 +575,7 @@ export async function findUnitConflicts(
   roomUnitId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; excludeBookingId?: number; db?: DbLike },
+  opts?: { excludeReservationId?: number; excludeAllocationId?: number; excludeBookingId?: number; db?: DbLike },
 ): Promise<UnitConflict[]> {
   const db = opts?.db ?? prisma;
   const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { propertyId: true, code: true } });
@@ -584,6 +584,7 @@ export async function findUnitConflicts(
     db.reservationRoomAllocation.findMany({
       where: {
         roomUnitId,
+        ...(opts?.excludeAllocationId ? { id: { not: opts.excludeAllocationId } } : {}),
         status: "ACTIVE",
         ...overlapWhere(start, end, "startDate", "endDate"),
         reservation: {

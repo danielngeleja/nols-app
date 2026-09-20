@@ -16,6 +16,7 @@ import { useNrmsAccessRole } from "../_components/NrmsAccessRole";
 import ModalFrame from "../_components/NrmsModalFrame";
 import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
 import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
+import { roomReadiness, roomAssignmentRequirement } from "@/lib/nrmsRoomReadiness";
 import NrmsRoomAssignmentPicker from "../_components/NrmsRoomAssignmentPicker";
 
 type Allocation = {
@@ -318,15 +319,15 @@ function money(v: number | null, currency: string): string {
 }
 
 function allocationRoomLabel(allocation: Allocation): string | undefined {
-  if (!allocation.roomUnitCode) return allocation.roomTypeName;
+  if ((allocation.roomUnitId == null || !allocation.roomUnitCode)) return allocation.roomTypeName;
   if (allocation.roomUnitFloor == null) return allocation.roomUnitCode;
   return `${allocation.roomUnitCode} · ${allocation.roomUnitFloor === 0 ? "Floor G" : `Floor ${allocation.roomUnitFloor}`}`;
 }
 
 function ReservationRoomIdentity({ allocations }: { allocations: Allocation[] }) {
   const active = allocations.filter((allocation) => allocation.status === "ACTIVE");
-  const assigned = active.filter((allocation) => allocation.roomUnitCode);
-  const unassigned = active.filter((allocation) => !allocation.roomUnitCode);
+  const assigned = active.filter((allocation) => allocation.roomUnitId != null && allocation.roomUnitCode);
+  const unassigned = active.filter((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode));
   const roomNames = tallyRoomLabels(assigned.map((allocation) => allocation.roomUnitCode), "");
   const categoryNames = tallyRoomLabels(unassigned.map((allocation) => allocation.roomTypeName), "Room");
   const floors = [...new Set(assigned.flatMap((allocation) => allocation.roomUnitFloor == null ? [] : [allocation.roomUnitFloor]))].sort((a, b) => a - b);
@@ -478,31 +479,6 @@ function nightsBetween(checkIn: string, checkOut: string): number {
   const end = new Date(`${checkOut}T00:00:00`).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
   return Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
-}
-
-type RoomAssignmentRequirement =
-  | { ready: true; kind: "READY"; message: string }
-  | { ready: false; kind: "VALIDATE_CODE" | "RECORD_PAYMENT" | "STATUS"; message: string };
-
-function roomAssignmentRequirement(reservation: Reservation): RoomAssignmentRequirement {
-  if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
-    return { ready: false, kind: "STATUS", message: "The reservation must be confirmed before a room can be assigned." };
-  }
-  if (reservation.bookingId != null) {
-    return String(reservation.marketplaceBooking?.checkInCodeStatus || "").toUpperCase() === "USED"
-      ? { ready: true, kind: "READY", message: "The marketplace booking code has been validated." }
-      : { ready: false, kind: "VALIDATE_CODE", message: "Validate the guest's booking code before assigning the paid room category." };
-  }
-  if (reservation.agencySettlement) {
-    return reservation.agencySettlement.settled
-      ? { ready: true, kind: "READY", message: "The agency folio payment is settled." }
-      : { ready: false, kind: "RECORD_PAYMENT", message: "The agency payment must be recorded before assigning a room." };
-  }
-  const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + Number(reservation.transferredToMaster ?? 0));
-  const total = Number(reservation.totalAmount ?? 0) + Number(reservation.chargesTotal ?? 0);
-  return Number(reservation.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0)
-    ? { ready: true, kind: "READY", message: "The guest payment is recorded." }
-    : { ready: false, kind: "RECORD_PAYMENT", message: "Record the guest payment before assigning a room." };
 }
 
 function groupSelectionEligibility(reservation: Reservation): { eligible: boolean; reason: string } {
@@ -813,7 +789,7 @@ export default function NrmsReservationsPage() {
             const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
             // Keep this identical to ReservationRoomIdentity: if the row says
             // the physical room is pending, the assignment action must exist.
-            const unassignedAllocation = activeAllocations.find((allocation) => !allocation.roomUnitCode) ?? null;
+            const unassignedAllocation = activeAllocations.find((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode)) ?? null;
             const guest = reservation.guestProfile?.fullName ?? reservation.agentBooking?.leadGuest?.fullName ?? "Guest";
             const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
             const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
@@ -855,7 +831,7 @@ export default function NrmsReservationsPage() {
                   // `roomUnitCode` is the physical-room fact displayed in the
                   // Room column. Using roomUnitId here previously let the row
                   // show Pending while silently hiding Assign room.
-                  const unassignedAllocation = activeAllocations.find((allocation) => !allocation.roomUnitCode) ?? null;
+                  const unassignedAllocation = activeAllocations.find((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode)) ?? null;
                   const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
@@ -1024,6 +1000,7 @@ export default function NrmsReservationsPage() {
           readOnly={isSalesExecutive}
           onClose={closeReservation}
           onChanged={load}
+          onAssignRoom={(reservation) => { closeReservation(); setRoomAssignment(reservation); }}
         />
       )}
       {roomAssignment && selectedPropertyId && (
@@ -1034,15 +1011,23 @@ export default function NrmsReservationsPage() {
           onValidateCode={() => {
             const reference = roomAssignment.marketplaceBooking?.reference;
             if (!reference) return;
-            router.push(`/owner/bookings/validate?handoff=${encodeURIComponent(reference)}&return=${encodeURIComponent("/owner/nrms/reservations")}`);
+            router.push(`/owner/bookings/validate?handoff=${encodeURIComponent(reference)}&return=${encodeURIComponent(`/owner/nrms/reservations?reservationId=${roomAssignment.id}`)}`);
           }}
           onRecordPayment={() => {
+            if (roomAssignment.agencySettlement) {
+              router.push(roomAssignment.agentBooking ? "/owner/nrms/agents/requests/" + roomAssignment.agentBooking.requestId + "/guests" : "/owner/nrms/groups");
+              return;
+            }
             const reservationId = roomAssignment.id;
             setRoomAssignment(null);
             openReservation(reservationId);
           }}
           onAssigned={async () => {
-            setRoomAssignment(null);
+            const response = await apiClient.get<any>("/api/owner/nrms/reservations/" + roomAssignment.id);
+            const updated = response.data?.reservation as Reservation | undefined;
+            if (!updated) throw new Error("Could not reload room assignment");
+            if (roomReadiness(updated).ready) { setRoomAssignment(null); openReservation(updated.id); }
+            else setRoomAssignment(updated);
             await load();
           }}
         />
@@ -1066,7 +1051,7 @@ function AssignRoomModal({
   onRecordPayment: () => void;
   onAssigned: () => Promise<void>;
 }) {
-  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && !item.roomUnitCode) ?? null;
+  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && (item.roomUnitId == null || !item.roomUnitCode)) ?? null;
   const requirement = roomAssignmentRequirement(reservation);
   const [units, setUnits] = useState<Array<{ id: number; code: string; floor?: number | null; housekeepingStatus?: string | null }>>([]);
   const [totalFloors, setTotalFloors] = useState<number | null>(null);
@@ -1083,6 +1068,7 @@ function AssignRoomModal({
     }
     let cancelled = false;
     setLoading(true);
+    setSelectedUnitId("");
     setError(null);
     Promise.all([
       apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}`),
@@ -1150,7 +1136,7 @@ function AssignRoomModal({
             <button type="button" onClick={onValidateCode} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><ShieldCheck className="h-4 w-4" />Validate booking code</button>
           )}
           {requirement.kind === "RECORD_PAYMENT" && (
-            <button type="button" onClick={onRecordPayment} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><CircleDollarSign className="h-4 w-4" />Record payment</button>
+            <button type="button" onClick={onRecordPayment} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><CircleDollarSign className="h-4 w-4" />{reservation.agencySettlement ? "Open agency folio" : "Record payment"}</button>
           )}
         </div>
       )}
@@ -1896,11 +1882,13 @@ function ReservationDetailModal({
   readOnly,
   onClose,
   onChanged,
+  onAssignRoom,
 }: {
   reservationId: number;
   readOnly: boolean;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onAssignRoom: (reservation: Reservation) => void;
 }) {
   const { selectedPropertyId } = useNrms();
   const [reservation, setReservation] = useState<Reservation | null>(null);
@@ -1961,6 +1949,10 @@ function ReservationDetailModal({
     } catch (e: any) {
       if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
         setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else if (action === "check-in" && e?.response?.data?.code === "ROOM_ASSIGNMENT_REQUIRED") {
+        setError("Room setup is incomplete. Review the room assignment section above before checking in.");
+        // Another operator may have changed allocations since this detail opened.
+        await reload().catch(() => undefined);
       } else {
         setError(e?.response?.data?.error || "Action failed");
       }
@@ -2100,6 +2092,7 @@ function ReservationDetailModal({
   const r = reservation;
   const checkoutGuestName = r?.guestProfile?.fullName ?? r?.agentBooking?.leadGuest?.fullName ?? "Guest";
   const checkoutRoomLabel = tallyRoomLabels((r?.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE").map((allocation) => allocation.roomUnitCode ?? `Any ${allocation.roomTypeName ?? "room"}`), "assigned room");
+  const readiness = roomReadiness(r ?? {});
   const isMarketplace = r?.bookingId != null;
   const paymentLocked = r?.balance != null && r.balance <= 0;
   const activeCharges = (r?.charges ?? []).filter((charge) => !charge.voidedAt);
@@ -2158,7 +2151,7 @@ function ReservationDetailModal({
   const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
     ? [
         { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(r.status) },
-        { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED" },
+        { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED", disabled: !readiness.ready },
         { key: "check-out", label: folioBalanceBlocked ? "Settle balance first" : outletReconciliationBlocked ? "Classify outlet payments" : chargesNeedVerification ? "Verify every charge" : "Check out", show: r.status === "CHECKED_IN", disabled: checkoutBlocked },
         { key: "no-show", label: "No show", show: !isMarketplace && r.status === "CONFIRMED" },
         { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
@@ -2210,6 +2203,15 @@ function ReservationDetailModal({
               </span>
             </div>
           </section>
+
+          {["CONFIRMED", "CHECKED_IN"].includes(r.status) && !readiness.ready && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4" aria-label="Room assignment required">
+              <p className="m-0 font-semibold">{readiness.missingAllocation ? "Room allocation missing" : readiness.assigned + " of " + readiness.total + " rooms assigned"}</p>
+              <p className="my-2 text-xs">{readiness.missingAllocation ? "This stay has no active room allocation. Ask the property manager to reconcile its booked room category before check-in." : roomAssignmentRequirement(r).message}</p>
+              {readiness.missingAllocation && <Link href="/owner/nrms/rooms" className="inline-flex rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900">Review room inventory</Link>}
+              {!readiness.missingAllocation && <button type="button" disabled={busyAction != null} onClick={() => onAssignRoom(r)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Assign room</button>}
+            </section>
+          )}
 
           {isMarketplace && <MarketplaceSettlement reservation={r} />}
 
