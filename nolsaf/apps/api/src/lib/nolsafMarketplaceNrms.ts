@@ -95,7 +95,7 @@ async function resolveGuestProfile(db: DbLike, booking: any) {
   });
 }
 
-function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null): string | null {
+export function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null): string | null {
   const code = String(roomCode ?? "").trim();
   if (!/^\d+$/.test(code)) return code || null;
 

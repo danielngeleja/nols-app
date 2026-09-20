@@ -42,7 +42,7 @@ type Reservation = {
   status: string;
   source: string;
   bookingId?: number | null;
-  marketplaceBooking?: { id: number; reference: string; checkInCodeStatus?: string | null } | null;
+  marketplaceBooking?: { id: number; reference: string; status?: string | null; checkInCodeStatus?: string | null } | null;
   checkIn: string;
   checkOut: string;
   currency: string;
@@ -472,13 +472,14 @@ function NrmsFrontDeskPage() {
             emptyActionLabel="Add reservation"
           >
             {arrivals.map((reservation) => {
-              const marketplaceHref = marketplaceCheckInHref(reservation);
+              const roomReady = hasAssignedRoom(reservation);
+              const marketplaceHref = roomReady ? marketplaceCheckInHref(reservation) : null;
               const codeNote = marketplaceCodeNote(reservation);
               return (
                 <OperationRow
                   key={reservation.id}
                   reservation={reservation}
-                  actionLabel={marketplaceHref ? "Check in with code" : "Check in"}
+                  actionLabel={!roomReady ? "Prepare room" : marketplaceHref ? "Check in with code" : "Check in"}
                   actionTone="emerald"
                   actionHref={marketplaceHref}
                   busy={busyId === reservation.id}
@@ -486,7 +487,7 @@ function NrmsFrontDeskPage() {
                     setError(null);
                     setPendingAction({ reservation, action: "check-in" });
                   }}
-                  detail={`${sourceLabel(reservation.source)} · ${codeNote ?? "check-in today"}`}
+                  detail={`${sourceLabel(reservation.source)} · ${!roomReady ? "room assignment required" : codeNote ?? "check-in today"}`}
                 />
               );
             })}

@@ -1008,11 +1008,6 @@ export default function NrmsReservationsPage() {
           propertyId={selectedPropertyId}
           reservation={roomAssignment}
           onClose={() => setRoomAssignment(null)}
-          onValidateCode={() => {
-            const reference = roomAssignment.marketplaceBooking?.reference;
-            if (!reference) return;
-            router.push(`/owner/bookings/validate?handoff=${encodeURIComponent(reference)}&return=${encodeURIComponent(`/owner/nrms/reservations?reservationId=${roomAssignment.id}`)}`);
-          }}
           onRecordPayment={() => {
             if (roomAssignment.agencySettlement) {
               router.push(roomAssignment.agentBooking ? "/owner/nrms/agents/requests/" + roomAssignment.agentBooking.requestId + "/guests" : "/owner/nrms/groups");
@@ -1040,14 +1035,12 @@ function AssignRoomModal({
   propertyId,
   reservation,
   onClose,
-  onValidateCode,
   onRecordPayment,
   onAssigned,
 }: {
   propertyId: number;
   reservation: Reservation;
   onClose: () => void;
-  onValidateCode: () => void;
   onRecordPayment: () => void;
   onAssigned: () => Promise<void>;
 }) {
@@ -1132,9 +1125,6 @@ function AssignRoomModal({
       ) : (
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50">Cancel</button>
-          {requirement.kind === "VALIDATE_CODE" && (
-            <button type="button" onClick={onValidateCode} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><ShieldCheck className="h-4 w-4" />Validate booking code</button>
-          )}
           {requirement.kind === "RECORD_PAYMENT" && (
             <button type="button" onClick={onRecordPayment} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><CircleDollarSign className="h-4 w-4" />{reservation.agencySettlement ? "Open agency folio" : "Record payment"}</button>
           )}
@@ -1149,7 +1139,7 @@ function AssignRoomModal({
           </div>
           <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${requirement.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
             {requirement.ready ? <ShieldCheck className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-            {requirement.ready ? (reservation.bookingId != null ? "Booking code validated" : "Payment recorded") : "Action required"}
+            {requirement.ready ? (reservation.bookingId != null ? "NoLSAF booking confirmed" : "Payment recorded") : "Action required"}
           </span>
         </div>
 
@@ -1895,6 +1885,7 @@ function ReservationDetailModal({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
+  const [roomPreparationIssue, setRoomPreparationIssue] = useState<{ message: string; code: string | null } | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payAmountManuallyEdited, setPayAmountManuallyEdited] = useState(false);
   const [payMethod, setPayMethod] = useState("CASH");
@@ -1957,6 +1948,30 @@ function ReservationDetailModal({
         setError(e?.response?.data?.error || "Action failed");
       }
       return false;
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const prepareRoomAssignment = async () => {
+    setBusyAction("prepare-room-assignment");
+    setError(null);
+    setRoomPreparationIssue(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/${reservationId}/room-assignment/prepare`);
+      const updated = response.data?.reservation as Reservation | undefined;
+      if (!updated || roomReadiness(updated).missingAllocation) {
+        setRoomPreparationIssue({ message: "The booked room category could not be restored.", code: null });
+        return;
+      }
+      setReservation(updated);
+      await onChanged();
+      onAssignRoom(updated);
+    } catch (requestError: any) {
+      setRoomPreparationIssue({
+        message: requestError?.response?.data?.error || "The booked room category could not be prepared.",
+        code: requestError?.response?.data?.code ?? null,
+      });
     } finally {
       setBusyAction(null);
     }
@@ -2206,10 +2221,11 @@ function ReservationDetailModal({
 
           {["CONFIRMED", "CHECKED_IN"].includes(r.status) && !readiness.ready && (
             <section className="rounded-lg border border-amber-200 bg-amber-50 p-4" aria-label="Room assignment required">
-              <p className="m-0 font-semibold">{readiness.missingAllocation ? "Room allocation missing" : readiness.assigned + " of " + readiness.total + " rooms assigned"}</p>
-              <p className="my-2 text-xs">{readiness.missingAllocation ? "This stay has no active room allocation. Ask the property manager to reconcile its booked room category before check-in." : roomAssignmentRequirement(r).message}</p>
-              {readiness.missingAllocation && <Link href="/owner/nrms/rooms" className="inline-flex rounded-lg border border-amber-300 px-3 py-2 text-xs font-bold text-amber-900">Review room inventory</Link>}
+              <p className="m-0 font-semibold">{readiness.missingAllocation ? "Booked room category needs recovery" : readiness.assigned + " of " + readiness.total + " rooms assigned"}</p>
+              <p className="my-2 text-xs">{readiness.missingAllocation ? "Restore the category already recorded by the booking source, then choose a room number from that category." : roomAssignmentRequirement(r).message}</p>
+              {readiness.missingAllocation && <button type="button" disabled={busyAction != null} onClick={() => void prepareRoomAssignment()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busyAction === "prepare-room-assignment" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{busyAction === "prepare-room-assignment" ? "Restoring category..." : "Continue to room assignment"}</button>}
               {!readiness.missingAllocation && <button type="button" disabled={busyAction != null} onClick={() => onAssignRoom(r)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Assign room</button>}
+              {roomPreparationIssue && <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-xs text-red-700"><p className="m-0 font-semibold">{roomPreparationIssue.message}</p>{roomPreparationIssue.code === "ROOM_CATEGORY_MAPPING_REQUIRED" && <Link href="/owner/nrms/rooms" className="mt-2 inline-flex font-bold text-red-800 underline">Open room categories</Link>}</div>}
             </section>
           )}
 

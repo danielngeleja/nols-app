@@ -14,7 +14,7 @@ import {
   getBookingCodeLockoutStatus,
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
-import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { syncNoLsafBookingToNrms, updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
@@ -230,7 +230,7 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, property: { ownerId: r.user!.id } },
     include: {
-      property: { select: { id: true, title: true, type: true, basePrice: true, currency: true } },
+      property: { select: { id: true, title: true, type: true, basePrice: true, currency: true, nrmsActivatedAt: true } },
       code: true,
     },
   });
@@ -250,6 +250,27 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   if (booking.status === "CHECKED_IN" && booking.code.status === "USED") {
     await invalidateOwnerReports(r.user!.id);
     return (res as Response).json({ ok: true, bookingId: booking.id, status: booking.status, alreadyConfirmed: true, invoiceId: null });
+  }
+
+  // An NRMS property must finish the same operational preparation for every
+  // source before arrival is committed: restore the paid category, assign a
+  // physical room, then consume the guest's one-time code.
+  if (booking.property.nrmsActivatedAt) {
+    await syncNoLsafBookingToNrms(prisma, booking.id);
+    const operationalStay = await prisma.reservation.findUnique({
+      where: { bookingId: booking.id },
+      select: {
+        id: true,
+        allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } },
+      },
+    });
+    if (!operationalStay || operationalStay.allocations.length === 0 || operationalStay.allocations.some((allocation) => allocation.roomUnitId == null)) {
+      return (res as Response).status(409).json({
+        error: "Assign a specific room to every booked room before validating check-in.",
+        code: "ROOM_ASSIGNMENT_REQUIRED",
+        reservationId: operationalStay?.id ?? null,
+      });
+    }
   }
 
   // Mark code as used and update booking status using the service

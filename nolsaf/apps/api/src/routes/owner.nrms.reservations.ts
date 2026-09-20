@@ -20,13 +20,13 @@ import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
 import { nrmsCheckInDateConflict } from "../lib/nrmsCheckInDate.js";
 import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
 import { resolveAnalyticsMasterFolioStayDate, summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
-import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } from "../lib/nrmsShifts.js";
 import { moveRoomAllocation } from "../lib/nrmsMoveRoom.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
-import { connectExistingNoLsafBookings } from "../lib/nolsafMarketplaceNrms.js";
+import { connectExistingNoLsafBookings, roomTypeCodeFromSpec, syncNoLsafBookingToNrms } from "../lib/nolsafMarketplaceNrms.js";
 import {
   billingRoutesExtras,
   billingUsesMasterFolio,
@@ -71,7 +71,8 @@ router.use(((req, res, next) => {
   const readsReservationBook = req.method === "GET" && /^\/property\/\d+$/.test(req.path);
   const readsReservationDetail = req.method === "GET" && /^\/\d+$/.test(req.path);
   const resolvesEarlyCheckIn = req.method === "POST" && /^\/\d+\/early-check-in-resolution$/.test(req.path);
-  if (groupScoped || readsReservationBook || readsReservationDetail || resolvesEarlyCheckIn) return next();
+  const managesRoomAssignment = req.method === "POST" && /^\/\d+\/(?:move-room|room-assignment\/prepare)$/.test(req.path);
+  if (groupScoped || readsReservationBook || readsReservationDetail || resolvesEarlyCheckIn || managesRoomAssignment) return next();
   return requireOwnerRole(req, res, (roleError?: unknown) => {
     if (roleError) return next(roleError);
     return requireNrms(req, res, next);
@@ -731,6 +732,32 @@ async function loadReadableReservation(req: AuthedRequest, res: Response, id: nu
   const access = await loadNrmsPropertyAccess(req, res, scope.propertyId, RESERVATION_READ_ROLES);
   if (!access) return null;
   const reservation = await prisma.reservation.findUnique({ where: { id }, include: detailInclude });
+  if (!reservation) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  return { reservation, access };
+}
+
+/** Room assignment is reception work. Resolve the reservation's property first,
+ * then apply the shared reservation.modify capability so owner, manager and
+ * front desk all follow the same policy without weakening tenant scope. */
+async function loadRoomAssignmentReservation(req: AuthedRequest, res: Response, id: number) {
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid reservation id" });
+    return null;
+  }
+  const scope = await prisma.reservation.findUnique({ where: { id }, select: { propertyId: true } });
+  if (!scope) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  const access = await requireNrmsPropertyCapability(req, res, scope.propertyId, "reservation.modify");
+  if (!access) return null;
+  const reservation = await prisma.reservation.findFirst({
+    where: { id, propertyId: scope.propertyId, ownerId: access.ownerId },
+    include: detailInclude,
+  });
   if (!reservation) {
     res.status(404).json({ error: "Reservation not found" });
     return null;
@@ -2861,18 +2888,73 @@ router.post(
 );
 
 /**
+ * POST /:id/room-assignment/prepare
+ * Restores the booked category before a physical room is chosen. Marketplace
+ * bookings are repaired from their authoritative NoLSAF room selection; no
+ * category is guessed or silently changed.
+ */
+router.post("/:id/room-assignment/prepare", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadRoomAssignmentReservation(req, res, Number(req.params.id));
+    if (!loaded) return;
+    const { reservation } = loaded;
+    if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
+      return res.status(409).json({
+        error: `Room assignment is unavailable on a ${reservation.status.toLowerCase()} reservation`,
+        code: "ROOM_ASSIGNMENT_STATUS_REQUIRED",
+      });
+    }
+
+    const active = reservation.allocations.filter((allocation: any) => allocation.status === "ACTIVE");
+    if (active.length > 0) {
+      return res.json({ reservation: formatReservation(reservation), repaired: false });
+    }
+
+    if (reservation.bookingId == null) {
+      return res.status(409).json({
+        error: "This reservation has no booked room category. A manager must correct the reservation record before a room number can be assigned.",
+        code: "ROOM_CATEGORY_RECORD_MISSING",
+      });
+    }
+
+    await syncNoLsafBookingToNrms(prisma, reservation.bookingId);
+    const repaired = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
+    const repairedActive = repaired?.allocations?.filter((allocation: any) => allocation.status === "ACTIVE") ?? [];
+    if (repaired && repairedActive.length > 0) {
+      return res.json({ reservation: formatReservation(repaired), repaired: true });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: reservation.bookingId },
+      select: { roomCode: true, property: { select: { roomsSpec: true } } },
+    });
+    const bookedRoomCategory = roomTypeCodeFromSpec(booking?.property?.roomsSpec, booking?.roomCode ?? null);
+    return res.status(409).json({
+      error: bookedRoomCategory
+        ? `The booked category “${bookedRoomCategory}” is not mapped to an active NRMS room type. Add or map that category, then retry here.`
+        : "This NoLSAF booking does not contain a usable room category. Correct the booking category before assigning a room number.",
+      code: "ROOM_CATEGORY_MAPPING_REQUIRED",
+      bookedRoomCategory,
+    });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] room assignment preparation failed", err);
+    res.status(500).json({ error: "Failed to prepare room assignment" });
+  }
+}) as RequestHandler);
+
+/**
  * POST /:id/move-room
  * Releases the old allocation and creates a new one so history is preserved
  * (doc 7.4: record room assignment changes).
  */
 router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
     // Which physical room a guest sleeps in is the property's decision, not a
     // commercial one. Without this a marketplace stay could never be given a
     // room number and would sit on the front desk as permanently unassigned.
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "OPERATIONS" });
-    if (!reservation) return;
+    const loaded = await loadRoomAssignmentReservation(req, res, Number(req.params.id));
+    if (!loaded) return;
+    const { reservation, access } = loaded;
     if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot move rooms on a ${reservation.status.toLowerCase()} reservation` });
     }
@@ -2881,17 +2963,17 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
     const total = Number(financial.totalAmount ?? 0) + Number(financial.chargesTotal ?? 0);
     const isMarketplaceReservation = reservation.bookingId != null;
     const paymentReady = isMarketplaceReservation
-      ? String(financial.marketplaceBooking?.checkInCodeStatus || "").toUpperCase() === "USED"
+      ? ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN"].includes(String(financial.marketplaceBooking?.status || "").toUpperCase())
       : financial.agencySettlement
         ? financial.agencySettlement.settled === true
         : Number(financial.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
     if (!paymentReady) {
       return res.status(409).json({
         error: isMarketplaceReservation
-          ? "Validate the guest's booking code before assigning the paid room category"
+          ? "Confirm the NoLSAF booking before assigning its paid room category"
           : "Record the guest payment before assigning a room",
         code: isMarketplaceReservation
-          ? "ROOM_ASSIGNMENT_CODE_VALIDATION_REQUIRED"
+          ? "ROOM_ASSIGNMENT_BOOKING_CONFIRMATION_REQUIRED"
           : "ROOM_ASSIGNMENT_PAYMENT_REQUIRED",
       });
     }
@@ -2917,7 +2999,7 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
     }
 
     const result = await prisma.$transaction((tx: any) => moveRoomAllocation(tx, {
-      reservation, unit, allocationId, roomUnitId, ownerId, reason,
+      reservation, unit, allocationId, roomUnitId, ownerId: access.actorId, reason,
     }), EXTENDED_TX_OPTIONS);
 
     if ("stale" in result) return res.status(409).json({ error: "This room allocation has changed. Reload the reservation before assigning again.", code: "ROOM_ALLOCATION_CHANGED" });

@@ -37,10 +37,11 @@ test('Review provides assignment and blocks check-in for partial assignment', ()
     assert.match(html, />Assign room<\/button>/);
     assert.match(html, /<button[^>]*disabled=""[^>]*>Check in<\/button>/);
 });
-test('missing allocation links to inventory instead of an unusable assignment', () => {
+test('missing allocation offers reservation-specific category recovery', () => {
     const html = renderDetail(base);
-    assert.match(html, /Room allocation missing/);
-    assert.match(html, /href="\/owner\/nrms\/rooms"/);
+    assert.match(html, /Booked room category needs recovery/);
+    assert.match(html, />Continue to room assignment<\/button>/);
+    assert.doesNotMatch(html, /href="\/owner\/nrms\/rooms"/);
     assert.doesNotMatch(html, />Assign room<\/button>/);
 });
 test('complete allocation enables check-in', () => {
@@ -48,10 +49,10 @@ test('complete allocation enables check-in', () => {
     assert.doesNotMatch(html, /<button[^>]*disabled=""[^>]*>Check in<\/button>/);
     assert.match(html, />Check in<\/button>/);
 });
-test('NoLSAF details expose assignment and explain the code prerequisite', () => {
-    const html = renderDetail({ ...base, bookingId: 20, source: 'NOLSAF', allocations: [room(null)] });
+test('confirmed NoLSAF details expose assignment before code validation', () => {
+    const html = renderDetail({ ...base, bookingId: 20, source: 'NOLSAF', marketplaceBooking: { status: 'CONFIRMED', checkInCodeStatus: 'ACTIVE' }, allocations: [room(null)] });
     assert.match(html, />Assign room<\/button>/);
-    assert.match(html, /Validate the guest/);
+    assert.match(html, /NoLSAF booking confirmed/);
     assert.doesNotMatch(html, />Check in<\/button>/);
 });
 test('agency-paid guests can reach the same assignment action', () => {

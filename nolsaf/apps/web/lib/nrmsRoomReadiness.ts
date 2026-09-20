@@ -9,7 +9,7 @@ export function roomReadiness(reservation: { allocations?: RoomAllocation[] }) {
 export function roomAssignmentRequirement(reservation: {
   status: string;
   bookingId?: number | null;
-  marketplaceBooking?: { checkInCodeStatus?: string | null } | null;
+  marketplaceBooking?: { status?: string | null; checkInCodeStatus?: string | null } | null;
   agencySettlement?: { settled: boolean } | null;
   effectivePaid?: number;
   amountPaid?: number | null;
@@ -17,11 +17,11 @@ export function roomAssignmentRequirement(reservation: {
   totalAmount?: number | null;
   chargesTotal?: number | null;
   balance?: number | null;
-}): { ready: boolean; kind: "READY" | "STATUS" | "VALIDATE_CODE" | "RECORD_PAYMENT"; message: string } {
+}): { ready: boolean; kind: "READY" | "STATUS" | "RECORD_PAYMENT"; message: string } {
   if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) return { ready: false, kind: "STATUS", message: "Confirm the reservation before assigning a room." };
   if (reservation.bookingId != null) {
-    const ready = String(reservation.marketplaceBooking?.checkInCodeStatus ?? "").toUpperCase() === "USED";
-    return { ready, kind: ready ? "READY" : "VALIDATE_CODE", message: ready ? "Booking code validated." : "Validate the guest's booking code before assigning a room." };
+    const ready = ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN"].includes(String(reservation.marketplaceBooking?.status ?? "").toUpperCase());
+    return { ready, kind: ready ? "READY" : "STATUS", message: ready ? "NoLSAF booking confirmed." : "Confirm the NoLSAF booking before assigning a room." };
   }
   if (reservation.agencySettlement) {
     const ready = reservation.agencySettlement.settled;

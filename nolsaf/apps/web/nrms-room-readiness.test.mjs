@@ -13,10 +13,10 @@ test('missing allocations and released rooms cannot count as ready', () => {
   assert.equal(roomReadiness({allocations:[{...allocation(1),status:'RELEASED'}]}).ready,false);
   assert.equal(roomReadiness({allocations:[{...allocation(1),roomUnitCode:null}]}).ready,false);
 });
-test('marketplace arrival requires validated code, independently of owner settlement', () => {
-  const stay={status:'CONFIRMED',bookingId:1,totalAmount:100,amountPaid:0};
-  assert.equal(roomAssignmentRequirement(stay).kind,'VALIDATE_CODE');
-  assert.equal(roomAssignmentRequirement({...stay,marketplaceBooking:{checkInCodeStatus:'USED'}}).ready,true);
+test('confirmed marketplace stays can be assigned before the arrival code is consumed', () => {
+  const stay={status:'CONFIRMED',bookingId:1,marketplaceBooking:{status:'CONFIRMED',checkInCodeStatus:'ACTIVE'},totalAmount:100,amountPaid:0};
+  assert.equal(roomAssignmentRequirement(stay).ready,true);
+  assert.equal(roomAssignmentRequirement({...stay,marketplaceBooking:{status:'NEW',checkInCodeStatus:'ACTIVE'}}).ready,false);
 });
 test('agency settlement does not require a second payment from the traveller', () => {
   const stay={status:'CONFIRMED',totalAmount:100,amountPaid:0};
