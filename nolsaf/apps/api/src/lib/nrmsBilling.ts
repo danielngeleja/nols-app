@@ -222,6 +222,13 @@ export async function finalizeNrmsCheckout(
 
   const businessDate = declaration.businessDate ?? shiftDayKey(new Date());
   const departure = checkoutDepartureFacts(new Date(reservation.checkOut), businessDate);
+  const recordedCheckInAt = reservation.checkedInAt ? new Date(reservation.checkedInAt) : null;
+  const scheduledCheckIn = reservation.checkIn ? new Date(reservation.checkIn) : null;
+  const arrivalRecordMismatch = Boolean(
+    recordedCheckInAt
+      && scheduledCheckIn
+      && utcDay(recordedCheckInAt).getTime() < utcDay(scheduledCheckIn).getTime(),
+  );
   const earlyDepartureReason = declaration.earlyDepartureReason?.trim() || null;
   if (departure.earlyDeparture && !declaration.roomVacantConfirmed) throw new Error("NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED");
   if (departure.earlyDeparture && !earlyDepartureReason) throw new Error("NRMS_EARLY_DEPARTURE_REASON_REQUIRED");
@@ -269,6 +276,12 @@ export async function finalizeNrmsCheckout(
         earlyDeparture: departure.earlyDeparture,
         earlyDepartureReason,
         roomVacantConfirmed: Boolean(declaration.roomVacantConfirmed),
+        ...(arrivalRecordMismatch ? {
+          arrivalRecordMismatch: true,
+          recordedCheckInAt: recordedCheckInAt!.toISOString(),
+          scheduledCheckIn: scheduledCheckIn!.toISOString(),
+          managementReviewRequired: true,
+        } : {}),
       },
     },
   });
