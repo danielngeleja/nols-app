@@ -109,7 +109,7 @@ type NrmsAttentionSnapshot = {
   stock: { low: number; out: number; total: number };
   agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
   rateProposals: { pending: number; total: number };
-  channels: { connections: number; alerts: number; issues: number; total: number };
+  channels: { connections: number; alerts: number; issues: number; total: number; byProvider: Array<{ provider: string; total: number }> };
   finance: { unclassifiedTenders: number; overdueBusinessDays: number; total: number };
   payments: { actionRequired: number; total: number };
 };
@@ -791,20 +791,27 @@ function NrmsShell({ children }: { children: ReactNode }) {
                             const ChildIcon = child.icon;
                             const childActive = isNestedActive(pathname, searchParams, child);
                             const childOutletId = child.href.startsWith("/owner/nrms/orders?outlet=") ? Number(child.href.split("outlet=")[1]) : null;
+                            const childProvider = child.href.startsWith("/owner/nrms/channels?provider=") ? child.href.split("provider=")[1]?.toUpperCase() : null;
                             const childBadge = childOutletId
                               ? (attention?.orders.byOutlet?.find((row) => row.outletId === childOutletId)?.placedRoom || null)
+                              : child.href === "/owner/nrms/orders"
+                              ? (attention?.orders.placedRoom ? attention.orders.placedRoom : null)
                               : child.href === "/owner/nrms/agents"
                               ? (attention?.agents.acceptedInvites ? attention.agents.acceptedInvites : null)
                               : child.href === "/owner/nrms/agents/partnerships"
                               ? (attention?.agents.partnershipRequests ? attention.agents.partnershipRequests : null)
                               : child.href === "/owner/nrms/agents/requests"
                               ? ((attention?.agents.bookingRequests || attention?.agents.guestManifests) ? ((attention?.agents.bookingRequests ?? 0) + (attention?.agents.guestManifests ?? 0)) : null)
+                              : childProvider
+                              ? (attention?.channels.byProvider?.find((row) => row.provider === childProvider)?.total || null)
+                              : child.href === "/owner/nrms/finance?view=audit"
+                              ? (attention?.finance.total ? attention.finance.total : null)
                               : null;
                             return (
                               <Link key={child.href} href={child.href} aria-current={childActive ? "page" : undefined} className={`group flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[12px] font-medium no-underline transition hover:no-underline ${childActive ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-transparent text-emerald-50/50 hover:bg-white/[0.06] hover:text-white"}`}>
                                 <ChildIcon className="h-3.5 w-3.5 shrink-0" />
                                 <span className="min-w-0 flex-1 truncate">{child.label}</span>
-                                {childBadge != null && <span className="min-w-[16px] shrink-0 rounded-full bg-violet-500 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention`}>{childBadge > 99 ? "99+" : childBadge}</span>}
+                                {childBadge != null && <span className={`min-w-[16px] shrink-0 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-white ${(childProvider || child.href === "/owner/nrms/finance?view=audit") ? "bg-rose-500" : "bg-violet-500"}`} aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention in ${child.label}`}>{childBadge > 99 ? "99+" : childBadge}</span>}
                               </Link>
                             );
                           })}

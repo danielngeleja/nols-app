@@ -31,7 +31,7 @@ export type NrmsAttentionSnapshot = {
   stock: { low: number; out: number; total: number };
   agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
   rateProposals: { pending: number; total: number };
-  channels: { connections: number; alerts: number; issues: number; total: number };
+  channels: { connections: number; alerts: number; issues: number; total: number; byProvider: Array<{ provider: string; total: number }> };
   finance: { unclassifiedTenders: number; overdueBusinessDays: number; total: number };
   payments: { actionRequired: number; total: number };
 };
@@ -47,7 +47,7 @@ const zeroSnapshot = (): NrmsAttentionSnapshot => ({
   stock: { low: 0, out: 0, total: 0 },
   agents: { partnershipRequests: 0, acceptedInvites: 0, bookingRequests: 0, guestManifests: 0, total: 0 },
   rateProposals: { pending: 0, total: 0 },
-  channels: { connections: 0, alerts: 0, issues: 0, total: 0 },
+  channels: { connections: 0, alerts: 0, issues: 0, total: 0, byProvider: [] },
   finance: { unclassifiedTenders: 0, overdueBusinessDays: 0, total: 0 },
   payments: { actionRequired: 0, total: 0 },
 });
@@ -76,7 +76,7 @@ export async function buildNrmsAttentionSnapshot(
           propertyId,
           groupId: null,
           OR: [
-            { status: "CONFIRMED", checkIn: { lt: tomorrow } },
+            { status: "CONFIRMED", checkIn: { gte: today, lt: tomorrow } },
             { status: "CHECKED_IN", checkOut: { lt: tomorrow } },
           ],
         },
@@ -168,6 +168,7 @@ export async function buildNrmsAttentionSnapshot(
         where: { propertyId },
         select: {
           status: true,
+          provider: { select: { code: true } },
           operationalAlerts: { where: { status: "OPEN" }, select: { id: true } },
           reconciliationIssues: { where: { status: { in: ["OPEN", "ACKNOWLEDGED"] } }, select: { id: true } },
         },
@@ -255,6 +256,12 @@ export async function buildNrmsAttentionSnapshot(
   result.channels.alerts = (channelRows as any[]).reduce((sum, row) => sum + row.operationalAlerts.length, 0);
   result.channels.issues = (channelRows as any[]).reduce((sum, row) => sum + row.reconciliationIssues.length, 0);
   result.channels.total = result.channels.connections + result.channels.alerts + result.channels.issues;
+  result.channels.byProvider = (channelRows as any[])
+    .map((row) => ({
+      provider: String(row.provider?.code ?? "").toUpperCase(),
+      total: (["ERROR", "STALE"].includes(row.status) ? 1 : 0) + row.operationalAlerts.length + row.reconciliationIssues.length,
+    }))
+    .filter((row) => row.provider && row.total > 0);
 
   result.finance.unclassifiedTenders = Number(financeRows[0]);
   result.finance.overdueBusinessDays = Number(financeRows[1]);
