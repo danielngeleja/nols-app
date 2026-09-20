@@ -811,7 +811,9 @@ export default function NrmsReservationsPage() {
         <div className="grid grid-cols-1 gap-3 border-t border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
           {reservations.map((reservation) => {
             const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
-            const unassignedAllocation = activeAllocations.find((allocation) => allocation.roomUnitId == null) ?? null;
+            // Keep this identical to ReservationRoomIdentity: if the row says
+            // the physical room is pending, the assignment action must exist.
+            const unassignedAllocation = activeAllocations.find((allocation) => !allocation.roomUnitCode) ?? null;
             const guest = reservation.guestProfile?.fullName ?? reservation.agentBooking?.leadGuest?.fullName ?? "Guest";
             const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
             const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
@@ -850,7 +852,10 @@ export default function NrmsReservationsPage() {
               <tbody className="divide-y divide-neutral-100">
                 {reservations.map((reservation) => {
                   const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
-                  const unassignedAllocation = activeAllocations.find((allocation) => allocation.roomUnitId == null) ?? null;
+                  // `roomUnitCode` is the physical-room fact displayed in the
+                  // Room column. Using roomUnitId here previously let the row
+                  // show Pending while silently hiding Assign room.
+                  const unassignedAllocation = activeAllocations.find((allocation) => !allocation.roomUnitCode) ?? null;
                   const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
@@ -1061,7 +1066,7 @@ function AssignRoomModal({
   onRecordPayment: () => void;
   onAssigned: () => Promise<void>;
 }) {
-  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && item.roomUnitId == null) ?? null;
+  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && !item.roomUnitCode) ?? null;
   const requirement = roomAssignmentRequirement(reservation);
   const [units, setUnits] = useState<Array<{ id: number; code: string; floor?: number | null; housekeepingStatus?: string | null }>>([]);
   const [totalFloors, setTotalFloors] = useState<number | null>(null);
