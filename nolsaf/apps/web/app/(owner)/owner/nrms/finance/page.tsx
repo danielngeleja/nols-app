@@ -403,6 +403,22 @@ export default function FinanceControlPage() {
                   <td className="px-4 py-3"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-700">CLOSED</span></td>
                   <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">No action</td>
                 </tr>
+              ) : data?.businessDay.status === "NOT_OPENED" ? (
+                <tr>
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
+                  <td className="px-4 py-3 font-semibold text-neutral-900">No operating record</td>
+                  <td className="px-4 py-3 text-neutral-500">This date was never opened for hotel operations. Browsing it does not create a financial close.</td>
+                  <td className="px-4 py-3"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">NOT OPENED</span></td>
+                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">No action</td>
+                </tr>
+              ) : data?.businessDay.status === "CLOSING" ? (
+                <tr className="bg-amber-50/35">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
+                  <td className="px-4 py-3 font-semibold text-amber-900">Night Audit in progress</td>
+                  <td className="px-4 py-3 text-neutral-500">The close transaction currently owns this business date.</td>
+                  <td className="px-4 py-3"><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-800">CLOSING</span></td>
+                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">Refresh shortly</td>
+                </tr>
               ) : !isCompletedBusinessDate ? (
                 <tr>
                   <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
@@ -442,7 +458,7 @@ export default function FinanceControlPage() {
           </table>
         </div>
 
-        {confirmNightAudit && canManage && isCompletedBusinessDate && !data?.blockers.length && data?.businessDay.status !== "CLOSED" && (
+        {confirmNightAudit && canManage && isCompletedBusinessDate && !data?.blockers.length && data?.businessDay.status === "OPEN" && (
             <div className="border-0 border-t border-solid border-amber-200 bg-amber-50 p-4 sm:px-5" role="region" aria-live="polite" aria-labelledby="night-audit-confirmation-title">
               <div className="flex items-start gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm ring-1 ring-amber-200"><LockKeyhole className="h-4 w-4" /></span>

@@ -622,8 +622,20 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       // The property row is the shared serialization lock used by every NRMS
       // financial writer. Nothing can enter the audit snapshot after this.
       await lockPropertyInventory(tx, active.property.id);
-      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
+      // Night Audit closes an operating record; it must never manufacture a
+      // historical business day merely because someone browsed to that date.
+      const day = await tx.nrmsBusinessDay.findUnique({
+        where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(parsed.data.businessDate) } },
+      });
+      if (!day) throw new Error("BUSINESS_DAY_NOT_OPENED");
       if (["CLOSING", "CLOSED"].includes(day.status)) throw new Error("BUSINESS_DAY_CLOSED");
+      const earliestOpenDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] } },
+        orderBy: { businessDate: "asc" },
+        select: { businessDate: true },
+      });
+      const earliestOpenKey = earliestOpenDay ? dayKey(earliestOpenDay.businessDate) : null;
+      if (earliestOpenKey && earliestOpenKey !== parsed.data.businessDate) throw new Error(`EARLIER_BUSINESS_DAY_OPEN:${earliestOpenKey}`);
       const closeBoundary = new Date();
       const calendarWindow = dayRange(parsed.data.businessDate);
       const openedAt = day.openedAt ? new Date(day.openedAt) : calendarWindow.start;
@@ -724,7 +736,15 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
       const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
       const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
-      const nextBusinessDay = await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
+      // Existing duplicate OPEN rows may predate this invariant. Advance to the
+      // earliest one instead of creating yet another row; repeated closes then
+      // drain the queue. Only create the next calendar day when no later active
+      // business day already exists.
+      const nextExistingBusinessDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] }, businessDate: { gt: day.businessDate } },
+        orderBy: { businessDate: "asc" },
+      });
+      const nextBusinessDay = nextExistingBusinessDay ?? await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
       if (["CLOSING", "CLOSED"].includes(nextBusinessDay.status)) throw new Error("NEXT_BUSINESS_DAY_LOCKED");
       if (fiscalWarning) {
         await auditOrThrow(tx, req, "NRMS_FISCAL_BACKLOG_ACKNOWLEDGED_AT_NIGHT_AUDIT", "PROPERTY", null, {
@@ -749,7 +769,12 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
+    if (code === "BUSINESS_DAY_NOT_OPENED") return res.status(409).json({ error: "This date was never opened for operations, so there is no business day to close.", code });
     if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closing or closed.", code: NRMS_BUSINESS_DAY_LOCKED });
+    if (code.startsWith("EARLIER_BUSINESS_DAY_OPEN:")) {
+      const targetBusinessDate = code.slice("EARLIER_BUSINESS_DAY_OPEN:".length);
+      return res.status(409).json({ error: `Close the earlier open business date ${targetBusinessDate} first. Night Audit must follow one chronological sequence.`, code: "EARLIER_BUSINESS_DAY_OPEN", targetBusinessDate });
+    }
     if (code === "NEXT_BUSINESS_DAY_LOCKED") return res.status(409).json({ error: "The next business date is already closing or closed. Review the business-day sequence before continuing.", code });
     if (code.startsWith("UNBALANCED_ACCOUNTING_EVENT:")) return res.status(500).json({ error: `Unbalanced accounting event: ${code.slice("UNBALANCED_ACCOUNTING_EVENT:".length)}` });
     throw error;
