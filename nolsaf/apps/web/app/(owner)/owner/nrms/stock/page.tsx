@@ -73,12 +73,17 @@ export default function NrmsStockPage() {
 
   useEffect(() => {
     void load();
-    // Stock and its status are shared across every attendant and the owner;
-    // poll so a change made elsewhere shows up here without a manual refresh.
-    const refreshTimer = window.setInterval(() => {
+    // Order and stock mutations refresh immediately through the shared event.
+    // The minute timer is only a fallback for changes from another device.
+    const refresh = () => {
       if (document.visibilityState === "visible") void load(true);
-    }, 15_000);
-    return () => window.clearInterval(refreshTimer);
+    };
+    const refreshTimer = window.setInterval(refresh, 60_000);
+    window.addEventListener("nrms-attention-refresh", refresh);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("nrms-attention-refresh", refresh);
+    };
   }, [load]);
 
   const applyItemPatch = (itemId: number, patch: Partial<StockItem>) => {

@@ -136,11 +136,9 @@ export default function QrCodesPage() {
     const sync = () => {
       if (document.visibilityState === "visible") void load(true);
     };
-    const interval = window.setInterval(sync, 15_000);
     window.addEventListener("focus", sync);
     document.addEventListener("visibilitychange", sync);
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener("focus", sync);
       document.removeEventListener("visibilitychange", sync);
     };

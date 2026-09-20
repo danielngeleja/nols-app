@@ -187,9 +187,13 @@ export default function NrmsCalendarPage() {
     if (!silent) setError(null);
     try {
       const response = await apiClient.get<any>(`/api/owner/nrms/calendar/${selectedPropertyId}`, {
-        params: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
+        params: {
+          start: rangeStart.toISOString(),
+          end: rangeEnd.toISOString(),
+          ...(!silent ? { repair: 1 } : { compact: 1 }),
+        },
       });
-      setTypes(response.data?.roomTypes ?? []);
+      if (Array.isArray(response.data?.roomTypes)) setTypes(response.data.roomTypes);
       setEntries(response.data?.entries ?? []);
     } catch (requestError: any) {
       if (!silent) setError(requestError?.response?.data?.error || "Failed to load calendar");
@@ -205,8 +209,8 @@ export default function NrmsCalendarPage() {
   // Keep an already-open room rack current when a marketplace payment,
   // cancellation, room assignment or stay transition changes inventory.
   useEffect(() => {
-    const refresh = () => void load(true);
-    const timer = window.setInterval(refresh, 15_000);
+    const refresh = () => { if (document.visibilityState === "visible") void load(true); };
+    const timer = window.setInterval(refresh, 60_000);
     if (socket) {
       socket.on("owner:bookings:updated", refresh);
       socket.on("booking.changed", refresh);

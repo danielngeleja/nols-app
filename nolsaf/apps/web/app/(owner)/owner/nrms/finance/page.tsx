@@ -140,13 +140,17 @@ export default function FinanceControlPage() {
   }, [businessDate, month, selectedPropertyId]);
   useEffect(() => {
     void load();
-    // Cashier shifts and sales are shared with every attendant; poll so the
-    // owner sees a shift open/close or a new sale without a manual refresh.
+  }, [load]);
+  useEffect(() => {
+    // Only the two operational finance tabs need a live safety refresh. The
+    // full payload also contains ledger, tax and NBS data, so do not reload it
+    // every few seconds or while someone is reading a historical tab.
+    if (!["audit", "cashiers"].includes(tab)) return;
     const refreshTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
-    }, 15_000);
+    }, 60_000);
     return () => window.clearInterval(refreshTimer);
-  }, [load]);
+  }, [load, tab]);
 
   const loadExpenses = useCallback(async () => {
     if (!selectedPropertyId) return;

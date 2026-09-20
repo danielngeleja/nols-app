@@ -293,8 +293,28 @@ export default function NrmsBillingPage() {
 
   useEffect(() => {
     if (smokeScenario || !hasProcessingToken) return;
-    const interval = window.setInterval(() => void load(), 5000);
-    return () => window.clearInterval(interval);
+    let stopped = false;
+    let delay = 5_000;
+    let timer: number | null = null;
+    const poll = async () => {
+      if (stopped) return;
+      if (document.visibilityState === "visible") await load();
+      delay = Math.min(delay * 2, 20_000);
+      if (!stopped) timer = window.setTimeout(() => void poll(), delay);
+    };
+    const resume = () => {
+      if (document.visibilityState !== "visible") return;
+      delay = 5_000;
+      if (timer) window.clearTimeout(timer);
+      void poll();
+    };
+    timer = window.setTimeout(() => void poll(), delay);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+    };
   }, [hasProcessingToken, load, smokeScenario]);
 
   // Anchor the wait clock to when a token actually started processing, not to whenever

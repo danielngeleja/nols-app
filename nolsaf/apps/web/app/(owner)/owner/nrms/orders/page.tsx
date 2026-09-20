@@ -100,17 +100,37 @@ export default function NrmsOrdersPage() {
     }
   }, [requestedOutletId, selectedPropertyId]);
 
+  const loadLiveOrders = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    try {
+      const response = await apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/orders`, {
+        params: { view: "live", scope: "room", ...(requestedOutletId ? { outletId: requestedOutletId } : {}) },
+      });
+      const nextOrders: Order[] = response.data?.orders ?? [];
+      setOrders(nextOrders);
+      setSettlementTender((current) => {
+        const next = { ...current };
+        for (const order of nextOrders) {
+          if (!next[order.id] && order.settlementMode === "OUTLET_PAYMENT" && order.guestPaymentMethod) next[order.id] = order.guestPaymentMethod;
+        }
+        return next;
+      });
+    } catch { /* keep the last live board; the next refresh retries */ }
+  }, [requestedOutletId, selectedPropertyId]);
+
   useEffect(() => {
     if (view === "history") {
       setLoading(false);
       return;
     }
     void load();
+    // Outlet/menu configuration, in-house guests and order points are static
+    // during service. Refresh only the live order board in the background.
     const refreshTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load(true);
-    }, 15_000);
+      if (document.visibilityState === "visible") void loadLiveOrders();
+    }, 30_000);
     return () => window.clearInterval(refreshTimer);
-  }, [load, view]);
+  }, [load, loadLiveOrders, view]);
 
   useEffect(() => {
     setCart({});
@@ -196,7 +216,7 @@ export default function NrmsOrdersPage() {
     if (order.status === "SERVING" && order.settlementMode === "OUTLET_PAYMENT" && !settlementMethod) {
       setBusy(null); setError("Select how the outlet payment was received before settling the order."); return;
     }
-    try { await apiClient.post(`/api/nrms/operations/orders/${orderId}/advance`, { settlementMethod }); await load(); }
+    try { await apiClient.post(`/api/nrms/operations/orders/${orderId}/advance`, { settlementMethod }); await loadLiveOrders(); }
     catch (cause: any) { setError(cause?.response?.data?.error || "Failed to advance order"); }
     finally { setBusy(null); }
   };
@@ -206,7 +226,7 @@ export default function NrmsOrdersPage() {
     setBusy(`cancel-${reasonAction.orderId}`); setError(null);
     try {
       await apiClient.post(`/api/nrms/operations/orders/${reasonAction.orderId}/cancel`, { reason: reason.trim() });
-      setReasonAction(null); setReason(""); await load();
+      setReasonAction(null); setReason(""); await loadLiveOrders();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Failed to cancel order"); }
     finally { setBusy(null); }
   };

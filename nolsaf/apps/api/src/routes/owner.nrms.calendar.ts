@@ -53,19 +53,18 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     if (end.getTime() > maxEnd.getTime()) end = maxEnd;
 
     const propertyId = property.id as number;
-    // Self-heal confirmed marketplace bookings created before the linked NRMS
-    // operational projection was introduced. NEW/unpaid rows are never selected.
-    // A repair is maintenance, not the feed: if it fails or times out the
-    // calendar still answers with whatever is already projected, and the next
-    // request retries.
-    try {
-      await connectExistingNoLsafBookings(prisma, propertyId, start, end);
-    } catch (err) {
-      console.error("[owner.nrms.calendar] marketplace self-heal failed", err);
+    // Repair legacy projections only on the deliberate initial/manual load.
+    // Socket and timer refreshes are read-only calendar requests.
+    if (req.query.repair === "1") {
+      try {
+        await connectExistingNoLsafBookings(prisma, propertyId, start, end);
+      } catch (err) {
+        console.error("[owner.nrms.calendar] marketplace self-heal failed", err);
+      }
     }
     const [entries, roomTypes] = await Promise.all([
       getCalendarEntries(propertyId, start, end),
-      prisma.roomType.findMany({
+      req.query.compact === "1" ? Promise.resolve(null) : prisma.roomType.findMany({
         where: { propertyId },
         select: {
           id: true,
@@ -86,10 +85,10 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     res.json({
       property,
       range: { start, end },
-      roomTypes: roomTypes.map((type) => ({
+      roomTypes: roomTypes?.map((type) => ({
         ...type,
         baseRate: type.baseRate != null ? Number(type.baseRate) : null,
-      })),
+      })) ?? undefined,
       entries,
     });
   } catch (err) {

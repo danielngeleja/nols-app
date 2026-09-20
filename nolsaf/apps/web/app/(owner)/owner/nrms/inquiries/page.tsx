@@ -78,12 +78,23 @@ export default function NrmsGuestInquiriesPage() {
   useEffect(() => { setMessagingDiagnostic(null); }, [selectedPropertyId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    let socketRefreshTimer: number | null = null;
     const refresh = (event?: { propertyId?: number }) => {
-      if (!event?.propertyId || event.propertyId === selectedPropertyId) void load(true);
+      if (event?.propertyId && event.propertyId !== selectedPropertyId) return;
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socketRefreshTimer = window.setTimeout(() => void load(true), 300);
     };
-    const timer = window.setInterval(() => void load(true), 20_000);
+    // Socket events are authoritative. This long fallback only covers a lost
+    // socket event and pauses completely while the tab is not being viewed.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 120_000);
     socket?.on("nrms:inbox:update", refresh);
-    return () => { window.clearInterval(timer); socket?.off("nrms:inbox:update", refresh); };
+    return () => {
+      window.clearInterval(timer);
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socket?.off("nrms:inbox:update", refresh);
+    };
   }, [load, selectedPropertyId, socket]);
   const selected = data.inquiries.find((item) => item.id === selectedId) ?? null;
 
