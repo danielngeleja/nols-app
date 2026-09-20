@@ -1014,6 +1014,8 @@ function PropertyAvailabilityChecker({
   dates,
   compact = false,
   openPickerSignal,
+  selectedRoomCode,
+  onRoomTypeSelect,
 
 }: {
   propertyId: number;
@@ -1025,6 +1027,9 @@ function PropertyAvailabilityChecker({
   compact?: boolean;
   /** Bump to open the next missing date picker (e.g. from the booking button) */
   openPickerSignal?: number;
+  /** Room type chosen in the booking card. Booking stays locked without it. */
+  selectedRoomCode?: string | null;
+  onRoomTypeSelect?: (roomCode: string | null) => void;
 
 }) {
   const [checkIn, setCheckIn] = useState<string>("");
@@ -1205,6 +1210,8 @@ function PropertyAvailabilityChecker({
                   onSelectAction={(s) => {
                     const date = Array.isArray(s) ? s[0] : s;
                     setError(null);
+                    setAvailability(null);
+                    onAvailability?.(null);
                     setCheckIn(date);
                     onDatesChange?.(date, checkOut);
                     setCheckInPickerOpen(false);
@@ -1231,6 +1238,8 @@ function PropertyAvailabilityChecker({
                   onSelectAction={(s) => {
                     const date = Array.isArray(s) ? s[0] : s;
                     setError(null);
+                    setAvailability(null);
+                    onAvailability?.(null);
                     setCheckOut(date);
                     onDatesChange?.(checkIn, date);
                     setCheckOutPickerOpen(false);
@@ -1250,7 +1259,7 @@ function PropertyAvailabilityChecker({
               <AlertCircle className="mt-px h-3.5 w-3.5 flex-none" aria-hidden />
               {error}
             </p>
-          ) : loading ? (
+          ) : loading && !availability ? (
             <p className="m-0 flex items-center gap-1.5 text-slate-500">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-solid border-slate-300 border-t-[#02665e]" aria-hidden />
               Checking live availability
@@ -1258,11 +1267,9 @@ function PropertyAvailabilityChecker({
           ) : availability && checkIn && checkOut ? (
             availability.available ? (
               <p className="m-0 flex items-center gap-1.5 font-medium text-emerald-700">
-                <span className="relative flex h-2 w-2" aria-hidden>
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
+                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
                 Available{rooms > 0 ? `: ${rooms} room${rooms === 1 ? "" : "s"} left for these dates` : " for these dates"}
+                {loading && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-normal text-slate-400"><span className="h-2.5 w-2.5 animate-spin rounded-full border border-solid border-slate-300 border-t-[#02665e]" />Refreshing</span>}
               </p>
             ) : (
               <p className="m-0 flex items-center gap-1.5 font-medium text-amber-700">
@@ -1276,10 +1283,10 @@ function PropertyAvailabilityChecker({
         </div>
 
         {/* Per room type breakdown, folded away until asked for */}
-        {!error && !loading && availability?.available && checkIn && checkOut && availability.byRoomType && Object.keys(availability.byRoomType).length > 0 && (
+        {!error && availability?.available && checkIn && checkOut && availability.byRoomType && Object.keys(availability.byRoomType).length > 0 && (
           <details className="group mt-2 rounded-lg border border-solid border-slate-200 bg-slate-50/60 [&_summary::-webkit-details-marker]:hidden">
             <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[12.5px] font-semibold text-[#02665e]">
-              See by room type
+              <span className="truncate">{selectedRoomCode ? `Selected: ${selectedRoomCode === "default" ? "All rooms" : selectedRoomCode}` : "Choose a room type"}</span>
               <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />
             </summary>
             <ul className="m-0 list-none border-0 border-t border-solid border-slate-200 px-0 py-1">
@@ -1287,23 +1294,28 @@ function PropertyAvailabilityChecker({
                 const free = Math.max(0, Number(d?.availableRooms ?? 0));
                 const total = Math.max(0, Number(d?.totalRooms ?? 0));
                 const pct = total > 0 ? Math.round((free / total) * 100) : 0;
+                const selected = selectedRoomCode === code;
+                const label = code === "default" ? "All rooms" : code;
                 return (
-                  <li key={code} className="px-3 py-1.5">
-                    <div className="flex items-center justify-between gap-3 text-[12.5px]">
-                      <span className="truncate font-medium text-slate-800">{code === "default" ? "All rooms" : code}</span>
-                      <span className={`flex-none tabular-nums ${free > 0 ? "text-slate-600" : "text-amber-700"}`}>
-                        {free > 0 ? (
-                          <>
-                            <span className="font-bold text-slate-900">{free}</span> of {total} free
-                          </>
-                        ) : (
-                          "Full"
-                        )}
+                  <li key={code} className="px-1.5 py-0.5">
+                    <button
+                      type="button"
+                      disabled={free <= 0}
+                      aria-pressed={selected}
+                      onClick={() => onRoomTypeSelect?.(selected ? null : code)}
+                      className={`box-border w-full rounded-lg border border-solid px-2 py-2 text-left transition ${selected ? "border-emerald-400 bg-emerald-50" : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"} disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      <span className="flex items-center justify-between gap-3 text-[12.5px]">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className={`inline-flex h-4 w-4 flex-none items-center justify-center rounded-full border border-solid ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-2.5 w-2.5" aria-hidden /></span>
+                          <span className="truncate font-medium text-slate-800">{label}</span>
+                        </span>
+                        <span className={`flex-none tabular-nums ${free > 0 ? "text-slate-600" : "text-amber-700"}`}>
+                          {free > 0 ? <><span className="font-bold text-slate-900">{free}</span> of {total} free</> : "Full"}
+                        </span>
                       </span>
-                    </div>
-                    <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-200">
-                      <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
-                    </span>
+                      <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-slate-200"><span className="block h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></span>
+                    </button>
                   </li>
                 );
               })}
@@ -2022,6 +2034,7 @@ export default function PublicPropertyDetailPage() {
   }, []);
   const [roomQuickView, setRoomQuickView] = useState<null | { roomType: string; floor: number }>(null);
   const [availabilityData, setAvailabilityData] = useState<any | null>(null);
+  const [selectedRoomCode, setSelectedRoomCode] = useState<string | null>(null);
   const [datePickerSignal, setDatePickerSignal] = useState(0);
   const [, setAvailabilitySocket] = useState<Socket | null>(null);
   const [, setAvailabilityConnected] = useState(false);
@@ -2033,6 +2046,23 @@ export default function PublicPropertyDetailPage() {
   useEffect(() => {
     selectedDatesRef.current = selectedDates;
   }, [selectedDates]);
+  const handleBookingDatesChange = useCallback((checkIn: string, checkOut: string) => {
+    const current = selectedDatesRef.current;
+    if (current.checkIn !== checkIn || current.checkOut !== checkOut) {
+      setSelectedRoomCode(null);
+      setAvailabilityData(null);
+    }
+    const next = { checkIn, checkOut };
+    selectedDatesRef.current = next;
+    setSelectedDates(next);
+  }, []);
+  const handleBookingAvailability = useCallback((data: any | null) => {
+    setAvailabilityData(data);
+    setSelectedRoomCode((current) => {
+      if (!current || !data) return data ? current : null;
+      return Number(data?.byRoomType?.[current]?.availableRooms ?? 0) > 0 ? current : null;
+    });
+  }, []);
   // Live updates: socket updates bump a refresh signal.
   // Socket.IO connection for real-time availability updates
   useEffect(() => {
@@ -3407,6 +3437,10 @@ export default function PublicPropertyDetailPage() {
                 ? Math.max(0, Math.round((parseBookingDateOnly(co).getTime() - parseBookingDateOnly(ci).getTime()) / 86_400_000))
                 : 0;
               const soldOut = hasDates && availabilityData && availabilityData.available === false;
+              const checkingAvailability = hasDates && availabilityData == null;
+              const hasRoomSelection = Boolean(selectedRoomCode);
+              const canRequestBooking = hasDates && availabilityData?.available === true && hasRoomSelection;
+              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? "Select room type" : "Request booking";
               return (
                 <div id="booking-card" className="box-border scroll-mt-24 rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
                   <div className="flex items-baseline gap-1.5">
@@ -3421,29 +3455,32 @@ export default function PublicPropertyDetailPage() {
                     <PropertyAvailabilityChecker
                       compact
                       propertyId={property.id}
-                      onAvailability={(data) => setAvailabilityData(data)}
-                      onDatesChange={(checkIn, checkOut) => setSelectedDates({ checkIn, checkOut })}
+                      onAvailability={handleBookingAvailability}
+                      onDatesChange={handleBookingDatesChange}
                       refreshSignal={availabilityRefreshTick}
                       dates={selectedDates}
                       openPickerSignal={datePickerSignal}
+                      selectedRoomCode={selectedRoomCode}
+                      onRoomTypeSelect={setSelectedRoomCode}
                     />
                   </div>
 
                   <button
                     type="button"
-                    disabled={Boolean(soldOut)}
+                    disabled={hasDates && !canRequestBooking}
                     onClick={() => {
                       if (!hasDates) {
                         setDatePickerSignal((n) => n + 1);
                         return;
                       }
-                      const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co });
+                      if (!canRequestBooking || !selectedRoomCode) return;
+                      const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co, roomCode: selectedRoomCode });
                       router.push(`/public/booking/confirm?${params.toString()}`);
                     }}
                     className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] active:bg-[#013a35] disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {!hasDates ? "Check availability" : soldOut ? "Not available" : "Request booking"}
-                    {!soldOut && <ChevronRight className="h-4 w-4" aria-hidden />}
+                    {bookingActionLabel}
+                    {(!hasDates || canRequestBooking) && <ChevronRight className="h-4 w-4" aria-hidden />}
                   </button>
 
                   {hasDates && nights > 0 && finalBasePrice != null && (
@@ -3483,25 +3520,26 @@ export default function PublicPropertyDetailPage() {
                             </p>
                             <p className="m-0 truncate text-[12px] text-slate-500">
                               {hasDates
-                                ? `${parseBookingDateOnly(ci).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} to ${parseBookingDateOnly(co).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${nights} night${nights === 1 ? "" : "s"}`
+                                ? `${parseBookingDateOnly(ci).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} to ${parseBookingDateOnly(co).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${selectedRoomCode || "choose room type"}`
                                 : "Add dates for live availability"}
                             </p>
                           </div>
                           <button
                             type="button"
-                            disabled={Boolean(soldOut)}
+                            disabled={hasDates && !canRequestBooking}
                             onClick={() => {
-                              if (hasDates) {
-                                const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co });
+                              if (canRequestBooking && selectedRoomCode) {
+                                const params = new URLSearchParams({ property: property.slug, checkIn: ci, checkOut: co, roomCode: selectedRoomCode });
                                 router.push(`/public/booking/confirm?${params.toString()}`);
                                 return;
                               }
+                              if (hasDates) return;
                               document.getElementById("booking-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
                               window.setTimeout(() => setDatePickerSignal((n) => n + 1), 450);
                             }}
                             className="inline-flex h-11 flex-none items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] disabled:bg-slate-300"
                           >
-                            {!hasDates ? "Check availability" : soldOut ? "Not available" : "Request booking"}
+                            {bookingActionLabel}
                           </button>
                         </div>
                       </div>,
@@ -5320,4 +5358,3 @@ function RoomAmenityChip({
   );
 
 }
-
