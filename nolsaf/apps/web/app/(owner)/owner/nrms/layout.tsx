@@ -53,6 +53,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useSocket } from "@/hooks/useSocket";
 import { NrmsProvider, useNrms, propertyTrialDaysLeft } from "./_components/NrmsProvider";
 import { NrmsAccessRoleProvider } from "./_components/NrmsAccessRole";
 import NrmsActivationScreen from "./_components/NrmsActivationScreen";
@@ -96,6 +97,22 @@ const SALES_TABS = [
 type NavItem = { href: string; label: string; icon: LucideIcon; exact?: boolean; children?: NavItem[]; roles?: string[] };
 type NavSection = { label?: string; items: NavItem[] };
 type NavGroup = { label: string; sections: NavSection[] };
+
+type NrmsAttentionSnapshot = {
+  generatedAt: string;
+  refreshAfterSeconds: number;
+  frontDesk: { arrivals: number; departures: number; total: number };
+  inquiries: { new: number; open: number; overdue: number; total: number };
+  groups: { dueStays: number; blockReviews: number; total: number };
+  housekeeping: { tasks: number; untrackedRooms: number; total: number };
+  orders: { openRoom: number; openTable: number; placedRoom: number; placedTable: number; total: number; byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }> };
+  stock: { low: number; out: number; total: number };
+  agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
+  rateProposals: { pending: number; total: number };
+  channels: { connections: number; alerts: number; issues: number; total: number };
+  finance: { unclassifiedTenders: number; overdueBusinessDays: number; total: number };
+  payments: { actionRequired: number; total: number };
+};
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -253,12 +270,25 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function badgeLabel(href: string, count: number): string {
+  if (href === "/owner/nrms") return `${count} front desk tasks need attention`;
   if (href === "/owner/nrms/inquiries") return `${count} reception inquiries need attention`;
+  if (href === "/owner/nrms/groups") return `${count} group reservation tasks need attention`;
+  if (href === "/owner/nrms/housekeeping") return `${count} housekeeping tasks need attention`;
   if (href === "/owner/nrms/agents") return `${count} travel agent items need attention`;
   if (href === "/owner/nrms/sales-rates") return `${count} rate proposals await owner decision`;
+  if (href === "/owner/nrms/channels") return `${count} OTA channel issues need attention`;
+  if (href === "/owner/nrms/finance") return `${count} finance or night audit blockers need attention`;
+  if (href === "/owner/nrms/stock") return `${count} stock items need attention`;
   if (href === "/owner/nrms/payments") return "Your payment application needs your attention";
   if (href === "/owner/nrms/tables") return `${count} open table orders`;
   return `${count} active orders`;
+}
+
+function badgeClass(href: string, active: boolean): string {
+  if (active) return "bg-emerald-950 text-white";
+  if (["/owner/nrms/channels", "/owner/nrms/finance", "/owner/nrms/payments"].includes(href)) return "bg-rose-500 text-white";
+  if (["/owner/nrms", "/owner/nrms/groups", "/owner/nrms/housekeeping", "/owner/nrms/tables", "/owner/nrms/stock"].includes(href)) return "bg-amber-400 text-amber-950";
+  return "bg-violet-500 text-white";
 }
 
 function isActive(pathname: string, item: { href: string; exact?: boolean }) {
@@ -411,17 +441,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [sidebarOutlets, setSidebarOutlets] = useState<Array<{ id: number; name: string; type: string }>>([]);
   const [booting, setBooting] = useState(true);
   const [globalFreeze, setGlobalFreeze] = useState<{ referenceCode?: string | null; reason?: string | null } | null>(null);
-  const [liveOrders, setLiveOrders] = useState<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number; byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }> } | null>(null);
-  const [agentWorkload, setAgentWorkload] = useState<{ partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number } | null>(null);
-  const [inquiryWorkload, setInquiryWorkload] = useState<{ new: number; open: number; overdue: number; total: number } | null>(null);
-  const [rateProposalWorkload, setRateProposalWorkload] = useState<{ pending: number; total: number } | null>(null);
-  const [paymentsWorkload, setPaymentsWorkload] = useState<{ status: string | null; actionRequired: number; total: number } | null>(null);
+  const [attention, setAttention] = useState<NrmsAttentionSnapshot | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
-  const prevPlacedRef = useRef<number | null>(null);
-  const prevAgentWorkloadRef = useRef<number | null>(null);
-  const prevInquiryWorkloadRef = useRef<number | null>(null);
-  const prevRateProposalWorkloadRef = useRef<number | null>(null);
-  const prevPaymentsWorkloadRef = useRef<number | null>(null);
+  const prevAttentionTotalRef = useRef<number | null>(null);
+  const { socket: attentionSocket } = useSocket(undefined, { enabled: Boolean(selectedPropertyId), joinDriverRoom: false });
   const daysLeft = propertyTrialDaysLeft(selectedProperty);
   const realAccessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
 
@@ -552,124 +575,56 @@ function NrmsShell({ children }: { children: ReactNode }) {
     } catch { /* ignore playback errors */ }
   }, []);
 
-  // Split live-order badges: room arrivals badge "Bar orders", table arrivals
-  // badge "Tables & tabs". A rise in total new orders rings the arrival chime.
+  // One request carries every active queue the caller is allowed to see. Page
+  // mutations and live inquiry events refresh it immediately; one visible-tab
+  // request per minute is the fallback for work arriving through other systems.
   useEffect(() => {
-    const canSee = roleCanSee("/owner/nrms/tables", accessRole, accessCapabilities) || roleCanSee("/owner/nrms/orders", accessRole, accessCapabilities);
-    if (!selectedPropertyId || !canSee) { setLiveOrders(null); prevPlacedRef.current = null; return; }
-    let active = true;
-    const fetchCount = async () => {
-      try {
-        const res = await apiClient.get<{ openRoom: number; openTable: number; placedRoom: number; placedTable: number; byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }> }>(`/api/nrms/operations/property/${selectedPropertyId}/orders/live-count`);
-        if (!active) return;
-        setLiveOrders(res.data);
-        const totalPlaced = res.data.placedRoom + res.data.placedTable;
-        if (prevPlacedRef.current !== null && totalPlaced > prevPlacedRef.current) chime();
-        prevPlacedRef.current = totalPlaced;
-      } catch { /* transient; keep the last known count */ }
-    };
-    void fetchCount();
-    const id = setInterval(fetchCount, 20000);
-    return () => { active = false; clearInterval(id); };
-  }, [selectedPropertyId, accessCapabilities, accessRole, chime]);
-
-  // Travel-agent work can arrive while the hotel is busy elsewhere in NRMS.
-  // Poll the same way as Restaurant & bar and ring only when the actionable
-  // queue grows; handled or expired items disappear from the marker.
-  useEffect(() => {
-    const canSee = roleCanSee("/owner/nrms/agents", accessRole, accessCapabilities);
-    if (!selectedPropertyId || !canSee) { setAgentWorkload(null); prevAgentWorkloadRef.current = null; return; }
-    let active = true;
-    const fetchCount = async () => {
-      try {
-        const res = await apiClient.get<{ partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number }>(`/api/owner/nrms/agents/property/${selectedPropertyId}/live-count`);
-        if (!active) return;
-        setAgentWorkload(res.data);
-        if (prevAgentWorkloadRef.current !== null && res.data.total > prevAgentWorkloadRef.current) chime();
-        prevAgentWorkloadRef.current = res.data.total;
-      } catch { /* transient; keep the last known count */ }
-    };
-    void fetchCount();
-    const id = setInterval(fetchCount, 20000);
-    return () => { active = false; clearInterval(id); };
-  }, [selectedPropertyId, accessCapabilities, accessRole, chime]);
-
-  // Reception inquiries are property-scoped and remain visible until the team
-  // resolves, converts or closes them. Ring when a new actionable inquiry lands.
-  useEffect(() => {
-    const canSee = roleCanSee("/owner/nrms/inquiries", accessRole, accessCapabilities);
-    if (!selectedPropertyId || !canSee) { setInquiryWorkload(null); prevInquiryWorkloadRef.current = null; return; }
-    let active = true;
-    const fetchCount = async () => {
-      try {
-        const res = await apiClient.get<{ new: number; open: number; overdue: number; total: number }>(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/live-count`);
-        if (!active) return;
-        setInquiryWorkload(res.data);
-        if (prevInquiryWorkloadRef.current !== null && res.data.total > prevInquiryWorkloadRef.current) chime();
-        prevInquiryWorkloadRef.current = res.data.total;
-      } catch { /* transient; keep the last known count */ }
-    };
-    void fetchCount();
-    const id = setInterval(fetchCount, 20000);
-    return () => { active = false; clearInterval(id); };
-  }, [selectedPropertyId, accessCapabilities, accessRole, chime]);
-
-  // A rate request should never wait silently in the owner's queue. The same
-  // marker remains visible outside the proposal workspace; the page itself has
-  // the full pending count, so polling again while it is open only duplicates
-  // the page request and makes one click look like a global refresh.
-  useEffect(() => {
-    const canSee = roleCanSee("/owner/nrms/sales-rates", accessRole, accessCapabilities);
-    if (!selectedPropertyId || !canSee || pathname.startsWith("/owner/nrms/sales-rates")) { setRateProposalWorkload(null); prevRateProposalWorkloadRef.current = null; return; }
-    let active = true;
-    const fetchCount = async () => {
-      try {
-        const response = await apiClient.get<{ pending: number; total: number }>(`/api/owner/nrms/rate-requests/${selectedPropertyId}/live-count`);
-        if (!active) return;
-        setRateProposalWorkload(response.data);
-        if (prevRateProposalWorkloadRef.current !== null && response.data.pending > prevRateProposalWorkloadRef.current) chime();
-        prevRateProposalWorkloadRef.current = response.data.pending;
-      } catch { /* transient; keep the last known count */ }
-    };
-    void fetchCount();
-    const id = setInterval(fetchCount, 20_000);
-    return () => { active = false; clearInterval(id); };
-  }, [selectedPropertyId, accessCapabilities, accessRole, pathname, chime]);
-
-  // A returned merchant application is the owner's move and it can sit unseen
-  // for days, because nothing on the workspace pointed at it. Same poll shape
-  // as Restaurant & bar and Travel agents; only states the owner can clear
-  // raise the marker, so an application waiting on NoLSAF never nags them.
-  useEffect(() => {
-    const canSee = roleCanSee("/owner/nrms/payments", accessRole, accessCapabilities);
-    const hasPaymentProperties = properties.some((property) => property.nrmsAccessRole === "OWNER" && property.status === "APPROVED" && property.nrmsActivatedAt);
-    // The Payments home loads the same portfolio status for its cards, while a
-    // detail page loads the full overview. Do not duplicate either request in
-    // the background merely to badge the already-open sidebar item.
-    if (!canSee || !hasPaymentProperties || pathname.startsWith("/owner/nrms/payments")) {
-      setPaymentsWorkload(null);
-      prevPaymentsWorkloadRef.current = null;
+    if (!selectedPropertyId) {
+      setAttention(null);
+      prevAttentionTotalRef.current = null;
       return;
     }
     let active = true;
-    const fetchCount = async () => {
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+    const fetchAttention = async (fresh = false) => {
+      if (document.visibilityState === "hidden" && !fresh) return;
       try {
-        const response = await apiClient.get<{ actionRequired: number; total: number }>("/api/owner/payments/merchant/live-counts");
+        const response = await apiClient.get<NrmsAttentionSnapshot>(`/api/nrms/operations/property/${selectedPropertyId}/attention`, {
+          params: fresh ? { fresh: 1 } : undefined,
+        });
         if (!active) return;
-        const next = {
-          status: null,
-          actionRequired: response.data.actionRequired,
-          total: response.data.total,
-        };
-        setPaymentsWorkload(next);
-        if (prevPaymentsWorkloadRef.current !== null && next.total > prevPaymentsWorkloadRef.current) chime();
-        prevPaymentsWorkloadRef.current = next.total;
-      } catch { /* transient; keep the last known count */ }
+        const next = response.data;
+        setAttention(next);
+        const activeTotal = next.frontDesk.total + next.inquiries.total + next.groups.total + next.housekeeping.total
+          + next.orders.placedRoom + next.orders.openTable + next.stock.total + next.agents.total
+          + next.rateProposals.total + next.channels.total + next.finance.total + next.payments.total;
+        if (prevAttentionTotalRef.current !== null && activeTotal > prevAttentionTotalRef.current) chime();
+        prevAttentionTotalRef.current = activeTotal;
+      } catch { /* transient; keep the last known snapshot */ }
     };
-    void fetchCount();
-    const id = setInterval(fetchCount, 20000);
-    return () => { active = false; clearInterval(id); };
-  }, [properties, pathname, accessCapabilities, accessRole, chime]);
+    const queueFreshFetch = () => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => void fetchAttention(true), 350);
+    };
+    const handleVisibility = () => { if (document.visibilityState === "visible") void fetchAttention(); };
+    const handleInboxUpdate = (payload?: { propertyId?: number }) => {
+      if (!payload?.propertyId || Number(payload.propertyId) === selectedPropertyId) queueFreshFetch();
+    };
+
+    void fetchAttention();
+    const intervalId = setInterval(() => void fetchAttention(), 60_000);
+    window.addEventListener("nrms-attention-refresh", queueFreshFetch);
+    document.addEventListener("visibilitychange", handleVisibility);
+    attentionSocket?.on("nrms:inbox:update", handleInboxUpdate);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+      if (debounceId) clearTimeout(debounceId);
+      window.removeEventListener("nrms-attention-refresh", queueFreshFetch);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      attentionSocket?.off("nrms:inbox:update", handleInboxUpdate);
+    };
+  }, [attentionSocket, selectedPropertyId, accessRole, chime]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -790,20 +745,30 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 // Tables & tabs is an operational workload count, not only an
                 // unread notification: keep it visible while the page is open
                 // until every table/walk-in order has been completed.
-                const badge = item.href === "/owner/nrms/tables"
-                  ? (liveOrders?.openTable ? liveOrders.openTable : null)
+                const badge = item.href === "/owner/nrms"
+                  ? (attention?.frontDesk.total ? attention.frontDesk.total : null)
+                  : item.href === "/owner/nrms/tables"
+                  ? (attention?.orders.openTable ? attention.orders.openTable : null)
                   : item.href === "/owner/nrms/inquiries"
-                  ? (inquiryWorkload?.total ? inquiryWorkload.total : null)
+                  ? (attention?.inquiries.total ? attention.inquiries.total : null)
+                  : item.href === "/owner/nrms/groups"
+                  ? (attention?.groups.total ? attention.groups.total : null)
+                  : item.href === "/owner/nrms/housekeeping"
+                  ? (attention?.housekeeping.total ? attention.housekeeping.total : null)
                   : item.href === "/owner/nrms/orders"
-                  ? (!active && liveOrders?.placedRoom ? liveOrders.placedRoom : null)
+                  ? (attention?.orders.placedRoom ? attention.orders.placedRoom : null)
+                  : item.href === "/owner/nrms/stock"
+                  ? (attention?.stock.total ? attention.stock.total : null)
                   : item.href === "/owner/nrms/agents"
-                  ? (agentWorkload?.total ? agentWorkload.total : null)
+                  ? (attention?.agents.total ? attention.agents.total : null)
                   : item.href === "/owner/nrms/sales-rates"
-                  ? (rateProposalWorkload?.pending ? rateProposalWorkload.pending : null)
-                  // A returned merchant application needs the owner, not a
-                  // queue of items, so it marks the entry rather than counting.
+                  ? (attention?.rateProposals.pending ? attention.rateProposals.pending : null)
+                  : item.href === "/owner/nrms/channels"
+                  ? (attention?.channels.total ? attention.channels.total : null)
+                  : item.href === "/owner/nrms/finance"
+                  ? (attention?.finance.total ? attention.finance.total : null)
                   : item.href === "/owner/nrms/payments"
-                  ? (paymentsWorkload?.actionRequired ? paymentsWorkload.actionRequired : null)
+                  ? (attention?.payments.actionRequired ? attention.payments.actionRequired : null)
                   : null;
                 if (isNestedGroup && !collapsed) {
                   return (
@@ -817,7 +782,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
                       >
                         <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                         <span className="min-w-0 flex-1 truncate">{label}</span>
-                        {badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={badgeLabel(item.href, badge)}>{badge > 99 ? "99+" : badge}</span>}
+                        {badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${badgeClass(item.href, active)}`} aria-label={badgeLabel(item.href, badge)}>{badge > 99 ? "99+" : badge}</span>}
                         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${nestedOpen ? "rotate-180" : ""}`} aria-hidden />
                       </button>
                       {nestedOpen && (
@@ -827,19 +792,19 @@ function NrmsShell({ children }: { children: ReactNode }) {
                             const childActive = isNestedActive(pathname, searchParams, child);
                             const childOutletId = child.href.startsWith("/owner/nrms/orders?outlet=") ? Number(child.href.split("outlet=")[1]) : null;
                             const childBadge = childOutletId
-                              ? (liveOrders?.byOutlet?.find((row) => row.outletId === childOutletId)?.placedRoom || null)
+                              ? (attention?.orders.byOutlet?.find((row) => row.outletId === childOutletId)?.placedRoom || null)
                               : child.href === "/owner/nrms/agents"
-                              ? (agentWorkload?.acceptedInvites ? agentWorkload.acceptedInvites : null)
+                              ? (attention?.agents.acceptedInvites ? attention.agents.acceptedInvites : null)
                               : child.href === "/owner/nrms/agents/partnerships"
-                              ? (agentWorkload?.partnershipRequests ? agentWorkload.partnershipRequests : null)
+                              ? (attention?.agents.partnershipRequests ? attention.agents.partnershipRequests : null)
                               : child.href === "/owner/nrms/agents/requests"
-                              ? ((agentWorkload?.bookingRequests || agentWorkload?.guestManifests) ? (agentWorkload.bookingRequests + agentWorkload.guestManifests) : null)
+                              ? ((attention?.agents.bookingRequests || attention?.agents.guestManifests) ? ((attention?.agents.bookingRequests ?? 0) + (attention?.agents.guestManifests ?? 0)) : null)
                               : null;
                             return (
                               <Link key={child.href} href={child.href} aria-current={childActive ? "page" : undefined} className={`group flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[12px] font-medium no-underline transition hover:no-underline ${childActive ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-transparent text-emerald-50/50 hover:bg-white/[0.06] hover:text-white"}`}>
                                 <ChildIcon className="h-3.5 w-3.5 shrink-0" />
                                 <span className="min-w-0 flex-1 truncate">{child.label}</span>
-                                {childBadge != null && <span className="min-w-[16px] shrink-0 animate-pulse rounded-full bg-violet-500 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention`}>{childBadge > 99 ? "99+" : childBadge}</span>}
+                                {childBadge != null && <span className="min-w-[16px] shrink-0 rounded-full bg-violet-500 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention`}>{childBadge > 99 ? "99+" : childBadge}</span>}
                               </Link>
                             );
                           })}
@@ -852,8 +817,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   <Link key={item.href} href={item.href} title={collapsed ? label : undefined} aria-current={active ? "page" : undefined} className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}><Icon className="h-3.5 w-3.5" /></span>
                     {!collapsed && <span className="flex-1 truncate">{label}</span>}
-                    {!collapsed && badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${active ? "bg-emerald-950 text-white" : "animate-pulse bg-violet-500 text-white"}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 99 ? "99+" : badge}</span>}
-                    {collapsed && badge != null && <span className={`absolute right-0.5 top-0.5 min-w-[16px] rounded-full px-1 text-center text-[8px] font-bold leading-4 text-white ${active ? "bg-emerald-950" : "animate-pulse bg-violet-500"}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 9 ? "9+" : badge}</span>}
+                    {!collapsed && badge != null && <span className={`shrink-0 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${badgeClass(item.href, active)}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 99 ? "99+" : badge}</span>}
+                    {collapsed && badge != null && <span className={`absolute right-0.5 top-0.5 min-w-[16px] rounded-full px-1 text-center text-[8px] font-bold leading-4 ${badgeClass(item.href, active)}`} aria-label={badgeLabel(item.href, badge)}>{item.href === "/owner/nrms/payments" ? "!" : badge > 9 ? "9+" : badge}</span>}
                   </Link>
                 );
                   })}

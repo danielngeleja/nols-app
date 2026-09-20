@@ -29,6 +29,7 @@ import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { buildBreakfastList } from "../lib/nrmsBreakfastList.js";
+import { getNrmsAttentionSnapshot } from "../lib/nrmsAttention.js";
 import { activeStayReservationWhere } from "../lib/nrmsActiveStay.js";
 import { generateNrmsBreakfastListPdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
@@ -198,6 +199,25 @@ function outletAllowed(access: Access, outlet: { id: number; type: string }): bo
 async function loadAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<Access | null> {
   return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", ...NRMS_STAFF_ROLES]);
 }
+
+// One role-scoped snapshot backs every active-work marker in the NRMS sidebar.
+// A short shared cache absorbs open tabs and several staff looking at the same
+// queue, while the client uses a one-minute fallback between event refreshes.
+router.get("/property/:propertyId/attention", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  try {
+    const snapshot = await getNrmsAttentionSnapshot(db, access.property.id, {
+      role: access.role,
+      outletId: access.outletId,
+    }, { fresh: req.query.fresh === "1" });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(snapshot);
+  } catch (error) {
+    console.error("[nrms.operations] attention snapshot failed", error);
+    res.status(500).json({ error: "Unable to load the active NRMS work queues" });
+  }
+}) as RequestHandler);
 
 async function accessForOutlet(req: AuthedRequest, res: Response, outletId: number) {
   const outlet = await db.nrmsOutlet.findUnique({ where: { id: outletId }, include: { menuItems: { orderBy: { name: "asc" } } } });

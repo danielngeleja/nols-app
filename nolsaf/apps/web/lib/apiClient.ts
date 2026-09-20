@@ -36,6 +36,12 @@ function writeCsrfToken(token: string): void {
 
 const MUTATION_METHODS = new Set(["post", "put", "patch", "delete"]);
 
+function changesNrmsAttention(method: unknown, url: unknown): boolean {
+  if (!MUTATION_METHODS.has(String(method ?? "").toLowerCase())) return false;
+  const path = String(url ?? "");
+  return path.includes("/api/nrms/") || path.includes("/api/owner/nrms/") || path.includes("/api/owner/payments/merchant");
+}
+
 const apiClient = axios.create({ baseURL: "", withCredentials: true });
 let authRedirectInFlight = false;
 let csrfRefreshInFlight: Promise<string | null> | null = null;
@@ -58,6 +64,9 @@ apiClient.interceptors.response.use(
     const csrfHeader = response.headers["x-csrf-token"];
     if (csrfHeader) {
       writeCsrfToken(String(csrfHeader));
+    }
+    if (typeof window !== "undefined" && changesNrmsAttention(response.config.method, response.config.url)) {
+      window.dispatchEvent(new CustomEvent("nrms-attention-refresh"));
     }
     return response;
   },
