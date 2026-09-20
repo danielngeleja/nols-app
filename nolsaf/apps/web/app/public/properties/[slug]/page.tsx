@@ -138,9 +138,12 @@ function cloudinaryPreviewUrl(src: string, sizes: string, className: string) {
   if (alreadyTransformed) return src;
 
   const isThumbnail = sizes.includes("120px") || sizes.includes("260px");
+  const isSideGalleryTile = sizes.includes("22vw") || sizes.includes("50vw");
   const isCoverTile = className.includes("object-cover");
   const transform = isThumbnail
     ? "f_auto,q_auto,w_360,c_fill,g_auto"
+    : isSideGalleryTile
+      ? "f_auto,q_auto,w_600,c_fill,g_auto"
     : isCoverTile
       ? "f_auto,q_auto,w_900,c_fill,g_auto"
       : "f_auto,q_auto,w_1400";
@@ -161,7 +164,9 @@ function PropertyGalleryImage({
   priority?: boolean;
   className?: string;
 }) {
-  // Every photo shows a shimmer until it arrives, fades in, and falls back quietly on failure
+  // Keep a neutral background while the file arrives, but never hide the real
+  // image behind a full-load gate. Remote property images load directly so the
+  // visitor does not wait for a second server-side optimization request.
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -176,16 +181,14 @@ function PropertyGalleryImage({
 
   const imageSrc = cloudinaryPreviewUrl(src, sizes, className);
   const bypassNextOptimizer =
-    isCloudinaryImage(src) ||
+    /^https?:\/\//i.test(src) ||
     src.startsWith("http://localhost") ||
     src.startsWith("http://127.0.0.1");
 
   return (
     <>
       {!loaded && !failed ? (
-        <span aria-hidden className="pv-skeleton absolute inset-0 flex items-center justify-center">
-          <span className="pv-spinner" />
-        </span>
+        <span aria-hidden className="pv-skeleton absolute inset-0" />
       ) : null}
       {failed ? (
         <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-slate-100 text-slate-400">
@@ -197,7 +200,7 @@ function PropertyGalleryImage({
           src={imageSrc}
           alt={alt}
           fill
-          className={`${className} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+          className={`${className} opacity-100`}
           sizes={sizes}
           priority={priority}
           unoptimized={bypassNextOptimizer}
@@ -3042,7 +3045,7 @@ export default function PublicPropertyDetailPage() {
                     onClick={() => openLightbox(1)}
                     aria-label="Open photo 2"
                   >
-                    <PropertyGalleryImage src={gallery[1]} alt={`${property.title} photo 2`} sizes="(min-width: 768px) 22vw, 50vw" />
+                    <PropertyGalleryImage src={gallery[1]} alt={`${property.title} photo 2`} sizes="(min-width: 768px) 22vw, 50vw" priority />
                   </button>
                 ) : (
                   <div className="relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden">
@@ -3065,7 +3068,7 @@ export default function PublicPropertyDetailPage() {
                     onClick={() => (hasMorePhotos ? openAllPhotos() : openLightbox(2))}
                     aria-label={hasMorePhotos ? "View all photos" : "Open photo 3"}
                   >
-                    <PropertyGalleryImage src={gallery[2]} alt={`${property.title} photo 3`} sizes="(min-width: 768px) 22vw, 50vw" />
+                    <PropertyGalleryImage src={gallery[2]} alt={`${property.title} photo 3`} sizes="(min-width: 768px) 22vw, 50vw" priority />
                     {hasMorePhotos ? (
                       <div className="absolute right-3 bottom-3">
                         <div className="inline-flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm px-2.5 py-1.5 shadow-sm ring-1 ring-white/10">
