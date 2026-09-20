@@ -648,7 +648,12 @@ function StayActionModal({
     setRoomAvailabilityLoading(true);
     setRoomAvailabilityError(null);
     apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
-      params: { roomTypeId: unassignedAllocation.roomTypeId, checkIn: reservation.checkIn, checkOut: reservation.checkOut },
+      params: {
+        roomTypeId: unassignedAllocation.roomTypeId,
+        checkIn: reservation.checkIn,
+        checkOut: reservation.checkOut,
+        allocationId: unassignedAllocation.id,
+      },
     }).then((response) => {
       if (cancelled) return;
       setAvailableRoomIds(new Set<number>((response.data?.units ?? []).filter((unit: any) => unit.available).map((unit: any) => Number(unit.id))));

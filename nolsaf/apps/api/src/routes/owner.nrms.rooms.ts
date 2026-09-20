@@ -246,7 +246,7 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
 }) as RequestHandler);
 
 /**
- * GET /:propertyId/availability?roomTypeId=&checkIn=&checkOut=
+ * GET /:propertyId/availability?roomTypeId=&checkIn=&checkOut=&allocationId=
  * Per-unit occupancy for one room type over a date range, using the exact same
  * conflict check the reservation-create transaction enforces at submit time -
  * so the form can only offer units that will actually be accepted.
@@ -262,10 +262,33 @@ router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Respons
       roomTypeId: z.coerce.number().int().positive(),
       checkIn: z.coerce.date(),
       checkOut: z.coerce.date(),
+      allocationId: z.coerce.number().int().positive().optional(),
     }).safeParse(req.query);
     if (!query.success) return res.status(400).json({ error: "roomTypeId, checkIn and checkOut are required" });
-    const { roomTypeId, checkIn, checkOut } = query.data;
+    const { roomTypeId, checkIn, checkOut, allocationId } = query.data;
     if (checkOut <= checkIn) return res.status(400).json({ error: "checkOut must be after checkIn" });
+
+    // When the picker is assigning an existing allocation, preview the same
+    // conflict set as the final move-room transaction. Without these
+    // exclusions a marketplace-linked stay can conflict with its own Booking
+    // row, making a genuinely available room disappear from the picker.
+    const assignmentContext = allocationId
+      ? await prisma.reservationRoomAllocation.findFirst({
+          where: {
+            id: allocationId,
+            roomTypeId,
+            status: "ACTIVE",
+            reservation: {
+              propertyId: property.id as number,
+              status: { in: ["CONFIRMED", "CHECKED_IN"] },
+            },
+          },
+          select: { id: true, reservation: { select: { bookingId: true } } },
+        })
+      : null;
+    if (allocationId && !assignmentContext) {
+      return res.status(404).json({ error: "Active room allocation not found" });
+    }
 
     const units = await prisma.roomUnit.findMany({
       where: { propertyId: property.id as number, roomTypeId, status: "ACTIVE" },
@@ -275,7 +298,12 @@ router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Respons
 
     const results = await Promise.all(
       units.map(async (unit) => {
-        const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut);
+        const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut, assignmentContext
+          ? {
+              excludeAllocationId: assignmentContext.id,
+              excludeBookingId: assignmentContext.reservation.bookingId ?? undefined,
+            }
+          : undefined);
         return { id: unit.id, code: unit.code, floor: unit.floor, available: conflicts.length === 0 };
       }),
     );

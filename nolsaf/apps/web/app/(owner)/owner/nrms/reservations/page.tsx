@@ -1066,7 +1066,12 @@ function AssignRoomModal({
     Promise.all([
       apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}`),
       apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
-        params: { roomTypeId: allocation.roomTypeId, checkIn: reservation.checkIn, checkOut: reservation.checkOut },
+        params: {
+          roomTypeId: allocation.roomTypeId,
+          checkIn: reservation.checkIn,
+          checkOut: reservation.checkOut,
+          allocationId: allocation.id,
+        },
       }),
     ])
       .then(([roomsResponse, availabilityResponse]) => {
