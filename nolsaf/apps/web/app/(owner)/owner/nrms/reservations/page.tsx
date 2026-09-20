@@ -2103,6 +2103,8 @@ function ReservationDetailModal({
   const totalGuestSpend = folioTotal + settledAtOutletTotal;
   const totalCollected = (r?.amountPaid ?? 0) + settledAtOutletTotal;
   const folioBalanceBlocked = r?.status === "CHECKED_IN" && (r.balance == null || Math.abs(r.balance) > 0.005);
+  const folioAmountDue = r?.status === "CHECKED_IN" && r.balance != null && r.balance > 0.005 ? r.balance : 0;
+  const folioCredit = r?.status === "CHECKED_IN" && r.balance != null && r.balance < -0.005 ? Math.abs(r.balance) : 0;
   const chargesNeedVerification = r?.status === "CHECKED_IN" && chargesRequiringVerification.some((charge) => !verifiedChargeIds.includes(charge.id));
   const outletReconciliationBlocked = r?.status === "CHECKED_IN" && unclassifiedOutletPayments.length > 0;
   const checkoutBlocked = folioBalanceBlocked || chargesNeedVerification || outletReconciliationBlocked;
@@ -2137,7 +2139,22 @@ function ReservationDetailModal({
     ? [
         { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(r.status) },
         { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED", disabled: !readiness.ready },
-        { key: "check-out", label: folioBalanceBlocked ? "Settle balance first" : outletReconciliationBlocked ? "Classify outlet payments" : chargesNeedVerification ? "Verify every charge" : "Check out", show: r.status === "CHECKED_IN", disabled: checkoutBlocked },
+        {
+          key: "check-out",
+          label: folioAmountDue > 0
+            ? `Payment due · ${money(folioAmountDue, r.currency)}`
+            : folioCredit > 0
+              ? `Resolve credit · ${money(folioCredit, r.currency)}`
+              : folioBalanceBlocked
+                ? "Review folio balance"
+                : outletReconciliationBlocked
+                  ? "Classify outlet payments"
+                  : chargesNeedVerification
+                    ? "Verify every charge"
+                    : "Check out",
+          show: r.status === "CHECKED_IN",
+          disabled: checkoutBlocked,
+        },
         { key: "no-show", label: "No show", show: !isMarketplace && r.status === "CONFIRMED" },
         { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
       ]
@@ -2299,12 +2316,12 @@ function ReservationDetailModal({
               {r.charges && r.charges.length > 0 && (
                 <section className="space-y-2">
                   <div className="flex items-end justify-between gap-3 px-0.5">
-                    <div><h4 className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Room folio charges</h4><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Outlet-posted charges are verified by their completed workflow. Only manual entries require front-desk confirmation.</p></div>
+                    <div><h4 className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Room folio charges</h4><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Verify manual charges here. Verification confirms the charge is correct; payment is recorded separately below.</p></div>
                     <div className="shrink-0 text-right"><span className="block text-[9px] font-bold uppercase tracking-wide text-neutral-400">Charges total</span><strong className="mt-0.5 block text-xs tabular-nums text-neutral-800">{money(r.chargesTotal ?? 0, r.currency)}</strong></div>
                   </div>
                   <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
-                    <div className="hidden min-w-0 grid-cols-[3rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] items-center gap-3 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-[9px] font-bold uppercase tracking-wide text-neutral-400 md:grid">
-                      <span>Control</span><span>Charge</span><span>Source or reference</span><span>Posted</span><span className="text-right">Amount</span><span className="text-right">Action</span>
+                    <div className="hidden min-w-0 grid-cols-[7.75rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] items-center gap-3 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-[9px] font-bold uppercase tracking-wide text-neutral-400 md:grid">
+                      <span>Verification</span><span>Charge</span><span>Source or reference</span><span>Posted</span><span className="text-right">Amount</span><span className="text-right">Action</span>
                     </div>
                     <div className="divide-y divide-neutral-200">
                       {r.charges.map((c) => {
@@ -2313,14 +2330,20 @@ function ReservationDetailModal({
                         const workflowVerified = !c.voidedAt && !needsManualVerification;
                         const categoryLabel = NRMS_CHARGE_CATEGORY_LABELS[c.category as keyof typeof NRMS_CHARGE_CATEGORY_LABELS] ?? c.category.replace(/_/g, " ").toLowerCase();
                         return (
-                          <div key={c.id} className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 md:grid-cols-[3rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] md:gap-3 ${c.voidedAt ? "bg-neutral-50 opacity-60" : checked || workflowVerified ? "bg-emerald-50/50" : "bg-white"}`}>
+                          <div key={c.id} className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 md:grid-cols-[7.75rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] md:gap-3 ${c.voidedAt ? "bg-neutral-50 opacity-60" : checked || workflowVerified ? "bg-emerald-50/50" : "bg-white"}`}>
                             <div className="row-span-3 flex items-center md:row-auto">
                               {r.status === "CHECKED_IN" && needsManualVerification ? (
-                                <label className={`flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border ${checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-300 bg-white text-transparent hover:border-emerald-400"}`}>
-                                  <input type="checkbox" checked={checked} onChange={(event) => setVerifiedChargeIds((current) => event.target.checked ? [...current, c.id] : current.filter((id) => id !== c.id))} aria-label={`Verify charge ${c.description || c.category}`} className="sr-only" />
-                                  <Check className="h-3.5 w-3.5" />
-                                </label>
-                              ) : workflowVerified ? <span title="Verified by completed outlet workflow" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-100 text-emerald-700"><Check className="h-3.5 w-3.5" /></span> : <span className="text-[10px] font-bold text-neutral-400">—</span>}
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={checked}
+                                  onClick={() => setVerifiedChargeIds((current) => checked ? current.filter((id) => id !== c.id) : [...current, c.id])}
+                                  className={`inline-flex h-9 min-w-[7rem] items-center justify-center gap-2 rounded-lg border px-3 text-[10px] font-bold transition ${checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-amber-300 bg-amber-50 text-amber-900 hover:border-emerald-500 hover:bg-emerald-50"}`}
+                                >
+                                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-white/70 bg-white/15" : "border-amber-500 bg-white"}`} aria-hidden="true">{checked && <Check className="h-3 w-3" />}</span>
+                                  {checked ? "Verified" : "Verify charge"}
+                                </button>
+                              ) : workflowVerified ? <span title="Verified by completed outlet workflow" className="inline-flex h-9 min-w-[7rem] items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-100 px-3 text-[10px] font-bold text-emerald-800"><Check className="h-3.5 w-3.5" />Workflow verified</span> : <span className="text-[10px] font-bold text-neutral-400">—</span>}
                             </div>
                             <div className={`min-w-0 md:col-auto ${c.voidedAt ? "line-through" : ""}`}>
                               <span className="block truncate text-xs font-bold text-neutral-800">{categoryLabel}</span>
@@ -2381,7 +2404,7 @@ function ReservationDetailModal({
           )}
 
           {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
+            <section id="guest-payment" className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
               <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700">
@@ -2463,8 +2486,16 @@ function ReservationDetailModal({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <strong>Checkout blocked.</strong>
-                {folioBalanceBlocked && <p className="m-0 mt-1">Record the full outstanding payment or resolve the guest credit.</p>}
+                {folioAmountDue > 0 && <p className="m-0 mt-1">The folio still has {money(folioAmountDue, r.currency)} to collect. Verifying a charge confirms it is correct; it does not record money received.</p>}
+                {folioCredit > 0 && <p className="m-0 mt-1">Resolve the guest credit of {money(folioCredit, r.currency)} before checkout.</p>}
+                {folioBalanceBlocked && folioAmountDue === 0 && folioCredit === 0 && <p className="m-0 mt-1">The folio balance could not be confirmed. Refresh and review its payments.</p>}
                 {chargesNeedVerification && <p className="m-0 mt-1">Verify the {chargesRequiringVerification.length} manual room-folio {chargesRequiringVerification.length === 1 ? "charge" : "charges"} listed above. Charges posted through the completed outlet workflow are already verified.</p>}
+                {outletReconciliationBlocked && <p className="m-0 mt-1">Classify the payment method for every settled outlet order.</p>}
+                {folioAmountDue > 0 && (
+                  <button type="button" onClick={() => document.getElementById("guest-payment")?.scrollIntoView({ behavior: "smooth", block: "center" })} className="mt-2 inline-flex h-8 items-center rounded-md border border-red-300 bg-white px-3 text-[10px] font-bold text-red-800 hover:bg-red-100">
+                    Go to payment entry
+                  </button>
+                )}
               </div>
             </div>
           )}
