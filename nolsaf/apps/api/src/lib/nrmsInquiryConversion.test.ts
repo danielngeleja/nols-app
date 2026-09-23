@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildInquiryAcknowledgement } from "./nrmsInquiryAcknowledgement.js";
 import { createInquiryRoomHold } from "./nrmsInquiryConversion.js";
 
@@ -49,6 +49,16 @@ const input = {
 };
 
 describe("reception inquiry journey", () => {
+  // The fixture stay (12 to 14 Sep 2026) must stay in the future for the
+  // conversion to accept it, so pin only the clock, not the timers.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T08:00:00.000Z"));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   it("acknowledges the request and atomically creates a staff-attributed hold", async () => {
     const { db, tx } = conversionDb();
     const acknowledgement = buildInquiryAcknowledgement({ propertyTitle: "Sheraton Hotel", guestName: input.guestName, checkIn: input.checkIn, checkOut: input.checkOut, channels: { whatsapp: true } });

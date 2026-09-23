@@ -207,6 +207,19 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
     .strict(),
 ]);
 
+/** How a destination reads on sales payout requests and receipts, e.g. "M-Pesa" or "CRDB Bank". */
+function payoutMethodLabel(isBank: boolean, provider: string): string {
+  if (isBank) return `${provider} Bank`;
+  switch (canonicalAzamPayProvider(provider)) {
+    case "vodacom": return "M-Pesa";
+    case "yas": return "Mixx by Yas";
+    case "airtel": return "Airtel Money";
+    case "halotel": return "HaloPesa";
+    case "azampesa": return "AzamPesa";
+    default: return provider;
+  }
+}
+
 const confirmPayoutSchema = z.object({
   challengeToken: z.string().trim().min(32).max(256),
 }).strict();
@@ -1730,6 +1743,17 @@ const updatePayouts: RequestHandler = async (req, res) => {
         data: { isDefault: false, isActive: false },
       });
       await tx.user.update({ where: { id: userId }, data: { payout: payoutData } });
+      // Sales partners withdraw through SalesPayoutRequest, which requires and
+      // snapshots these profile fields. Keep them in step with the verified
+      // destination so there is one place to set it. No-op for everyone else.
+      await tx.salesPartnerProfile.updateMany({
+        where: { userId },
+        data: {
+          payoutName: resolvedName,
+          payoutMethod: payoutMethodLabel(isBank, provider),
+          payoutAccount: accountNumber,
+        },
+      });
       return verified;
     });
 

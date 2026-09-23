@@ -37,6 +37,7 @@ import {
   X,
 } from "lucide-react";
 import { useSalesWorkspace } from "@/components/sales/SalesWorkspaceContext";
+import apiClient from "@/lib/apiClient";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 export type { SalesMe } from "@/components/sales/SalesWorkspaceContext";
 
@@ -250,6 +251,35 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const [navigation, setNavigation] = useState<{ href: string; label: string } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Unread count for the Notifications badges: refreshed on every page change,
+  // once a minute, and at once when the notifications page marks one read.
+  const refreshUnread = useCallback(async () => {
+    try {
+      const response = await apiClient.get("/api/sales/notifications", { params: { tab: "unread", page: 1, pageSize: 1 } });
+      setUnreadCount(Math.max(0, Number(response.data?.totalUnread || 0)));
+    } catch {
+      // Keep the last known count; a badge is not worth an error message.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    void refreshUnread();
+  }, [me, pathname, refreshUnread]);
+
+  useEffect(() => {
+    if (!me) return;
+    const interval = window.setInterval(() => void refreshUnread(), 60_000);
+    const onChanged = () => void refreshUnread();
+    window.addEventListener("sales-notifications-changed", onChanged);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("sales-notifications-changed", onChanged);
+    };
+  }, [me, refreshUnread]);
+  const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   useEffect(() => {
     try {
@@ -382,11 +412,13 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                     ? navigation.href === "/sales"
                     : navigation.href.startsWith(item.href)
                   : false;
+                const badge = item.href === "/sales/notifications" && unreadCount > 0 ? unreadLabel : null;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    title={sidebarCollapsed ? item.label : undefined}
+                    title={sidebarCollapsed ? (badge ? `${item.label} (${badge} unread)` : item.label) : undefined}
+                    aria-label={badge ? `${item.label}, ${badge} unread` : undefined}
                     aria-current={active ? "page" : undefined}
                     className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${
                       sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
@@ -404,6 +436,22 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                       )}
                     </span>
                     {!sidebarCollapsed ? <span className="flex-1 truncate">{item.label}</span> : null}
+                    {badge ? (
+                      sidebarCollapsed ? (
+                        <span className="absolute right-1.5 top-1 grid min-w-[1.05rem] place-items-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-[1.05rem] text-emerald-950 ring-2 ring-[#082f2a]" aria-hidden>
+                          {badge}
+                        </span>
+                      ) : (
+                        <span
+                          className={`grid min-w-[1.35rem] shrink-0 place-items-center rounded-full px-1.5 text-[11px] font-bold leading-5 ${
+                            active ? "bg-emerald-950 text-emerald-100" : "bg-amber-400 text-emerald-950"
+                          }`}
+                          aria-hidden
+                        >
+                          {badge}
+                        </span>
+                      )
+                    ) : null}
                   </Link>
                 );
               })}
@@ -548,9 +596,14 @@ export default function SalesShell({ children }: { children: ReactNode }) {
             <Link
               href="/sales/notifications"
               className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-neutral-200 bg-white text-neutral-600 no-underline hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline"
-              aria-label="Sales notifications"
+              aria-label={unreadCount > 0 ? `Sales notifications, ${unreadLabel} unread` : "Sales notifications"}
             >
               <Bell className="h-4 w-4" />
+              {unreadCount > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 grid min-w-[1.25rem] place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-5 text-white ring-2 ring-white" aria-hidden>
+                  {unreadLabel}
+                </span>
+              ) : null}
             </Link>
           </div>
         </header>

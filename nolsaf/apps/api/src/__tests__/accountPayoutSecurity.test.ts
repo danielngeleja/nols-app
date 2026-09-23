@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   txAccountUpdate: vi.fn(),
   txAccountUpdateMany: vi.fn(),
   txUserUpdate: vi.fn(),
+  txSalesProfileUpdateMany: vi.fn(),
   sendSms: vi.fn(),
   sendMail: vi.fn(),
 }));
@@ -78,6 +79,7 @@ const tx = {
     updateMany: mocks.txAccountUpdateMany,
   },
   user: { update: mocks.txUserUpdate },
+  salesPartnerProfile: { updateMany: mocks.txSalesProfileUpdateMany },
 };
 
 function app() {
@@ -227,6 +229,11 @@ describe("secure payout destination update", () => {
       data: { isDefault: false, isActive: false },
     });
     expect(response.body.data.payoutAccount.accountNumber).toBe("********0001");
+    // A sales partner's withdrawal profile follows the same verified destination.
+    expect(mocks.txSalesProfileUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 44 },
+      data: { payoutName: "ASHA MTUMWA", payoutMethod: "AzamPesa", payoutAccount: "255700000001" },
+    });
 
     const replay = await request(app()).put("/account/payouts").send({
       challengeToken: lookupResponse.body.data.challengeToken,

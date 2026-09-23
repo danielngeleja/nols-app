@@ -106,6 +106,8 @@ export default function SalesNotificationsPage() {
     try {
       await apiClient.post(`/api/sales/notifications/${item.id}/read`, {});
       await load();
+      // Let the sidebar and header badges update without waiting for their poll.
+      window.dispatchEvent(new Event("sales-notifications-changed"));
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Could not update this notification.");
     } finally {

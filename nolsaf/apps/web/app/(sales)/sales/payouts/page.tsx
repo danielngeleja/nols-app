@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Landmark, Loader2, Send, Wallet } from "lucide-react";
+import { AlertTriangle, CircleDollarSign, Loader2, Send, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
+import SalesPayoutDestination from "@/components/sales/SalesPayoutDestination";
 
 type Payout = {
   id: number;
@@ -48,16 +49,18 @@ export default function SalesPayoutsPage() {
     setLoading(true);
     setError("");
     try {
-      const [payoutResponse, summaryResponse, meResponse] = await Promise.all([
+      // Settle each request on its own so one failure (for example payout
+      // history) cannot leave the balance or destination stuck on placeholders.
+      const [payoutResult, summaryResult, meResult] = await Promise.allSettled([
         apiClient.get("/api/sales/payouts", { params: { pageSize: 100 } }),
         apiClient.get("/api/sales/earnings/summary"),
         apiClient.get("/api/sales/me"),
       ]);
-      setPayouts(payoutResponse.data?.payouts || []);
-      setSummary(summaryResponse.data?.summary || { available: 0, currency: "TZS" });
-      setMe(meResponse.data || null);
-    } catch (cause: any) {
-      setError(cause?.response?.data?.error || "Could not load payouts.");
+      if (payoutResult.status === "fulfilled") setPayouts(payoutResult.value.data?.payouts || []);
+      if (summaryResult.status === "fulfilled") setSummary(summaryResult.value.data?.summary || { available: 0, currency: "TZS" });
+      if (meResult.status === "fulfilled") setMe(meResult.value.data || null);
+      const failed = [payoutResult, summaryResult, meResult].find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) setError(failed.reason?.response?.data?.error || "Some payout details could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -165,55 +168,7 @@ export default function SalesPayoutsPage() {
             </div>
 
             <div className="bg-white/95 px-5 py-5 sm:px-7 sm:py-6">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  <Landmark className="h-4 w-4 text-emerald-700" />
-                  Payout destination
-                </div>
-                {!loading ? (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
-                    destinationReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                  }`}>
-                    {destinationReady ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-                    {destinationReady ? "Ready" : "Action required"}
-                  </span>
-                ) : null}
-              </div>
-
-              {loading ? (
-                <div className="mt-4 space-y-2">
-                  <div className="h-5 w-44 animate-pulse rounded-lg bg-slate-100" />
-                  <div className="h-4 w-64 max-w-full animate-pulse rounded-lg bg-slate-100" />
-                </div>
-              ) : destinationReady ? (
-                <div className="mt-4 flex items-center gap-3">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-                    <CheckCircle2 className="h-5 w-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="m-0 truncate text-sm font-black text-slate-900">{me!.payout.name}</p>
-                    <p className="mb-0 mt-1 text-xs text-slate-500">
-                      {me!.payout.method} ending {me!.payout.accountMasked}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-3.5">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-amber-700 shadow-sm">
-                    <AlertTriangle className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <p className="m-0 text-sm font-bold text-amber-900">Destination details are incomplete</p>
-                    <p className="mb-0 mt-1 text-xs leading-5 text-amber-800/80">
-                      Ask an administrator to add your payout name, method and account before requesting.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <p className="mb-0 mt-3 text-[11px] text-slate-400">
-                Your saved destination is securely snapshotted when a request is submitted.
-              </p>
+              <SalesPayoutDestination current={me?.payout} loading={loading} onSaved={() => void load()} />
             </div>
           </div>
         </section>
