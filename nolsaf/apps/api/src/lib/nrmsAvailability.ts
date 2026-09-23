@@ -57,6 +57,7 @@ export async function lockPropertyInventory(tx: any, propertyId: number): Promis
 
 export type NrmsCapacityConsumer = {
   reservationId: number;
+  guestName: string | null;
   allocationId: number;
   roomTypeId: number;
   roomTypeName: string;
@@ -97,10 +98,12 @@ export async function getNrmsCapacityConsumers(
       endDate: true,
       roomType: { select: { name: true } },
       roomUnit: { select: { code: true } },
+      reservation: { select: { guestProfile: { select: { fullName: true } } } },
     },
   });
   return rows.map((row: any) => ({
     reservationId: row.reservationId,
+    guestName: row.reservation?.guestProfile?.fullName ?? null,
     allocationId: row.id,
     roomTypeId: row.roomTypeId,
     roomTypeName: row.roomType.name,
@@ -109,6 +112,90 @@ export async function getNrmsCapacityConsumers(
     startDate: row.startDate,
     endDate: row.endDate,
   }));
+}
+
+export type NrmsMarketplaceHold = {
+  id: number;
+  startDate: Date;
+  endDate: Date;
+  roomCode: string | null;
+  /** Physical room held; null for type-level holds (unassigned rooms, group blocks). */
+  roomUnitCode: string | null;
+  source: "NRMS";
+  bedsBlocked: number;
+  notes: string;
+  nrmsKind: "RESERVATION" | "GROUP_BLOCK";
+  /** Reservation id or group block id, depending on nrmsKind. */
+  nrmsRefId: number;
+  /** Guest name for a reservation; block name for a group block. */
+  label: string;
+};
+
+/**
+ * Everything NRMS holds that the marketplace must not sell, shaped like an
+ * availability block (roomCode = unit code or room type name, bedsBlocked =
+ * rooms). Covers live reservation allocations plus group-block rooms not yet
+ * picked up; a picked-up room is already one of the allocations. Group rows use
+ * ids offset past allocation ids so the two never collide.
+ */
+export async function getNrmsMarketplaceHolds(
+  db: DbLike,
+  propertyId: number,
+  start: Date,
+  end: Date,
+): Promise<NrmsMarketplaceHold[]> {
+  const [consumers, groupBlocks] = await Promise.all([
+    getNrmsCapacityConsumers(db, propertyId, start, end),
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(start, end, "checkIn", "checkOut"),
+      },
+      select: {
+        id: true,
+        name: true,
+        reference: true,
+        checkIn: true,
+        checkOut: true,
+        rooms: { select: { id: true, quantity: true, pickedUp: true, roomType: { select: { name: true } } } },
+      },
+    }),
+  ]);
+  const holds: NrmsMarketplaceHold[] = consumers.map((row) => ({
+    id: -row.allocationId,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    roomCode: row.roomUnitCode ?? row.roomTypeName,
+    roomUnitCode: row.roomUnitCode,
+    source: "NRMS",
+    bedsBlocked: 1,
+    notes: `NRMS reservation ${row.reservationId}`,
+    nrmsKind: "RESERVATION",
+    nrmsRefId: row.reservationId,
+    label: row.guestName ?? "NRMS reservation",
+  }));
+  for (const block of groupBlocks as any[]) {
+    for (const room of block.rooms) {
+      const held = Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0));
+      if (held < 1) continue;
+      holds.push({
+        id: -(1_000_000_000 + room.id),
+        startDate: block.checkIn,
+        endDate: block.checkOut,
+        roomCode: room.roomType.name,
+        roomUnitCode: null,
+        source: "NRMS",
+        bedsBlocked: held,
+        notes: `NRMS group block ${block.reference}`,
+        nrmsKind: "GROUP_BLOCK",
+        nrmsRefId: block.id,
+        label: `${block.name} · ${held} awaiting names`,
+      });
+    }
+  }
+  return holds;
 }
 
 export async function getRoomTypeAvailability(

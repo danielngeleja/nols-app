@@ -36,7 +36,7 @@
 
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "./bookingStatus.js";
-import { getNrmsCapacityConsumers } from "./nrmsAvailability.js";
+import { getNrmsMarketplaceHolds } from "./nrmsAvailability.js";
 import { evaluateRestrictionRules, type RestrictionBlock } from "./nrmsRestrictions.js";
 import { matchingRoomSelectionCodes } from "./roomSelectionCode.js";
 
@@ -220,15 +220,8 @@ export async function calculateAvailability(
     },
     orderBy: { startDate: 'asc' },
   });
-  const nrmsConsumers = await getNrmsCapacityConsumers(prisma, propertyId, startDate, endDate);
-  blocks.push(...nrmsConsumers.map((row) => ({
-    id: -row.allocationId,
-    startDate: row.startDate,
-    endDate: row.endDate,
-    roomCode: row.roomUnitCode ?? row.roomTypeName,
-    source: "NRMS",
-    bedsBlocked: 1,
-  })));
+  const nrmsHolds = await getNrmsMarketplaceHolds(prisma, propertyId, startDate, endDate);
+  blocks.push(...nrmsHolds.map(({ notes: _notes, ...row }) => row));
 
   /**
    * NRMS controls covering this range. Loaded once for the property, then
