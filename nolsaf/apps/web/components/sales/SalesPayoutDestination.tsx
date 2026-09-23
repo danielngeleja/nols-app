@@ -159,8 +159,16 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
               </button>
             </div>
           ) : (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50/70 p-3.5">
-              <p className="m-0 text-sm text-amber-900">Add the mobile money number your earnings should be sent to.</p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
+                  <Smartphone className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="m-0 text-sm font-medium text-slate-800">No destination yet</p>
+                  <p className="m-0 mt-0.5 text-xs text-slate-500">Add the M-Pesa, Mixx, Airtel, HaloPesa or AzamPesa number your earnings go to.</p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => { setMode("edit"); setError(""); }}

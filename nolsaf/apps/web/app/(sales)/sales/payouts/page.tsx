@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CircleDollarSign, Loader2, Send, Wallet } from "lucide-react";
+import { AlertTriangle, Check, CircleDollarSign, Loader2, Send, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPayoutDestination from "@/components/sales/SalesPayoutDestination";
+import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Payout = {
   id: number;
@@ -110,67 +111,76 @@ export default function SalesPayoutsPage() {
     <SalesShell>
       <style jsx global>{`#sales-payouts, #sales-payouts * { box-sizing: border-box; }`}</style>
       <div id="sales-payouts">
-        <section className="relative overflow-hidden rounded-[26px] border border-emerald-100 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
-          <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-emerald-100/60 blur-3xl" />
-          <div className="relative flex items-start gap-4 px-5 py-6 sm:px-7 sm:py-7">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#087f68] text-white shadow-[0_14px_30px_-18px_rgba(8,127,104,0.9)]">
-              <Wallet className="h-6 w-6" />
-            </span>
-            <div className="min-w-0">
-              <p className="m-0 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
-                Sales workspace
-              </p>
-              <h1 className="mb-0 mt-1.5 text-[clamp(1.45rem,2.5vw,2rem)] font-black leading-tight tracking-[-0.035em] text-slate-950">
-                Payouts
-              </h1>
-              <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Request available earnings and follow each finance review through to settlement.
-              </p>
-            </div>
-          </div>
+        <SalesPageHeader
+          icon={Wallet}
+          title="Payouts"
+          description="Withdraw your available earnings and follow each request through finance review to payment."
+        />
 
-          <div className="relative grid gap-px border-t border-slate-200 bg-slate-200 lg:grid-cols-[0.9fr_1.1fr]">
-            <div className="bg-white/95 px-5 py-5 sm:px-7 sm:py-6">
-              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                <CircleDollarSign className="h-4 w-4 text-emerald-700" />
-                Available to withdraw
+        <section className="mt-4 grid gap-4 lg:grid-cols-2">
+          {/* Balance, progress to the minimum, and what is still needed */}
+          <article className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+            <p className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <CircleDollarSign className="h-4 w-4 text-emerald-700" aria-hidden />
+              Available to withdraw
+            </p>
+
+            {loading ? (
+              <div className="mt-4 space-y-3" aria-busy="true">
+                <div className="h-9 w-40 animate-pulse rounded-lg bg-slate-100" />
+                <div className="h-2 w-full animate-pulse rounded-full bg-slate-100" />
               </div>
-
-              {loading ? (
-                <div className="mt-4 h-9 w-48 animate-pulse rounded-lg bg-slate-100" />
-              ) : (
-                <p className="mb-0 mt-3 text-3xl font-black tracking-[-0.04em] text-slate-950">
+            ) : (
+              <>
+                <p className="m-0 mt-3 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
                   {money(summary.available, summary.currency)}
                 </p>
-              )}
-
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="m-0 text-xs font-semibold text-slate-600">
-                    Minimum {money(MIN_PAYOUT_AMOUNT, summary.currency)} per request
-                  </p>
-                  {!loading && !minimumReached ? (
-                    <p className="mb-0 mt-1 text-[11px] text-slate-400">
-                      {money(Math.max(0, MIN_PAYOUT_AMOUNT - summary.available), summary.currency)} more needed
-                    </p>
-                  ) : null}
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-[#087f68] transition-[width] duration-500"
+                    style={{ width: `${Math.min(100, (summary.available / MIN_PAYOUT_AMOUNT) * 100)}%` }}
+                  />
                 </div>
-                <button
-                  type="button"
-                  disabled={!canRequest}
-                  onClick={() => void requestPayout()}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white shadow-[0_12px_24px_-16px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
-                >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {busy ? "Submitting" : "Request payout"}
-                </button>
-              </div>
-            </div>
+                <p className="m-0 mt-1.5 text-xs text-slate-500">
+                  {minimumReached
+                    ? `Minimum of ${money(MIN_PAYOUT_AMOUNT, summary.currency)} reached`
+                    : `${money(Math.max(0, MIN_PAYOUT_AMOUNT - summary.available), summary.currency)} more to reach the ${money(MIN_PAYOUT_AMOUNT, summary.currency)} minimum`}
+                </p>
 
-            <div className="bg-white/95 px-5 py-5 sm:px-7 sm:py-6">
-              <SalesPayoutDestination current={me?.payout} loading={loading} onSaved={() => void load()} />
-            </div>
-          </div>
+                <ul className="m-0 mt-4 list-none space-y-2 p-0">
+                  {[
+                    { done: minimumReached, text: `At least ${money(MIN_PAYOUT_AMOUNT, summary.currency)} available` },
+                    { done: destinationReady, text: "Payout destination verified" },
+                  ].map((step) => (
+                    <li key={step.text} className="flex items-center gap-2 text-sm">
+                      <span
+                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${step.done ? "bg-emerald-600 text-white" : "border border-slate-300 bg-white"}`}
+                        aria-hidden
+                      >
+                        {step.done ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
+                      </span>
+                      <span className={step.done ? "text-slate-700" : "text-slate-500"}>{step.text}</span>
+                      <span className="sr-only">{step.done ? "done" : "not yet"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            <button
+              type="button"
+              disabled={!canRequest}
+              onClick={() => void requestPayout()}
+              className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#087f68] px-4 text-sm font-semibold text-white transition hover:bg-[#066b59] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:mt-auto sm:w-auto sm:self-start"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
+              {busy ? "Submitting" : "Request payout"}
+            </button>
+          </article>
+
+          <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
+            <SalesPayoutDestination current={me?.payout} loading={loading} onSaved={() => void load()} />
+          </article>
         </section>
 
         {!loading && error ? <p className="mt-4 flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
