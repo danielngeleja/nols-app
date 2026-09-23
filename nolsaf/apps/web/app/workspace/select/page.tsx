@@ -7,16 +7,7 @@
 // See docs/SALES_PARTNER_WORKSPACE.md section 4.3.
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  BadgeDollarSign,
-  Bell,
-  ChevronRight,
-  FileSignature,
-  Loader2,
-  Sparkles,
-  TrendingUp,
-  User,
-} from "lucide-react";
+import { BadgeDollarSign, ChevronRight, FileSignature, Loader2, User } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Workspace = "NORMAL" | "SALES";
@@ -134,96 +125,94 @@ export default function WorkspaceSelectPage() {
   const sales = options.find((option) => option.workspace === "SALES");
   const normal = options.find((option) => option.workspace === "NORMAL");
   const salesPending = sales?.status === "PENDING";
+  const firstName = name.trim().split(/\s+/)[0] || "";
+
+  const choices = [
+    sales
+      ? {
+          key: "SALES" as const,
+          title: "Sales workspace",
+          subtitle: salesPending ? "Your agreement is ready to review" : "Leads, properties and earnings",
+          Icon: salesPending ? FileSignature : BadgeDollarSign,
+          iconTone: "bg-emerald-50 text-emerald-700",
+          badge: salesPending
+            ? { text: "Action needed", tone: "bg-amber-50 text-amber-700" }
+            : { text: "Active", tone: "bg-emerald-50 text-emerald-700" },
+        }
+      : null,
+    normal
+      ? {
+          key: "NORMAL" as const,
+          title: "Personal account",
+          subtitle: "Bookings, trips and your profile",
+          Icon: User,
+          iconTone: "bg-slate-100 text-slate-600",
+          badge: null,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: Workspace;
+    title: string;
+    subtitle: string;
+    Icon: typeof User;
+    iconTone: string;
+    badge: { text: string; tone: string } | null;
+  }>;
 
   return (
     <div id="workspace-select" className="flex min-h-screen items-center justify-center bg-[#f4f5f7] px-4 py-10">
       <div className="w-full max-w-md">
-        <div className="mb-5 text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">
-            <Sparkles className="h-3 w-3" />
-            {name ? `Welcome back, ${name}` : "Welcome back"}
-          </span>
-          <h1 className="mb-0 mt-3 text-xl font-bold tracking-tight text-neutral-950">
-            Where would you like to go?
-          </h1>
-          <p className="mb-0 mt-1.5 text-[13px] text-neutral-500">
-            You are signed in with a Sales workspace and a personal account.
-          </p>
+        <div className="mb-6 text-center">
+          <p className="m-0 text-sm font-medium text-emerald-700">{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</p>
+          <h1 className="m-0 mt-1.5 text-2xl font-bold tracking-tight text-slate-900">Where would you like to go?</h1>
+          <p className="m-0 mt-1.5 text-sm text-slate-500">You can switch between them at any time.</p>
         </div>
 
         {error ? (
-          <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          <p className="m-0 mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
             {error}
           </p>
         ) : null}
 
-        {sales ? (
-          <button
-            type="button"
-            onClick={() => go("SALES")}
-            disabled={selecting !== null}
-            className="mb-3 block w-full overflow-hidden rounded-2xl bg-[#07332d] text-left text-white shadow-[0_18px_40px_-24px_rgba(4,54,44,0.7)] transition hover:shadow-[0_20px_46px_-22px_rgba(4,54,44,0.85)] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-60"
-          >
-            <span className="flex items-center gap-3 px-4 pb-3.5 pt-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-emerald-950">
-                {salesPending ? <FileSignature className="h-5 w-5" /> : <BadgeDollarSign className="h-5 w-5" />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-bold">Sales workspace</span>
-                <span className="mt-0.5 block text-xs text-emerald-100/80">
-                  {salesPending ? "Agreement ready for review" : "Leads, properties and earnings"}
+        <div className="space-y-3">
+          {choices.map((choice) => {
+            const busy = selecting === choice.key;
+            return (
+              <button
+                key={choice.key}
+                type="button"
+                onClick={() => go(choice.key)}
+                disabled={selecting !== null}
+                className="group flex w-full items-center gap-4 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-4 text-left shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)] transition [font-family:inherit] hover:border-emerald-300 hover:shadow-[0_14px_34px_-24px_rgba(8,127,104,0.45)] focus:outline-none focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${choice.iconTone}`}>
+                  <choice.Icon className="h-5 w-5" aria-hidden />
                 </span>
-              </span>
-              <span className="inline-flex shrink-0 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold text-emerald-200">
-                {salesPending ? "PENDING" : "ACTIVE"}
-              </span>
-              {selecting === "SALES" ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-200" />
-              ) : (
-                <ChevronRight className="h-4 w-4 shrink-0 text-emerald-200" />
-              )}
-            </span>
-            <span className="flex items-center gap-4 border-t border-white/10 px-4 py-2.5">
-              {(salesPending
-                ? [[FileSignature, "Review"], [Bell, "Updates"], [User, "Your account"]]
-                : [[TrendingUp, "Leads"], [BadgeDollarSign, "Earnings"], [Bell, "Updates"]]
-              ).map(([Icon, label]: any) => (
-                <span key={label} className="inline-flex items-center gap-1.5 text-[11px] text-emerald-100/75">
-                  <Icon className="h-3.5 w-3.5" />{label}
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-[15px] font-semibold text-slate-900">{choice.title}</span>
+                    {choice.badge ? (
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${choice.badge.tone}`}>{choice.badge.text}</span>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block text-sm text-slate-500">{choice.subtitle}</span>
                 </span>
-              ))}
-            </span>
-          </button>
-        ) : null}
+                {busy ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" aria-label="Opening" />
+                ) : (
+                  <ChevronRight className="h-5 w-5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600" aria-hidden />
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-        {normal ? (
-          <button
-            type="button"
-            onClick={() => go("NORMAL")}
-            disabled={selecting !== null}
-            className="flex w-full items-center gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3.5 text-left shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)] transition hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 disabled:opacity-60"
-          >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
-              <User className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-bold text-neutral-900">My personal account</span>
-              <span className="mt-0.5 block text-xs text-neutral-400">Bookings, trips and your profile</span>
-            </span>
-            {selecting === "NORMAL" ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" />
-            ) : (
-              <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300" />
-            )}
-          </button>
-        ) : null}
-
-        <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 text-[11.5px] text-neutral-500">
+        <label className="mt-5 flex cursor-pointer items-center justify-center gap-2 text-sm text-slate-500">
           <input
             type="checkbox"
             checked={remember}
             onChange={(event) => setRemember(event.target.checked)}
-            className="h-3.5 w-3.5 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
+            className="h-4 w-4 rounded border border-solid border-slate-300 text-emerald-600 focus:ring-emerald-500"
           />
           Remember my choice on this device
         </label>

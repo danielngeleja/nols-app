@@ -7355,6 +7355,10 @@ model SalesPartnerProfile {
   payoutMethod  String? @db.VarChar(40)
   payoutAccount String? @db.VarChar(80)
 
+  /// TRA Taxpayer Identification Number, printed on statements and on the
+  /// withholding tax summary.
+  taxIdNumber String? @db.VarChar(20)
+
   activatedAt  DateTime?
   suspendedAt  DateTime?
   terminatedAt DateTime?
@@ -7694,6 +7698,11 @@ model SalesPayoutRequest {
   requestedAmount Decimal  @db.Decimal(12, 2)
   approvedAmount  Decimal? @db.Decimal(12, 2)
   deductionAmount Decimal  @default(0.00) @db.Decimal(12, 2)
+  /// Withholding tax taken at approval: netPaidAmount = approvedAmount -
+  /// deductionAmount - withholdingTaxAmount. The rate is snapshotted so a later
+  /// change of the configured rate never rewrites what was withheld.
+  withholdingTaxRate   Decimal? @db.Decimal(5, 2)
+  withholdingTaxAmount Decimal  @default(0.00) @db.Decimal(12, 2)
   netPaidAmount   Decimal? @db.Decimal(12, 2)
 
   currency String @default("TZS") @db.VarChar(3)

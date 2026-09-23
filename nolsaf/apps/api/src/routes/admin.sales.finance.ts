@@ -14,6 +14,7 @@ import {
   canApproveCommission,
   canReverseCommission,
   canTransitionSalesPayout,
+  salesWithholdingTaxRate,
 } from "../lib/salesFinance.js";
 
 const router = Router();
@@ -86,6 +87,8 @@ function publicPayout(row: any) {
     requestedAmount: number(row.requestedAmount),
     approvedAmount: row.approvedAmount == null ? null : number(row.approvedAmount),
     deductionAmount: number(row.deductionAmount),
+    withholdingTaxRate: row.withholdingTaxRate == null ? null : number(row.withholdingTaxRate),
+    withholdingTaxAmount: number(row.withholdingTaxAmount),
     netPaidAmount: row.netPaidAmount == null ? null : number(row.netPaidAmount),
     payoutAccount: maskPayoutAccount(row.payoutAccount),
   };
@@ -333,7 +336,9 @@ router.get("/payouts", limitSalesAdminRead, asyncHandler(async (req: AuthedReque
       },
     }),
   ]);
-  res.json({ total, page, pageSize, payouts: payouts.map(publicPayout) });
+  // The rate the next approval will apply, so the review screen previews the
+  // same net figure the server will record.
+  res.json({ total, page, pageSize, payouts: payouts.map(publicPayout), withholdingTaxRate: salesWithholdingTaxRate() });
 }));
 
 router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -353,11 +358,11 @@ router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGra
     if (!current.items.length) throw new FinanceConflictError("Payout has no locked earnings");
     let amounts;
     try {
-      amounts = calculateSalesPayoutApproval(number(current.requestedAmount), input.deductionAmount);
+      amounts = calculateSalesPayoutApproval(number(current.requestedAmount), input.deductionAmount, salesWithholdingTaxRate());
     } catch {
       throw new FinanceConflictError("Deduction must be less than the requested amount");
     }
-    const { approvedAmount, netPaidAmount } = amounts;
+    const { approvedAmount, netPaidAmount, withholdingTaxRate, withholdingTaxAmount } = amounts;
     const changed = await tx.salesPayoutRequest.updateMany({
       where: { id, status: { in: ["REQUESTED", "UNDER_REVIEW"] } },
       data: {
@@ -367,6 +372,8 @@ router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGra
         reviewedById: req.user!.id,
         approvedAmount,
         deductionAmount: input.deductionAmount,
+        withholdingTaxRate: withholdingTaxRate > 0 ? withholdingTaxRate : null,
+        withholdingTaxAmount,
         netPaidAmount,
         adminNotes: input.reason,
       },
@@ -374,15 +381,15 @@ router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGra
     if (changed.count !== 1) throw new FinanceConflictError("Payout was changed by another administrator");
     await tx.auditLog.create({ data: auditData(req, "SALES_PAYOUT_APPROVE", "SALES_PAYOUT_REQUEST", id,
       { status: current.status, requestedAmount: current.requestedAmount },
-      { status: "APPROVED", approvedAmount, deductionAmount: input.deductionAmount, netPaidAmount, reason: input.reason }) });
-    return { ...current, approvedAmount, deductionAmount: input.deductionAmount, netPaidAmount };
+      { status: "APPROVED", approvedAmount, deductionAmount: input.deductionAmount, withholdingTaxRate, withholdingTaxAmount, netPaidAmount, reason: input.reason }) });
+    return { ...current, approvedAmount, deductionAmount: input.deductionAmount, withholdingTaxAmount, netPaidAmount };
   });
   await notifyUser(payout.salesPartner.userId, "sales_partner_payout_approved", {
     referenceNumber: payout.referenceNumber,
     amount: payout.netPaidAmount,
     currency: payout.currency,
   }).catch(() => {});
-  res.json({ ok: true, payout: { id, status: "APPROVED", netPaidAmount: payout.netPaidAmount } });
+  res.json({ ok: true, payout: { id, status: "APPROVED", withholdingTaxAmount: payout.withholdingTaxAmount, netPaidAmount: payout.netPaidAmount } });
 }));
 
 router.post("/payouts/:id/reject", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {

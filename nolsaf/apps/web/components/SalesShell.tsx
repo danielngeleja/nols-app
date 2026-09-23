@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileSignature,
+  FileText,
   Headphones,
   HeartPulse,
   LayoutDashboard,
@@ -47,6 +48,7 @@ const NAV = [
   { href: "/sales/properties", label: "Properties", Icon: Building2 },
   { href: "/sales/earnings", label: "Earnings", Icon: WalletCards },
   { href: "/sales/payouts", label: "Payouts", Icon: Send },
+  { href: "/sales/statements", label: "Statements", Icon: FileText },
   { href: "/sales/contract", label: "Contract", Icon: FileSignature },
   { href: "/sales/materials", label: "Marketing materials", Icon: BookOpen },
   { href: "/sales/notifications", label: "Notifications", Icon: Bell },
@@ -55,8 +57,8 @@ const NAV = [
 
 const NAV_GROUPS = [
   { label: "Workspace", items: NAV.slice(0, 3) },
-  { label: "Finance", items: NAV.slice(3, 5) },
-  { label: "Resources", items: NAV.slice(5) },
+  { label: "Finance", items: NAV.slice(3, 6) },
+  { label: "Resources", items: NAV.slice(6) },
 ];
 
 /** Status pill colours, per doc section 9.7. */

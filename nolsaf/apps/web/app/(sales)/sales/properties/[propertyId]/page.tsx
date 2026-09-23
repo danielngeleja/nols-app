@@ -58,6 +58,22 @@ type Attribution = {
   } | null;
 };
 
+type OnboardingStage = {
+  key: string;
+  label: string;
+  state: "DONE" | "CURRENT" | "UPCOMING" | "BLOCKED";
+  at: string | null;
+  hint: string | null;
+};
+
+type Onboarding = {
+  stages: OnboardingStage[];
+  completed: number;
+  total: number;
+  current: string | null;
+  blocked: boolean;
+};
+
 type PropertyDetail = {
   id: number;
   title: string;
@@ -203,6 +219,7 @@ export default function SalesPropertyDetailPage() {
   const propertyId = Number(params.propertyId);
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [totals, setTotals] = useState({ commissionAmount: 0, eligibleNetRevenue: 0, commissionCount: 0, currency: "TZS" });
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [earnings, setEarnings] = useState<Earning[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -226,6 +243,7 @@ export default function SalesPropertyDetailPage() {
       ]);
       setProperty(detailResponse.data?.property || null);
       setTotals(detailResponse.data?.totals || {});
+      setOnboarding(detailResponse.data?.onboarding || null);
       setEarnings(earningsResponse.data?.earnings || []);
       setActivity(activityResponse.data?.activity || []);
     } catch (cause: any) {
@@ -291,6 +309,74 @@ export default function SalesPropertyDetailPage() {
                 </div>
               ))}
             </section>
+
+            {/* Onboarding: from approved conversion to the first commission */}
+            {onboarding && onboarding.stages.length ? (() => {
+              const done = onboarding.current === null;
+              const currentStage = onboarding.stages.find((s) => s.state === "BLOCKED") ?? onboarding.stages.find((s) => s.state === "CURRENT") ?? null;
+              return (
+                <section className={`${card} p-5`}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="m-0 text-base font-bold text-slate-950">{done ? "Fully onboarded" : "Road to earning"}</h2>
+                    <span className="text-xs text-slate-500">{onboarding.completed} of {onboarding.total} steps done</span>
+                  </div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={`h-full rounded-full ${onboarding.blocked ? "bg-red-500" : "bg-[#087f68]"}`}
+                      style={{ width: `${(onboarding.completed / Math.max(1, onboarding.total)) * 100}%` }}
+                    />
+                  </div>
+
+                  {currentStage?.hint ? (
+                    <div className={`mt-4 flex items-start gap-3 rounded-xl px-4 py-3 ${currentStage.state === "BLOCKED" ? "bg-red-50" : "bg-emerald-50/70"}`}>
+                      <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ${currentStage.state === "BLOCKED" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                        {currentStage.state === "BLOCKED" ? <Ban className="h-3.5 w-3.5" aria-hidden /> : <Zap className="h-3.5 w-3.5" aria-hidden />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className={`m-0 text-sm font-semibold ${currentStage.state === "BLOCKED" ? "text-red-800" : "text-emerald-900"}`}>
+                          {currentStage.state === "BLOCKED" ? "Blocked: " : "Next: "}{currentStage.label}
+                        </p>
+                        <p className="m-0 mt-0.5 text-sm text-slate-600">{currentStage.hint}</p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <ol className="m-0 mt-4 grid list-none gap-x-6 gap-y-3 p-0 sm:grid-cols-2">
+                    {onboarding.stages.map((stage, index) => (
+                      <li key={stage.key} className="flex items-center gap-3">
+                        <span
+                          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                            stage.state === "DONE"
+                              ? "bg-[#087f68] text-white"
+                              : stage.state === "BLOCKED"
+                                ? "bg-red-100 text-red-700"
+                                : stage.state === "CURRENT"
+                                  ? "border-2 border-solid border-[#087f68] bg-white text-[#087f68]"
+                                  : "border border-solid border-slate-200 bg-white text-slate-400"
+                          }`}
+                          aria-hidden
+                        >
+                          {stage.state === "DONE" ? <BadgeCheck className="h-4 w-4" /> : stage.state === "BLOCKED" ? <Ban className="h-3.5 w-3.5" /> : index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className={`m-0 truncate text-sm ${stage.state === "UPCOMING" ? "text-slate-500" : "font-semibold text-slate-900"}`}>{stage.label}</p>
+                          <p className="m-0 text-xs text-slate-500">
+                            {stage.state === "DONE"
+                              ? stage.at ? shortDate(stage.at) : "Done"
+                              : stage.state === "CURRENT"
+                                ? "In progress"
+                                : stage.state === "BLOCKED"
+                                  ? "Needs attention"
+                                  : "Not yet"}
+                          </p>
+                        </div>
+                        <span className="sr-only">{stage.state.toLowerCase()}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              );
+            })() : null}
 
             {/* Products this partner earns on */}
             <section className={`${card} p-5`}>

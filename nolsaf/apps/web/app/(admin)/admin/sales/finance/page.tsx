@@ -48,6 +48,8 @@ type Payout = {
   requestedAmount: number;
   approvedAmount: number | null;
   deductionAmount: number;
+  withholdingTaxRate?: number | null;
+  withholdingTaxAmount?: number;
   netPaidAmount: number | null;
   currency: string;
   status: string;
@@ -145,6 +147,7 @@ export default function AdminSalesFinancePage() {
   const [tab, setTab] = useState<"commissions" | "payouts">("commissions");
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [whtRate, setWhtRate] = useState(0);
   const [commissionStatus, setCommissionStatus] = useState("ELIGIBLE");
   const [payoutStatus, setPayoutStatus] = useState("REQUESTED");
   const [query, setQuery] = useState("");
@@ -177,6 +180,7 @@ export default function AdminSalesFinancePage() {
       ]);
       setCommissions(commissionResponse.data?.commissions || []);
       setPayouts(payoutResponse.data?.payouts || []);
+      setWhtRate(Number(payoutResponse.data?.withholdingTaxRate || 0));
     } catch (cause: any) {
       setError(errorMessage(cause, "Could not load sales finance data."));
     } finally {
@@ -538,7 +542,14 @@ export default function AdminSalesFinancePage() {
               const name = tidyName(item.salesPartner.user.name) || item.salesPartner.user.email || "Partner";
               const pendingDeduction = Number(deduction[item.id] || 0);
               const deductionShown = reviewable ? (Number.isFinite(pendingDeduction) ? pendingDeduction : 0) : Number(item.deductionAmount || 0);
-              const net = item.netPaidAmount ?? Math.max(Number(item.approvedAmount ?? item.requestedAmount) - deductionShown, 0);
+              // Before approval, preview tax at the configured rate exactly as the
+              // server computes it; after approval, show what was recorded.
+              const gross = Number(item.approvedAmount ?? item.requestedAmount);
+              const taxRate = reviewable ? whtRate : Number(item.withholdingTaxRate || 0);
+              const taxShown = reviewable
+                ? Math.round(Math.max(gross - deductionShown, 0) * (whtRate / 100) * 100) / 100
+                : Number(item.withholdingTaxAmount || 0);
+              const net = item.netPaidAmount ?? Math.max(gross - deductionShown - taxShown, 0);
               return (
                 <li key={item.id} className="grid gap-4 border-0 border-t border-solid border-neutral-100 px-4 py-4 sm:px-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(300px,1fr)] xl:items-center">
                   <div className="flex min-w-0 items-start gap-3">
@@ -562,6 +573,9 @@ export default function AdminSalesFinancePage() {
                     <div className="flex justify-between gap-3"><dt className="text-neutral-500">Requested</dt><dd className="m-0 tabular-nums text-neutral-800">{money(item.requestedAmount, item.currency)}</dd></div>
                     {(deductionShown > 0 || reviewable) && (
                       <div className="flex justify-between gap-3"><dt className="text-neutral-500">Deduction</dt><dd className={`m-0 tabular-nums ${deductionShown > 0 ? "text-rose-600" : "text-neutral-400"}`}>{deductionShown > 0 ? `- ${money(deductionShown, item.currency)}` : "None"}</dd></div>
+                    )}
+                    {taxShown > 0 && (
+                      <div className="flex justify-between gap-3"><dt className="text-neutral-500">Withholding tax{taxRate ? ` (${taxRate}%)` : ""}</dt><dd className="m-0 tabular-nums text-rose-600">- {money(taxShown, item.currency)}</dd></div>
                     )}
                     <div className="flex justify-between gap-3 border-0 border-t border-solid border-neutral-200 pt-1"><dt className="font-medium text-neutral-700">{item.netPaidAmount != null ? "Net paid" : "Net to pay"}</dt><dd className="m-0 font-semibold tabular-nums text-neutral-900">{money(net, item.currency)}</dd></div>
                   </dl>

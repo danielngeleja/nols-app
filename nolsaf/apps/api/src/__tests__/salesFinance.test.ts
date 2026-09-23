@@ -33,6 +33,8 @@ describe("sales finance lifecycle", () => {
     expect(calculateSalesPayoutApproval(100_000, 12_500)).toEqual({
       approvedAmount: 100_000,
       deductionAmount: 12_500,
+      withholdingTaxRate: 0,
+      withholdingTaxAmount: 0,
       netPaidAmount: 87_500,
     });
     expect(() => calculateSalesPayoutApproval(100_000, 100_000)).toThrow(RangeError);
