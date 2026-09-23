@@ -1528,7 +1528,7 @@ export default function Page() {
             {PROPERTY_TYPE_CARDS.map((c, idx) => {
               const count = typeCounts[c.key];
               const sample = typeSamples[c.key];
-              const href = `/public/properties?types=${encodeURIComponent(c.key)}&page=1`;
+              const href = `/public/properties?types=${encodeURIComponent(c.key)}`;
               const img = sample?.primaryImage || c.fallbackImageSrc;
               const bypassOptimizer = Boolean(img && img.includes("cloudinary"));
 
@@ -1661,7 +1661,7 @@ export default function Page() {
                   </div>
                 )}
                 <Link
-                  href="/public/properties?page=1"
+                  href="/public/properties"
                   className="group/all inline-flex items-center gap-0.5 text-[13.5px] font-semibold text-[#02665e] no-underline hover:no-underline"
                 >
                   See all
@@ -1689,7 +1689,7 @@ export default function Page() {
                 >
                   {(featuredDestinationSlides[featuredSlide] || featuredDestinationSlides[0] || []).map((d, idx) => {
                     const filterParam = d.filterParam === "region" ? "region" : "city";
-                    const href = `/public/properties?${filterParam}=${encodeURIComponent(d.city)}&page=1`;
+                    const href = `/public/properties?${filterParam}=${encodeURIComponent(d.city)}`;
                     const total = featuredCityCounts[d.city];
 
                     const image = DESTINATION_IMAGES[d.city] || DESTINATION_IMAGES["Dar es Salaam"];
@@ -1802,7 +1802,7 @@ export default function Page() {
                 <nav aria-label="NoLSAF services" className="min-w-0">
                   <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] overflow-hidden rounded-xl bg-white/[0.05] p-0 ring-1 ring-inset ring-white/10 sm:grid-cols-2 sm:gap-2 sm:overflow-visible sm:rounded-none sm:bg-transparent sm:ring-0">
                     {[
-                      { title: "Verified stays", desc: "Checked properties, instant booking code", Icon: Home, href: "/public/properties?page=1" },
+                      { title: "Verified stays", desc: "Checked properties, instant booking code", Icon: Home, href: "/public/properties" },
                       { title: "Tour packages", desc: "Trusted operators with a clear itinerary", Icon: Compass, href: "/public/tour-packages" },
                       { title: "Group stays", desc: "One request, compare real owner offers", Icon: Users, href: "/public/group-stays" },
                       { title: "Transport", desc: "Pickup linked to your booking", Icon: Car, href: "/account/rides" },

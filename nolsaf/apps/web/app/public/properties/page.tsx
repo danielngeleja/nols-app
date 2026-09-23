@@ -212,6 +212,20 @@ function buildQuery(searchParams: { toString(): string } | null | undefined) {
   return qp;
 }
 
+/** Browse URL without default or empty params, so the address bar only shows what changes the results. */
+function propertiesUrl(params: URLSearchParams) {
+  const clean = new URLSearchParams();
+  params.forEach((value, key) => {
+    const v = value.trim();
+    if (!v) return;
+    if (key === "page" && v === "1") return;
+    if (key === "pageSize" && v === "24") return;
+    clean.set(key, v);
+  });
+  const qs = clean.toString();
+  return qs ? `/public/properties?${qs}` : "/public/properties";
+}
+
 function getParam(qp: URLSearchParams, key: string) {
   const v = qp.get(key);
   return v && v.trim() ? v.trim() : "";
@@ -420,6 +434,15 @@ export default function PropertiesPage() {
 
   const qp = useMemo(() => buildQuery(sp), [sp]);
   const q = qp.get("q")?.trim() || "";
+
+  // Old links and bookmarks can still carry ?pageSize=24&page=1; tidy the
+  // address bar in place (no extra history entry, results unchanged).
+  useEffect(() => {
+    const raw = sp?.toString() ?? "";
+    const current = raw ? `/public/properties?${raw}` : "/public/properties";
+    const clean = propertiesUrl(new URLSearchParams(raw));
+    if (clean !== current) router.replace(clean, { scroll: false });
+  }, [sp, router]);
   const page = Math.max(1, Number(qp.get("page") || "1"));
 
   // Local search state — decoupled from URL so typing is free
@@ -462,7 +485,7 @@ export default function PropertiesPage() {
     const next = new URLSearchParams(qp.toString());
     next.set("page", "1");
     setOrDelete(next, "q", value);
-    router.push(`/public/properties?${next.toString()}`);
+    router.push(propertiesUrl(next));
   }, [qp, router]);
 
   const onSearchChange = useCallback((value: string) => {
@@ -591,7 +614,7 @@ export default function PropertiesPage() {
       const next = new URLSearchParams(qp.toString());
       keys.forEach((k) => next.delete(k));
       next.set("page", "1");
-      router.push(`/public/properties?${next.toString()}`);
+      router.push(propertiesUrl(next));
     };
     const qv = getParam(qp, "q");
     if (qv) chips.push({ key: "q", label: `Search: ${qv}`, onRemove: () => remove(["q"]) });
@@ -660,6 +683,24 @@ export default function PropertiesPage() {
     };
   }, [qp]);
 
+  // No-results recovery: suggest only places that actually have approved stays,
+  // never the place the guest just searched.
+  const showNoMatches = !loading && !error && (data?.items?.length ?? 0) === 0 && appliedChips.length > 0;
+  const [topCities, setTopCities] = useState<Array<{ city: string; count: number }> | null>(null);
+  useEffect(() => {
+    if (!showNoMatches || topCities) return;
+    let mounted = true;
+    fetch(`/api/public/properties/top-cities?take=8`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { items: [] }))
+      .then((json) => {
+        if (!mounted) return;
+        const items = Array.isArray(json?.items) ? json.items : [];
+        setTopCities(items.map((it: any) => ({ city: String(it?.city ?? ""), count: Number(it?.count ?? 0) })).filter((it: { city: string; count: number }) => it.city && it.count > 0));
+      })
+      .catch(() => { if (mounted) setTopCities([]); });
+    return () => { mounted = false; };
+  }, [showNoMatches, topCities]);
+
   const total = data?.total ?? 0;
   const pageSize = data?.pageSize ?? Number(qp.get("pageSize") || "24");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -667,7 +708,7 @@ export default function PropertiesPage() {
   const goToPage = (nextPage: number) => {
     const next = new URLSearchParams(qp.toString());
     next.set("page", String(Math.max(1, Math.min(nextPage, totalPages))));
-    router.push(`/public/properties?${next.toString()}`);
+    router.push(propertiesUrl(next));
   };
 
   const openFilters = () => {
@@ -769,7 +810,7 @@ export default function PropertiesPage() {
       next.delete("radiusKm");
     }
 
-    router.push(`/public/properties?${next.toString()}`);
+    router.push(propertiesUrl(next));
     closeFilters();
   };
 
@@ -777,7 +818,7 @@ export default function PropertiesPage() {
     const next = new URLSearchParams(qp.toString());
     ["q","sort","region","district","ward","street","minPrice","maxPrice","types","type","amenities","services","nearbyServices","paymentModes","freeCancellation","groupStay","nearLat","nearLng","radiusKm","city"].forEach((k) => next.delete(k));
     next.set("page", "1");
-    router.push(`/public/properties?${next.toString()}`);
+    router.push(propertiesUrl(next));
     closeFilters();
   };
 
@@ -876,7 +917,7 @@ export default function PropertiesPage() {
                         const next = new URLSearchParams(qp.toString());
                         next.set("page", "1");
                         setOrDelete(next, "sort", v);
-                        router.push(`/public/properties?${next.toString()}`);
+                        router.push(propertiesUrl(next));
                       };
                       const label =
                         cur === "price_asc"
@@ -1028,67 +1069,88 @@ export default function PropertiesPage() {
             </div>
           )}
 
-          {!loading && !error && (data?.items?.length ?? 0) === 0 && appliedChips.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden"
-            >
-              {/* Header */}
-              <div className="px-5 pt-6 pb-4 text-center">
-                <div className="mx-auto w-11 h-11 rounded-xl bg-slate-50 flex items-center justify-center mb-3">
-                  <SearchX className="w-5 h-5 text-slate-400" />
-                </div>
-                <h3 className="text-[15px] font-bold text-slate-900">No matches for your search</h3>
-                <p className="text-[12.5px] text-slate-500 mt-1 max-w-sm mx-auto">
-                  We couldn&apos;t find properties matching your current filters. Try adjusting or explore a different area.
-                </p>
-              </div>
-
-              {/* Suggestions */}
-              <div className="px-5 pb-5">
-                <div className="grid grid-cols-2 gap-2.5">
-                  {(() => {
-                    const currentCity = getParam(qp, "city").toLowerCase();
-                    const cityOptions = [
-                      { city: "Zanzibar", sub: "Island getaways" },
-                      { city: "Dar es Salaam", sub: "City stays" },
-                      { city: "Arusha", sub: "Safari gateway" },
-                      { city: "Mwanza", sub: "Lakeside charm" },
-                      { city: "Dodoma", sub: "Capital hub" },
-                      { city: "Nairobi", sub: "Cross-border" },
-                    ].filter((c) => c.city.toLowerCase() !== currentCity);
-                    const suggestions: Array<{ label: string; sub: string; action: () => void }> = [
-                      { label: "Clear all filters", sub: "Start fresh", action: () => clearFilters() },
-                    ];
-                    cityOptions.slice(0, 2).forEach((c) => {
-                      suggestions.push({
-                        label: `Try ${c.city}`,
-                        sub: c.sub,
-                        action: () => { const n = new URLSearchParams(); n.set("city", c.city); n.set("page", "1"); n.set("pageSize", "24"); router.push(`/public/properties?${n.toString()}`); },
-                      });
-                    });
-                    suggestions.push({ label: "View all stays", sub: "No filters", action: () => router.push("/public/properties") });
-                    return suggestions;
-                  })().map((s) => (
+          {showNoMatches && (() => {
+            const searched = getParam(qp, "q") || getParam(qp, "city");
+            const onlySearch = appliedChips.length === 1 && Boolean(searched);
+            const searchedLc = searched.toLowerCase();
+            const places = (topCities ?? [])
+              .filter((c) => {
+                const lc = c.city.toLowerCase();
+                return !searchedLc || !(lc.includes(searchedLc) || searchedLc.includes(lc));
+              })
+              .slice(0, 6);
+            const goToCity = (city: string) => {
+              const n = new URLSearchParams();
+              n.set("city", city);
+              router.push(propertiesUrl(n));
+            };
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35 }}
+                className="rounded-2xl border border-solid border-slate-200 bg-white shadow-card"
+              >
+                <div className="mx-auto max-w-2xl px-5 py-8 sm:px-8 sm:py-10">
+                  {/* Header */}
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50">
+                      <SearchX className="h-6 w-6 text-brand" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900 sm:text-xl">
+                      {searched ? <>No stays found for &ldquo;{searched}&rdquo;</> : "No stays match your filters"}
+                    </h3>
+                    <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+                      {onlySearch
+                        ? "Check the spelling, try a nearby area, or pick one of the places below."
+                        : "Try removing a filter above, or pick one of the places below."}
+                    </p>
                     <button
-                      key={s.label}
                       type="button"
-                      onClick={s.action}
-                      className="group flex items-center gap-2.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-emerald-50 hover:border-emerald-100 px-3.5 py-3 text-left transition-all duration-200"
+                      onClick={() => clearFilters()}
+                      className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl border-0 bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [font-family:inherit]"
                     >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-semibold text-slate-700 group-hover:text-emerald-700 truncate">{s.label}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{s.sub}</p>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-emerald-500 flex-shrink-0 transition-colors" />
+                      {onlySearch ? "Clear search" : "Clear all filters"}
+                      <ArrowRight className="h-4 w-4" />
                     </button>
-                  ))}
+                  </div>
+
+                  {/* Places that actually have stays */}
+                  {(topCities === null || places.length > 0) && (
+                    <div className="mt-8 border-0 border-t border-solid border-slate-100 pt-6">
+                      <p className="mb-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        Popular places with stays
+                      </p>
+                      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                        {topCities === null
+                          ? Array.from({ length: 3 }).map((_, i) => (
+                              <div key={i} className="h-[58px] animate-pulse rounded-xl bg-slate-100" />
+                            ))
+                          : places.map((c) => (
+                              <button
+                                key={c.city}
+                                type="button"
+                                onClick={() => goToCity(c.city)}
+                                className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-solid border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-brand/40 hover:bg-brand-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
+                              >
+                                <span className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-slate-50 transition group-hover:bg-white">
+                                  <MapPin className="h-4 w-4 text-brand" />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-semibold text-slate-800">{c.city}</span>
+                                  <span className="block text-xs text-slate-500">
+                                    {c.count} {c.count === 1 ? "stay" : "stays"}
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            );
+          })()}
 
           {!loading && !error && (data?.items?.length ?? 0) === 0 && appliedChips.length === 0 && (
             <motion.div

@@ -80,6 +80,8 @@ import {
   Facebook,
   Twitter,
   Home,
+  ArrowUpDown,
+  DoorOpen,
   Calendar,
   LogIn,
   LogOut,
@@ -225,6 +227,9 @@ type PublicPropertyDetail = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** APPROXIMATE for private homes: the point is shifted and street withheld until booking. */
+  locationPrecision?: "EXACT" | "APPROXIMATE";
+  locationRadiusMeters?: number | null;
   images: string[];
   basePrice: number | null;
   currency: string | null;
@@ -500,157 +505,156 @@ function extractFirstUrl(s: string): { url: string | null; textWithoutUrl: strin
 
 // Interactive Map Component for Property
 
-function PropertyMap({ latitude, longitude, propertyTitle }: { latitude: number; longitude: number; propertyTitle: string }) {
+/** Polygon approximating a circle of radiusM metres, for drawing an area on the map. */
+function circlePolygon(longitude: number, latitude: number, radiusM: number, steps = 64) {
+  const coords: [number, number][] = [];
+  const dLat = radiusM / 111_320;
+  const dLng = radiusM / (111_320 * Math.max(0.2, Math.cos((latitude * Math.PI) / 180)));
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * 2 * Math.PI;
+    coords.push([longitude + dLng * Math.cos(t), latitude + dLat * Math.sin(t)]);
+  }
+  return { type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: [coords] } };
+}
+
+function PropertyMap({ latitude, longitude, propertyTitle, approximateRadiusM = null }: { latitude: number; longitude: number; propertyTitle: string; /** Set for private homes: draw this area instead of an exact pin. */ approximateRadiusM?: number | null }) {
+  const approximate = typeof approximateRadiusM === 'number' && approximateRadiusM > 0;
+  // Behaves like the inline map on Airbnb: live and draggable in place, with zoom
+  // and fullscreen controls and a house pin. It loads by itself once the section
+  // nears the viewport; a static picture of the same view holds the space until then.
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
-  const markerRef = useRef<any | null>(null);
-  const initStartedRef = useRef(false);
+  const [inView, setInView] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const [mapFailed, setMapFailed] = useState(false);
-  // Lazy: map stays dormant until user explicitly opens it.
-  const [isOpen, setIsOpen] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [token, setToken] = useState<string>(
+    (process.env.NEXT_PUBLIC_MAPBOX_TOKEN as string) || (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string) || ''
+  );
+
   useEffect(() => {
-    if (!isOpen) return;
-    if (typeof window === 'undefined') return;
-    if (!hostRef.current) return;
-    if (initStartedRef.current || mapRef.current) return;
-    const token =
-      (process.env.NEXT_PUBLIC_MAPBOX_TOKEN as string) ||
-      (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string) ||
-      (window as any).__MAPBOX_TOKEN ||
-      '';
-    if (!token) { setMapFailed(true); return; }
+    if (!token && typeof window !== 'undefined' && (window as any).__MAPBOX_TOKEN) setToken((window as any).__MAPBOX_TOKEN);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el || inView) return;
+    if (typeof IntersectionObserver === 'undefined') { setInView(true); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setInView(true); io.disconnect(); }
+    }, { rootMargin: '300px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [inView]);
+
+  useEffect(() => {
+    if (!inView || !token || !hostRef.current || mapRef.current) return;
     let cancelled = false;
-    initStartedRef.current = true;
-    setMapFailed(false);
-    hostRef.current.replaceChildren();
-    const container = document.createElement('div');
-    container.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
-    hostRef.current.appendChild(container);
     (async () => {
       try {
         const mod = await import('mapbox-gl');
-        if (cancelled) return;
+        if (cancelled || !hostRef.current) return;
         const mapboxgl = (mod as any).default ?? mod;
         mapboxgl.accessToken = token;
         const map = new mapboxgl.Map({
-          container,
+          container: hostRef.current,
           style: 'mapbox://styles/mapbox/streets-v12',
           center: [longitude, latitude],
-          zoom: 15,
-          interactive: true,
+          zoom: 14.5,
           attributionControl: false,
+          // Page scroll keeps working: zoom needs ctrl/cmd + scroll, and two fingers on touch.
           cooperativeGestures: true,
         });
         mapRef.current = map;
         map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-        const el = document.createElement('div');
-        el.className = 'property-map-marker';
-        el.style.width = '32px';
-        el.style.height = '32px';
-        el.style.borderRadius = '50%';
-        el.style.backgroundColor = '#10b981';
-        el.style.border = '3px solid white';
-        el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-        el.style.cursor = 'pointer';
-        el.setAttribute('aria-label', propertyTitle);
-        const marker = new mapboxgl.Marker(el)
-          .setLngLat([longitude, latitude])
-          .addTo(map);
-        markerRef.current = marker;
+        map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+        map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+
+        const pin = document.createElement('div');
+        pin.setAttribute('aria-label', propertyTitle);
+        pin.style.cssText =
+          'width:48px;height:48px;border-radius:9999px;background:#02665e;border:4px solid #fff;' +
+          'box-shadow:0 6px 16px rgba(2,40,36,.35);display:flex;align-items:center;justify-content:center;';
+        pin.innerHTML =
+          '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>';
+        if (!approximate) {
+          new mapboxgl.Marker({ element: pin }).setLngLat([longitude, latitude]).addTo(map);
+        }
+
+        map.once('load', () => {
+          if (cancelled) return;
+          if (approximate) {
+            // The area the home is in; the exact spot is shared after booking.
+            map.addSource('approx-area', { type: 'geojson', data: circlePolygon(longitude, latitude, approximateRadiusM as number) });
+            map.addLayer({ id: 'approx-area-fill', type: 'fill', source: 'approx-area', paint: { 'fill-color': '#02665e', 'fill-opacity': 0.14 } });
+            map.addLayer({ id: 'approx-area-line', type: 'line', source: 'approx-area', paint: { 'line-color': '#02665e', 'line-width': 2, 'line-opacity': 0.55 } });
+          }
+          setMapReady(true);
+        });
+        map.on('error', () => { if (!cancelled && !map.loaded()) setMapFailed(true); });
       } catch {
-        setMapFailed(true);
-        initStartedRef.current = false;
-        if (container.parentNode) container.parentNode.removeChild(container);
+        if (!cancelled) setMapFailed(true);
       }
     })();
     return () => {
       cancelled = true;
-      if (markerRef.current) {
-        try { markerRef.current.remove(); } catch { }
-        markerRef.current = null;
-      }
       if (mapRef.current) {
         try { mapRef.current.remove(); } catch { }
         mapRef.current = null;
       }
-      if (container.parentNode) container.parentNode.removeChild(container);
-      initStartedRef.current = false;
+      setMapReady(false);
     };
-  }, [isOpen, latitude, longitude, propertyTitle]);
-  const googleMapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
-  if (!isOpen) {
-    return (
-      <div className="relative w-full h-[340px] rounded-xl overflow-hidden">
-        {/* Brand teal gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#02665e] via-[#025c55] to-[#013d38]" />
-        {/* Decorative rings */}
-        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full border border-solid border-white/10" />
-        <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full border border-solid border-white/10" />
-        <div className="absolute -bottom-16 -left-16 w-52 h-52 rounded-full border border-solid border-white/10" />
-        <div className="absolute bottom-6 left-6 w-24 h-24 rounded-full border border-solid border-white/10" />
-        {/* Dot grid — map-like texture */}
-        <div
-          className="absolute inset-0 opacity-[0.07]"
-          style={{
-            backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
-            backgroundSize: '22px 22px',
-          }}
-        />
-        {/* Content */}
-        <div className="relative h-full flex flex-col items-center justify-center gap-4 px-6 text-center">
-          {/* Pin icon in glass ring */}
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/15 ring-2 ring-white/25 shadow-lg">
-            <MapPin className="h-8 w-8 text-white" />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-base font-bold text-white leading-tight">{propertyTitle}</p>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-mono text-white/80 ring-1 ring-white/20">
-              <MapIcon className="h-3 w-3 shrink-0" />
-              {latitude.toFixed(4)}, {longitude.toFixed(4)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsOpen(true)}
-            className="hidden sm:inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-[#02665e] shadow-lg hover:bg-white/90 active:scale-[0.98] transition-all"
-          >
-            <MapIcon className="h-4 w-4" />
-            View interactive map
-          </button>
-          <a
-            href={googleMapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-white/60 underline underline-offset-2 hover:text-white transition-colors"
-          >
-            Open in Google Maps
-          </a>
-        </div>
-      </div>
-    );
-  }
+  }, [inView, token, latitude, longitude, propertyTitle, approximate, approximateRadiusM]);
+
+  const staticMapUrl = token && !previewFailed
+    ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${longitude},${latitude},14.5,0/900x420@2x?access_token=${encodeURIComponent(token)}&attribution=false&logo=false`
+    : null;
+  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+
   return (
-    <div className="relative w-full h-[400px] bg-slate-100">
-      <div ref={hostRef} className="absolute inset-0 w-full h-full" />
-      {mapFailed && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
-          <div className="text-center">
-            <MapIcon className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm text-slate-600 font-medium">Map unavailable</p>
-            <p className="text-xs text-slate-500 mt-1">{latitude}, {longitude}</p>
-          </div>
+    <div ref={frameRef} className="relative h-[320px] w-full overflow-hidden bg-slate-100 sm:h-[400px]">
+      {/* Placeholder: same view as a picture, removed once the live map has drawn */}
+      {!mapReady && (
+        <div className="absolute inset-0" aria-hidden>
+          {staticMapUrl && !mapFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={staticMapUrl} alt="" onError={() => setPreviewFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
+          ) : (
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: 'linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px)',
+                backgroundSize: '36px 36px',
+              }}
+            />
+          )}
+          {approximate ? (
+            <span className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-solid border-brand/50 bg-brand/15" />
+          ) : (
+            <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-solid border-white bg-brand shadow-lg">
+              <Home className="h-[22px] w-[22px] text-white" strokeWidth={2.2} />
+            </span>
+          )}
         </div>
       )}
-      {/* Close button - lets mobile users collapse map to stop scroll interference */}
-      <button
-        type="button"
-        onClick={() => { setIsOpen(false); initStartedRef.current = false; }}
-        className="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-full border border-solid border-slate-200/80 bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow backdrop-blur-sm transition hover:bg-white"
-        aria-label="Close map"
-      >
-        <X className="h-3 w-3" />
-        Close map
-      </button>
+
+      {/* Live map */}
+      <div ref={hostRef} className="absolute inset-0 h-full w-full" />
+
+      {mapFailed && !approximate && (
+        <a
+          href={googleMapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-800 no-underline shadow-md ring-1 ring-slate-900/5"
+        >
+          <MapIcon className="h-4 w-4 text-brand" aria-hidden />
+          Open in Google Maps
+        </a>
+      )}
     </div>
   );
 }
@@ -1009,6 +1013,19 @@ function formatTimeAgo(ms: number): string {
 
 // Availability Checker Component
 
+/** Room types from an availability response, free ones first. */
+function roomOptionsFrom(availability: any): Array<{ code: string; label: string; free: number }> {
+  const byType = availability?.byRoomType;
+  if (!byType || typeof byType !== "object") return [];
+  return Object.entries(byType)
+    .map(([code, d]: [string, any]) => ({
+      code,
+      label: code === "default" ? "All rooms" : code,
+      free: Math.max(0, Number(d?.availableRooms ?? 0)),
+    }))
+    .sort((a, b) => Number(b.free > 0) - Number(a.free > 0));
+}
+
 function PropertyAvailabilityChecker({
   propertyId,
   onAvailability,
@@ -1019,6 +1036,7 @@ function PropertyAvailabilityChecker({
   openPickerSignal,
   selectedRoomCode,
   onRoomTypeSelect,
+  roomPrice,
 
 }: {
   propertyId: number;
@@ -1033,6 +1051,8 @@ function PropertyAvailabilityChecker({
   /** Room type chosen in the booking card. Booking stays locked without it. */
   selectedRoomCode?: string | null;
   onRoomTypeSelect?: (roomCode: string | null) => void;
+  /** Guest-facing nightly price for a room type, shown on each room option. */
+  roomPrice?: (roomCode: string) => number | null;
 
 }) {
   const [checkIn, setCheckIn] = useState<string>("");
@@ -1042,6 +1062,7 @@ function PropertyAvailabilityChecker({
   const [error, setError] = useState<string | null>(null);
   const [checkInPickerOpen, setCheckInPickerOpen] = useState(false);
   const [checkOutPickerOpen, setCheckOutPickerOpen] = useState(false);
+  const [priceSort, setPriceSort] = useState<"asc" | "desc">("asc");
   const inFlightRef = useRef(false);
   const debounceTimerRef = useRef<any>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -1164,10 +1185,41 @@ function PropertyAvailabilityChecker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPickerSignal]);
 
+  // Keep the room choice valid as live availability changes: pick the only room
+  // type that is free, and drop a choice that just sold out.
+  useEffect(() => {
+    if (!compact || !onRoomTypeSelect || !availability?.available) return;
+    const options = roomOptionsFrom(availability);
+    const free = options.filter((o) => o.free > 0);
+    if (selectedRoomCode && !free.some((o) => o.code === selectedRoomCode)) {
+      onRoomTypeSelect(free.length === 1 ? free[0].code : null);
+    } else if (!selectedRoomCode && free.length === 1) {
+      onRoomTypeSelect(free[0].code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability, compact]);
+
   if (compact) {
     const shortDate = (s: string) =>
       parseBookingDateOnly(s).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
     const rooms = Number(availability?.summary?.totalAvailableRooms ?? 0);
+    const nights = checkIn && checkOut
+      ? Math.max(0, Math.round((parseBookingDateOnly(checkOut).getTime() - parseBookingDateOnly(checkIn).getTime()) / 86_400_000))
+      : 0;
+    // Dates are picked but the answer has not arrived yet (including the debounce
+    // before the request starts), so show the skeleton rather than "add your dates".
+    const isChecking = Boolean(checkIn && checkOut && !availability && !error);
+    // Free rooms first, ordered by price in the chosen direction; sold out last.
+    const roomOptions = roomOptionsFrom(availability)
+      .map((o) => ({ ...o, price: roomPrice?.(o.code) ?? null }))
+      .sort((a, b) => {
+        if ((a.free > 0) !== (b.free > 0)) return a.free > 0 ? -1 : 1;
+        if (a.price == null || b.price == null) return a.price == null ? (b.price == null ? 0 : 1) : -1;
+        return priceSort === "asc" ? a.price - b.price : b.price - a.price;
+      });
+    const pricedFree = roomOptions.filter((o) => o.free > 0 && o.price != null);
+    const lowestPrice = pricedFree.length > 1 ? Math.min(...pricedFree.map((o) => o.price as number)) : null;
+    const canSortByPrice = pricedFree.length > 1;
     return (
       <div>
         {/* One bordered date pair, split down the middle */}
@@ -1255,76 +1307,156 @@ function PropertyAvailabilityChecker({
           )}
         </div>
 
-        {/* Live status line */}
-        <div className="mt-2.5 min-h-[20px] text-[12.5px]" aria-live="polite">
+        {/* Live availability: skeleton while checking, then the room choice itself */}
+        <div className="mt-3" aria-live="polite">
           {error ? (
-            <p className="m-0 flex items-start gap-1.5 text-rose-600">
-              <AlertCircle className="mt-px h-3.5 w-3.5 flex-none" aria-hidden />
-              {error}
-            </p>
-          ) : loading && !availability ? (
-            <p className="m-0 flex items-center gap-1.5 text-slate-500">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-solid border-slate-300 border-t-[#02665e]" aria-hidden />
-              Checking live availability
-            </p>
+            <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50 px-3 py-2.5 text-[13px] text-rose-700">
+              <AlertCircle className="mt-px h-4 w-4 flex-none" aria-hidden />
+              <span>{error}</span>
+            </div>
+          ) : isChecking ? (
+            <div aria-busy="true">
+              <p className="m-0 flex items-center gap-2 text-[13px] font-medium text-slate-600">
+                <span className="relative flex h-2.5 w-2.5" aria-hidden>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/40" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand" />
+                </span>
+                Checking live availability{nights > 0 ? ` for ${nights} night${nights === 1 ? "" : "s"}` : ""}
+              </p>
+              <div className="mt-3 space-y-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="flex h-[52px] items-center gap-3 rounded-xl border border-solid border-slate-100 bg-white px-3">
+                    <span className="h-4 w-4 flex-none animate-pulse rounded-full bg-slate-100" />
+                    <span className="h-3 flex-1 animate-pulse rounded bg-slate-100" style={{ maxWidth: `${55 - i * 10}%` }} />
+                    <span className="ml-auto h-3 w-16 animate-pulse rounded bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : availability && checkIn && checkOut ? (
             availability.available ? (
-              <p className="m-0 flex items-center gap-1.5 font-medium text-emerald-700">
-                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-                Available{rooms > 0 ? `: ${rooms} room${rooms === 1 ? "" : "s"} left for these dates` : " for these dates"}
-                {loading && <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-normal text-slate-400"><span className="h-2.5 w-2.5 animate-spin rounded-full border border-solid border-slate-300 border-t-[#02665e]" />Refreshing</span>}
-              </p>
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-emerald-700">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100" aria-hidden>
+                      <Check className="h-3 w-3 text-emerald-700" strokeWidth={3} />
+                    </span>
+                    {rooms > 0 ? `${rooms} room${rooms === 1 ? "" : "s"} available` : "Available"}
+                    {nights > 0 && <span className="font-normal text-slate-500">· {nights} night{nights === 1 ? "" : "s"}</span>}
+                  </p>
+                  {loading && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
+                      <span className="h-2.5 w-2.5 animate-spin rounded-full border border-solid border-slate-300 border-t-brand" aria-hidden />
+                      Updating
+                    </span>
+                  )}
+                </div>
+
+                {roomOptions.length > 0 && (
+                  <fieldset className="m-0 mt-3 border-0 p-0">
+                    <legend className="sr-only">Choose your room</legend>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500" aria-hidden>Choose your room</span>
+                      {canSortByPrice && (
+                        <button
+                          type="button"
+                          onClick={() => setPriceSort((s) => (s === "asc" ? "desc" : "asc"))}
+                          aria-label={priceSort === "asc" ? "Sorted by price, lowest first. Switch to highest first" : "Sorted by price, highest first. Switch to lowest first"}
+                          className="inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-1.5 py-1 text-[12px] font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
+                        >
+                          <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
+                          {priceSort === "asc" ? "Price: low to high" : "Price: high to low"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2" role="radiogroup">
+                      {roomOptions.map(({ code, label, free, price }) => {
+                        const selected = selectedRoomCode === code;
+                        const soldOutType = free <= 0;
+                        const isLowest = !soldOutType && price != null && lowestPrice != null && price === lowestPrice;
+                        return (
+                          <button
+                            key={code}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={soldOutType}
+                            onClick={() => onRoomTypeSelect?.(selected ? null : code)}
+                            className={`group box-border flex w-full items-center gap-3 rounded-xl border border-solid px-3.5 py-3 text-left transition [font-family:inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${
+                              selected
+                                ? "border-brand bg-brand-50 shadow-[inset_0_0_0_1px_#02665e]"
+                                : soldOutType
+                                  ? "cursor-not-allowed border-slate-100 bg-slate-50"
+                                  : "border-slate-200 bg-white hover:border-brand/40 hover:shadow-sm"
+                            }`}
+                          >
+                            <span
+                              className={`inline-flex h-5 w-5 flex-none items-center justify-center rounded-full border-2 border-solid transition ${
+                                selected ? "border-brand bg-brand" : soldOutType ? "border-slate-200 bg-slate-100" : "border-slate-300 bg-white group-hover:border-brand/60"
+                              }`}
+                              aria-hidden
+                            >
+                              {selected && <span className="h-2 w-2 rounded-full bg-white" />}
+                            </span>
+
+                            <span className="min-w-0 flex-1">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className={`truncate text-[14px] font-semibold ${soldOutType ? "text-slate-400" : "text-slate-900"}`}>{label}</span>
+                                {isLowest && (
+                                  <span className="flex-none rounded-md bg-emerald-50 px-1.5 py-px text-[10.5px] font-bold uppercase tracking-[0.04em] text-emerald-700">
+                                    Lowest price
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-0.5 block text-[12px]">
+                                {soldOutType ? (
+                                  <span className="text-slate-400">Sold out for these dates</span>
+                                ) : free <= 3 ? (
+                                  <span className="font-semibold text-amber-700">Only {free} left</span>
+                                ) : (
+                                  <span className="text-slate-500">{free} available</span>
+                                )}
+                              </span>
+                            </span>
+
+                            {price != null && (
+                              <span className="flex-none text-right leading-tight">
+                                <span className={`block text-[15px] font-bold tabular-nums ${soldOutType ? "text-slate-400" : selected ? "text-brand" : "text-slate-900"}`}>
+                                  <PriceDisplay amountTzs={price} showNote={false} />
+                                </span>
+                                <span className="block text-[11px] text-slate-500">per night</span>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                )}
+              </>
             ) : (
-              <p className="m-0 flex items-center gap-1.5 font-medium text-amber-700">
-                <AlertCircle className="h-3.5 w-3.5" aria-hidden />
-                Fully booked for these dates. Try other dates.
-              </p>
+              <div className="rounded-xl border border-solid border-amber-200 bg-amber-50 px-3.5 py-3">
+                <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-amber-800">
+                  <AlertCircle className="h-4 w-4 flex-none" aria-hidden />
+                  Fully booked for these dates
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setCheckInPickerOpen(true); setCheckOutPickerOpen(false); }}
+                  className="mt-2 inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[13px] font-semibold text-brand underline-offset-2 hover:underline [font-family:inherit]"
+                >
+                  Try other dates
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
             )
           ) : (
-            <p className="m-0 text-slate-500">Add your dates to see live availability.</p>
+            <p className="m-0 flex items-center gap-2 text-[13px] text-slate-500">
+              <Calendar className="h-4 w-4 text-slate-400" aria-hidden />
+              Add your dates to see live availability.
+            </p>
           )}
         </div>
-
-        {/* Per room type breakdown, folded away until asked for */}
-        {!error && availability?.available && checkIn && checkOut && availability.byRoomType && Object.keys(availability.byRoomType).length > 0 && (
-          <details className="group mt-2 rounded-lg border border-solid border-slate-200 bg-slate-50/60 [&_summary::-webkit-details-marker]:hidden">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[12.5px] font-semibold text-[#02665e]">
-              <span className="truncate">{selectedRoomCode ? `Selected: ${selectedRoomCode === "default" ? "All rooms" : selectedRoomCode}` : "Choose a room type"}</span>
-              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />
-            </summary>
-            <ul className="m-0 list-none border-0 border-t border-solid border-slate-200 px-0 py-1">
-              {Object.entries(availability.byRoomType).map(([code, d]: [string, any]) => {
-                const free = Math.max(0, Number(d?.availableRooms ?? 0));
-                const total = Math.max(0, Number(d?.totalRooms ?? 0));
-                const pct = total > 0 ? Math.round((free / total) * 100) : 0;
-                const selected = selectedRoomCode === code;
-                const label = code === "default" ? "All rooms" : code;
-                return (
-                  <li key={code} className="px-1.5 py-0.5">
-                    <button
-                      type="button"
-                      disabled={free <= 0}
-                      aria-pressed={selected}
-                      onClick={() => onRoomTypeSelect?.(selected ? null : code)}
-                      className={`box-border w-full rounded-lg border border-solid px-2 py-2 text-left transition ${selected ? "border-emerald-400 bg-emerald-50" : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"} disabled:cursor-not-allowed disabled:opacity-60`}
-                    >
-                      <span className="flex items-center justify-between gap-3 text-[12.5px]">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className={`inline-flex h-4 w-4 flex-none items-center justify-center rounded-full border border-solid ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-2.5 w-2.5" aria-hidden /></span>
-                          <span className="truncate font-medium text-slate-800">{label}</span>
-                        </span>
-                        <span className={`flex-none tabular-nums ${free > 0 ? "text-slate-600" : "text-amber-700"}`}>
-                          {free > 0 ? <><span className="font-bold text-slate-900">{free}</span> of {total} free</> : "Full"}
-                        </span>
-                      </span>
-                      <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-slate-200"><span className="block h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </details>
-        )}
       </div>
     );
   }
@@ -2025,6 +2157,16 @@ export default function PublicPropertyDetailPage() {
   const [, setFavoriteNotice] = useState<string | null>(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [copyLinkSuccess, setCopyLinkSuccess] = useState(false);
+  const [canNativeShare, setCanNativeShare] = useState(false);
+  useEffect(() => {
+    setCanNativeShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
+  }, []);
+  useEffect(() => {
+    if (!showShareMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowShareMenu(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showShareMenu]);
   const [selectedDates, setSelectedDates] = useState<{ checkIn: string; checkOut: string }>({ checkIn: "", checkOut: "" });
   // Pre-fill dates from a link (Twiga's "Book these dates" passes ?checkIn=&checkOut=),
   // so the availability checker runs for the dates the visitor already asked about.
@@ -2269,7 +2411,23 @@ export default function PublicPropertyDetailPage() {
     const commission = getPropertyCommission(property, systemCommission);
     return calculatePriceWithCommission(property.basePrice, commission);
   }, [property, systemCommission]);
-  
+
+  // Guest-facing nightly price per room type, matched the same way the confirm
+  // page matches it (room code first, then room type name), so the estimate in
+  // the booking card is the price the guest will see at checkout.
+  const roomNightlyPrice = useMemo(() => {
+    const rows = property ? normalizeRoomsSpec(property.roomsSpec as any[], property.currency, property.basePrice, property, systemCommission) : [];
+    return (code: string | null | undefined): number | null => {
+      if (!code || code === "default") return null;
+      const key = String(code).trim();
+      const row =
+        rows.find((r) => r.roomCode === key || r.roomType === key) ??
+        rows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
+      const price = Number(row?.pricePerNight);
+      return Number.isFinite(price) && price > 0 ? price : null;
+    };
+  }, [property, systemCommission]);
+
 
   const about = useMemo(() => {
     const fallback = "No description provided yet.";
@@ -2839,111 +2997,145 @@ export default function PublicPropertyDetailPage() {
                     >
                       <Share2 className={`w-4 h-4 transition-transform duration-300 ${showShareMenu ? "rotate-12" : ""}`} />
                     </button>
-                    {showShareMenu && (
-                      <>
+                    {showShareMenu && typeof document !== "undefined" && createPortal(
+                      <div className="fixed inset-0 z-[1000] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title">
                         <div
-                          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity duration-200"
+                          className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
                           onClick={() => setShowShareMenu(false)}
+                          aria-hidden="true"
                         />
-                        <div
-                          className="absolute right-0 top-full mt-2 w-56 max-w-none rounded-2xl border border-solid border-slate-200/60 bg-white/95 backdrop-blur-xl shadow-2xl ring-1 ring-black/5 z-50 overflow-hidden transform transition-all duration-200 origin-top-right"
-                          style={{ maxWidth: "none" }}
-                        >
-                          <div className="p-3 grid gap-2">
-                          {/* Every entry mints a tracked link first, so the token
-                              is in the URL the recipient actually receives. The
-                              social links open after the link is ready, which is
-                              why they are buttons rather than plain anchors. */}
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setShowShareMenu(false);
-                              const url = property?.id
-                                ? await createShareLink(property.id, "COPY_LINK", window.location.href)
-                                : window.location.href;
-                              navigator.clipboard.writeText(url).then(() => {
-                                setCopyLinkSuccess(true);
-                                setTimeout(() => setCopyLinkSuccess(false), 2000);
-                              });
-                            }}
-                            className="group w-full flex items-center gap-3 rounded-xl border border-solid border-slate-200/70 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-800 transition-colors duration-200 hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
-                          >
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/5">
-                              <Copy className={`w-4 h-4 flex-shrink-0 transition-colors duration-200 ${copyLinkSuccess ? "text-[#02665e]" : "text-slate-600"}`} />
-                            </span>
-                            <span className={copyLinkSuccess ? "font-semibold text-[#02665e]" : ""}>{copyLinkSuccess ? "Link copied!" : "Copy link"}</span>
-                          </button>
-                          {([
-                            {
-                              key: "EMAIL" as const,
-                              label: "Email",
-                              icon: Mail,
-                              className: "border-amber-200/60 bg-amber-50/70 text-amber-900 hover:bg-amber-100/70",
-                              iconClass: "text-amber-700",
-                              ringClass: "ring-amber-900/10",
-                              build: (url: string) => `mailto:?subject=${encodeURIComponent(property.title)}&body=${encodeURIComponent(url)}`,
-                              newTab: false,
-                            },
-                            {
-                              key: "FACEBOOK" as const,
-                              label: "Facebook",
-                              icon: Facebook,
-                              className: "border-blue-200/60 bg-blue-50/70 text-blue-900 hover:bg-blue-100/70",
-                              iconClass: "text-blue-700",
-                              ringClass: "ring-blue-900/10",
-                              build: (url: string) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
-                              newTab: true,
-                            },
-                            {
-                              key: "WHATSAPP" as const,
-                              label: "WhatsApp",
-                              icon: MessageSquare,
-                              className: "border-emerald-200/60 bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100/70",
-                              iconClass: "text-emerald-700",
-                              ringClass: "ring-emerald-900/10",
-                              build: (url: string) => `https://wa.me/?text=${encodeURIComponent(`${property.title} - ${url}`)}`,
-                              newTab: true,
-                            },
-                            {
-                              key: "TWITTER" as const,
-                              label: "Twitter",
-                              icon: Twitter,
-                              className: "border-sky-200/60 bg-sky-50/70 text-sky-900 hover:bg-sky-100/70",
-                              iconClass: "text-sky-700",
-                              ringClass: "ring-sky-900/10",
-                              build: (url: string) => `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(property.title)}`,
-                              newTab: true,
-                            },
-                          ]).map((target) => {
-                            const TargetIcon = target.icon;
-                            return (
+                        <div className="relative w-full rounded-t-3xl border-0 bg-white shadow-card sm:max-w-[420px] sm:rounded-2xl sm:border sm:border-solid sm:border-slate-200">
+                          <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-slate-200 sm:hidden" aria-hidden="true" />
+                          <div className="px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 sm:p-6">
+                            {/* Header */}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <h2 id="share-dialog-title" className="m-0 text-base font-bold text-slate-900">Share this stay</h2>
+                                <p className="m-0 mt-0.5 truncate text-sm text-slate-500">{property.title}</p>
+                              </div>
                               <button
-                                key={target.key}
+                                type="button"
+                                onClick={() => setShowShareMenu(false)}
+                                className="-mr-1.5 -mt-1 inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border-0 bg-transparent text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                aria-label="Close"
+                              >
+                                <X className="h-5 w-5" />
+                              </button>
+                            </div>
+
+                            {/* Link + copy. Every action mints a tracked link first, so
+                                the token is in the URL the recipient actually receives. */}
+                            <div className="mt-4 flex items-center gap-2 rounded-xl border border-solid border-slate-200 bg-slate-50 p-1.5 pl-3">
+                              <span className="min-w-0 flex-1 truncate text-sm text-slate-600">
+                                {typeof window !== "undefined" ? `${window.location.host}${window.location.pathname}` : ""}
+                              </span>
+                              <button
                                 type="button"
                                 onClick={async () => {
-                                  setShowShareMenu(false);
                                   const url = property?.id
-                                    ? await createShareLink(property.id, target.key, window.location.href)
+                                    ? await createShareLink(property.id, "COPY_LINK", window.location.href)
                                     : window.location.href;
-                                  const destination = target.build(url);
-                                  if (target.newTab) {
-                                    window.open(destination, "_blank", "noopener,noreferrer");
-                                  } else {
-                                    window.location.href = destination;
+                                  navigator.clipboard.writeText(url).then(() => {
+                                    setCopyLinkSuccess(true);
+                                    setTimeout(() => setCopyLinkSuccess(false), 2000);
+                                  }).catch(() => {});
+                                }}
+                                className={`inline-flex flex-none items-center gap-1.5 rounded-lg border-0 px-3.5 py-2 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [font-family:inherit] ${copyLinkSuccess ? "bg-emerald-600" : "bg-brand hover:bg-brand-700"}`}
+                              >
+                                {copyLinkSuccess ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                {copyLinkSuccess ? "Copied" : "Copy link"}
+                              </button>
+                            </div>
+
+                            {/* Share targets */}
+                            <div className="mt-5 grid grid-cols-4 gap-2">
+                              {([
+                                {
+                                  key: "WHATSAPP" as const,
+                                  label: "WhatsApp",
+                                  glyph: (
+                                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="#25D366" aria-hidden="true">
+                                      <path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.4-1.48-.88-.79-1.48-1.76-1.66-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35M12.05 21.4h-.01a9.35 9.35 0 0 1-4.77-1.31l-.34-.2-3.55.93.95-3.46-.22-.36a9.36 9.36 0 0 1-1.44-4.99c0-5.17 4.21-9.38 9.39-9.38 2.5 0 4.86.98 6.63 2.75a9.32 9.32 0 0 1 2.74 6.64c0 5.17-4.21 9.38-9.38 9.38m7.98-17.36A11.2 11.2 0 0 0 12.05.75C5.83.75.77 5.8.77 12.03c0 1.99.52 3.93 1.51 5.64L.67 23.25l5.7-1.5a11.26 11.26 0 0 0 5.67 1.45h.01c6.22 0 11.28-5.06 11.28-11.28 0-3.01-1.17-5.85-3.3-7.98" />
+                                    </svg>
+                                  ),
+                                  build: (url: string) => `https://wa.me/?text=${encodeURIComponent(`${property.title} - ${url}`)}`,
+                                  newTab: true,
+                                },
+                                {
+                                  key: "FACEBOOK" as const,
+                                  label: "Facebook",
+                                  glyph: <Facebook className="h-5 w-5 text-[#1877F2]" fill="currentColor" strokeWidth={0} />,
+                                  build: (url: string) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+                                  newTab: true,
+                                },
+                                {
+                                  key: "TWITTER" as const,
+                                  label: "X",
+                                  glyph: (
+                                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="#0f172a" aria-hidden="true">
+                                      <path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.21-6.82-5.97 6.82H1.67l7.73-8.84L1.25 2.25h6.83l4.71 6.23 5.45-6.23Zm-1.16 17.52h1.83L7.08 4.13H5.12l11.96 15.64Z" />
+                                    </svg>
+                                  ),
+                                  build: (url: string) => `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(property.title)}`,
+                                  newTab: true,
+                                },
+                                {
+                                  key: "EMAIL" as const,
+                                  label: "Email",
+                                  glyph: <Mail className="h-5 w-5 text-slate-700" />,
+                                  build: (url: string) => `mailto:?subject=${encodeURIComponent(property.title)}&body=${encodeURIComponent(url)}`,
+                                  newTab: false,
+                                },
+                              ]).map((target) => (
+                                <button
+                                  key={target.key}
+                                  type="button"
+                                  onClick={async () => {
+                                    setShowShareMenu(false);
+                                    const url = property?.id
+                                      ? await createShareLink(property.id, target.key, window.location.href)
+                                      : window.location.href;
+                                    const destination = target.build(url);
+                                    if (target.newTab) {
+                                      window.open(destination, "_blank", "noopener,noreferrer");
+                                    } else {
+                                      window.location.href = destination;
+                                    }
+                                  }}
+                                  className="group flex flex-col items-center gap-1.5 rounded-xl border-0 bg-transparent px-1 py-2 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
+                                >
+                                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-solid border-slate-200 bg-white transition group-hover:border-slate-300 group-hover:shadow-sm">
+                                    {target.glyph}
+                                  </span>
+                                  <span className="text-xs font-medium text-slate-700">{target.label}</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {canNativeShare && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const url = property?.id
+                                    ? await createShareLink(property.id, "NATIVE", window.location.href)
+                                    : window.location.href;
+                                  try {
+                                    await navigator.share({ title: property.title, url });
+                                    setShowShareMenu(false);
+                                  } catch {
+                                    // Cancelled from the system sheet; keep this one open.
                                   }
                                 }}
-                                className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 ${target.className}`}
+                                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
                               >
-                                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ${target.ringClass}`}>
-                                  <TargetIcon className={`w-4 h-4 flex-shrink-0 transition-colors duration-200 ${target.iconClass}`} />
-                                </span>
-                                <span>{target.label}</span>
+                                <Share2 className="h-4 w-4" />
+                                More options
                               </button>
-                            );
-                          })}
+                            )}
                           </div>
                         </div>
-                      </>
+                      </div>,
+                      document.body
                     )}
                   </div>
                 </div>
@@ -3152,39 +3344,40 @@ export default function PublicPropertyDetailPage() {
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Facts: the original teal bar, refined */}
-            <div className="relative grid grid-cols-2 overflow-hidden rounded-xl bg-[#02665e] shadow-sm sm:grid-cols-4">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0"
-                style={{ backgroundImage: "repeating-linear-gradient(135deg,rgba(255,255,255,0.08) 0px,rgba(255,255,255,0.08) 1.5px,transparent 1.5px,transparent 10px)" }}
-              />
-              {[
-                { Icon: Users, value: property.maxGuests ?? "-", label: "Guests" },
-                { Icon: BedDouble, value: property.totalBedrooms ?? "-", label: "Bedrooms" },
-                { Icon: Bath, value: property.totalBathrooms ?? "-", label: "Bathrooms" },
-                { Icon: ShieldCheck, value: "Verified", label: "by NoLSAF", verified: true },
-              ].map(({ Icon, value, label, verified }, i) => (
-                <div
-                  key={label}
-                  className={[
-                    "relative flex min-w-0 items-center gap-2.5 px-4 py-3",
-                    verified ? "bg-white/10" : "",
-                    i % 2 === 1 ? "border-0 border-l border-solid border-white/10" : "",
-                    i >= 2 ? "border-0 border-t border-solid border-white/10 sm:border-t-0" : "",
-                    i === 2 ? "sm:border-l" : "",
-                  ].join(" ")}
-                >
-                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
-                    <Icon className="h-4 w-4" aria-hidden />
-                  </span>
-                  <div className="min-w-0 leading-none">
-                    <div className="truncate text-base font-bold tabular-nums text-white">{value}</div>
-                    <div className="mt-1 truncate text-[11.5px] text-white/75">{label}</div>
-                  </div>
+            {/* Key facts. A hotel is booked by the room, so building-wide guest and
+                bathroom totals mean nothing to a guest there: show rooms and room
+                types. A home is booked whole: show guests, bedrooms, bathrooms. */}
+            {(() => {
+              const roomTypeCount = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
+              const byTheRoom =
+                /^(HOTEL|LODGE|GUEST_HOUSE|RESORT|HOSTEL|MOTEL)$/i.test(String(property.type || "").replace(/[\s-]+/g, "_")) ||
+                roomTypeCount > 1;
+              const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+              const facts = (byTheRoom
+                ? [
+                    property.totalBedrooms ? { Icon: DoorOpen, text: plural(property.totalBedrooms, "room", "rooms") } : null,
+                    roomTypeCount > 0 ? { Icon: LayoutGrid, text: plural(roomTypeCount, "room type", "room types") } : null,
+                  ]
+                : [
+                    property.maxGuests ? { Icon: Users, text: plural(property.maxGuests, "guest", "guests") } : null,
+                    property.totalBedrooms ? { Icon: BedDouble, text: plural(property.totalBedrooms, "bedroom", "bedrooms") } : null,
+                    property.totalBathrooms ? { Icon: Bath, text: plural(property.totalBathrooms, "bathroom", "bathrooms") } : null,
+                  ]
+              ).filter(Boolean) as Array<{ Icon: any; text: string }>;
+              if (!facts.length) return null;
+              return (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5 rounded-2xl border border-solid border-slate-200 bg-white px-5 py-3.5">
+                  {facts.map(({ Icon, text }) => (
+                    <span key={text} className="inline-flex items-center gap-2 text-[14px] text-slate-700">
+                      <Icon className="h-[18px] w-[18px] flex-none text-brand" strokeWidth={1.8} aria-hidden />
+                      <span>
+                        <span className="font-semibold text-slate-900">{text.split(" ")[0]}</span> {text.split(" ").slice(1).join(" ")}
+                      </span>
+                    </span>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
             {/* Description */}
             <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
@@ -3327,61 +3520,102 @@ export default function PublicPropertyDetailPage() {
             {/* What's included and the live menu: moved out of the booking card so it stays focused */}
             {(servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 || property.nrmsMenuUrl) ? (
               <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
-              {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (
-                <div className="rounded-xl bg-slate-50/80 p-3 ring-1 ring-slate-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
-                        <BadgeCheck className="h-5 w-5" aria-hidden />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-950">What's included</p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">Covered by the listed price.</p>
-                      </div>
-                    </div>
-                    {servicesByCategory.available.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setPriceServicesOpen(true)}
-                        className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#02665e] shadow-sm ring-1 ring-slate-200 hover:bg-[#02665e]/5"
-                        aria-label="View services"
-                        aria-expanded={priceServicesOpen}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    ) : null}
+              {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (() => {
+                // Compact rows: a label, then chips that flow across the width.
+                // Safety features are never a paid extra, so they get their own quiet
+                // row instead of sitting under "May cost extra".
+                const SAFETY = /security|guard|first aid|fire|extinguisher|smoke|alarm|cctv|emergency|safe\b/i;
+                const safety = servicesByCategory.available.filter((item: string) => SAFETY.test(item));
+                const extras = servicesByCategory.available.filter((item: string) => !SAFETY.test(item));
+                const LIMIT = 8;
+                const shownExtras = priceServicesOpen ? extras : extras.slice(0, LIMIT);
+                const hiddenCount = extras.length - LIMIT;
+                return (
+                  <div>
+                    <h3 className="m-0 text-base font-bold text-slate-900">What this place offers</h3>
+                    <dl className="m-0 mt-3 space-y-2.5">
+                      {servicesByCategory.included.length > 0 && (
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
+                          <dt className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 sm:w-28 sm:flex-none sm:pt-1.5">
+                            <CheckCircle2 className="h-3.5 w-3.5 flex-none" aria-hidden />
+                            In your price
+                          </dt>
+                          <dd className="m-0 flex flex-wrap gap-1.5">
+                            {servicesByCategory.included.map((item: string) => {
+                              const meta = amenityMeta(item);
+                              // The row already says "in your price", so "Free parking"
+                              // reads as "Parking" and "Breakfast included" as "Breakfast".
+                              const short = item
+                                .replace(/\b(free|included|inclusive|complimentary)\b/gi, "")
+                                .replace(/\s{2,}/g, " ")
+                                .trim();
+                              const label = short ? short.charAt(0).toUpperCase() + short.slice(1) : item;
+                              return (
+                                <span
+                                  key={item}
+                                  title={item}
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[12.5px] font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200"
+                                >
+                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-emerald-700" aria-hidden />
+                                  {label}
+                                </span>
+                              );
+                            })}
+                          </dd>
+                        </div>
+                      )}
+                      {extras.length > 0 && (
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
+                          <dt className="text-xs font-semibold text-slate-500 sm:w-28 sm:flex-none sm:pt-1.5">
+                            Also on site
+                            <span className="block font-normal text-slate-400">May cost extra</span>
+                          </dt>
+                          <dd className="m-0 flex flex-wrap items-center gap-1.5">
+                            {shownExtras.map((item: string) => {
+                              const meta = amenityMeta(item);
+                              return (
+                                <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-solid border-slate-200 bg-white px-2.5 py-1 text-[12.5px] text-slate-700">
+                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-slate-500" aria-hidden />
+                                  {item}
+                                </span>
+                              );
+                            })}
+                            {hiddenCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setPriceServicesOpen((v) => !v)}
+                                aria-expanded={priceServicesOpen}
+                                className="border-0 bg-transparent px-1.5 py-1 text-[12.5px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
+                              >
+                                {priceServicesOpen ? "Show less" : `+${hiddenCount} more`}
+                              </button>
+                            )}
+                          </dd>
+                        </div>
+                      )}
+                      {safety.length > 0 && (
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
+                          <dt className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 sm:w-28 sm:flex-none sm:pt-0.5">
+                            <ShieldCheck className="h-3.5 w-3.5 flex-none" aria-hidden />
+                            Safety
+                          </dt>
+                          <dd className="m-0 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                            {safety.map((item: string) => {
+                              const meta = amenityMeta(item);
+                              return (
+                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
+                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
+                                  {item}
+                                </span>
+                              );
+                            })}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
                   </div>
-
-                  {servicesByCategory.included.length > 0 ? (
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {servicesByCategory.included.slice(0, 3).map((item: string) => {
-                        const meta = amenityMeta(item);
-                        return (
-                          <div key={item} className="flex min-h-10 items-center gap-2 rounded-xl bg-white px-2.5 py-2 shadow-sm ring-1 ring-emerald-100">
-                            <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-800">
-                              <meta.Icon className={`h-4 w-4 flex-shrink-0 ${meta.colorClass}`} aria-hidden />
-                              <span className="truncate">{item}</span>
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {servicesByCategory.included.length > 3 ? (
-                        <button
-                          type="button"
-                          onClick={() => setPriceServicesOpen(true)}
-                          className="flex min-h-10 items-center justify-center rounded-xl bg-white px-2.5 py-2 text-xs font-bold text-[#02665e] shadow-sm ring-1 ring-[#02665e]/15 hover:bg-[#02665e]/5"
-                        >
-                          +{servicesByCategory.included.length - 3} more
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs text-slate-500 shadow-sm ring-1 ring-slate-100">
-                      No included services were declared separately from the room price.
-                    </p>
-                  )}
-                </div>
-              ) : null}
+                );
+              })() : null}
 
               {property.nrmsMenuUrl ? (
                 <Link
@@ -3443,7 +3677,10 @@ export default function PublicPropertyDetailPage() {
               const checkingAvailability = hasDates && availabilityData == null;
               const hasRoomSelection = Boolean(selectedRoomCode);
               const canRequestBooking = hasDates && availabilityData?.available === true && hasRoomSelection;
-              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? "Select room type" : "Request booking";
+              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? "Choose a room to continue" : "Request booking";
+              // Once a room is chosen the estimate follows that room's own rate.
+              const selectedNightly = roomNightlyPrice(selectedRoomCode);
+              const nightly = selectedNightly ?? finalBasePrice;
               return (
                 <div id="booking-card" className="box-border scroll-mt-24 rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
                   <div className="flex items-baseline gap-1.5">
@@ -3465,6 +3702,7 @@ export default function PublicPropertyDetailPage() {
                       openPickerSignal={datePickerSignal}
                       selectedRoomCode={selectedRoomCode}
                       onRoomTypeSelect={setSelectedRoomCode}
+                      roomPrice={roomNightlyPrice}
                     />
                   </div>
 
@@ -3486,23 +3724,27 @@ export default function PublicPropertyDetailPage() {
                     {(!hasDates || canRequestBooking) && <ChevronRight className="h-4 w-4" aria-hidden />}
                   </button>
 
-                  {hasDates && nights > 0 && finalBasePrice != null && (
+                  {hasDates && nights > 0 && nightly != null && (
                     <div className="mt-4 space-y-1.5 border-0 border-t border-solid border-slate-100 pt-3 text-[13px]">
                       <div className="flex items-center justify-between gap-3 text-slate-600">
                         <span className="inline-flex items-baseline gap-1">
-                          <PriceDisplay amountTzs={finalBasePrice} showNote={false} /> × {nights} night{nights === 1 ? "" : "s"}
+                          <PriceDisplay amountTzs={nightly} showNote={false} /> × {nights} night{nights === 1 ? "" : "s"}
                         </span>
                         <span className="tabular-nums">
-                          <PriceDisplay amountTzs={finalBasePrice * nights} showNote={false} />
+                          <PriceDisplay amountTzs={nightly * nights} showNote={false} />
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3 font-semibold text-slate-900">
                         <span>Estimated total</span>
                         <span className="tabular-nums">
-                          <PriceDisplay amountTzs={finalBasePrice * nights} showNote={false} />
+                          <PriceDisplay amountTzs={nightly * nights} showNote={false} />
                         </span>
                       </div>
-                      <p className="m-0 text-[11.5px] text-slate-500">Final price depends on the room you choose.</p>
+                      <p className="m-0 text-[11.5px] text-slate-500">
+                        {selectedNightly != null && selectedRoomCode
+                          ? `Rate for ${selectedRoomCode}. Final amount confirmed at checkout.`
+                          : "Choose a room to see its exact price."}
+                      </p>
                     </div>
                   )}
 
@@ -3518,7 +3760,7 @@ export default function PublicPropertyDetailPage() {
                         <div className="mx-auto flex max-w-3xl items-center gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="m-0 flex items-baseline gap-1 text-[15px] font-bold text-slate-900">
-                              <PriceDisplay amountTzs={finalBasePrice} showNote={false} />
+                              <PriceDisplay amountTzs={nightly} showNote={false} />
                               <span className="text-[12px] font-normal text-slate-500">/ night</span>
                             </p>
                             <p className="m-0 truncate text-[12px] text-slate-500">
@@ -3572,95 +3814,6 @@ export default function PublicPropertyDetailPage() {
               </div>
             </div>
           </aside>
-          {priceServicesOpen && photoPortalReady ? createPortal((
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/50 px-4 py-4 backdrop-blur-sm">
-              <button
-                type="button"
-                className="absolute inset-0 cursor-default"
-                aria-label="Close services details"
-                onClick={() => setPriceServicesOpen(false)}
-              />
-              <motion.div
-                initial={{ opacity: 0, y: 10, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="price-services-title"
-              >
-                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-[#02665e]">Host declaration</p>
-                    <h3 id="price-services-title" className="mt-1 text-base font-semibold text-slate-950">
-                      Price services
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPriceServicesOpen(false)}
-                    className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
-                    aria-label="Close services details"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                  {servicesByCategory.included.length > 0 ? (
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-semibold text-slate-950">Included in price</h4>
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                          {servicesByCategory.included.length}
-                        </span>
-                      </div>
-                      <div className="mt-2 grid gap-2">
-                        {servicesByCategory.included.map((item: string) => {
-                          const meta = amenityMeta(item);
-                          return (
-                            <div key={item} className="flex items-center justify-between gap-3 rounded-lg bg-emerald-50/70 px-3 py-2 ring-1 ring-emerald-100">
-                              <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-800">
-                                <meta.Icon className={`h-4 w-4 flex-shrink-0 ${meta.colorClass}`} aria-hidden />
-                                <span>{item}</span>
-                              </span>
-                              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" aria-hidden />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {servicesByCategory.available.length > 0 ? (
-                    <div className={servicesByCategory.included.length > 0 ? "mt-4" : ""}>
-                      <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-semibold text-slate-950">Other available services</h4>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                          {servicesByCategory.available.length}
-                        </span>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        {servicesByCategory.available.map((item: string) => {
-                          const meta = amenityMeta(item);
-                          return (
-                            <span key={item} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-slate-50 px-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                              <meta.Icon className={`h-3.5 w-3.5 flex-shrink-0 ${meta.colorClass}`} aria-hidden />
-                              <span className="truncate">{item}</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900 ring-1 ring-amber-100">
-                    Other services may depend on rules, timing, or separate charges.
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          ), document.body) : null}
         </div>
         {/* Building visualization (owner-declared) */}
         {property.roomsSpec && property.roomsSpec.length > 0 && (
@@ -4507,6 +4660,10 @@ export default function PublicPropertyDetailPage() {
           const lng = Number(property.longitude);
           const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
           const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          // Private homes arrive with a shifted point: show the area, and no
+          // directions to a spot that is deliberately not the door.
+          const approximateLocation = property.locationPrecision === "APPROXIMATE";
+          const approximateRadiusM = approximateLocation ? Number(property.locationRadiusMeters) || 500 : null;
 
           type Place = { name: string; type: string; ownership?: string; distanceKm: number | null; reachableBy: string[]; url?: string };
           const places: Place[] = nearbyFacilities
@@ -4583,6 +4740,7 @@ export default function PublicPropertyDetailPage() {
                     <p className="m-0 mt-0.5 truncate text-sm text-slate-500">{location || "Location on the map"}</p>
                   </div>
                 </div>
+                {!approximateLocation && (
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <a
                     href={directionsUrl}
@@ -4603,13 +4761,14 @@ export default function PublicPropertyDetailPage() {
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                   </a>
                 </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
                 {/* Map */}
                 <div className="p-4">
                   <div className="overflow-hidden rounded-xl border border-solid border-slate-200">
-                    <PropertyMap latitude={property.latitude} longitude={property.longitude} propertyTitle={property.title} />
+                    <PropertyMap latitude={property.latitude} longitude={property.longitude} propertyTitle={property.title} approximateRadiusM={approximateRadiusM} />
                   </div>
                 </div>
 

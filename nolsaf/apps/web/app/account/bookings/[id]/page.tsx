@@ -56,6 +56,10 @@ type BookingDetail = {
     regionName?: string;
     district?: string;
     city?: string;
+    ward?: string | null;
+    street?: string | null;
+    latitude?: number | string | null;
+    longitude?: number | string | null;
     owner?: { id: number; name: string; email?: string; phone?: string };
   };
   code?: { code: string; status: string } | null;
@@ -411,6 +415,57 @@ export default function BookingDetailPage() {
               </div>
             </section>
           ) : null}
+
+          {/* Getting there: the exact spot, which the public page withholds for
+              private homes until the stay is booked and paid. */}
+          {(() => {
+            const lat = Number(booking.property.latitude);
+            const lng = Number(booking.property.longitude);
+            const hasPoint = booking.property.latitude != null && booking.property.longitude != null && Number.isFinite(lat) && Number.isFinite(lng);
+            const address = [booking.property.street, booking.property.ward, booking.property.district, booking.property.regionName]
+              .map((p) => String(p || "").trim())
+              .filter(Boolean)
+              .filter((p, i, all) => all.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i)
+              .join(", ");
+            if (!hasPoint && !address) return null;
+            return (
+              <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+                <header className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 px-5 py-3.5">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+                    <MapPin className="h-4 w-4" aria-hidden />
+                  </span>
+                  <h2 className="m-0 text-[15px] font-bold text-slate-900">Getting there</h2>
+                </header>
+                <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    {address ? <p className="m-0 text-[14px] font-semibold text-slate-900">{address}</p> : null}
+                    <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Exact location of your stay.</p>
+                  </div>
+                  {hasPoint ? (
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#02665e] px-4 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
+                      >
+                        <MapPin className="h-4 w-4" aria-hidden />
+                        Directions
+                      </a>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-10 items-center rounded-lg border border-solid border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+                      >
+                        Open in Maps
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            );
+          })()}
 
           {/* Notes */}
           {booking.notes ? (

@@ -1,4 +1,5 @@
 import type { PropertyImage } from "@prisma/client";
+import { APPROX_LOCATION_RADIUS_M, approximateCoordinates, hasPublicExactLocation } from "./propertyLocationPrivacy.js";
 
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
 
@@ -40,6 +41,10 @@ export type PublicPropertyDetail = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** APPROXIMATE for private homes before booking: the point is shifted and street is withheld. */
+  locationPrecision: "EXACT" | "APPROXIMATE";
+  /** Radius of the area to draw when the location is approximate. */
+  locationRadiusMeters: number | null;
   images: string[];
   basePrice: number | null;
   currency: string | null;
@@ -320,6 +325,18 @@ export function toPublicDetail(p: any): PublicPropertyDetail {
   const images = Array.from(new Set<string>([...propertyImages, ...roomImages]));
   const effectiveBasePrice = extractEffectiveBasePrice(p);
 
+  // Private homes: approximate point and no street before booking. The exact
+  // location reaches the guest through their confirmed booking instead.
+  const exactLocation = hasPublicExactLocation(p.type);
+  const rawLat = p.latitude !== null && typeof p.latitude !== "undefined" ? Number(p.latitude) : null;
+  const rawLng = p.longitude !== null && typeof p.longitude !== "undefined" ? Number(p.longitude) : null;
+  const hasPoint = rawLat != null && rawLng != null && Number.isFinite(rawLat) && Number.isFinite(rawLng);
+  const point = hasPoint
+    ? exactLocation
+      ? { latitude: rawLat as number, longitude: rawLng as number }
+      : approximateCoordinates(id, rawLat as number, rawLng as number)
+    : { latitude: null, longitude: null };
+
   return {
     id,
     slug,
@@ -333,10 +350,12 @@ export function toPublicDetail(p: any): PublicPropertyDetail {
     district: p.district ?? null,
     ward: p.ward ?? null,
     city: p.city ?? null,
-    street: p.street ?? null,
+    street: exactLocation ? p.street ?? null : null,
     country: p.country ?? null,
-    latitude: p.latitude !== null && typeof p.latitude !== "undefined" ? Number(p.latitude) : null,
-    longitude: p.longitude !== null && typeof p.longitude !== "undefined" ? Number(p.longitude) : null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+    locationPrecision: exactLocation ? "EXACT" : "APPROXIMATE",
+    locationRadiusMeters: exactLocation ? null : APPROX_LOCATION_RADIUS_M,
     images,
     basePrice: effectiveBasePrice,
     currency: p.currency ?? null,
