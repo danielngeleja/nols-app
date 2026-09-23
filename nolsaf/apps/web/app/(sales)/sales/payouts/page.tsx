@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDollarSign, Landmark, Loader2, Send, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesShell, { statusTone } from "@/components/SalesShell";
+import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 
 type Payout = {
   id: number;
@@ -244,7 +244,7 @@ export default function SalesPayoutsPage() {
                 <article key={payout.id} className="p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div><p className="font-semibold text-gray-900">{payout.referenceNumber}</p><p className="mt-1 text-xs text-gray-500">{new Date(payout.requestedAt).toLocaleString()} · {payout._count.items} earnings</p></div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs ${statusTone(payout.status)}`}>{payout.status}</span>
+                    <span className={`rounded-full px-2.5 py-1 text-xs ${statusTone(payout.status)}`}>{codeLabel(payout.status)}</span>
                   </div>
                   <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
                     <div><p className="text-xs text-gray-500">Requested</p><p className="mt-1 font-medium text-gray-900">{money(payout.requestedAmount, payout.currency)}</p></div>

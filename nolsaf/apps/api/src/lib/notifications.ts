@@ -564,8 +564,12 @@ export async function notifyUser(userId: number, template: string, data: any) {
         body: `Your payout request ${data.referenceNumber || ""} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."} The earnings have been returned to your available balance.`
       },
       sales_partner_lead_followup: {
-        title: "Lead follow up due",
-        body: `${data.propertyName || "A lead"} is due for follow up${data.nextFollowUpAt ? ` on ${new Date(data.nextFollowUpAt).toDateString()}` : ""}.`
+        title: "Lead follow-up due",
+        body: `Your follow-up with ${data.propertyName || "a lead"} was planned for ${data.nextFollowUpAt ? new Date(data.nextFollowUpAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "today"}. Log the call or visit, or set a new follow-up date.`
+      },
+      sales_partner_lead_protection_expiring: {
+        title: Number(data.daysRemaining) <= 1 ? "Lead claim ends tomorrow" : "Lead claim ending soon",
+        body: `Your claim on ${data.propertyName || "a lead"} ends in ${Number(data.daysRemaining) <= 1 ? "1 day" : `${data.daysRemaining} days`}. Log a call, email, meeting or proposal to keep it, or another partner may register this property.`
       },
       nrms_inquiry_followup_due: {
         title: "Guest follow-up due",

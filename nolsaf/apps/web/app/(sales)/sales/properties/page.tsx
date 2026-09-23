@@ -15,7 +15,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesShell, { statusTone } from "@/components/SalesShell";
+import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Attribution = {
@@ -384,7 +384,7 @@ export default function SalesPropertiesPage() {
                           <div className="flex flex-wrap gap-1.5">
                             {property.salesAttributions.map((attribution) => (
                               <span key={attribution.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-100 bg-white px-2 py-1 shadow-sm">
-                                <span className="text-[10px] font-black text-slate-700">{attribution.productType}</span>
+                                <span className="text-[10px] font-black text-slate-700">{codeLabel(attribution.productType)}</span>
                                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${statusTone(attribution.status)}`}>
                                   {formatLabel(attribution.status)}
                                 </span>

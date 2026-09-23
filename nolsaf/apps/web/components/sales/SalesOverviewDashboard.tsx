@@ -30,7 +30,7 @@ import {
   YAxis,
 } from "recharts";
 import apiClient from "@/lib/apiClient";
-import { statusTone, type SalesMe } from "@/components/SalesShell";
+import { codeLabel, statusTone, type SalesMe } from "@/components/SalesShell";
 
 type DashboardMe = SalesMe & {
   payout?: {
@@ -493,8 +493,8 @@ export default function SalesOverviewDashboard() {
                     <tr key={property.id} className="text-xs">
                       <td className="px-4 py-3 font-bold text-slate-900">{property.title}</td>
                       <td className="px-3 py-3 text-slate-500">{property.city || property.district || property.regionName || "—"}</td>
-                      <td className="px-3 py-3"><div className="flex gap-1">{property.salesAttributions.map((item) => <span key={item.id} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">{item.productType}</span>)}</div></td>
-                      <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone(property.status)}`}>{property.status}</span></td>
+                      <td className="px-3 py-3"><div className="flex gap-1">{property.salesAttributions.map((item) => <span key={item.id} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">{codeLabel(item.productType)}</span>)}</div></td>
+                      <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone(property.status)}`}>{codeLabel(property.status)}</span></td>
                       <td className="px-3 py-3 text-right font-black text-slate-900">{money(property.totalEarnings, property.currency)}</td>
                       <td className="pr-3"><Link href={`/sales/properties/${property.id}`} aria-label={`Open ${property.title}`}><ArrowRight className="h-3.5 w-3.5 text-slate-300" /></Link></td>
                     </tr>

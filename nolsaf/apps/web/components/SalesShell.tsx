@@ -59,6 +59,20 @@ const NAV_GROUPS = [
 ];
 
 /** Status pill colours, per doc section 9.7. */
+/** Partner-facing wording for API codes: "PROPOSAL_SENT" reads "Proposal sent". */
+export function codeLabel(code: string | null | undefined): string {
+  const value = String(code || "").trim().toUpperCase();
+  if (!value) return "";
+  const special: Record<string, string> = {
+    NRMS: "NRMS",
+    MARKETPLACE: "Marketplace",
+    NRMS_AND_MARKETPLACE: "NRMS + Marketplace",
+  };
+  if (special[value]) return special[value];
+  const words = value.replace(/_/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function statusTone(status: string): string {
   const value = String(status || "").toUpperCase();
   if (["ACTIVE", "APPROVED", "AVAILABLE", "PAID", "VERIFIED", "CONVERTED"].includes(value)) {
@@ -440,6 +454,26 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         #sales-workspace select,
         #sales-workspace textarea {
           font: inherit;
+        }
+        /* Tailwind preflight is off app-wide, so utility classes here were
+           fighting browser defaults: "border" drew nothing (no border-style),
+           "border-t border-solid" drew all four sides, and headings, paragraphs
+           and <dd> kept their UA margins and indents. This is the relevant
+           slice of preflight, scoped to the sales workspace. :where() keeps it
+           at zero specificity, so every utility class still wins. */
+        :where(#sales-workspace) *,
+        :where(#sales-workspace) *::before,
+        :where(#sales-workspace) *::after {
+          border-width: 0;
+          border-style: solid;
+          border-color: #e2e8f0;
+        }
+        :where(#sales-workspace) :where(h1, h2, h3, h4, h5, h6, p, dl, dd, figure, blockquote, pre) {
+          margin: 0;
+        }
+        :where(#sales-workspace) :where(button, [type="button"], [type="submit"], [type="reset"]) {
+          background-color: transparent;
+          background-image: none;
         }
       `}</style>
       <div className="hidden shrink-0 p-3 lg:block">{renderSidebar(collapsed)}</div>

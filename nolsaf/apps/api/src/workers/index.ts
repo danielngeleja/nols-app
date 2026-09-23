@@ -24,6 +24,7 @@ import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReserv
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
 import { startNrmsInquiryFollowUpWorker } from "./nrmsInquiryFollowUps.js";
+import { startSalesLeadReminderWorker } from "./salesLeadReminders.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
@@ -114,6 +115,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startNrmsGuestAutomationWorker();
       startNrmsMetaMessagingWorker();
       startSalesCommissionLifecycleWorker();
+      // Sales partners: follow-up dates that have arrived, and lead claims about to lapse.
+      startSalesLeadReminderWorker();
       startNrmsInquiryFollowUpWorker();
       startAuditRetentionWorker();
       // Twiga threads an agent took and then left go to Resolved after 12 quiet
