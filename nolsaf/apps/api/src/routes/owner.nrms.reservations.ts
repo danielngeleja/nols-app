@@ -26,6 +26,7 @@ import { moveRoomAllocation } from "../lib/nrmsMoveRoom.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { resolveCommissionAmount, resolveOwnerPayoutAmount, roundMoney } from "../lib/accommodationPayout.js";
 import { connectExistingNoLsafBookings, roomTypeCodeFromSpec, syncNoLsafBookingToNrms } from "../lib/nolsafMarketplaceNrms.js";
 import {
   billingRoutesExtras,
@@ -245,28 +246,38 @@ function marketplaceFinancialBreakdown(booking: any, invoice: any) {
   const transportFare = Math.max(0, decimal(booking?.transportFare) ?? 0);
   const accommodationGross = bookingTotal == null ? null : Math.max(0, bookingTotal - transportFare);
   const storedPercent = decimal(invoice?.commissionPercent);
-  let commissionAmount = decimal(invoice?.commissionAmount);
-  let ownerPayout = decimal(invoice?.netPayable);
+  const storedCommission = decimal(invoice?.commissionAmount);
+  const storedPayout = decimal(invoice?.netPayable);
+  let commissionAmount = storedCommission;
+  let ownerPayout = storedPayout;
   let status: "RECORDED" | "CALCULATED" | "UNAVAILABLE" = "RECORDED";
 
-  // The percentage captured on the invoice is the commercial rule of record.
-  // Recalculate its amounts from accommodation only so a legacy invoice total
-  // that included transport can never inflate the owner's room payout.
-  if (accommodationGross != null && storedPercent != null && storedPercent >= 0 && storedPercent <= 100) {
-    commissionAmount = Math.round(accommodationGross * (storedPercent / 100) * 100) / 100;
-    ownerPayout = Math.max(0, Math.round((accommodationGross - commissionAmount) * 100) / 100);
+  // NoLSAF commission is a markup the guest pays on top of the owner's price,
+  // so the owner's share is gross / (1 + pct), never gross * (1 - pct). The
+  // amounts recorded on the invoice at approval are the figures of record; only
+  // derive (with the same shared helpers) when they are missing.
+  if (accommodationGross == null) {
+    if (ownerPayout == null && commissionAmount == null) status = "UNAVAILABLE";
+  } else if (ownerPayout == null || ownerPayout <= 0 || commissionAmount == null) {
+    ownerPayout = resolveOwnerPayoutAmount({
+      invoiceNumber: invoice?.invoiceNumber,
+      invoiceTotal: invoice?.total,
+      netPayable: storedPayout,
+      bookingTotalAmount: booking?.totalAmount,
+      transportFare: booking?.transportFare,
+      commissionPercent: storedPercent,
+    });
+    commissionAmount = resolveCommissionAmount({
+      invoiceNumber: invoice?.invoiceNumber,
+      invoiceTotal: invoice?.total,
+      // undefined, not null: the helper reads Number(null) as a recorded 0.
+      commissionAmount: storedCommission ?? undefined,
+      netPayable: ownerPayout,
+      bookingTotalAmount: booking?.totalAmount,
+      transportFare: booking?.transportFare,
+      commissionPercent: storedPercent,
+    }) ?? Math.max(0, roundMoney(accommodationGross - ownerPayout));
     status = "CALCULATED";
-  } else if (accommodationGross != null && ownerPayout == null && commissionAmount != null) {
-    ownerPayout = Math.max(0, Math.round((accommodationGross - commissionAmount) * 100) / 100);
-    status = "CALCULATED";
-  } else if (accommodationGross != null && commissionAmount == null && ownerPayout != null) {
-    commissionAmount = Math.max(0, Math.round((accommodationGross - ownerPayout) * 100) / 100);
-    status = "CALCULATED";
-  } else if (accommodationGross != null && ownerPayout == null && commissionAmount == null) {
-    ownerPayout = accommodationGross;
-    status = "CALCULATED";
-  } else if (accommodationGross == null) {
-    status = "UNAVAILABLE";
   }
 
   const derivedPercent = accommodationGross != null && accommodationGross > 0 && commissionAmount != null

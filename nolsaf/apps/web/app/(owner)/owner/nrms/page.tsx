@@ -240,6 +240,13 @@ function NrmsFrontDeskPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reservation: Reservation; action: "check-in" | "check-out" } | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
+  // Early departure is decided on the hotel's business day, which only moves on
+  // when the night audit closes. The browser cannot see that day, so when the
+  // server says a departure declaration is needed, the modal must show it.
+  const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
+  useEffect(() => {
+    setDepartureDeclarationNeeded(false);
+  }, [pendingAction?.reservation.id, pendingAction?.action]);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -346,8 +353,21 @@ function NrmsFrontDeskPage() {
       await load();
       setPendingAction(null);
     } catch (e: any) {
-      if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
+      const code = e?.response?.data?.code;
+      const handoffHref = action === "check-in" && code === "MARKETPLACE_BOOKING"
+        ? marketplaceCheckInHref(reservations.find((reservation) => reservation.id === id) ?? pendingAction?.reservation ?? ({} as Reservation))
+        : null;
+      if (handoffHref) {
+        // Marketplace stays are checked in with the guest's code, so send the
+        // receptionist there instead of leaving them on an error they cannot fix.
+        setPendingAction(null);
+        setRoomNotReady(null);
+        router.push(handoffHref);
+      } else if (action === "check-in" && code === "ROOM_NOT_READY") {
         setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else if (action === "check-out" && (code === "ROOM_VACANCY_CONFIRMATION_REQUIRED" || code === "EARLY_DEPARTURE_REASON_REQUIRED")) {
+        setDepartureDeclarationNeeded(true);
+        setError("NRMS records this as an early departure. Tick the room-vacant box and add a reason in the Early departure section above, then confirm check-out again.");
       } else {
         setError(e?.response?.data?.error || "Action failed");
       }
@@ -537,6 +557,7 @@ function NrmsFrontDeskPage() {
           busy={busyId === pendingAction.reservation.id}
           error={error}
           roomNotReady={roomNotReady}
+          requireDepartureDeclaration={departureDeclarationNeeded}
           onOverrideCheckIn={() => void act(pendingAction.reservation.id, "check-in", [], true)}
           onClose={() => {
             if (busyId == null) {
@@ -566,6 +587,7 @@ function StayActionModal({
   busy,
   error,
   roomNotReady,
+  requireDepartureDeclaration = false,
   onOverrideCheckIn,
   onClose,
   onOpenDestination,
@@ -580,6 +602,8 @@ function StayActionModal({
   busy: boolean;
   error: string | null;
   roomNotReady: string | null;
+  /** Set when the server reported that this checkout is an early departure. */
+  requireDepartureDeclaration?: boolean;
   onOverrideCheckIn: () => void;
   onClose: () => void;
   onOpenDestination: (href: string) => void;
@@ -626,7 +650,8 @@ function StayActionModal({
   const assignmentRequirement = roomAssignmentRequirement(reservation);
   const assignmentPaymentReady = assignmentRequirement.ready;
   const actionLabel = isCheckIn ? "Confirm check-in" : "Confirm check-out";
-  const earlyDeparture = !isCheckIn && reservation.checkOut.slice(0, 10) > localDateKey();
+  const marketplaceHref = isCheckIn ? marketplaceCheckInHref(reservation) : null;
+  const earlyDeparture = !isCheckIn && (reservation.checkOut.slice(0, 10) > localDateKey() || requireDepartureDeclaration);
   const departureDeclarationReady = isCheckIn || !earlyDeparture || (roomVacantConfirmed && earlyDepartureReason.trim().length >= 2);
 
   const handleAssignRoom = async () => {
@@ -891,7 +916,11 @@ function StayActionModal({
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <div className="min-w-0 flex-1">
                   <p className="m-0 text-xs font-bold text-neutral-900">Early departure</p>
-                  <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">This stay was planned until {shortDate(reservation.checkOut)}. Future calendar dates will be released and NRMS will retain the original schedule for audit.</p>
+                  <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">
+                    {reservation.checkOut.slice(0, 10) > localDateKey()
+                      ? `This stay was planned until ${shortDate(reservation.checkOut)}. Future calendar dates will be released and NRMS will retain the original schedule for audit.`
+                      : `The hotel's business day has not yet reached ${shortDate(reservation.checkOut)}, usually because the last night audit is still open, so NRMS records this checkout as early.`}
+                  </p>
                   <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Reason for leaving early" className="mt-2 box-border w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10" />
                   <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] leading-4 text-neutral-700"><input type="checkbox" checked={roomVacantConfirmed} onChange={(event) => setRoomVacantConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" /><span><strong className="font-semibold text-neutral-900">The guest has physically left and the room is vacant.</strong> This declaration is stored with the departure record.</span></label>
                 </div>
@@ -958,6 +987,17 @@ function StayActionModal({
             <button type="button" onClick={onClose} disabled={busy} className="min-h-10 flex-1 appearance-none rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-50 sm:flex-none">
               Not now
             </button>
+            {marketplaceHref ? (
+            <button
+              type="button"
+              onClick={() => onOpenDestination(marketplaceHref)}
+              disabled={busy || !acknowledged || noRoomAssigned}
+              className="inline-flex min-h-10 flex-1 appearance-none items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45 sm:flex-none"
+            >
+              Check in with code
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+            ) : (
             <button
               type="button"
               onClick={() => onConfirm(verifiedChargeIds, !earlyDeparture ? undefined : { roomVacantConfirmed, earlyDepartureReason: earlyDepartureReason.trim() })}
@@ -967,6 +1007,7 @@ function StayActionModal({
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {busy ? "Processing..." : hasOpenOutletOrders ? "Complete orders first" : folioUnsettled ? "Settle folio first" : chargesUnverified ? "Verify charges first" : isCheckIn ? actionLabel : "Yes, check out guest"}
             </button>
+            )}
           </div>
         </div>
       </section>

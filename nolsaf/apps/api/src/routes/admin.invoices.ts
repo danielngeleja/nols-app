@@ -366,7 +366,8 @@ router.post("/:id/pay", async (req, res) => {
     const nextCommissionAmount = resolveCommissionAmount({
       invoiceNumber: inv.invoiceNumber,
       invoiceTotal: inv.total,
-      commissionAmount: inv.commissionAmount,
+      // undefined, not null: the helper reads Number(null) as a recorded 0.
+      commissionAmount: inv.commissionAmount ?? undefined,
       netPayable,
       bookingTotalAmount: (inv as any)?.booking?.totalAmount,
       transportFare: (inv as any)?.booking?.transportFare,

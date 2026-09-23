@@ -377,42 +377,109 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
         : ownerInvoiceStatus?.replace(/_/g, " ").toLowerCase())
       ?? "Not requested";
 
-  return <section className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
-    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 bg-white px-4 py-4 shadow-[inset_3px_0_0_0_#059669]">
+  const guestPaid = ["PAID", "CUSTOMER_PAID"].includes(customerPaymentStatus);
+  const accommodationGross = marketplace.accommodationGross ?? 0;
+  const payoutShare = accommodationGross > 0 && marketplace.ownerPayout != null
+    ? Math.min(100, Math.max(0, (marketplace.ownerPayout / accommodationGross) * 100))
+    : 100;
+  const percentText = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  // The next stage still to happen is the "current" one on the stepper.
+  const currentStage = ownerDisbursed ? -1 : ownerWorkflowRank;
+  const statusTone = ownerDisbursed
+    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+    : ownerDisbursement || ownerWorkflowRank > 0
+      ? "bg-blue-50 text-blue-700 ring-blue-200"
+      : "bg-neutral-100 text-neutral-600 ring-neutral-200";
+
+  // Preflight is off in this app: every border here needs border-solid, and
+  // directional borders need border-0 first or they draw all four sides.
+  return <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-card">
+    <header className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
       <div className="flex min-w-0 items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-inset ring-emerald-200"><ShieldCheck className="h-4.5 w-4.5" /></span>
-        <div className="min-w-0"><p className="m-0 text-sm font-bold text-neutral-950">Marketplace settlement</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">NoLSAF holds the booking payment; NRMS manages the room and property incidentals.</p></div>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck className="h-5 w-5" /></span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-bold text-neutral-950">Marketplace settlement</p>
+          <p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">NoLSAF holds the guest&apos;s payment and releases the room payout to the property. Incidentals stay on the NRMS folio.</p>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2"><span className="font-mono text-[11px] text-neutral-500">{marketplace.invoiceNumber ?? marketplace.reference}</span><span className={`rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.06em] ${customerPaymentStatus === "PAID" || customerPaymentStatus === "CUSTOMER_PAID" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>Guest payment {customerPaymentLabel}</span></div>
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${guestPaid ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${guestPaid ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden="true" />
+          Guest payment {customerPaymentLabel}
+        </span>
+        <span className="font-mono text-[11px] text-neutral-400">{marketplace.invoiceNumber ?? marketplace.reference}</span>
+      </div>
     </header>
 
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-600">Owner payout workflow</p><span className="text-[10px] font-bold capitalize text-neutral-700">{ownerDisbursementLabel}</span></div>
-    <div className="grid grid-cols-4 gap-px border-b border-neutral-200 bg-neutral-200" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
-      {ownerWorkflowStages.map((stage, index) => {
-        const reached = ownerWorkflowRank >= index + 1;
-        return <div key={stage} className={`flex min-w-0 items-center gap-2 px-3 py-2.5 ${reached ? "bg-emerald-50 text-emerald-800" : "bg-neutral-50 text-neutral-400"}`}><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${reached ? "border-emerald-500 bg-emerald-600 text-white" : "border-neutral-300 bg-white"}`}>{reached ? <Check className="h-3 w-3" /> : index + 1}</span><span className="truncate text-[10px] font-bold uppercase tracking-[0.05em]">{stage}</span></div>;
-      })}
-    </div>
-
-    <div className="grid gap-px border-b border-neutral-300 bg-neutral-300 lg:grid-cols-2">
-      <section className="min-w-0 bg-white">
-        <header className="border-b border-neutral-200 bg-neutral-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-600">NoLSAF marketplace</p></header>
-        <div className="border-b border-neutral-200 px-4 py-4"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Customer paid</p><p className="mb-0 mt-1.5 text-xl font-bold tabular-nums text-neutral-950">{money(marketplace.customerPaidTotal, reservation.currency)}</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-500">Accommodation{marketplace.transportFare > 0 ? " and transport" : ""} collected through NoLSAF</p></div>
-        <div className="grid grid-cols-2 gap-px bg-neutral-200">
-          <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Accommodation</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.accommodationGross, reservation.currency)}</p></div>
-          {hasAccommodationCommission && <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">NoLSAF commission{marketplace.commissionPercent != null ? ` · ${marketplace.commissionPercent}%` : ""}</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.commissionAmount, reservation.currency)}</p></div>}
-          {marketplace.transportFare > 0 && <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Transport collected</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(marketplace.transportFare, reservation.currency)}</p></div>}
+    <div className="px-5 pb-5">
+      <div className={`grid gap-2 ${hasAccommodationCommission ? "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.2fr)]" : "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)]"}`}>
+        <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
+          <p className="m-0 text-[11px] font-semibold text-neutral-500">Guest paid</p>
+          <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.customerPaidTotal, reservation.currency)}</p>
+          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">
+            {marketplace.transportFare > 0
+              ? `Room ${money(marketplace.accommodationGross, reservation.currency)} · transport ${money(marketplace.transportFare, reservation.currency)}`
+              : "Collected through NoLSAF"}
+          </p>
         </div>
-      </section>
-      <section className="min-w-0 bg-white">
-        <header className="border-b border-emerald-200 bg-emerald-50 px-4 py-2.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-800">Property settlement</p></header>
-        <div className="border-b border-emerald-200 bg-emerald-50/35 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700">Accommodation payout</p><span className={`rounded-md border px-2 py-1 text-[9px] font-bold uppercase tracking-[0.05em] ${ownerDisbursed ? "border-emerald-300 bg-white text-emerald-700" : ownerDisbursement ? "border-blue-200 bg-blue-50 text-blue-700" : "border-neutral-300 bg-white text-neutral-500"}`}>{ownerDisbursementLabel}</span></div><p className="mb-0 mt-1.5 text-xl font-bold tabular-nums text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">{ownerDisbursed ? `Paid to the property${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : "Accommodation after NoLSAF commission"}</p></div>
-        <div className="bg-neutral-50 px-4 py-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">NRMS incidentals</p><p className="mb-0 mt-1.5 text-[13px] font-bold tabular-nums text-neutral-900">{money(reservation.chargesTotal ?? 0, reservation.currency)}</p></div>
-      </section>
+        {hasAccommodationCommission && <>
+          <span className="hidden items-center justify-center text-base font-bold text-neutral-300 sm:flex" aria-hidden="true"><Minus className="h-4 w-4" /></span>
+          <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
+            <p className="m-0 text-[11px] font-semibold text-neutral-500">NoLSAF commission{marketplace.commissionPercent != null ? ` · ${percentText(marketplace.commissionPercent)}` : ""}</p>
+            <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.commissionAmount, reservation.currency)}</p>
+            <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">Added on top of the room rate</p>
+          </div>
+        </>}
+        <span className="hidden items-center justify-center text-lg font-bold text-neutral-300 sm:flex" aria-hidden="true">=</span>
+        <div className="rounded-xl bg-emerald-50 px-4 py-3.5 ring-1 ring-inset ring-emerald-200">
+          <p className="m-0 text-[11px] font-semibold text-emerald-800">Property payout</p>
+          <p className="mb-0 mt-1 text-2xl font-bold tabular-nums leading-tight text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p>
+          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-emerald-900/70">
+            {ownerDisbursed ? `Paid to the property${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : "Room revenue owed to the property"}
+          </p>
+        </div>
+      </div>
+
+      {hasAccommodationCommission && accommodationGross > 0 && (
+        <div className="mt-4">
+          <div className="flex h-2 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`Property ${percentText(payoutShare)}, NoLSAF ${percentText(100 - payoutShare)} of the room revenue`}>
+            <span className="h-full bg-emerald-600" style={{ width: `${payoutShare}%` }} />
+            <span className="h-full bg-neutral-300" style={{ width: `${100 - payoutShare}%` }} />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-500">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />Property <strong className="font-bold tabular-nums text-neutral-800">{percentText(payoutShare)}</strong></span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neutral-300" aria-hidden="true" />NoLSAF <strong className="font-bold tabular-nums text-neutral-800">{percentText(100 - payoutShare)}</strong></span>
+          </div>
+        </div>
+      )}
     </div>
 
-    <footer className="border-t border-neutral-100 px-4 py-3 text-[11px] leading-5 text-neutral-500">
-      <span>{marketplace.receiptNumber ? `Receipt ${marketplace.receiptNumber} · ` : ""}Property payout = accommodation - NoLSAF commission.</span>
+    <div className="border-0 border-t border-solid border-neutral-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-xs font-bold text-neutral-900">Payout progress</p>
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
+      </div>
+      <ol className="m-0 mt-4 grid list-none grid-cols-4 p-0" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
+        {ownerWorkflowStages.map((stage, index) => {
+          const reached = ownerWorkflowRank >= index + 1;
+          const current = index === currentStage;
+          const nextReached = ownerWorkflowRank >= index + 2;
+          return <li key={stage} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
+            {index < ownerWorkflowStages.length - 1 && (
+              <span className={`absolute left-[calc(50%+14px)] right-[calc(-50%+14px)] top-[11px] h-0.5 rounded-full ${nextReached ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden="true" />
+            )}
+            <span className={`relative flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${reached ? "bg-emerald-600 text-white" : current ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-neutral-100 text-neutral-400"}`}>
+              {reached ? <Check className="h-3.5 w-3.5" /> : index + 1}
+            </span>
+            <span className={`truncate text-[11px] font-semibold ${reached ? "text-neutral-900" : current ? "text-emerald-700" : "text-neutral-400"}`}>{stage}</span>
+          </li>;
+        })}
+      </ol>
+    </div>
+
+    <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-0 border-t border-solid border-neutral-100 bg-neutral-50 px-5 py-3 text-[11px] text-neutral-500">
+      <span>Incidentals on NRMS folio <strong className="font-bold tabular-nums text-neutral-800">{money(reservation.chargesTotal ?? 0, reservation.currency)}</strong> · collected by the property</span>
+      {marketplace.receiptNumber && <span className="font-mono text-neutral-400">{marketplace.receiptNumber}</span>}
     </footer>
   </section>;
 }
@@ -1906,6 +1973,9 @@ function ReservationDetailModal({
   const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false);
   const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
   const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
+  // The server decides early departure on the hotel's business day (it only
+  // advances when the night audit closes); the browser cannot see that day.
+  const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
 
   const reload = useCallback(async () => {
     const r = await apiClient.get<any>(`/api/owner/nrms/reservations/${reservationId}`);
@@ -1945,6 +2015,9 @@ function ReservationDetailModal({
         setError("Room setup is incomplete. Review the room assignment section above before checking in.");
         // Another operator may have changed allocations since this detail opened.
         await reload().catch(() => undefined);
+      } else if (action === "check-out" && ["ROOM_VACANCY_CONFIRMATION_REQUIRED", "EARLY_DEPARTURE_REASON_REQUIRED"].includes(e?.response?.data?.code)) {
+        setDepartureDeclarationNeeded(true);
+        setError("NRMS records this as an early departure. Tick the room-vacant box and add a reason in the Early departure section, then confirm check-out again.");
       } else {
         setError(e?.response?.data?.error || "Action failed");
       }
@@ -2111,7 +2184,7 @@ function ReservationDetailModal({
   const checkoutBlocked = folioBalanceBlocked || chargesNeedVerification || outletReconciliationBlocked;
   const plannedCheckOutKey = r?.checkOut?.slice(0, 10) ?? "";
   const departureDateKey = localDateKey();
-  const earlyDeparture = Boolean(r?.status === "CHECKED_IN" && plannedCheckOutKey > departureDateKey);
+  const earlyDeparture = Boolean(r?.status === "CHECKED_IN" && (plannedCheckOutKey > departureDateKey || departureDeclarationNeeded));
   const actualCheckInDateKey = r?.checkedInAt ? localDateKey(new Date(r.checkedInAt)) : "";
   const unresolvedEarlyCheckIn = Boolean(
     r?.status === "CHECKED_IN"
