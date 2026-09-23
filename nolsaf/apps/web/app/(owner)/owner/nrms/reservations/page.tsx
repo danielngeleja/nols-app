@@ -81,6 +81,8 @@ type OutletOrder = {
 
 type Reservation = {
   id: number;
+  /** Opaque rs_ reference used in page URLs instead of the row id. */
+  reference?: string;
   bookingId: number | null;
   source: string;
   status: string;
@@ -173,6 +175,8 @@ type Reservation = {
   group: { id: number; reference: string; name: string; status: string } | null;
   agentBooking: {
     requestId: number;
+    /** Opaque ar_ reference used in page URLs instead of the request id. */
+    requestReference?: string;
     guestManifestStatus: string;
     incidentalBilling: string | null;
     travellerCount: number;
@@ -355,6 +359,11 @@ function ReservationRoomIdentity({ allocations }: { allocations: Allocation[] })
   </div>;
 }
 
+/** Agency traveller register link by opaque reference, never the request id. */
+function agentRequestHref(agentBooking: { requestId: number; requestReference?: string }): string {
+  return `/owner/nrms/agents/requests/${encodeURIComponent(agentBooking.requestReference ?? String(agentBooking.requestId))}/guests`;
+}
+
 function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
   const marketplace = reservation.marketplaceBooking;
   if (!marketplace) return null;
@@ -442,13 +451,13 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
 
       {hasAccommodationCommission && accommodationGross > 0 && (
         <div className="mt-4">
-          <div className="flex h-2 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`Property ${percentText(payoutShare)}, NoLSAF ${percentText(100 - payoutShare)} of the room revenue`}>
+          <div className="flex h-2 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`Property ${money(marketplace.ownerPayout, reservation.currency)}, NoLSAF ${money(marketplace.commissionAmount, reservation.currency)}`}>
             <span className="h-full bg-emerald-600" style={{ width: `${payoutShare}%` }} />
             <span className="h-full bg-neutral-300" style={{ width: `${100 - payoutShare}%` }} />
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-500">
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />Property <strong className="font-bold tabular-nums text-neutral-800">{percentText(payoutShare)}</strong></span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neutral-300" aria-hidden="true" />NoLSAF <strong className="font-bold tabular-nums text-neutral-800">{percentText(100 - payoutShare)}</strong></span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />Property <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.ownerPayout, reservation.currency)}</strong></span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neutral-300" aria-hidden="true" />NoLSAF <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.commissionAmount, reservation.currency)}</strong></span>
           </div>
         </div>
       )}
@@ -719,25 +728,44 @@ export default function NrmsReservationsPage() {
     setPage(1);
   };
 
-  const openReservation = (reservationId: number) => {
-    setSelectedReservationId(reservationId);
+  // The URL carries the opaque rs_ reference, never the numeric reservation id.
+  const openReservation = (reservation: Pick<Reservation, "id" | "reference">) => {
+    setSelectedReservationId(reservation.id);
     const url = new URL(window.location.href);
-    url.searchParams.set("reservationId", String(reservationId));
+    url.searchParams.delete("reservationId");
+    if (reservation.reference) url.searchParams.set("reservation", reservation.reference);
+    else url.searchParams.delete("reservation");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
   const closeReservation = () => {
     setSelectedReservationId(null);
     const url = new URL(window.location.href);
+    url.searchParams.delete("reservation");
     url.searchParams.delete("reservationId");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
   useEffect(() => {
+    if (!selectedPropertyId) return;
+    const requestedReference = new URLSearchParams(window.location.search).get("reservation");
+    if (!requestedReference) return;
+    let cancelled = false;
+    apiClient.get<{ id: number }>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/resolve/${encodeURIComponent(requestedReference)}`)
+      .then((response) => { if (!cancelled && response.data?.id) setSelectedReservationId(response.data.id); })
+      .catch(() => { if (!cancelled) closeReservation(); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedReservationId = Number(params.get("reservationId"));
-    if (Number.isInteger(requestedReservationId) && requestedReservationId > 0) {
-      setSelectedReservationId(requestedReservationId);
+    // Old links carried the numeric id. Drop it from the address bar; the
+    // opaque reference is the only way a reservation opens from a URL now.
+    if (params.has("reservationId")) {
+      params.delete("reservationId");
+      const cleanedQuery = params.toString();
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${cleanedQuery ? `?${cleanedQuery}` : ""}`);
     }
 
     if (params.get("create") !== "1") return;
@@ -861,11 +889,11 @@ export default function NrmsReservationsPage() {
             const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
             const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
             return <article key={reservation.id} className="overflow-hidden rounded-xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
-              <button type="button" onClick={() => openReservation(reservation.id)} className={`block w-full border-0 px-4 py-3 text-left ${sourceStyle.row}`}>
+              <button type="button" onClick={() => openReservation(reservation)} className={`block w-full border-0 px-4 py-3 text-left ${sourceStyle.row}`}>
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-900">{guest}</p><p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{reservation.guestProfile?.phone ?? reservation.agentBooking?.leadGuest?.phone ?? "No phone recorded"}</p></div><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>{reservation.status.replace(/_/g, " ").toLowerCase()}</span></div>
               </button>
               <div className="grid grid-cols-2 gap-px bg-neutral-100"><div className="bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Stay</p><p className="mb-0 mt-1 text-xs font-bold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</p></div><div className="min-w-0 bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Room</p><div className="mt-1 min-w-0 overflow-hidden"><ReservationRoomIdentity allocations={activeAllocations} /></div><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{SOURCE_LABEL[reservation.source] ?? reservation.source}</p></div></div>
-              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign room</button>}<button type="button" onClick={() => openReservation(reservation.id)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
+              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign room</button>}<button type="button" onClick={() => openReservation(reservation)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
             </article>;
           })}
           <div className="col-span-full"><TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} /></div>
@@ -931,12 +959,12 @@ export default function NrmsReservationsPage() {
                       aria-label={`Open reservation for ${reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "guest"}`}
                       onClick={(event) => {
                         if ((event.target as HTMLElement).closest("button, a, input, select, textarea, label, [role='button']")) return;
-                        openReservation(reservation.id);
+                        openReservation(reservation);
                       }}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
                         event.preventDefault();
-                        openReservation(reservation.id);
+                        openReservation(reservation);
                       }}
                       className={`cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600 ${sourceStyle.row}`}
                     >
@@ -953,7 +981,7 @@ export default function NrmsReservationsPage() {
                       <td className="max-w-[15rem] px-4 py-3.5">
                         <div className="truncate font-bold text-neutral-900" title={reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}>{reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}</div>
                         {reservation.group && <Link href="/owner/nrms/groups" title={reservation.group.name} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-emerald-700 no-underline hover:underline">{reservation.group.name}</Link>}
-                        {reservation.agentBooking && <Link href={`/owner/nrms/agents/requests/${reservation.agentBooking.requestId}/guests`} title={reservation.agentBooking.agencyName ?? "Agency booking"} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-teal-700 no-underline hover:underline">{reservation.agentBooking.agencyName ?? "Agency booking"}</Link>}
+                        {reservation.agentBooking && <Link href={agentRequestHref(reservation.agentBooking)} title={reservation.agentBooking.agencyName ?? "Agency booking"} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-teal-700 no-underline hover:underline">{reservation.agentBooking.agencyName ?? "Agency booking"}</Link>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-600">
                         {reservation.guestProfile?.phone ?? agentLead?.phone ?? "—"}
@@ -1029,7 +1057,7 @@ export default function NrmsReservationsPage() {
                           )}
                           <button
                             type="button"
-                            onClick={() => openReservation(reservation.id)}
+                            onClick={() => openReservation(reservation)}
                             className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                           >
                             View
@@ -1077,18 +1105,18 @@ export default function NrmsReservationsPage() {
           onClose={() => setRoomAssignment(null)}
           onRecordPayment={() => {
             if (roomAssignment.agencySettlement) {
-              router.push(roomAssignment.agentBooking ? "/owner/nrms/agents/requests/" + roomAssignment.agentBooking.requestId + "/guests" : "/owner/nrms/groups");
+              router.push(roomAssignment.agentBooking ? agentRequestHref(roomAssignment.agentBooking) : "/owner/nrms/groups");
               return;
             }
-            const reservationId = roomAssignment.id;
+            const target = roomAssignment;
             setRoomAssignment(null);
-            openReservation(reservationId);
+            openReservation(target);
           }}
           onAssigned={async () => {
             const response = await apiClient.get<any>("/api/owner/nrms/reservations/" + roomAssignment.id);
             const updated = response.data?.reservation as Reservation | undefined;
             if (!updated) throw new Error("Could not reload room assignment");
-            if (roomReadiness(updated).ready) { setRoomAssignment(null); openReservation(updated.id); }
+            if (roomReadiness(updated).ready) { setRoomAssignment(null); openReservation(updated); }
             else setRoomAssignment(updated);
             await load();
           }}
@@ -1933,7 +1961,7 @@ function SalesReservationSummary({ reservation: r }: { reservation: Reservation 
       <div><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Phone</p><p className="mb-0 mt-1 text-xs font-medium text-neutral-800">{r.guestProfile?.phone ?? r.agentBooking?.leadGuest?.phone ?? "Not recorded"}</p></div>
       <div><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-xs font-medium text-neutral-800">{r.guestProfile?.email ?? "Not recorded"}</p></div>
       {r.group && <div className="sm:col-span-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Group</p><Link href="/owner/nrms/groups" className="mb-0 mt-1 inline-block text-xs font-semibold text-emerald-800 no-underline hover:underline">{r.group.name}</Link></div>}
-      {r.agentBooking && <div className="sm:col-span-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Travel agency</p><Link href={`/owner/nrms/agents/requests/${r.agentBooking.requestId}/guests`} className="mb-0 mt-1 inline-block text-xs font-semibold text-emerald-800 no-underline hover:underline">{r.agentBooking.agencyName ?? "Agency booking"}</Link></div>}
+      {r.agentBooking && <div className="sm:col-span-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Travel agency</p><Link href={agentRequestHref(r.agentBooking)} className="mb-0 mt-1 inline-block text-xs font-semibold text-emerald-800 no-underline hover:underline">{r.agentBooking.agencyName ?? "Agency booking"}</Link></div>}
     </section>
     <div className="flex items-start gap-2 border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" /><span>This reservation is read-only in the Sales workspace. Ask Reception or a manager to assign rooms, change the stay, record payments, check in, or check out the guest.</span></div>
   </div>;
@@ -2267,7 +2295,7 @@ function ReservationDetailModal({
               {canPrintInvoice && (
                 <button
                   type="button"
-                  onClick={() => window.open(`/api/owner/nrms/reservations/${r.id}/invoice.pdf`, "_blank", "noopener")}
+                  onClick={() => window.open(`/api/owner/nrms/reservations/${encodeURIComponent(r.reference ?? String(r.id))}/invoice.pdf`, "_blank", "noopener")}
                   className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
                 >
                   <Printer className="h-3.5 w-3.5" />

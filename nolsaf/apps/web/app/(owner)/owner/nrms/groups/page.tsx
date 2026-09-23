@@ -6,7 +6,7 @@
 //
 // The reservations table hands a selection over as ?select=1,2,3 rather than
 // duplicating the create flow on both pages.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
@@ -140,14 +140,22 @@ export default function NrmsGroupReservationsPage() {
     [selectParam],
   );
 
-  // ?group=<id> opens that party straight away, so a verified agency manifest
-  // can hand the desk to its rooms in one click.
-  const groupParam = Number(searchParams.get("group"));
+  // ?group=<GRP- reference> opens that party straight away, so a verified
+  // agency manifest can hand the desk to its rooms in one click. The URL carries
+  // the group's random reference, never its numeric id; it is matched against
+  // the groups this property already loads.
+  const groupParam = searchParams.get("group");
+  // Open once per link: the list reloads after every group action, and a
+  // closed group must not pop back open.
+  const openedGroupParam = useRef<string | null>(null);
   useEffect(() => {
-    if (!Number.isInteger(groupParam) || groupParam <= 0) return;
+    if (!groupParam || openedGroupParam.current === groupParam) return;
+    const match = groups.find((group) => group.reference === groupParam);
+    if (!match) return;
+    openedGroupParam.current = groupParam;
     setTab("GROUPS");
-    setOpenGroupId(groupParam);
-  }, [groupParam]);
+    setOpenGroupId(match.id);
+  }, [groupParam, groups]);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;

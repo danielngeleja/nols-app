@@ -5,6 +5,12 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { loadOwnedActiveNrmsProperty, requireNrms } from "../lib/nrms.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
 import { buildNrmsCommercialReport } from "../lib/nrmsCommercialReport.js";
+import { nrmsReservationReference } from "../lib/customerBookingReference.js";
+
+/** Report links open the reservation by its opaque reference, never the row id. */
+function reservationReference(id: number | null | undefined): string | null {
+  return id != null ? nrmsReservationReference(id) : null;
+}
 
 export const router = Router();
 
@@ -410,6 +416,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const settlementStatus = due <= 0.005 ? "PAID" : folioPaid > 0 ? "PARTIAL" : "UNPAID";
       return {
         reservationId: reservation.id,
+        reservationReference: reservationReference(reservation.id),
         receiptNumber: reservation.receiptNumber,
         guest: reservation.guestProfile?.fullName || "Guest",
         phone: reservation.guestProfile?.phone || null,
@@ -686,6 +693,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "FOLIO_PAYMENT",
         occurredAt: payment.createdAt,
         reservationId: payment.reservation.id,
+        reservationReference: reservationReference(payment.reservation.id),
         referenceNumber: payment.reservation.receiptNumber,
         guest: payment.reservation.guestProfile?.fullName || "Guest",
         room: roomLabel(payment.reservation.allocations),
@@ -702,6 +710,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "MASTER_FOLIO_PAYMENT",
         occurredAt: payment.createdAt,
         reservationId: null,
+        reservationReference: null,
         referenceNumber: payment.receiptNumber,
         guest: payment.masterFolio.billToName,
         room: "Agency master folio",
@@ -718,6 +727,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "MASTER_FOLIO_REFUND",
         occurredAt: refund.createdAt,
         reservationId: null,
+        reservationReference: null,
         referenceNumber: refund.refundNumber,
         guest: refund.masterFolio.billToName,
         room: "Agency master folio",
@@ -734,6 +744,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "OUTLET_PAYMENT",
         occurredAt: order.settledAt,
         reservationId: order.reservation?.id ?? null,
+        reservationReference: reservationReference(order.reservation?.id),
         referenceNumber: order.orderNumber,
         guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
         room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
@@ -757,6 +768,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
         room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
         reservationId: order.reservation?.id ?? null,
+        reservationReference: reservationReference(order.reservation?.id),
         customerType: order.reservation ? "RESIDENT" : "NON_RESIDENT",
         status: order.status,
         settlementMode: order.settlementMode,
@@ -788,6 +800,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       type: event.type,
       occurredAt: event.createdAt,
       reservationId: event.reservation.id,
+      reservationReference: reservationReference(event.reservation.id),
       referenceNumber: event.reservation.receiptNumber,
       guest: event.reservation.guestProfile?.fullName || "Guest",
       room: roomLabel(event.reservation.allocations),

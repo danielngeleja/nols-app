@@ -25,7 +25,7 @@ import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } 
 import { moveRoomAllocation } from "../lib/nrmsMoveRoom.js";
 import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
-import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { customerBookingReference, isNrmsReservationReference, matchesNrmsReservationReference, nrmsAgentRequestReference, nrmsReservationReference } from "../lib/customerBookingReference.js";
 import { resolveCommissionAmount, resolveOwnerPayoutAmount, roundMoney } from "../lib/accommodationPayout.js";
 import { connectExistingNoLsafBookings, roomTypeCodeFromSpec, syncNoLsafBookingToNrms } from "../lib/nolsafMarketplaceNrms.js";
 import {
@@ -347,6 +347,7 @@ function formatReservation(r: any, ownerDisbursement: any = null) {
     : null;
   return {
     id: r.id,
+    reference: nrmsReservationReference(r.id),
     propertyId: r.propertyId,
     bookingId: r.bookingId,
     source: r.source,
@@ -462,6 +463,7 @@ function formatReservation(r: any, ownerDisbursement: any = null) {
     agentBooking: operationalAgentRequest
       ? {
           requestId: operationalAgentRequest.id,
+          requestReference: nrmsAgentRequestReference(operationalAgentRequest.id),
           guestManifestStatus: operationalAgentRequest.guestManifestStatus,
           incidentalBilling: operationalAgentRequest.incidentalBilling,
           travellerCount: agentGuests.length,
@@ -982,6 +984,7 @@ function groupMemberSummary(member: any) {
   const amountPaid = (member.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
   return {
     id: member.id,
+    reference: nrmsReservationReference(member.id),
     status: member.status,
     checkIn: member.checkIn,
     checkOut: member.checkOut,
@@ -1029,6 +1032,9 @@ function formatGroup(group: any) {
           masterFolioReference: group.block.masterFolio?.reference ?? null,
           masterFolioStatus: group.block.masterFolio?.status ?? null,
           agentBookingRequestId: group.block.masterFolio?.agentBookingRequestId ?? null,
+          agentBookingRequestReference: group.block.masterFolio?.agentBookingRequestId != null
+            ? nrmsAgentRequestReference(group.block.masterFolio.agentBookingRequestId)
+            : null,
         }
       : null,
     memberCount: group._count?.reservations ?? group.reservations?.length ?? 0,
@@ -2128,6 +2134,31 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
 /**
  * GET /api/owner/nrms/reservations/:id
  */
+/**
+ * GET /api/owner/nrms/reservations/property/:propertyId/resolve/:reference
+ * Page URLs carry the opaque rs_ reference, never the row id. The HMAC cannot
+ * be reversed, so match it against this property's reservations, the same way
+ * the owner booking routes resolve bk_ references.
+ */
+router.get("/property/:propertyId/resolve/:reference", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const reference = String(req.params.reference || "").trim();
+    if (!isNrmsReservationReference(reference)) return res.status(400).json({ error: "Invalid reservation reference" });
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), RESERVATION_READ_ROLES);
+    if (!access) return;
+    const candidates = await prisma.reservation.findMany({
+      where: { propertyId: access.property.id as number },
+      select: { id: true },
+    });
+    const match = candidates.find((candidate) => matchesNrmsReservationReference(reference, candidate.id));
+    if (!match) return res.status(404).json({ error: "Reservation not found" });
+    res.json({ id: match.id, reference });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] resolve reference failed", err);
+    res.status(500).json({ error: "Failed to open reservation" });
+  }
+}) as RequestHandler);
+
 router.get("/:id", (async (req: AuthedRequest, res: Response) => {
   try {
     const readable = await loadReadableReservation(req, res, Number(req.params.id));
@@ -3388,7 +3419,16 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
 router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const id = Number(req.params.id);
+    // The PDF opens in its own tab, so the browser shows this URL. Accept the
+    // opaque rs_ reference (matched against this owner's reservations) so the
+    // row id never has to appear there.
+    const rawId = String(req.params.id || "").trim();
+    let id = Number(rawId);
+    if (isNrmsReservationReference(rawId)) {
+      const candidates = await prisma.reservation.findMany({ where: { ownerId }, select: { id: true } });
+      id = candidates.find((candidate) => matchesNrmsReservationReference(rawId, candidate.id))?.id ?? Number.NaN;
+      if (!Number.isInteger(id)) return res.status(404).json({ error: "Reservation not found" });
+    }
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid reservation id" });
     const reservation = await prisma.reservation.findFirst({
       where: { id, ownerId },

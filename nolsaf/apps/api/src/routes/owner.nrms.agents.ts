@@ -12,7 +12,7 @@
 // RELATIONSHIP and request-decision endpoints resolve that through
 // loadNrmsPropertyAccess, which admits the property's owner, its manager and its
 // sales executive. Invoice, payment and manifest operations stay owner-only.
-import { Router, type RequestHandler, type Response } from "express";
+import { Router, type RequestHandler, type RequestParamHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
@@ -36,6 +36,7 @@ import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, refreshMasterFol
 import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
+import { agentAccountReference, isNrmsAgentRequestReference, matchesNrmsAgentRequestReference, nrmsAgentRequestReference } from "../lib/customerBookingReference.js";
 import { materialiseAgentBookingRooms, repairSplitAgencyBooking, type MaterialiseOutcome } from "../lib/nrmsAgentGroupMaterialise.js";
 import {
   attachAgentToProperty,
@@ -59,6 +60,24 @@ class AgentLinkCreationError extends Error {
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
+
+// Page and document URLs carry the opaque ar_ reference instead of the row id.
+// Swap it for the id before any /requests/:requestId handler runs; those
+// handlers still do their own property access check, so matching the reference
+// grants nothing by itself. Numeric ids keep working for existing API callers.
+router.param("requestId", (async (req: AuthedRequest, res: Response, next: (err?: unknown) => void, value: string) => {
+  const raw = String(value || "").trim();
+  if (!isNrmsAgentRequestReference(raw)) return next();
+  try {
+    const candidates = await prisma.nrmsAgentBookingRequest.findMany({ select: { id: true } });
+    const match = candidates.find((candidate) => matchesNrmsAgentRequestReference(raw, candidate.id));
+    if (!match) return res.status(404).json({ error: "Booking request not found" });
+    req.params.requestId = String(match.id);
+    next();
+  } catch (err) {
+    next(err);
+  }
+}) as unknown as RequestParamHandler);
 
 const termsSchema = z.object({
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((v) => v.toUpperCase()).optional(),
@@ -110,8 +129,8 @@ const receivedPaymentSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(120),
 }).strict();
 
-/** Stable human-facing agent reference, e.g. AGT-000123. */
-const agentRef = (id: number) => `AGT-${String(id).padStart(6, "0")}`;
+/** Stable human-facing agent reference, e.g. AGT-7K3M-Q9XD (not derived from a readable id). */
+const agentRef = agentAccountReference;
 
 function agencySummary(account: any) {
   return {
@@ -602,7 +621,7 @@ router.get("/property/:propertyId/requests", (async (req: AuthedRequest, res: Re
     ]);
     const roomName = new Map(roomTypes.map((rt) => [rt.id, rt.name]));
     res.json({ requests: requests.map((r) => ({
-      id: r.id, status: r.status,
+      id: r.id, reference: nrmsAgentRequestReference(r.id), status: r.status,
       agency: r.link?.agentAccount ? { legalName: r.link.agentAccount.legalName, reference: agentRef(r.link.agentAccount.id) } : null,
       bookingMode: r.link?.bookingMode ?? null,
       roomType: r.roomTypeId ? (roomName.get(r.roomTypeId) ?? null) : null,
@@ -648,7 +667,7 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
           include: {
             ...agentInvoiceInclude(),
             // Set once the manifest is verified and the rooms are split out.
-            block: { select: { id: true, reference: true, status: true, groupId: true } },
+            block: { select: { id: true, reference: true, status: true, groupId: true, group: { select: { reference: true } } } },
           },
         },
         reservation: {
@@ -714,6 +733,9 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
             blockReference: request.masterFolio.block.reference,
             blockStatus: request.masterFolio.block.status,
             groupId: request.masterFolio.block.groupId,
+            // The group's own random GRP- reference, so the workspace link
+            // never carries the numeric group id.
+            groupReference: request.masterFolio.block.group?.reference ?? null,
             stays: stays.map((stay) => ({
               reservationId: stay.id,
               reference: stay.externalRef,

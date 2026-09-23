@@ -107,6 +107,7 @@ type ReservationSourceRow = {
 
 type GuestBalance = {
   reservationId: number;
+  reservationReference?: string | null;
   receiptNumber: string | null;
   guest: string;
   phone: string | null;
@@ -130,6 +131,7 @@ type PaymentRow = {
   type: string;
   occurredAt: string;
   reservationId: number | null;
+  reservationReference?: string | null;
   referenceNumber: string | null;
   guest: string;
   room: string;
@@ -150,6 +152,7 @@ type OutletRow = {
   guest: string;
   room: string;
   reservationId: number;
+  reservationReference?: string | null;
   status: string;
   settlementMode: string;
   settlementMethod: string | null;
@@ -169,6 +172,7 @@ type AuditRow = {
   type: string;
   occurredAt: string;
   reservationId: number;
+  reservationReference?: string | null;
   referenceNumber: string | null;
   guest: string;
   room: string;
@@ -407,6 +411,11 @@ const LABELS: Record<string, string> = {
   BOOKING_COM: "Booking.com",
   EXPEDIA: "Expedia",
 };
+
+/** Reservation page link by opaque reference, never the numeric id. */
+function reservationHref(reference: string | null | undefined): string {
+  return reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(reference)}` : "/owner/nrms/reservations";
+}
 
 function localDateKey(value = new Date()): string {
   const year = value.getFullYear();
@@ -839,7 +848,7 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
 
       {hasSection("audit") && <PdfSection number={sectionNumber("audit")} title="Audit and exception history" description="Recorded operational changes, voids and accountability events.">
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "16%" }}>Date and time</th><th style={{ width: "16%" }}>Action</th><th style={{ width: "17%" }}>Guest / room</th><th>Reference</th><th>Performed by</th><th style={{ width: "23%" }}>Reason</th></tr></thead><tbody>
-          {data.audit.rows.map((row) => <tr key={row.id}><td>{dateTime(row.occurredAt)}</td><td><span className={`pdf-status ${row.type.includes("VOID") || row.type === "CANCELLED" ? "pdf-status-danger" : ""}`}>{label(row.type)}</span></td><td><b>{row.guest}</b><br /><span className="muted">{row.room}</span></td><td>{row.referenceNumber || `Reservation #${row.reservationId}`}</td><td>{row.actor}</td><td>{row.reason || "Not recorded"}</td></tr>)}
+          {data.audit.rows.map((row) => <tr key={row.id}><td>{dateTime(row.occurredAt)}</td><td><span className={`pdf-status ${row.type.includes("VOID") || row.type === "CANCELLED" ? "pdf-status-danger" : ""}`}>{label(row.type)}</span></td><td><b>{row.guest}</b><br /><span className="muted">{row.room}</span></td><td>{row.referenceNumber || "No reference number"}</td><td>{row.actor}</td><td>{row.reason || "Not recorded"}</td></tr>)}
           {!data.audit.rows.length && <PdfEmptyRow columns={6} text="No auditable events were recorded in this period." />}
         </tbody></table></div>
       </PdfSection>}
@@ -1554,7 +1563,7 @@ function PaymentsReport({ data, rows, currencyReport, money }: { data: ReportsRe
           {pageRows.map((row) => (
             <tr key={row.id}>
               <Cell><span className="whitespace-nowrap">{dateTime(row.occurredAt)}</span></Cell>
-              <Cell>{row.reservationId != null ? <Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link> : <span className="font-bold text-neutral-900">{row.guest}</span>}<span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell>{row.reservationReference ? <Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link> : <span className="font-bold text-neutral-900">{row.guest}</span>}<span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
               <Cell strong>{label(row.method)}</Cell>
               <Cell>{row.recordedBy}</Cell>
               <Cell>{row.reference || row.referenceNumber || "Not recorded"}</Cell>
@@ -1635,7 +1644,7 @@ function BalancesReport({ rows, currencyReport, money }: { rows: GuestBalance[];
         ]}>
           {pageRows.map((row) => (
             <tr key={row.reservationId}>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.receiptNumber || `Reservation #${row.reservationId}`}</span></Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.receiptNumber || "No receipt number"}</span></Cell>
               <Cell><span className="whitespace-nowrap">{shortDate(row.checkIn)}</span><span className="block whitespace-nowrap text-[10px] text-neutral-400">to {shortDate(row.checkOut)}</span></Cell>
               <Cell align="right">{money(row.roomAmount)}</Cell>
               <Cell align="right">{money(row.folioExtras)}</Cell>
@@ -1843,7 +1852,7 @@ function OutletReport({ rows, money }: { rows: OutletRow[]; money: (value: numbe
             <tr key={row.id} className={outletUiRowClass(row.outletType)}>
               <Cell><strong className="whitespace-nowrap">{row.orderNumber}</strong><span className="mt-0.5 block text-[10px] text-neutral-500">{row.createdBy}</span></Cell>
               <Cell strong>{row.outlet}<span className="mt-0.5 block text-[10px] font-normal text-neutral-400">{label(row.outletType)}</span></Cell>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
               <Cell><span className="block max-w-[260px] text-xs leading-5">{row.items || "No item details"}</span></Cell>
               <Cell><span className="whitespace-nowrap">{label(row.settlementMode)}</span>{row.settlementMode === "OUTLET_PAYMENT" && <span className="mt-0.5 block whitespace-nowrap text-[10px] text-neutral-400">{label(row.settlementMethod || "UNCLASSIFIED")}</span>}</Cell>
               <Cell><span className="whitespace-nowrap">{dateTime(row.orderedAt)}</span></Cell>
@@ -1930,8 +1939,8 @@ function AuditReport({ rows }: { rows: AuditRow[] }) {
             <tr key={row.id}>
               <Cell><span className="whitespace-nowrap">{dateTime(row.occurredAt)}</span></Cell>
               <Cell><StatusBadge value={row.type} /></Cell>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
-              <Cell>{row.referenceNumber || `Reservation #${row.reservationId}`}</Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell>{row.referenceNumber || "No reference number"}</Cell>
               <Cell strong>{row.actor}</Cell>
               <Cell>{row.reason || "Not recorded"}</Cell>
             </tr>

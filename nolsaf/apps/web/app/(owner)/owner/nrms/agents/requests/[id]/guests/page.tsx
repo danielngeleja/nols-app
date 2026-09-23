@@ -12,7 +12,7 @@ type Guest = { id: number; reservationId: number | null; roomNumber: number; gue
 type Data = {
   booking: { id: number; status: string; agency: { legalName: string; tradingName: string | null } | null; property: { title: string }; checkIn: string; checkOut: string; adults: number; children: number; rooms: number; receiptNumber: string | null; financials: { currency: string; total: number; amountPaid: number; balance: number; status: string; invoice: Invoice | null; payments: Array<{ id: number; amount: number; method: string; reference: string | null; receiptNumber: string; createdAt: string }> } };
   rooms: {
-    blockId: number; blockReference: string; blockStatus: string; groupId: number | null;
+    blockId: number; blockReference: string; blockStatus: string; groupId: number | null; groupReference: string | null;
     stays: Array<{ reservationId: number; reference: string | null; status: string; guestName: string | null; roomCode: string | null; roomTypeName: string | null }>;
   } | null;
   manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; incidentalCover: IncidentalCover; requiredGuests: number; guestsAdded: number; reviewNote: string | null };
@@ -37,11 +37,13 @@ const daysFromToday = (value: string) => {
   const now = new Date();
   return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000);
 };
-const paymentMutationId = (requestId: number) => `agent-payment-${requestId}-${crypto.randomUUID()}`;
+const paymentMutationId = (requestId: string) => `agent-payment-${requestId}-${crypto.randomUUID()}`;
 
 export default function HotelAgentManifestReviewPage() {
   const params = useParams<{ id: string }>();
-  const requestId = Number(params.id);
+  // The URL segment is the opaque ar_ reference; the API resolves it on every
+  // /requests/:requestId route, so the row id never appears in page or PDF URLs.
+  const requestId = encodeURIComponent(String(params.id ?? ""));
   const [data, setData] = useState<Data | null>(null);
   const [issues, setIssues] = useState<Record<number, string>>({});
   const [note, setNote] = useState("");
@@ -70,7 +72,7 @@ export default function HotelAgentManifestReviewPage() {
     try { const response = await apiClient.get<Data>(`/api/owner/nrms/agents/requests/${requestId}/manifest`); setData(response.data); setPaymentAmount(String(response.data.booking.financials.balance || "")); }
     catch (cause: any) { setError(cause?.response?.data?.error || "The manifest could not be loaded"); }
   }, [requestId]);
-  useEffect(() => { if (requestId > 0) void load(); }, [load, requestId]);
+  useEffect(() => { if (requestId) void load(); }, [load, requestId]);
 
   // Verification splits the booking by itself. This is for a manifest verified
   // before that shipped, so the desk can still move it into the workspace.
@@ -150,7 +152,7 @@ export default function HotelAgentManifestReviewPage() {
       </div>
       <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 bg-neutral-50/70 md:grid-cols-2 xl:grid-cols-5">
         <SummaryCell tone="sky" icon={<CalendarDays className="h-4 w-4" />} label="Stay dates" value={`${fmt(data.booking.checkIn)} → ${fmt(data.booking.checkOut)}`} detail={`${stayNights(data.booking.checkIn, data.booking.checkOut)} night${stayNights(data.booking.checkIn, data.booking.checkOut) === 1 ? "" : "s"}`} />
-        <SummaryCell tone="violet" icon={<BedDouble className="h-4 w-4" />} label="Rooms & reference" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} detail={data.booking.receiptNumber || `Request #${data.booking.id}`} />
+        <SummaryCell tone="violet" icon={<BedDouble className="h-4 w-4" />} label="Rooms & reference" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} detail={data.booking.receiptNumber || "No receipt yet"} />
         <SummaryCell tone="amber" icon={<Users className="h-4 w-4" />} label="Booked occupancy" value={`${data.booking.adults + data.booking.children} travellers`} detail={`${data.booking.adults} adult${data.booking.adults === 1 ? "" : "s"}${data.booking.children ? ` · ${data.booking.children} child${data.booking.children === 1 ? "" : "ren"}` : ""}`} />
         <SummaryCell tone="emerald" icon={<CreditCard className="h-4 w-4" />} label="Payment" value={`${data.booking.financials.currency} ${money(data.booking.financials.amountPaid)} received`} detail={`${paymentStatus} · ${data.booking.financials.currency} ${money(data.booking.financials.balance)} due`} />
         <SummaryCell tone="rose" icon={<WalletCards className="h-4 w-4" />} label="Food, drinks & extras" value={data.manifest.incidentalCover?.headline ?? "Not declared"} detail={data.manifest.incidentalCover?.detail ?? "Declared billing responsibility"} />
@@ -169,7 +171,7 @@ export default function HotelAgentManifestReviewPage() {
             duplicate room lines that reopened its bill, so the desk can put it
             right without support touching the database. */}
         {data.booking.financials.status !== "SETTLED" ? <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className="box-border inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-800 disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Re-check agency bill</button> : null}
-        <Link href={`/owner/nrms/groups?group=${data.rooms.groupId}`} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white no-underline">Open group workspace <ArrowRight className="h-4 w-4" /></Link>
+        <Link href={data.rooms.groupReference ? `/owner/nrms/groups?group=${encodeURIComponent(data.rooms.groupReference)}` : "/owner/nrms/groups"} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white no-underline">Open group workspace <ArrowRight className="h-4 w-4" /></Link>
       </div>
     </section> : null}
     {verified && !data.rooms?.groupId ? <section className="flex flex-col gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -235,7 +237,7 @@ const PARTY_TINTS = [
   { row: "bg-teal-50/60", accent: "bg-teal-500" },
 ];
 
-function VerifiedTravellerTable({ guests, requestId, stays }: { guests: Guest[]; requestId: number; stays: Data["rooms"] extends null ? never : NonNullable<Data["rooms"]>["stays"] }) {
+function VerifiedTravellerTable({ guests, requestId, stays }: { guests: Guest[]; requestId: string; stays: Data["rooms"] extends null ? never : NonNullable<Data["rooms"]>["stays"] }) {
   // No room column: a room number is assigned at the front desk, in the group
   // workspace. What the agency declared is only which travellers share, and
   // that is worth saying in names rather than in a party number nobody can

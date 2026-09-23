@@ -38,10 +38,13 @@ export type ReservationGroup = {
     masterFolioReference: string | null;
     masterFolioStatus: string | null;
     agentBookingRequestId: number | null;
+    agentBookingRequestReference?: string | null;
   } | null;
   memberCount: number;
   members: Array<{
     id: number;
+    /** Opaque rs_ reference used in page URLs instead of the row id. */
+    reference?: string;
     status: string;
     checkIn: string;
     checkOut: string;
@@ -420,7 +423,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   </div>
                   {checkedOutCount > 0 && <p className="mb-0 mt-1 text-[10px] font-semibold text-neutral-500">{checkedOutCount} of {group.memberCount} complete · {checkedInCount} still in house</p>}
                   {group.notes && <p className="mb-0 mt-1 truncate text-[10px] text-neutral-500">{group.notes}</p>}
-                  {canOperateGroup && group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${group.sourceBlock.agentBookingRequestId}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
+                  {canOperateGroup && group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${encodeURIComponent(group.sourceBlock.agentBookingRequestReference ?? String(group.sourceBlock.agentBookingRequestId))}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
                 </div>
               </div>
               {canOperateGroup && <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
@@ -515,7 +518,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                         </div>
                         {action === "CHECK_OUT" && needsIndividualFolioAction(inspected) && (
                           <Link
-                            href={`/owner/nrms/reservations?reservationId=${member.id}`}
+                            href={member.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(member.reference)}` : "/owner/nrms/reservations"}
                             className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
                           >
                             <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(inspected)} <ArrowRight className="h-3 w-3" />
@@ -608,7 +611,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                               </div>
                               {folioAction && (
                                 <Link
-                                  href={`/owner/nrms/reservations?reservationId=${member.reservation.id}`}
+                                  href={member.reservation.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(member.reservation.reference)}` : "/owner/nrms/reservations"}
                                   className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
                                 >
                                   <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(member)} <ArrowRight className="h-3 w-3" />

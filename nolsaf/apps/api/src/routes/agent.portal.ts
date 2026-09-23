@@ -30,11 +30,12 @@ import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
 import { CHARGE_CATEGORIES } from "../lib/nrmsFolio.js";
 import { agentInvoiceInclude } from "../lib/nrmsAgentInvoice.js";
 import { renderMasterProFormaPdf, serializeProForma } from "../lib/nrmsProForma.js";
+import { agentAccountReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
 
-const agentRef = (id: number) => `AGT-${String(id).padStart(6, "0")}`;
+const agentRef = agentAccountReference;
 
 const HOLD_TX = { maxWait: 5000, timeout: 15000 };
 const prepayWindowMinutes = 0;

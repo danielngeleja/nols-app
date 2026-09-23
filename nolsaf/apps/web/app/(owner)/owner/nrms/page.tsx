@@ -39,6 +39,8 @@ import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type Reservation = {
   id: number;
+  /** Opaque rs_ reference used in page URLs instead of the row id. */
+  reference?: string;
   status: string;
   source: string;
   bookingId?: number | null;
@@ -114,6 +116,7 @@ type RoomTypeOption = {
 
 type AttentionItem = {
   id: number;
+  reference?: string;
   guest: string;
   room: string;
   checkOut: string;
@@ -141,6 +144,11 @@ function roomsLabel(r: Reservation): string {
   return tallyRoomLabels(active.map((a) => a.roomUnitCode
     ? `${a.roomUnitCode}${a.roomUnitFloor == null ? "" : ` · ${a.roomUnitFloor === 0 ? "Floor G" : `Floor ${a.roomUnitFloor}`}`}`
     : a.roomTypeName), "Room not assigned");
+}
+
+/** Reservation page link by opaque reference, never the numeric id. */
+function reservationHref(r: { reference?: string }): string {
+  return r.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(r.reference)}` : "/owner/nrms/reservations";
 }
 
 function hasAssignedRoom(r: Reservation): boolean {
@@ -331,7 +339,7 @@ function NrmsFrontDeskPage() {
         issues.push({ code: "OVERDUE", label: `${overdueDays} ${overdueDays === 1 ? "day" : "days"} past check-out` });
       }
       if (hasOutstandingBalance(reservation)) issues.push({ code: "BALANCE", label: `${reservation.currency} ${reservation.balance!.toLocaleString()} outstanding` });
-      return issues.length > 0 ? [{ id: reservation.id, guest, room: roomsLabel(reservation), checkOut: reservation.checkOut, source: sourceLabel(reservation.source), issues }] : [];
+      return issues.length > 0 ? [{ id: reservation.id, reference: reservation.reference, guest,room: roomsLabel(reservation), checkOut: reservation.checkOut, source: sourceLabel(reservation.source), issues }] : [];
     });
   }, [arrivals, checkedInRecords, today]);
 
@@ -878,7 +886,7 @@ function StayActionModal({
             </div>
           )}
 
-          {isCheckIn && noRoomAssigned && (!unassignedAllocation || !assignmentPaymentReady) && <button type="button" onClick={() => onOpenDestination(`/owner/nrms/reservations?reservationId=${reservation.id}`)} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold">{unassignedAllocation ? "Review payment and assignment" : "Review missing room allocation"}</button>}
+          {isCheckIn && noRoomAssigned && (!unassignedAllocation || !assignmentPaymentReady) && <button type="button" onClick={() => onOpenDestination(reservationHref(reservation))} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold">{unassignedAllocation ? "Review payment and assignment" : "Review missing room allocation"}</button>}
 
           {(checkoutBlocked || (noRoomAssigned && !isCheckIn)) && (
             <div className={`rounded-xl border px-4 py-3 text-xs leading-5 ${checkoutBlocked ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
@@ -980,7 +988,7 @@ function StayActionModal({
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-neutral-100 bg-neutral-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : `/owner/nrms/reservations?reservationId=${reservation.id}`)} disabled={busy} className="inline-flex min-h-10 appearance-none items-center justify-center rounded-lg border-0 bg-transparent px-3 text-xs font-bold text-neutral-600 transition hover:bg-white hover:text-neutral-900 disabled:opacity-50">
+          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : reservationHref(reservation))} disabled={busy} className="inline-flex min-h-10 appearance-none items-center justify-center rounded-lg border-0 bg-transparent px-3 text-xs font-bold text-neutral-600 transition hover:bg-white hover:text-neutral-900 disabled:opacity-50">
             {hasOpenOutletOrders ? "Open restaurant & bar orders" : folioUnsettled ? "Open reservation and settle folio" : chargesUnverified ? "Open full reservation to verify charges" : "Open full reservation"}
           </button>
           <div className="flex gap-2">
@@ -1436,7 +1444,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-semibold text-neutral-700">{item.room}</p></div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-medium text-neutral-500">check-out {shortDate(item.checkOut)} · {item.source}</p></div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><div className="flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" || issue.code === "EARLY_CHECKIN" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div></div>
-              <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="col-start-2 row-start-1 inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
+              <Link href={reservationHref(item)} className="col-start-2 row-start-1 inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
             </div>
           </li>
             ))}
